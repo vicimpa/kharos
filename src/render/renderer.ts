@@ -21,12 +21,22 @@ export interface Frame {
   /** Реальное время с прошлого кадра в секундах. */
   delta: number
   /**
-   * Юниформы, общие для всех шейдеров: uScreenSize, uZoom, uTime и uScale.
+   * Юниформы, общие для всех шейдеров: uScreenSize, uZoom, uTime, uScale и uOffset.
    * uScale переводит тайлы, отсчитанные от камеры, в координаты экрана от -1 до 1.
+   * uOffset — сдвиг в тайлах, который прибавляется перед этим; на экране он нулевой.
    */
-  view: { uScreenSize: Float32Array; uScale: Float32Array; uZoom: number; uTime: number }
+  view: View
   /** Огни кадра. Проходы, рисующие источники света, добавляют их сюда; проход освещения — использует. */
   lights: Lights
+}
+
+/** Юниформы вида. Тип, а не интерфейс: так их можно отдать программе как обычный набор юниформ. */
+export type View = {
+  uScreenSize: Float32Array
+  uScale: Float32Array
+  uOffset: Float32Array
+  uZoom: number
+  uTime: number
 }
 
 /** Источники света, собранные за кадр: по пять чисел на огонь и по восемь на луч. */
@@ -56,8 +66,9 @@ export interface Pass {
   /**
    * Рисует силуэты того, что не пропускает свет лучей: всё, у чего альфа больше половины, отбрасывает тень.
    * Вызывается проходом освещения после draw() того же кадра, так что набранные в draw() спрайты годятся.
+   * Рисовать надо с юниформами view, а не кадра: карта силуэтов меньше экрана и сдвинута относительно него.
    */
-  drawOccluders?(frame: Frame): void
+  drawOccluders?(view: View): void
   destroy(): void
 }
 
@@ -96,7 +107,7 @@ export function createRenderer(canvas: HTMLCanvasElement, setup: Setup, onError?
     camera: { x: 0, y: 0, zoom: 1 },
     time: 0,
     delta: 0,
-    view: { uScreenSize: new Float32Array(2), uScale: new Float32Array(2), uZoom: 1, uTime: 0 },
+    view: { uScreenSize: new Float32Array(2), uScale: new Float32Array(2), uOffset: new Float32Array(2), uZoom: 1, uTime: 0 },
     lights: {
       data: lightData,
       beams: beamData,

@@ -6,11 +6,12 @@ in vec4 aRect;
 in vec4 aFrame;
 in vec4 aTint;
 uniform vec2 uScale;
+uniform vec2 uOffset;
 out vec2 vUV;
 out vec4 vTint;
 
 void main() {
-  vec2 tile = aRect.xy + aCorner * aRect.zw;
+  vec2 tile = aRect.xy + aCorner * aRect.zw + uOffset;
   vUV = aFrame.xy + aCorner * aFrame.zw;
   vTint = aTint;
   gl_Position = vec4(tile.x * uScale.x, -tile.y * uScale.y, 0.0, 1.0);

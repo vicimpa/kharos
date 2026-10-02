@@ -90,7 +90,7 @@ export function createUnitsPass(gl: WebGL2RenderingContext, scene: Scene): Pass 
       shadows.draw()
       sprites.draw()
     },
-    drawOccluders({ view }) {
+    drawOccluders(view) {
       setBlend(gl, 'alpha')
       program.use(view, { uTexture: atlas.texture })
       sprites.draw()

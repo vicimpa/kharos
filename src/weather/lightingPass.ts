@@ -1,12 +1,14 @@
 import { SCREEN_VERTEX, bindScreen, createProgram, createQuads, createTarget, drawQuad, setBlend } from '../gl'
 import type { Scene } from '../game/scene'
-import type { Pass } from '../render/renderer'
+import type { Pass, View } from '../render/renderer'
 
 /** Цвет, которым огни освещают землю, и цвет их ореола. */
 const LIGHT_COLOR = [0xa8 / 255, 0xd0 / 255, 0xff / 255]
 const BLOOM_COLOR = [0x5a / 255, 0xa9 / 255, 0xff / 255]
 /** Яркость ореолов огней днём; к ночи растёт до 1. */
 const DAY_BLOOM = 0.35
+/** Пикселей местности на тайл. */
+const TEXELS_PER_TILE = 16
 /** Огни слабее этого не рисуются. */
 const MIN_LEVEL = 0.02
 
@@ -26,6 +28,7 @@ const SPOT_VERTEX = `#version 300 es
 in vec2 aCorner;
 in vec4 aSpot; // x, y центра в тайлах от камеры; радиус в пикселях местности; яркость
 uniform vec2 uScale;
+uniform vec2 uOffset;
 out vec2 vTexel;
 flat out float vRadius;
 flat out float vLevel;
@@ -36,7 +39,7 @@ void main() {
   vRadius = aSpot.z;
   vLevel = aSpot.w;
   vTexel = aCorner * vRadius * 2.0;
-  vec2 tile = aSpot.xy + (vTexel - vRadius) / TEXELS_PER_TILE;
+  vec2 tile = aSpot.xy + (vTexel - vRadius) / TEXELS_PER_TILE + uOffset;
   gl_Position = vec4(tile.x * uScale.x, -tile.y * uScale.y, 0.0, 1.0);
 }
 `
@@ -76,6 +79,7 @@ in vec2 aCorner;
 in vec4 aBeam; // x, y источника в тайлах от камеры; длина в пикселях местности; яркость
 in vec4 aCone; // направление (cos, sin); полуширина у источника; расширение на пиксель длины
 uniform vec2 uScale;
+uniform vec2 uOffset;
 out vec2 vTexel;
 flat out vec4 vBeam;
 flat out vec4 vCone;
@@ -86,7 +90,7 @@ void main() {
   vBeam = aBeam;
   vCone = aCone;
   vTexel = (aCorner * 2.0 - 1.0) * aBeam.z;
-  vec2 tile = aBeam.xy + vTexel / TEXELS_PER_TILE;
+  vec2 tile = aBeam.xy + vTexel / TEXELS_PER_TILE + uOffset;
   gl_Position = vec4(tile.x * uScale.x, -tile.y * uScale.y, 0.0, 1.0);
 }
 `
@@ -97,6 +101,7 @@ in vec2 vTexel;
 flat in vec4 vBeam;
 flat in vec4 vCone;
 uniform vec2 uScale;
+uniform vec2 uOffset;
 uniform vec3 uColor;
 uniform sampler2D uOccluders;
 out vec4 finalColor;
@@ -120,8 +125,8 @@ void main() {
   if (along <= 0.0 || value <= 0.0) discard;
 
   // От пикселя к источнику. Преграда, внутри которой лежит сам пиксель, не в счёт: луч освещает то, во что упёрся.
-  vec2 from = vBeam.xy + texel / TEXELS_PER_TILE;
-  vec2 to = vBeam.xy + direction * SKIP / TEXELS_PER_TILE;
+  vec2 from = vBeam.xy + uOffset + texel / TEXELS_PER_TILE;
+  vec2 to = vBeam.xy + uOffset + direction * SKIP / TEXELS_PER_TILE;
   bool outside = false;
   for (int i = 0; i < STEPS; i++) {
     vec2 tile = mix(from, to, (float(i) + 0.5) / float(STEPS));
@@ -141,14 +146,20 @@ void main() {
 `
 
 const BLIT_FRAGMENT = `#version 300 es
-precision mediump float;
+precision highp float;
 in vec2 vUV;
 uniform sampler2D uTexture;
+uniform vec2 uSpan;   // сколько тайлов помещается на экране
+uniform vec2 uScale;  // как карта освещённости переводит тайлы в свои координаты
+uniform vec2 uOffset;
 out vec4 finalColor;
 
 void main() {
-  // Первая строка текстуры-цели — низ картинки.
-  finalColor = texture(uTexture, vec2(vUV.x, 1.0 - vUV.y));
+  // Карта освещённости меньше экрана: в ней один пиксель на пиксель местности. Берём ближайший, без сглаживания.
+  vec2 tile = (vUV - 0.5) * uSpan + uOffset;
+  vec2 uv = vec2(tile.x * uScale.x, -tile.y * uScale.y) * 0.5 + 0.5;
+  ivec2 size = textureSize(uTexture, 0);
+  finalColor = texelFetch(uTexture, clamp(ivec2(floor(uv * vec2(size))), ivec2(0), size - 1), 0);
 }
 `
 
@@ -167,6 +178,8 @@ export function createLightingPass(gl: WebGL2RenderingContext, scene: Scene, cas
   const beamProgram = createProgram(gl, BEAM_VERTEX, BEAM_FRAGMENT)
   const beams = createQuads(gl, beamProgram, { aBeam: 4, aCone: 4 })
   const occluders = createTarget(gl)
+  /** Юниформы для карт освещённости и силуэтов: у них свой размер и свой сдвиг. */
+  const mapView: View = { uScreenSize: new Float32Array(2), uScale: new Float32Array(2), uOffset: new Float32Array(2), uZoom: 1, uTime: 0 }
 
   return {
     draw(frame) {
@@ -192,31 +205,51 @@ export function createLightingPass(gl: WebGL2RenderingContext, scene: Scene, cas
         beams.push(rays[i] - camera.x, rays[i + 1] - camera.y, rays[i + 2], rays[i + 3], rays[i + 4], rays[i + 5], rays[i + 6], rays[i + 7])
       }
 
+      // Свет одинаков в пределах пикселя местности, поэтому карты освещённости и силуэтов рисуются в сетке местности:
+      // вблизи это в десятки раз меньше пикселей, чем на экране. Издалека, когда пиксель местности мельче
+      // экранного, карты совпадают с экраном.
+      const density = gl.drawingBufferWidth / frame.width
+      const close = camera.zoom * density > TEXELS_PER_TILE
+      const perTile = close ? TEXELS_PER_TILE : camera.zoom * density
+      const mapWidth = close ? 2 * (Math.ceil((frame.width / 2 / camera.zoom) * perTile) + 1) : gl.drawingBufferWidth
+      const mapHeight = close ? 2 * (Math.ceil((frame.height / 2 / camera.zoom) * perTile) + 1) : gl.drawingBufferHeight
+      // Центр карты встаёт на узел сетки местности, чтобы её пиксели совпали с пикселями земли.
+      const snap = (value: number) => (close ? value - Math.round(value * perTile) / perTile : 0)
+      mapView.uScreenSize[0] = mapWidth
+      mapView.uScreenSize[1] = mapHeight
+      mapView.uScale[0] = (perTile * 2) / mapWidth
+      mapView.uScale[1] = (perTile * 2) / mapHeight
+      mapView.uOffset[0] = snap(camera.x)
+      mapView.uOffset[1] = snap(camera.y)
+      mapView.uZoom = perTile
+      mapView.uTime = view.uTime
+
       if (light < 1 && beams.count) {
         // Карта силуэтов: по ней лучи узнают, что им загораживает землю.
-        occluders.bind(gl.drawingBufferWidth, gl.drawingBufferHeight)
+        occluders.bind(mapWidth, mapHeight)
         gl.clearColor(0, 0, 0, 0)
         gl.clear(gl.COLOR_BUFFER_BIT)
-        for (const caster of casters) caster.drawOccluders?.(frame)
+        for (const caster of casters) caster.drawOccluders?.(mapView)
       }
 
       setBlend(gl, 'add')
       if (light < 1) {
         // Карта освещённости рисуется заново каждый кадр.
         const [red, green, blue] = lightTint(light)
-        lightmap.bind(gl.drawingBufferWidth, gl.drawingBufferHeight)
+        lightmap.bind(mapWidth, mapHeight)
         gl.clearColor(red, green, blue, 1)
         gl.clear(gl.COLOR_BUFFER_BIT)
-        spotProgram.use(view, { uColor: LIGHT_COLOR, uStrength: 1 })
+        spotProgram.use(mapView, { uColor: LIGHT_COLOR, uStrength: 1 })
         cut.draw()
         if (beams.count) {
-          beamProgram.use(view, { uColor: LIGHT_COLOR, uOccluders: occluders.texture })
+          beamProgram.use(mapView, { uColor: LIGHT_COLOR, uOccluders: occluders.texture })
           beams.draw()
         }
 
         bindScreen(gl)
         setBlend(gl, 'multiply')
-        blitProgram.use({ uTexture: lightmap.texture })
+        const span = [frame.width / camera.zoom, frame.height / camera.zoom]
+        blitProgram.use({ uTexture: lightmap.texture, uSpan: span, uScale: mapView.uScale, uOffset: mapView.uOffset })
         drawQuad(gl)
         setBlend(gl, 'add')
       }

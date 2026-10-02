@@ -125,7 +125,7 @@ export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): P
       shadows.draw()
       sprites.draw()
     },
-    drawOccluders({ view }) {
+    drawOccluders(view) {
       setBlend(gl, 'alpha')
       program.use(view, { uTexture: atlas.texture })
       sprites.draw()
