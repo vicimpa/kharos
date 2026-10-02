@@ -384,19 +384,37 @@ test('строитель чинит повреждённую технику — 
   expect(value(soldier)).toBe(1)
 })
 
-test('всё, у чего есть Repair, чинит своих в радиусе — и нескольких сразу; не дотягивается — не чинит', () => {
+test('всё, у чего есть Repair, чинит своих в радиусе — по одному, ближнего первым; не дотягивается — не чинит', () => {
   const { sim, x, y } = field()
   addCredits(sim, 1, 5000)
-  // Ремонтная станция: здание, которому выдан Repair.
+  // Ремонтная станция: здание, которому выдан Repair. Здание смотрит во все стороны.
   const station = placeBuilding(sim.world, 'turret', x + 6, y, 1)
   sim.world.add(station, Repair({ radius: 3 }))
   const near = spawnUnit(sim, 'tank', 1, x + 4, y)
   const other = spawnUnit(sim, 'buggy', 1, x + 8, y + 1)
   const far = spawnUnit(sim, 'tank', 1, x + 14, y)
   for (const entity of [near, other, far]) sim.world.get(entity, Health)!.value = 0.5
-  seconds(sim, 1)
   const value = (entity: Entity) => sim.world.get(entity, Health)!.value
+  seconds(sim, 1)
   expect(value(near)).toBeGreaterThan(0.5)
+  expect(value(other)).toBe(0.5)
+  seconds(sim, 15)
+  expect(value(near)).toBe(1)
   expect(value(other)).toBeGreaterThan(0.5)
   expect(value(far)).toBe(0.5)
+})
+
+test('строитель чинит, только повернувшись к цели', () => {
+  const { sim, x, y } = field()
+  addCredits(sim, 1, 1000)
+  const builder = spawnUnit(sim, 'builder', 1, x + 2, y)
+  const tank = spawnUnit(sim, 'tank', 1, x + 5, y)
+  // Смотрит в обратную сторону.
+  sim.world.get(builder, Unit)!.facing = Math.PI
+  sim.world.get(tank, Health)!.value = 0.5
+  sim.advance(TICK)
+  expect(sim.world.get(tank, Health)!.value).toBe(0.5)
+  seconds(sim, 1)
+  expect(Math.abs(sim.world.get(builder, Unit)!.facing)).toBeLessThan(0.2)
+  expect(sim.world.get(tank, Health)!.value).toBeGreaterThan(0.5)
 })

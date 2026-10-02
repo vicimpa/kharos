@@ -1,7 +1,7 @@
 import type { Entity } from '../ecs'
 import { tileKey } from '../map/terrain'
 import { BUILDABLE, BUILDINGS, BUILD_RATE, CORE, buildingSpec, canPlace, equip, docksClear, newBuilding, siteAt, type BuildingSpec, type BuildingType } from './buildings'
-import { isOwn, onTurn, ownerOf, rectDistance, turnToward } from './common'
+import { isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './common'
 import { Building, Builds, Converting, Health, Owner, Path, Position, Producer, Repair, Site, Unit } from './components'
 import { oreLeft } from './deposits'
 import { addCredits, creditsOf, pay, reward, spend } from './economy'
@@ -315,12 +315,26 @@ export interface RepairLink {
   fromY: number
   toX: number
   toY: number
+  /** Смотрит ли ремонтник на цель: работает он, только глядя на неё. Здание смотрит во все стороны. */
+  aimed: boolean
 }
 
 /** На сколько тайлов вглубь основания здания приходится точка, над которой работает ремонтник. */
 const WORK_INSET = 0.4
+/** Насколько точно юнит-ремонтник должен смотреть на цель, чтобы работать, в радианах. */
+const REPAIR_AIM = 0.2
 
-/** Кто над чем сейчас работает: каждый ремонтник — над всем своим, до чего дотягивается. */
+/** Смотрит ли ремонтник на то, над чем работает. */
+function isAimed(sim: Sim, link: RepairLink) {
+  const unit = sim.world.get(link.from, Unit)
+  if (!unit) return true
+  return Math.abs(wrap(Math.atan2(link.toY - link.fromY, link.toX - link.fromX) - unit.facing)) <= REPAIR_AIM
+}
+
+/**
+ * Над чем сейчас работает каждый ремонтник. Работа у него одна: та, к которой его послали, если он до неё дотягивается,
+ * а иначе — ближайшая из тех, до которых дотягивается и которые не стоят.
+ */
 export function repairLinks(sim: Sim): RepairLink[] {
   const { world } = sim
   const links: RepairLink[] = []
@@ -334,30 +348,57 @@ export function repairLinks(sim: Sim): RepairLink[] {
   }
   if (!repairers.length) return links
 
-  const targets: Entity[] = []
-  for (const [entity] of world.query(Site, Position, Owner)) targets.push(entity)
+  const targets: { entity: Entity; work: Work; player: number; demolish: boolean; ordered: boolean }[] = []
+  for (const [entity] of world.query(Site, Position, Owner)) targets.push({ entity, work: workAt(sim, entity)!, player: 0, demolish: false, ordered: false })
   for (const [entity, health] of world.query(Health, Position, Owner)) {
-    if (health.value < 1 && isRepairable(sim, entity)) targets.push(entity)
+    if (health.value < 1 && isRepairable(sim, entity)) targets.push({ entity, work: workAt(sim, entity)!, player: 0, demolish: false, ordered: false })
   }
   // Считается недёшево, поэтому только если есть повреждённое здание, и один раз.
   let overbuilt: Set<Entity> | undefined
   for (const target of targets) {
-    const work = workAt(sim, target)!
-    const player = ownerOf(sim, target)
-    const site = world.get(target, Site)
+    const site = world.get(target.entity, Site)
+    target.player = ownerOf(sim, target.entity)
+    target.demolish = !!site?.demolish
     // Электростанцию, которой не хватило бы и целой, чинят только посланные к ней: иначе починка зря жгла бы кредиты.
-    const ordered = !site && world.has(target, Building) && (overbuilt ??= overbuiltPlants(sim)).has(target)
+    target.ordered = !site && world.has(target.entity, Building) && (overbuilt ??= overbuiltPlants(sim)).has(target.entity)
+  }
+  const stalled = new Map<Entity, boolean>()
+  const stands = (entity: Entity) => {
+    let value = stalled.get(entity)
+    if (value === undefined) stalled.set(entity, (value = isStalled(sim, entity)))
+    return value
+  }
+
+  for (const repairer of repairers) {
+    let best: (typeof targets)[number] | undefined
+    let bestDistance = Infinity
+    for (const target of targets) {
+      if (target.player !== repairer.player || target.entity === repairer.entity) continue
+      if (target.ordered && repairer.site !== target.entity) continue
+      const distance = distanceTo(target.work, repairer.x, repairer.y)
+      if (distance > repairer.radius) continue
+      // Посланный к работе занят ею, остальное подождёт.
+      if (repairer.site === target.entity) {
+        best = target
+        break
+      }
+      if (distance < bestDistance && !stands(target.entity)) {
+        best = target
+        bestDistance = distance
+      }
+    }
+    if (!best) continue
+    const { work } = best
     const insetX = Math.min(WORK_INSET, work.width / 2)
     const insetY = Math.min(WORK_INSET, work.height / 2)
-    for (const repairer of repairers) {
-      if (repairer.player !== player || repairer.entity === target || (ordered && repairer.site !== target)) continue
-      if (distanceTo(work, repairer.x, repairer.y) > repairer.radius) continue
-      links.push({
-        from: repairer.entity, to: target, rate: repairer.rate, demolish: !!site?.demolish, fromX: repairer.x, fromY: repairer.y,
-        toX: Math.min(work.x + work.width - insetX, Math.max(work.x + insetX, repairer.x)),
-        toY: Math.min(work.y + work.height - insetY, Math.max(work.y + insetY, repairer.y)),
-      })
+    const link: RepairLink = {
+      from: repairer.entity, to: best.entity, rate: repairer.rate, demolish: best.demolish, fromX: repairer.x, fromY: repairer.y,
+      toX: Math.min(work.x + work.width - insetX, Math.max(work.x + insetX, repairer.x)),
+      toY: Math.min(work.y + work.height - insetY, Math.max(work.y + insetY, repairer.y)),
+      aimed: false,
     }
+    link.aimed = isAimed(sim, link)
+    links.push(link)
   }
   return links
 }
@@ -378,18 +419,22 @@ function isStalled(sim: Sim, entity: Entity) {
 
 /** Работы, которые идут прямо сейчас: их клиент показывает лучом от ремонтника к цели. */
 export function activeRepairs(sim: Sim): RepairLink[] {
-  const stalled = new Map<Entity, boolean>()
-  return repairLinks(sim).filter(({ to }) => {
-    let stands = stalled.get(to)
-    if (stands === undefined) stalled.set(to, (stands = isStalled(sim, to)))
-    return !stands
-  })
+  return repairLinks(sim).filter((link) => link.aimed && !isStalled(sim, link.to))
 }
 
-/** Сколько работы за этот тик ремонтники вложили в каждую стройку и в каждое повреждённое здание или юнит. */
+/**
+ * Работа за этот тик: ремонтник поворачивается к своей цели и, если уже смотрит на неё, вкладывает в неё работу.
+ * Возвращает, сколько работы досталось каждой стройке и каждому повреждённому зданию или юниту.
+ */
 function workDone(sim: Sim) {
+  const { world, time } = sim
   const done = new Map<Entity, number>()
-  for (const { to, rate } of repairLinks(sim)) done.set(to, (done.get(to) ?? 0) + rate)
+  for (const link of repairLinks(sim)) {
+    const unit = world.get(link.from, Unit)
+    // За работой юнит поворачивается к ней — и светит на неё фарами.
+    if (unit) unit.facing = turnToward(unit.facing, Math.atan2(link.toY - link.fromY, link.toX - link.fromX), UNITS[unit.type].turn * time.step)
+    if (isAimed(sim, link)) done.set(link.to, (done.get(link.to) ?? 0) + link.rate)
+  }
   return done
 }
 
@@ -407,7 +452,7 @@ export function construct(sim: Sim) {
   const free: Entity[] = []
   const late: { builder: Entity; site: Entity }[] = []
 
-  for (const [entity, position, unit, builds, repair] of world.query(Position, Unit, Builds, Repair)) {
+  for (const [entity, position, , builds, repair] of world.query(Position, Unit, Builds, Repair)) {
     const site = builds.site as Entity
     const work = workAt(sim, site)
     if (!work) {
@@ -419,11 +464,7 @@ export function construct(sim: Sim) {
     if (distance > repair.radius) {
       // Не доехал или его оттеснили. Пробует снова не каждый тик: поиск пути недёшев.
       if (onTurn(time, entity, RETRY_TICKS)) late.push({ builder: entity, site })
-      continue
     }
-    // За работой строитель поворачивается к ней — и светит на неё фарами.
-    const wanted = Math.atan2(work.y + work.height / 2 - position.y, work.x + work.width / 2 - position.x)
-    unit.facing = turnToward(unit.facing, wanted, UNITS[unit.type].turn * time.step)
   }
 
   for (const entity of free) world.remove(entity, Builds)
