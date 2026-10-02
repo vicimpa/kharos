@@ -164,6 +164,24 @@ body {
   user-select: none;
 }
 
+.hud--rewards {
+  top: 52px;
+  padding: 6px 10px;
+  border-color: #c9962b;
+}
+
+.hud__reward {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.7;
+}
+
+.hud--credits small {
+  color: #9fd89a;
+  font-weight: 400;
+}
+
 .hud--credits {
   top: 12px;
   display: flex;
@@ -172,6 +190,15 @@ body {
   padding: 6px 10px;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+}
+
+.hud__power {
+  margin-left: 6px;
+  color: #8fd0ff;
+}
+
+.hud__power.is-short {
+  color: #ff8a70;
 }
 
 .hud__coin {

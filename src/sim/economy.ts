@@ -23,6 +23,37 @@ export function addCredits(sim: Sim, player: number, amount: number) {
   else sim.world.set(entity, Player, { credits: sim.world.get(entity, Player)!.credits + amount })
 }
 
+/**
+ * Награды: кредиты за то, что игрок сделал впервые. Каждая выдаётся игроку один раз за всю игру,
+ * поэтому повторять действие ради денег бессмысленно. Ключи зданий совпадают с их видами.
+ */
+export const REWARDS = {
+  /** Развернул MCV в главное здание. */
+  deploy: 250,
+  /** Произвёл первый юнит. */
+  unit: 50,
+  generator: 150,
+  starport: 200,
+  silo: 50,
+} satisfies Record<string, number>
+
+export type Reward = keyof typeof REWARDS
+
+/** Награды, которые игрок уже получил, по порядку. */
+export function rewardsOf(sim: Sim, player: number): readonly string[] {
+  const entity = playerEntity(sim, player)
+  return entity === undefined ? [] : sim.world.get(entity, Player)!.rewards
+}
+
+/** Выдаёт игроку награду, если он её ещё не получал. key — что случилось; событий без награды большинство. */
+export function reward(sim: Sim, player: number, key: string) {
+  const entity = playerEntity(sim, player)
+  if (entity === undefined || !Object.hasOwn(REWARDS, key)) return
+  const { credits, rewards } = sim.world.get(entity, Player)!
+  if (rewards.includes(key)) return
+  sim.world.set(entity, Player, { credits: credits + REWARDS[key as Reward], rewards: [...rewards, key] })
+}
+
 /** Списывает кредиты, если их хватает. Возвращает, удалось ли. */
 export function pay(sim: Sim, player: number, amount: number) {
   const entity = playerEntity(sim, player)

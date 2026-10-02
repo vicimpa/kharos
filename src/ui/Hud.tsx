@@ -1,6 +1,7 @@
 import type { HudState } from '../game/hud'
-import type { BuildingType, Command } from '../sim'
-import { BUILDING_NAMES, UNIT_NAMES } from './names'
+import { useEffect, useRef, useState } from 'preact/hooks'
+import { REWARDS, type BuildingType, type Command, type Reward } from '../sim'
+import { BUILDING_NAMES, REWARD_NAMES, UNIT_NAMES } from './names'
 
 interface HudProps {
   state: HudState
@@ -11,17 +12,57 @@ interface HudProps {
 
 const percent = (value: number) => `${Math.round(value * 100)}%`
 
+/** Сколько секунд сообщение о награде висит на экране. */
+const TOAST_SECONDS = 5
+
+/** Награды, полученные только что: каждая показывается TOAST_SECONDS. Те, что были до открытия страницы, не показываются. */
+function useNewRewards(rewards: string[]) {
+  const seen = useRef(rewards.length)
+  const [fresh, setFresh] = useState<string[]>([])
+  useEffect(() => {
+    const added = rewards.slice(seen.current)
+    // Список стал короче — мир начался заново: считаем с нуля.
+    seen.current = rewards.length
+    if (!added.length) return
+    setFresh((list) => [...list, ...added])
+    // Таймер не отменяется при следующей награде: иначе прежнее сообщение осталось бы висеть.
+    setTimeout(() => setFresh((list) => list.filter((key) => !added.includes(key))), TOAST_SECONDS * 1000)
+  }, [rewards.length])
+  return fresh
+}
+
 /** Интерфейс игрока: счёт и панель выбранного с приказами. Сам ничего не решает — только шлёт команды. */
 export function Hud({ state, send, place }: HudProps) {
   const { units, building, site, construction, conversion, production } = state
   const selected = units.length > 0 || building !== null
+  const fresh = useNewRewards(state.rewards)
 
   return (
     <>
       <div class="hud hud--credits" title="Кредиты">
         <span class="hud__coin" />
         {state.credits}
+        {state.income > 0 && <small>+{state.income}/с</small>}
+        {(state.power.produced > 0 || state.power.demand > 0) && (
+          <span
+            class={state.power.demand > state.power.produced ? 'hud__power is-short' : 'hud__power'}
+            title="Энергия: потребление / выработка"
+          >
+            ⚡ {state.power.demand}/{state.power.produced}
+          </span>
+        )}
       </div>
+
+      {fresh.length > 0 && (
+        <div class="hud hud--rewards">
+          {fresh.map((key) => (
+            <div key={key} class="hud__reward">
+              <span class="hud__coin" />
+              <strong>+{REWARDS[key as Reward]}</strong> {REWARD_NAMES[key as Reward]}
+            </div>
+          ))}
+        </div>
+      )}
 
       {selected && (
         <section class="hud hud--selection">
@@ -44,13 +85,19 @@ export function Hud({ state, send, place }: HudProps) {
           {construction && (
             <>
               <div class="hud__row">
-                {construction.options.map(({ building, cost, affordable }) => (
+                {construction.options.map(({ building, cost, affordable, limited }) => (
                   <button
                     key={building}
                     class={construction.placing === building ? 'is-active' : undefined}
-                    disabled={!construction.available || !affordable}
+                    disabled={!construction.available || !affordable || limited}
                     title={
-                      !construction.available ? 'Сначала разверни MCV в главное здание' : affordable ? undefined : 'Не хватает кредитов'
+                      !construction.available
+                        ? 'Сначала разверни MCV в главное здание'
+                        : limited
+                          ? 'Больше таких зданий на одно главное здание не построить'
+                          : affordable
+                            ? undefined
+                            : 'Не хватает кредитов'
                     }
                     onClick={() => place(construction.placing === building ? null : building)}
                   >

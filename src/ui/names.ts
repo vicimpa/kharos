@@ -1,4 +1,4 @@
-import type { BuildingType, UnitType } from '../sim'
+import type { BuildingType, Reward, UnitType } from '../sim'
 
 /** Названия для интерфейса. Симуляция знает только ключи. */
 export const UNIT_NAMES: Record<UnitType, string> = {
@@ -18,4 +18,13 @@ export const BUILDING_NAMES: Record<BuildingType, string> = {
   barracks: 'Казармы',
   silo: 'Хранилище',
   turret: 'Турель',
+}
+
+/** За что выдана награда. */
+export const REWARD_NAMES: Record<Reward, string> = {
+  deploy: 'Главное здание развёрнуто',
+  unit: 'Первый юнит произведён',
+  generator: 'Первый генератор',
+  starport: 'Первый космопорт',
+  silo: 'Первое хранилище',
 }

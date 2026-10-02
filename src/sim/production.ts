@@ -1,7 +1,7 @@
 import type { Entity, Time } from '../ecs'
 import { BUILDINGS } from './buildings'
 import { Building, Converting, Owner, Position, Producer, Unit } from './components'
-import { addCredits, pay } from './economy'
+import { addCredits, pay, reward } from './economy'
 import type { Sim } from './sim'
 import { UNITS, freeTilesNear, spawnUnit, type UnitType } from './units'
 
@@ -78,7 +78,9 @@ export function produceUnits(sim: Sim, time: Time) {
     const tile = emptyTileNear(sim, exit.x, exit.y)
     // Выйти некуда — готовый юнит ждёт внутри, очередь стоит.
     if (!tile) continue
-    spawnUnit(sim, producer.queue.shift()!, world.get(entity, Owner)!.player, tile.x, tile.y)
+    const { player } = world.get(entity, Owner)!
+    spawnUnit(sim, producer.queue.shift()!, player, tile.x, tile.y)
+    reward(sim, player, 'unit')
     producer.progress = 0
   }
 }

@@ -1,6 +1,7 @@
 import type { Entity } from '../ecs'
 import { BUILDINGS, CORE, canPlace, placeBuilding } from './buildings'
 import { Building, Converting, Owner, Path, Position, Producer, Unit } from './components'
+import { reward } from './economy'
 import type { Sim } from './sim'
 import { evictUnits, spawnUnit } from './units'
 
@@ -61,6 +62,7 @@ export function convert(sim: Sim) {
       const core = placeBuilding(world, CORE, site.x, site.y, player)
       if (production) world.set(core, Producer, production)
       evictUnits(sim, site.x, site.y, BUILDINGS[CORE].width, BUILDINGS[CORE].height)
+      reward(sim, player, 'deploy')
     } else {
       const position = world.get(entity, Position)!
       const { width, height } = BUILDINGS[CORE]

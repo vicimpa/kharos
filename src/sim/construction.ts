@@ -1,7 +1,8 @@
 import type { Entity } from '../ecs'
-import { BUILDABLE, BUILDINGS, CORE, canPlace, type BuildingType } from './buildings'
+import { BUILDABLE, BUILDINGS, CORE, canPlace, type BuildingSpec, type BuildingType } from './buildings'
 import { Building, Builds, Converting, Owner, Path, Position, Site, Unit } from './components'
-import { addCredits, pay } from './economy'
+import { addCredits, pay, reward } from './economy'
+import { countOf } from './income'
 import type { Sim } from './sim'
 import { UNITS, evictUnits, isWalkable, orderMove, standingUnits, tileKey } from './units'
 
@@ -38,9 +39,16 @@ export function inControl(sim: Sim, player: number, type: BuildingType, x: numbe
   return false
 }
 
-/** Может ли игрок заложить здесь здание: вид строится строителями, место годится и лежит в радиусе контроля. */
+/** Исчерпан ли у игрока лимит на здания этого вида. Без главного здания лимит нулевой. */
+export function atLimit(sim: Sim, player: number, type: BuildingType) {
+  const { perCore } = BUILDINGS[type] as BuildingSpec
+  if (perCore === undefined) return false
+  return countOf(sim, player, type) >= perCore * (coreCenters(sim, player).length / 2)
+}
+
+/** Может ли игрок заложить здесь здание: вид строится строителями, лимит не исчерпан, место годится и лежит в радиусе контроля. */
 export function canBuild(sim: Sim, player: number, type: BuildingType, x: number, y: number) {
-  if (!BUILDABLE.includes(type)) return false
+  if (!BUILDABLE.includes(type) || atLimit(sim, player, type)) return false
   return canPlace(sim, type, x, y) && inControl(sim, player, type, x, y)
 }
 
@@ -166,6 +174,8 @@ export function construct(sim: Sim) {
       evictUnits(sim, position.x, position.y, BUILDINGS[site.type].width, BUILDINGS[site.type].height)
     }
     site.progress += count
-    if (site.progress >= siteTicks(site.type, time.step)) world.remove(entity, Site)
+    if (site.progress < siteTicks(site.type, time.step)) continue
+    world.remove(entity, Site)
+    reward(sim, world.get(entity, Owner)?.player ?? 0, site.type)
   }
 }

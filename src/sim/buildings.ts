@@ -11,14 +11,22 @@ export interface BuildingSpec {
   /** Цена в кредитах и время стройки в секундах, если строит один строитель. */
   cost: number
   buildTime: number
+  /** Энергия: больше нуля — вырабатывает, меньше — потребляет. */
+  power?: number
+  /** Доход в кредитах в секунду. У потребителя энергии он падает вместе с её нехваткой. */
+  income?: number
+  /** Сколько таких зданий можно иметь на каждое своё главное здание. */
+  perCore?: number
 }
 
 export const BUILDINGS = {
-  command: { width: 3, height: 3, cost: 2000, buildTime: 30 },
+  // Доход главного здания не даёт остаться без кредитов совсем: на генератор он копит долго, но копит.
+  command: { width: 3, height: 3, cost: 2000, buildTime: 30, income: 0.2 },
   refinery: { width: 3, height: 2, cost: 600, buildTime: 25 },
   factory: { width: 2, height: 2, cost: 500, buildTime: 20 },
-  generator: { width: 2, height: 2, cost: 300, buildTime: 15 },
-  starport: { width: 2, height: 3, cost: 800, buildTime: 30 },
+  generator: { width: 2, height: 2, cost: 300, buildTime: 15, power: 10 },
+  // Базовый доход: торговля за энергию. Позже через него же продаются ресурсы.
+  starport: { width: 2, height: 3, cost: 400, buildTime: 20, power: -5, income: 1, perCore: 3 },
   radar: { width: 2, height: 2, cost: 400, buildTime: 15 },
   windtrap: { width: 2, height: 2, cost: 300, buildTime: 15 },
   barracks: { width: 2, height: 2, cost: 300, buildTime: 15 },
@@ -31,7 +39,7 @@ export type BuildingType = keyof typeof BUILDINGS
 export const CORE: BuildingType = 'command'
 export const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[]
 /** Что возводят строители. Остальные здания появятся вместе с тем, для чего они нужны. */
-export const BUILDABLE: BuildingType[] = ['generator', 'silo']
+export const BUILDABLE: BuildingType[] = ['generator', 'starport', 'silo']
 
 /** Какие тайлы заняты зданиями. Обновляется сам: следит за появлением и исчезновением зданий в мире. */
 export interface Occupancy {

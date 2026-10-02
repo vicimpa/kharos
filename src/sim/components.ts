@@ -30,8 +30,11 @@ export const Unit = component('Unit', {
  */
 export const Path = component('Path', () => ({ points: [] as number[], goalX: 0, goalY: 0, wait: 0, tries: 0 }))
 
-/** Игрок: сущность без места на карте. Отслеживается, чтобы интерфейс узнавал о смене счёта. */
-export const Player = component('Player', { id: 0, credits: 0 }, { tracked: true })
+/**
+ * Игрок: сущность без места на карте. Отслеживается, чтобы интерфейс узнавал о смене счёта.
+ * earned — заработанная доля кредита, ещё не дошедшая до целого. rewards — какие награды игрок уже получил, по порядку.
+ */
+export const Player = component('Player', () => ({ id: 0, credits: 0, earned: 0, rewards: [] as string[] }), { tracked: true })
 
 /**
  * Производство юнитов: есть у MCV и у главного здания.

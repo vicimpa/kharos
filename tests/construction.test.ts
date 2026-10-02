@@ -3,9 +3,8 @@ import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import {
   BUILDINGS, Building, Builds, CORE, Owner, Position, Site, Unit,
-  canBuild, canPlace, createSim, creditsOf, isWalkable, siteAt, spawnStartingUnits, type Sim,
+  canBuild, canPlace, createSim, creditsOf, isWalkable, rewardsOf, siteAt, spawnStartingUnits, type Sim,
 } from '../src/sim'
-import { STARTING_CREDITS } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
@@ -53,9 +52,10 @@ function start() {
 
 test('строитель возводит здание: кредиты списаны, площадка проходима, готовое здание занимает тайлы', () => {
   const { sim, builders, site } = start()
+  const credits = creditsOf(sim, 1)
   sim.send(1, { type: 'build', building: 'generator', x: site.x, y: site.y, builders: [builders[0]] })
   sim.advance(TICK)
-  expect(creditsOf(sim, 1)).toBe(STARTING_CREDITS - BUILDINGS.generator.cost)
+  expect(creditsOf(sim, 1)).toBe(credits - BUILDINGS.generator.cost)
   const entity = siteAt(sim, site.x + 1, site.y + 1)!
   expect(sim.world.get(entity, Site)).toEqual({ type: 'generator', progress: 0 })
   // Пока строитель не доехал, площадка никому не мешает, но второе здание на неё не поставить.
@@ -71,6 +71,8 @@ test('строитель возводит здание: кредиты спис�
   seconds(sim, BUILDINGS.generator.buildTime)
   expect(sim.world.has(entity, Site)).toBe(false)
   expect(sim.world.get(entity, Building)!.type).toBe('generator')
+  // Первый генератор приносит награду.
+  expect(rewardsOf(sim, 1)).toEqual(['deploy', 'generator'])
   expect(sim.world.has(builders[0], Builds)).toBe(false)
   expect(siteAt(sim, site.x, site.y)).toBeUndefined()
 })
@@ -104,6 +106,7 @@ test('юниты уходят с площадки, когда начинаетс
 
 test('строить можно только в радиусе контроля, за кредиты и только строителями', () => {
   const { sim, builders, site } = start()
+  const credits = creditsOf(sim, 1)
   expect(canBuild(sim, 1, 'generator', site.x + 60, site.y)).toBe(false)
   expect(canBuild(sim, 2, 'generator', site.x, site.y)).toBe(false)
   // Главное здание строители не возводят.
@@ -112,7 +115,7 @@ test('строить можно только в радиусе контроля,
   sim.send(1, { type: 'build', building: 'radar', x: site.x, y: site.y, builders })
   sim.advance(TICK)
   expect(siteAt(sim, site.x, site.y)).toBeUndefined()
-  expect(creditsOf(sim, 1)).toBe(STARTING_CREDITS)
+  expect(creditsOf(sim, 1)).toBe(credits)
 
   // Пехотинец и чужой строитель на стройку не идут.
   const stranger = spawnUnit(sim, 'builder', 2, site.x - 1, site.y)
@@ -121,18 +124,24 @@ test('строить можно только в радиусе контроля,
   expect(siteAt(sim, site.x, site.y)).toBeDefined()
   expect(sim.world.count(Builds)).toBe(0)
 
-  // На второе и третье здание хватает, на четвёртое уже нет: 1000 − 300 × 3 = 100.
+  // Площадки можно закладывать и без строителей: кредиты списываются за каждую.
   for (const y of [site.y - 3, site.y + 3, site.y + 6]) {
     expect(canBuild(sim, 1, 'generator', site.x, y)).toBe(true)
     sim.send(1, { type: 'build', building: 'generator', x: site.x, y, builders: [] })
     sim.advance(TICK)
   }
-  expect(sim.world.count(Site)).toBe(3)
-  expect(creditsOf(sim, 1)).toBe(STARTING_CREDITS - 3 * BUILDINGS.generator.cost)
+  expect(sim.world.count(Site)).toBe(4)
+  expect(creditsOf(sim, 1)).toBe(credits - 4 * BUILDINGS.generator.cost)
+
+  // На пятую уже не хватает.
+  sim.send(1, { type: 'build', building: 'generator', x: site.x + 3, y: site.y, builders: [] })
+  sim.advance(TICK)
+  expect(sim.world.count(Site)).toBe(4)
 })
 
 test('отмена возвращает кредиты, а приказ идти снимает строителя со стройки', () => {
   const { sim, builders, site } = start()
+  const credits = creditsOf(sim, 1)
   sim.send(1, { type: 'build', building: 'generator', x: site.x, y: site.y, builders })
   seconds(sim, 7)
   const entity = sim.occupancy.at(site.x, site.y)!
@@ -151,7 +160,9 @@ test('отмена возвращает кредиты, а приказ идти
   sim.send(1, { type: 'cancelBuild', site: entity })
   seconds(sim, 0.2)
   expect(sim.world.alive(entity)).toBe(false)
-  expect(creditsOf(sim, 1)).toBe(STARTING_CREDITS)
+  // Вернулось всё; сверх того — кредит-другой, который за это время принесло главное здание.
+  expect(creditsOf(sim, 1) - credits).toBeGreaterThanOrEqual(0)
+  expect(creditsOf(sim, 1) - credits).toBeLessThan(3)
   expect(isWalkable(sim, site.x, site.y)).toBe(true)
   expect(sim.world.count(Builds)).toBe(0)
 })

@@ -5,7 +5,7 @@ import {
   Building, CORE, Converting, Owner, Position, Producer, UNITS, Unit,
   canDeploy, canPlace, createSim, creditsOf, spawnStartingUnits, type Sim,
 } from '../src/sim'
-import { STARTING_CREDITS } from '../src/sim/economy'
+import { REWARDS, STARTING_CREDITS } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
@@ -135,12 +135,12 @@ test('заказ отклоняется без кредитов, у чужого
   expect(sim.world.get(mcv, Producer)!.queue.length).toBe(5)
   expect(creditsOf(sim, 1)).toBe(STARTING_CREDITS - 5 * UNITS.builder.cost)
 
-  // Осталось 250: на второго строителя после первого уже не хватит.
+  // Первый готовый юнит приносит награду, но в очереди освободилось только одно место.
   seconds(sim, UNITS.builder.buildTime + 0.1)
   sim.send(1, { type: 'produce', producer: mcv, unit: 'builder' })
   sim.send(1, { type: 'produce', producer: mcv, unit: 'builder' })
   sim.advance(TICK)
-  expect(creditsOf(sim, 1)).toBe(STARTING_CREDITS - 6 * UNITS.builder.cost)
+  expect(creditsOf(sim, 1)).toBe(STARTING_CREDITS + REWARDS.unit - 6 * UNITS.builder.cost)
 })
 
 test('отмена возвращает кредиты за последний заказ', () => {
@@ -184,5 +184,6 @@ test('сохранение посреди превращения и произв
   seconds(sim, 10)
   seconds(copy, 10)
   expect(copy.save()).toEqual(sim.save())
-  expect(creditsOf(copy, 1)).toBe(STARTING_CREDITS - UNITS.infantry.cost)
+  // Награды за главное здание и за первый юнит и кредит, который главное здание успело принести само.
+  expect(creditsOf(copy, 1)).toBe(STARTING_CREDITS - UNITS.infantry.cost + REWARDS.deploy + REWARDS.unit + 1)
 })

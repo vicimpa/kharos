@@ -1,7 +1,7 @@
 import type { Entity } from '../ecs'
 import {
   BUILDABLE, BUILDINGS, Building, Converting, PRODUCIBLE, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
-  buildTicks, canDeploy, canPack, coreCenters, creditsOf, siteTicks,
+  atLimit, buildTicks, canDeploy, canPack, coreCenters, creditsOf, economyOf, rewardsOf, siteTicks,
   type BuildingType, type Command, type UnitType,
 } from '../sim'
 import type { Scene } from './scene'
@@ -9,6 +9,12 @@ import type { Scene } from './scene'
 /** Что интерфейс игрока показывает прямо сейчас. Обычные данные: их можно сравнивать и хранить в состоянии. */
 export interface HudState {
   credits: number
+  /** Награды, которые игрок уже получил, по порядку. */
+  rewards: string[]
+  /** Доход в кредитах в секунду. */
+  income: number
+  /** Энергия: сколько вырабатывается и сколько просят потребители. */
+  power: { produced: number; demand: number }
   /** Выбранные юниты по видам. */
   units: { type: UnitType; count: number }[]
   /** Выбранное здание, если выбрано оно. */
@@ -27,7 +33,8 @@ export interface HudState {
     available: boolean
     /** Здание, для которого сейчас выбирается место. */
     placing: BuildingType | null
-    options: { building: BuildingType; cost: number; affordable: boolean }[]
+    /** limited — лимит на такие здания исчерпан. */
+    options: { building: BuildingType; cost: number; affordable: boolean; limited: boolean }[]
   } | null
   /** Превращение выбранного: MCV разворачивается (deploy), главное здание сворачивается (pack). */
   conversion: {
@@ -73,8 +80,12 @@ export function readHud(scene: Scene): HudState {
     if (world.has(entity, Producer)) producers.push(entity)
   }
 
+  const economy = economyOf(sim, player)
   const state: HudState = {
     credits,
+    rewards: [...rewardsOf(sim, player)],
+    income: round(economy.income),
+    power: { produced: economy.produced, demand: economy.demand },
     units: UNIT_TYPES.filter((type) => counts.has(type)).map((type) => ({ type, count: counts.get(type)! })),
     building,
     site,
@@ -82,7 +93,12 @@ export function readHud(scene: Scene): HudState {
       ? {
           available: coreCenters(sim, player).length > 0,
           placing: scene.placing,
-          options: BUILDABLE.map((type) => ({ building: type, cost: BUILDINGS[type].cost, affordable: credits >= BUILDINGS[type].cost })),
+          options: BUILDABLE.map((type) => ({
+            building: type,
+            cost: BUILDINGS[type].cost,
+            affordable: credits >= BUILDINGS[type].cost,
+            limited: atLimit(sim, player, type),
+          })),
         }
       : null,
     conversion: null,
