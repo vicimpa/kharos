@@ -4,7 +4,7 @@ import { createAtlas } from '../render/atlas'
 import { Pixmap } from '../render/pixmap'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites } from '../render/sprites'
-import { BUILDINGS, Building, Converting, Owner, Position, Producer, Site, UNITS, Unit, buildTicks, siteTicks } from '../sim'
+import { BUILDINGS, Building, Converting, Owner, Path, Position, Producer, Site, UNITS, Unit, buildTicks, siteTicks } from '../sim'
 import type { Scene } from './scene'
 import { drawnPosition } from './units/unitsPass'
 
@@ -19,6 +19,13 @@ const BOX_FILL_ALPHA = 0.12
 const BAR_HEIGHT = 4
 const BAR_GAP = 0.3
 
+/** Путь выбранного юнита — пунктир: точки такого размера в пикселях экрана через столько тайлов. */
+const PATH_DOT = 4
+const PATH_STEP = 0.4
+const PATH_ALPHA = 1
+/** Сторона метки в конце пути, в тайлах. */
+const PATH_GOAL = 0.4
+
 type Color = readonly [number, number, number]
 const SELECTED: Color = [0.35, 1, 0.45]
 const BAR_BACK: Color = [0.03, 0.05, 0.08]
@@ -29,7 +36,7 @@ const BAR_BUILDING: Color = [0.45, 0.9, 0.55]
 const PLANNED: Color = [0.3, 0.6, 1]
 
 /**
- * Выделение и прогресс: кольца вокруг выбранных юнитов, рамка вокруг выбранного здания, рамка, которую
+ * Выделение и прогресс: кольца вокруг выбранных юнитов и их пути, рамка вокруг выбранного здания, рамка, которую
  * игрок тянет мышью, рамки размеченных площадок и полоски превращения, производства и стройки над своими сущностями.
  * Ставить выше освещения, чтобы ночью не темнело.
  */
@@ -78,6 +85,34 @@ export function createSelectionPass(gl: WebGL2RenderingContext, scene: Scene): P
         if (!type) return null
         const { width, height } = BUILDINGS[type]
         return { x: position.x - camera.x, y: position.y - camera.y, width, height, round: false }
+      }
+
+      // Пути выбранных юнитов — под кольцами. Точки отсчитываются от конца пути, поэтому стоят на земле
+      // неподвижно, а не ползут вместе с юнитом.
+      const dot = PATH_DOT * pixel
+      for (const entity of scene.selection) {
+        const path = world.get(entity, Path)
+        const unit = world.get(entity, Unit)
+        const position = world.get(entity, Position)
+        if (!path || !unit || !position || !path.points.length) continue
+        const from = drawnPosition(position, unit, time.alpha)
+        const points = [from.x, from.y, ...path.points]
+        let carry = 0
+        for (let i = points.length - 2; i >= 2; i -= 2) {
+          const dx = points[i - 2] - points[i]
+          const dy = points[i - 1] - points[i + 1]
+          const length = Math.hypot(dx, dy)
+          let along = carry
+          for (; along < length; along += PATH_STEP) {
+            const x = points[i] + (dx / length) * along
+            const y = points[i + 1] + (dy / length) * along
+            rect(x - camera.x - dot / 2, y - camera.y - dot / 2, dot, dot, SELECTED, PATH_ALPHA)
+          }
+          carry = along - length
+        }
+        const goalX = points[points.length - 2] - camera.x - PATH_GOAL / 2
+        const goalY = points[points.length - 1] - camera.y - PATH_GOAL / 2
+        frame(goalX, goalY, PATH_GOAL, PATH_GOAL, pixel * 2, SELECTED)
       }
 
       for (const entity of scene.selection) {

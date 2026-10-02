@@ -11,7 +11,6 @@ const FILL_ALPHA = 0.18
 const BORDER_ALPHA = 0.85
 
 type Color = readonly [number, number, number]
-const WHITE: Color = [1, 1, 1]
 const ALLOWED: Color = [0.35, 1, 0.45]
 const FORBIDDEN: Color = [1, 0.3, 0.25]
 const CONTROL: Color = [0.3, 0.6, 1]
@@ -20,8 +19,9 @@ const CONTROL_DASHES = 120
 const CONTROL_DASH = 3
 
 /**
- * Подсветка под указателем мыши: тайл, а пока игрок выбирает место под здание — его основание (зелёное, если
- * строить можно, красное, если нельзя) и границы радиуса контроля. Ставить выше освещения, чтобы ночью не темнела.
+ * Подсветка под указателем мыши, пока игрок выбирает место под здание: его основание (зелёное, если строить можно,
+ * красное, если нельзя) и границы зон строительства. В остальное время ничего не рисует.
+ * Ставить выше освещения, чтобы ночью не темнела.
  */
 export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass {
   const program = createSpriteProgram(gl)
@@ -30,9 +30,9 @@ export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass
 
   return {
     draw({ camera, view }) {
-      const tile = scene.camera.pointerTile
-      if (!tile) return
+      if (!scene.camera.pointerTile) return
       const placement = placementOf(scene)
+      if (!placement) return
 
       /** Прямоугольник в тайлах от камеры. */
       const rect = (x: number, y: number, width: number, height: number, [r, g, b]: Color, alpha: number) =>
@@ -50,7 +50,7 @@ export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass
       }
 
       rects.clear()
-      if (placement) {
+      {
         const size = CONTROL_DASH / camera.zoom
         /** Внешняя граница зоны пунктиром. zone — круги: x, y и радиус подряд. */
         const outline = (zone: readonly number[], color: Color) => {
@@ -78,8 +78,6 @@ export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass
         }
         const { width, height } = BUILDINGS[placement.type]
         area(placement.x, placement.y, width, height, placement.allowed ? ALLOWED : FORBIDDEN)
-      } else {
-        area(tile.x, tile.y, 1, 1, WHITE)
       }
 
       setBlend(gl, 'alpha')
