@@ -2,7 +2,7 @@ import { createLandWindow, minZoom, type LandWindow } from '../map/landWindow'
 import type { MapSettings } from '../map/settings'
 import { createTerrainPass } from '../map/terrainPass'
 import { createRenderer } from '../render/renderer'
-import { createSim, placeDemoBuildings, spawnStartingUnits, type Command, type SimOptions } from '../sim'
+import { createSim, spawnStartingUnits, type Command, type SimOptions } from '../sim'
 import { createLightingPass } from '../weather/lightingPass'
 import { createPrecipitationPass } from '../weather/precipitationPass'
 import { createBoundsPass } from './boundsPass'
@@ -39,10 +39,9 @@ const simOptions = (settings: MapSettings): SimOptions => ({ generator: settings
 /** Пока сети нет, игрок один. */
 const PLAYER = 1
 
-/** Новая симуляция: стартовый набор игрока у начала мира и пробные ничьи базы вокруг. */
-function createDemoSim(settings: MapSettings) {
+/** Новая симуляция: стартовый набор игрока у начала мира. */
+function createNewSim(settings: MapSettings) {
   const sim = createSim(simOptions(settings))
-  placeDemoBuildings(sim, 0, 0)
   spawnStartingUnits(sim, PLAYER, 0, 0)
   return sim
 }
@@ -56,7 +55,7 @@ export function createGame(canvas: HTMLCanvasElement, settings: MapSettings, onE
   const camera = new Camera()
   const save = loadSave(simOptions(settings))
   const scene: Scene = {
-    sim: save ? createSim(save) : createDemoSim(settings),
+    sim: save ? createSim(save) : createNewSim(settings),
     player: PLAYER,
     camera,
     settings,
@@ -93,7 +92,7 @@ export function createGame(canvas: HTMLCanvasElement, settings: MapSettings, onE
   const restart = () => {
     scene.sim.destroy()
     scene.selection.clear()
-    scene.sim = createDemoSim(scene.settings)
+    scene.sim = createNewSim(scene.settings)
     saveNow()
   }
 

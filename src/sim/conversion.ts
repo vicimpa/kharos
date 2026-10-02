@@ -2,7 +2,7 @@ import type { Entity } from '../ecs'
 import { BUILDINGS, CORE, canPlace, placeBuilding } from './buildings'
 import { Building, Converting, Owner, Path, Position, Producer, Unit } from './components'
 import type { Sim } from './sim'
-import { freeTilesNear, orderMove, spawnUnit } from './units'
+import { UNITS, freeTilesNear, orderMove, spawnUnit, standingUnits } from './units'
 
 /** Сколько секунд MCV разворачивается в главное здание и сколько здание сворачивается обратно. */
 export const DEPLOY_SECONDS = 3
@@ -45,10 +45,12 @@ function evict(sim: Sim, x: number, y: number, width: number, height: number) {
     if (position.x >= x && position.x < x + width && position.y >= y && position.y < y + height) inside.push(entity)
   }
   if (!inside.length) return
-  const tiles = freeTilesNear(sim, x + Math.floor(width / 2), y + Math.floor(height / 2), inside.length, 1)
+  const group = new Set(inside)
+  const taken = standingUnits(sim, group, UNITS.mcv.radius)
+  const tiles = freeTilesNear(sim, x + Math.floor(width / 2), y + Math.floor(height / 2), inside.length, 1, taken)
   inside.forEach((entity, i) => {
     const at = Math.min(i * 2, tiles.length - 2)
-    if (at >= 0) orderMove(sim, entity, tiles[at], tiles[at + 1])
+    if (at >= 0) orderMove(sim, entity, tiles[at], tiles[at + 1], group)
   })
 }
 

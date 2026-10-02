@@ -1,8 +1,9 @@
 import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { Owner, Path, Position, Unit, canPlace, createSim, isWalkable, spawnStartingUnits, type Sim } from '../src/sim'
+import { Owner, Path, Position, UNITS, Unit, canPlace, createSim, isWalkable, spawnStartingUnits, type Sim, type UnitType } from '../src/sim'
 import { findPath, isClear, smoothPath } from '../src/sim/path'
+import { spawnUnit } from '../src/sim/units'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
 const TICK = 1 / 20
@@ -111,14 +112,115 @@ test('за тик юнит проходит не больше своей ско�
   const [x, y] = tileOf(sim, mcv)
   sim.send(1, { type: 'move', units: [mcv], x: x + 20, y })
   sim.advance(TICK)
-  for (let i = 0; i < 10; i++) {
+  let moved = 0
+  for (let i = 0; i < 40; i++) {
     const before = { ...sim.world.get(mcv, Position)! }
     sim.advance(TICK)
     const after = sim.world.get(mcv, Position)!
     const unit = sim.world.get(mcv, Unit)!
     expect([unit.prevX, unit.prevY]).toEqual([before.x, before.y])
-    expect(Math.hypot(after.x - before.x, after.y - before.y)).toBeCloseTo(2.5 * TICK, 9)
+    moved = Math.hypot(after.x - before.x, after.y - before.y)
+    expect(moved).toBeLessThanOrEqual(2.5 * TICK + 1e-9)
   }
+  // Развернувшись к цели, машина идёт полным ходом.
+  expect(moved).toBeCloseTo(2.5 * TICK, 9)
+})
+
+test('юнит поворачивает плавно: за тик не больше своей скорости поворота', () => {
+  const { sim, units } = start()
+  const mcv = units[0]
+  const [x, y] = tileOf(sim, mcv)
+  // MCV появляется, глядя вниз; цель — сзади и сбоку.
+  sim.send(1, { type: 'move', units: [mcv], x: x + 6, y: y - 10 })
+  sim.advance(TICK)
+  const angles = new Set<number>()
+  while (sim.world.has(mcv, Path)) {
+    sim.advance(TICK)
+    const { facing, prevFacing } = sim.world.get(mcv, Unit)!
+    const turned = Math.abs(Math.atan2(Math.sin(facing - prevFacing), Math.cos(facing - prevFacing)))
+    expect(turned).toBeLessThanOrEqual(UNITS.mcv.turn * TICK + 1e-9)
+    angles.add(facing)
+  }
+  // Угол не привязан к восьми или шестнадцати направлениям.
+  expect(angles.size).toBeGreaterThan(20)
+  expect(tileOf(sim, mcv)).toEqual([x + 6, y - 10])
+})
+
+/** Ровная проходимая площадка 30×9 тайлов: её левый верхний тайл. */
+function field(sim: Sim) {
+  for (let y = -200; y < 200; y += 3) {
+    search: for (let x = -200; x < 200; x += 3) {
+      for (let dy = 0; dy < 9; dy++) for (let dx = 0; dx < 30; dx++) if (!isWalkable(sim, x + dx, y + dy)) continue search
+      return { x, y }
+    }
+  }
+  throw new Error('В мире не нашлось ровной площадки')
+}
+
+/** Крутит симуляцию, пока кто-то идёт, и проверяет, что юниты не входят друг в друга. Возвращает, сколько тиков прошло. */
+function runApart(sim: Sim, units: Entity[]) {
+  // Команды выполняются в начале тика: первый тик только раздаёт пути.
+  sim.advance(TICK)
+  let ticks = 0
+  for (; ticks < 20 * 60 && sim.world.count(Path); ticks++) {
+    sim.advance(TICK)
+    for (const a of units) {
+      for (const b of units) {
+        if (a >= b) continue
+        const first = sim.world.get(a, Position)!
+        const second = sim.world.get(b, Position)!
+        const reach = UNITS[sim.world.get(a, Unit)!.type].radius + UNITS[sim.world.get(b, Unit)!.type].radius
+        expect(Math.hypot(first.x - second.x, first.y - second.y)).toBeGreaterThan(reach - 0.05)
+      }
+    }
+  }
+  return ticks
+}
+
+test('встречные юниты расходятся, не проходя друг сквозь друга', () => {
+  for (const type of ['infantry', 'builder', 'mcv'] as UnitType[]) {
+    const sim = createSim(options)
+    const { x, y } = field(sim)
+    const left = spawnUnit(sim, type, 1, x + 2, y + 4)
+    const right = spawnUnit(sim, type, 1, x + 26, y + 4)
+    sim.send(1, { type: 'move', units: [left], x: x + 23, y: y + 4 })
+    sim.send(1, { type: 'move', units: [right], x: x + 5, y: y + 4 })
+    runApart(sim, [left, right])
+    expect(tileOf(sim, left)).toEqual([x + 23, y + 4])
+    expect(tileOf(sim, right)).toEqual([x + 5, y + 4])
+  }
+})
+
+test('стоящего юнита объезжают, а занятая им цель заменяется соседней', () => {
+  const sim = createSim(options)
+  const { x, y } = field(sim)
+  const guard = spawnUnit(sim, 'mcv', 1, x + 14, y + 4)
+  const runner = spawnUnit(sim, 'builder', 1, x + 2, y + 4)
+  sim.send(1, { type: 'move', units: [runner], x: x + 26, y: y + 4 })
+  runApart(sim, [guard, runner])
+  expect(tileOf(sim, runner)).toEqual([x + 26, y + 4])
+  expect(tileOf(sim, guard)).toEqual([x + 14, y + 4])
+
+  sim.send(1, { type: 'move', units: [runner], x: x + 14, y: y + 4 })
+  runApart(sim, [guard, runner])
+  expect(sim.world.has(runner, Path)).toBe(false)
+  const [tileX, tileY] = tileOf(sim, runner)
+  expect(Math.hypot(tileX - x - 14, tileY - y - 4)).toBeLessThan(4)
+})
+
+test('быстрый юнит обгоняет медленного, а потом уступает ему дорогу', () => {
+  const sim = createSim(options)
+  const { x, y } = field(sim)
+  const slow = spawnUnit(sim, 'mcv', 1, x + 5, y + 4)
+  const fast = spawnUnit(sim, 'builder', 1, x + 2, y + 4)
+  sim.send(1, { type: 'move', units: [slow], x: x + 27, y: y + 4 })
+  sim.send(1, { type: 'move', units: [fast], x: x + 23, y: y + 4 })
+  runApart(sim, [slow, fast])
+  expect(tileOf(sim, slow)).toEqual([x + 27, y + 4])
+  // Строитель пришёл первым и встал на пути MCV; тот попросил его отойти.
+  const [tileX, tileY] = tileOf(sim, fast)
+  expect([tileX, tileY]).not.toEqual([x + 23, y + 4])
+  expect(Math.hypot(tileX - x - 23, tileY - y - 4)).toBeLessThan(4)
 })
 
 test('чужими юнитами командовать нельзя', () => {

@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { BUILDING_ART } from '../src/game/buildings/buildingArt'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Pixmap } from '../src/render/pixmap'
-import { BUILDING_TYPES, Building, canPlace, createSim, placeDemoBuildings, type Sim } from '../src/sim'
+import { BUILDING_TYPES, canPlace, createSim, type Sim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 
 const createScene = () => ({ sim: createSim({ generator: DEFAULT_SETTINGS.generator, size: 1024 }) })
@@ -33,15 +33,6 @@ test('зазор не даёт ставить здания вплотную', ()
   const { x, y } = freeTile(scene)
   placeBuilding(scene.sim.world, 'turret', x, y)
   expect(canPlace(scene.sim, 'turret', x - 2, y, 2)).toBe(false)
-})
-
-test('пробная расстановка ставит здания только на скале и без наложений', () => {
-  const scene = createScene()
-  placeDemoBuildings(scene.sim, 0, 0)
-  expect(scene.sim.world.count(Building)).toBeGreaterThan(50)
-  scene.sim.world.clear()
-  expect(scene.sim.world.count(Building)).toBe(0)
-  expect(scene.sim.occupancy.at(0, 0)).toBeUndefined()
 })
 
 test('каждый чертёж рисуется во всех кадрах и сообщает одни и те же огни', () => {

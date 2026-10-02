@@ -13,16 +13,22 @@ export const Owner = component('Owner', { player: 0 })
 
 /**
  * Юнит. prevX, prevY — где он был тик назад: клиент рисует его между прошлым и нынешним местом.
- * facing — куда смотрит, в радианах: 0 — вправо, растёт по часовой стрелке.
+ * facing — куда смотрит, в радианах от -π до π: 0 — вправо, растёт по часовой стрелке. prevFacing — куда смотрел тик назад.
  */
-export const Unit = component('Unit', { type: 'infantry' as UnitType, prevX: 0, prevY: 0, facing: Math.PI / 2 })
+export const Unit = component('Unit', {
+  type: 'infantry' as UnitType,
+  prevX: 0,
+  prevY: 0,
+  facing: Math.PI / 2,
+  prevFacing: Math.PI / 2,
+})
 
 /**
  * Путь, по которому юнит идёт; компонент есть, только пока он в пути.
  * points — оставшиеся точки в тайлах, x, y подряд. goalX, goalY — тайл, куда он шёл изначально.
- * blocked — путь упёрся в препятствие и уже прокладывался заново.
+ * wait — сколько тиков подряд юнит не может сдвинуться; tries — сколько раз путь к этой точке уже прокладывался заново.
  */
-export const Path = component('Path', () => ({ points: [] as number[], goalX: 0, goalY: 0, blocked: false }))
+export const Path = component('Path', () => ({ points: [] as number[], goalX: 0, goalY: 0, wait: 0, tries: 0 }))
 
 /** Игрок: сущность без места на карте. Отслеживается, чтобы интерфейс узнавал о смене счёта. */
 export const Player = component('Player', { id: 0, credits: 0 }, { tracked: true })

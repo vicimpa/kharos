@@ -22,6 +22,12 @@ export function drawnPosition(position: { x: number; y: number }, unit: { prevX:
   }
 }
 
+/** Куда юнит смотрит в этом кадре: между прошлым и нынешним углом по короткой дуге. */
+export function drawnFacing(unit: { facing: number; prevFacing: number }, alpha: number) {
+  const turned = unit.facing - unit.prevFacing
+  return unit.prevFacing + (turned - TURN * Math.round(turned / TURN)) * alpha
+}
+
 /** Проход юнитов: тени и сами юниты. Юниты — сущности с Position и Unit. */
 export function createUnitsPass(gl: WebGL2RenderingContext, scene: Scene): Pass {
   // Кадры идут подряд: все направления первого вида, потом второго и так далее.
@@ -57,7 +63,7 @@ export function createUnitsPass(gl: WebGL2RenderingContext, scene: Scene): Pass 
         const top = y - camera.y - SPRITE_TILES / 2
         if (Math.abs(x - camera.x) > halfWidth || Math.abs(y - camera.y) > halfHeight) continue
 
-        const direction = ((Math.round((unit.facing / TURN) * UNIT_DIRECTIONS) % UNIT_DIRECTIONS) + UNIT_DIRECTIONS) % UNIT_DIRECTIONS
+        const direction = ((Math.round((drawnFacing(unit, time.alpha) / TURN) * UNIT_DIRECTIONS) % UNIT_DIRECTIONS) + UNIT_DIRECTIONS) % UNIT_DIRECTIONS
         const { u, v, width: frameWidth, height: frameHeight } = frames.get(unit.type)![direction]
         shadows.push(left + SHADOW_SHIFT, top + SHADOW_SHIFT, SPRITE_TILES, SPRITE_TILES, u, v, frameWidth, frameHeight, 0, 0, 0, SHADOW_ALPHA)
         sprites.push(left, top, SPRITE_TILES, SPRITE_TILES, u, v, frameWidth, frameHeight, 1, 1, 1, 1)

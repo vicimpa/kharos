@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { World, component } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { Building, Position, canPlace, createSim, placeDemoBuildings, type Sim } from '../src/sim'
+import { Building, Position, canPlace, createSim, type Sim } from '../src/sim'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
 /** Один тик симуляции: по умолчанию их двадцать в секунду. */
@@ -52,7 +52,8 @@ test('за границами карты строить нельзя', () => {
 
 test('сохранение восстанавливает мир, тик и номера сущностей', () => {
   const sim = createSim(options)
-  placeDemoBuildings(sim, 0, 0)
+  const site = freeTile(sim)
+  sim.send(1, { type: 'placeBuilding', building: 'turret', x: site.x, y: site.y })
   sim.advance(TICK * 3)
   // Через JSON: сохранение должно переживать диск и сеть.
   const save = JSON.parse(JSON.stringify(sim.save()))
