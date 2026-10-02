@@ -2,7 +2,7 @@ import type { Entity } from '../ecs'
 import { BUILDABLE, BUILDINGS, BUILD_RATE, CORE, canPlace, siteAt, type BuildingSpec, type BuildingType } from './buildings'
 import { Building, Builds, Converting, Owner, Path, Position, Site, Unit } from './components'
 import { oreLeft } from './deposits'
-import { addCredits, pay, reward } from './economy'
+import { addCredits, pay, reward, spend } from './economy'
 import { powerStates, type PowerState } from './income'
 import type { Sim } from './sim'
 import { inCircles, inForeignZone, zoneOf } from './zones'
@@ -52,6 +52,11 @@ export function canBuild(sim: Sim, player: number, type: BuildingType, x: number
 
 /** Во сколько раз чинить быстрее, чем строить: полностью разбитое здание чинится за половину времени стройки. */
 export const REPAIR_SPEED = 2
+/** Какую долю цены здания стоит починить его с нуля до целого. Платят по мере починки. */
+export const REPAIR_COST = 0.5
+
+/** Сколько кредитов стоит дочинить здание этого вида с прочностью health. */
+export const repairCostOf = (type: BuildingType, health: number) => Math.ceil(BUILDINGS[type].cost * REPAIR_COST * (1 - health))
 
 /** Кому сейчас не хватает энергии. Считается недёшево, поэтому по требованию и не больше раза на вызов. */
 type States = () => Map<Entity, PowerState>
@@ -323,9 +328,11 @@ export function construct(sim: Sim) {
   for (const [entity, count] of workers) {
     const site = world.get(entity, Site)
     if (!site) {
-      // Починка: денег не стоит, идёт быстрее стройки.
+      // Починка идёт быстрее стройки и оплачивается по мере работы; кончились кредиты — стоит.
       const building = world.get(entity, Building)!
-      building.health = Math.min(1, building.health + (count * REPAIR_SPEED) / siteTicks(building.type, time.step))
+      const gain = Math.min(1 - building.health, (count * REPAIR_SPEED) / siteTicks(building.type, time.step))
+      const owner = world.get(entity, Owner)?.player ?? 0
+      if (spend(sim, owner, gain * BUILDINGS[building.type].cost * REPAIR_COST)) building.health += gain
       continue
     }
     const position = world.get(entity, Position)!

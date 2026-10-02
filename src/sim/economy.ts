@@ -64,3 +64,18 @@ export function pay(sim: Sim, player: number, amount: number) {
   sim.world.set(entity, Player, { credits: credits - amount })
   return true
 }
+
+/**
+ * Списывает сумму с дробной частью, если денег хватает: доли идут из заработанного, но ещё не дошедшего
+ * до целого кредита (Player.earned), а когда его не хватает — разменивается целый кредит со счёта.
+ */
+export function spend(sim: Sim, player: number, amount: number) {
+  const entity = playerEntity(sim, player)
+  if (entity === undefined) return false
+  const { credits, earned } = sim.world.get(entity, Player)!
+  const left = earned - amount
+  const whole = left < 0 ? Math.ceil(-left) : 0
+  if (credits < whole) return false
+  sim.world.set(entity, Player, { credits: credits - whole, earned: left + whole })
+  return true
+}

@@ -2,8 +2,8 @@ import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import {
-  BUILDINGS, Building, Builds, CORE, Owner, Site, Unit,
-  OVERLOAD_DAMAGE, REPAIR_SPEED, canBuild, canDeploy, canPlace, createSim, creditsOf, economyOf, powerOf, powerStates, refundOf, rewardsOf, siteAt, zoneEconomies, zoneOf, zonesOf, spawnStartingUnits, type BuildingType, type Sim,
+  BUILDINGS, Building, Builds, CORE, Owner, Player, Site, Unit,
+  OVERLOAD_DAMAGE, REPAIR_COST, REPAIR_SPEED, canBuild, canDeploy, canPlace, createSim, creditsOf, economyOf, powerOf, powerStates, refundOf, rewardsOf, siteAt, zoneEconomies, zoneOf, zonesOf, spawnStartingUnits, type BuildingType, type Sim,
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { REWARDS, STARTING_CREDITS } from '../src/sim/economy'
@@ -295,15 +295,25 @@ test('строители чинят повреждённое здание — п
   sim.advance(TICK)
   expect(sim.world.has(builders[0], Builds)).toBe(false)
 
-  // Свободные строители рядом сами берутся за починку. Она идёт вдвое быстрее стройки и денег не стоит.
+  // Свободные строители рядом сами берутся за починку. Она идёт вдвое быстрее стройки и стоит половину цены за целое здание.
   sim.world.get(plant, Building)!.health = 0.2
   const credits = creditsOf(sim, 1)
+  const repairTime = 5 + (0.8 * (BUILDINGS.generator.cost / 20)) / REPAIR_SPEED
   seconds(sim, 5)
   expect(sim.world.has(builders[0], Builds)).toBe(true)
-  const buildSeconds = BUILDINGS.generator.cost / 20
-  seconds(sim, (0.8 * buildSeconds) / REPAIR_SPEED)
-  expect(health()).toBe(1)
-  expect(creditsOf(sim, 1)).toBeLessThan(credits + 20)
+  seconds(sim, repairTime - 5)
+  expect(health()).toBeCloseTo(1)
+  // За это время набежал доход 1,2 в секунду; починка 80% станции стоила 120.
+  const paid = credits + 1.2 * repairTime - creditsOf(sim, 1)
+  expect(Math.abs(paid - 0.8 * BUILDINGS.generator.cost * REPAIR_COST)).toBeLessThan(2)
+
+  // Без кредитов починка стоит.
+  sim.world.get(plant, Building)!.health = 0.5
+  for (const [entity, player] of sim.world.query(Player)) if (player.id === 1) sim.world.set(entity, Player, { credits: 0, earned: 0 })
+  seconds(sim, 10)
+  expect(health()).toBeLessThan(0.6)
+  expect(health()).toBeGreaterThan(0.5)
+  sim.world.get(plant, Building)!.health = 1
   sim.advance(TICK)
   expect(sim.world.has(builders[0], Builds)).toBe(false)
 

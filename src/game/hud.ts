@@ -1,7 +1,7 @@
 import type { Entity } from '../ecs'
 import {
   BUILDABLE, BUILDINGS, Building, Converting, PRODUCIBLE, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
-  buildTicks, canDemolish, canDeploy, canPack, isDeployBlocked, coreCenters, creditsOf, economyOf, isSiteBlocked, oreLeft, powerOf, powerStates, refundOf, rewardsOf, siteTicks, zoneEconomies, zonesOf,
+  buildTicks, canDemolish, canDeploy, canPack, isDeployBlocked, coreCenters, creditsOf, economyOf, isSiteBlocked, oreLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, zoneEconomies, zonesOf,
   Position, type BuildingSpec, type BuildingType, type Command, type UnitType,
 } from '../sim'
 import type { Scene } from './scene'
@@ -18,8 +18,9 @@ export interface HudState {
    * просят потребители. У каждой зоны она своя, поэтому общего счётчика нет.
    */
   power: { produced: number; demand: number } | null
-  /** Прочность выбранного здания от 0 до 1, если оно повреждено. */
+  /** Прочность выбранного здания от 0 до 1, если оно повреждено, и сколько кредитов стоит его дочинить. */
   health: number | null
+  repair: number
   /** Выбранному зданию не хватает энергии, и оно работает медленнее. */
   starved: boolean
   /** Выбранные юниты по видам. */
@@ -90,6 +91,7 @@ export function readHud(scene: Scene): HudState {
   let ore: number | null = null
   let power: HudState['power'] = null
   let health: number | null = null
+  let repair = 0
   let starved = false
   const zones = zoneEconomies(sim, player)
   const producers: Entity[] = []
@@ -107,7 +109,10 @@ export function readHud(scene: Scene): HudState {
       if (zone >= 0) power = { produced: zones[zone].produced, demand: zones[zone].demand }
     }
     const built = world.get(entity, Building)
-    if (built && built.health < 1) health = round(built.health)
+    if (built && built.health < 1) {
+      health = round(built.health)
+      repair = repairCostOf(built.type, built.health)
+    }
     if (built && powerStates(sim).get(entity) === 'starved') starved = true
     const work = world.get(entity, Site)
     if (work) {
@@ -126,6 +131,7 @@ export function readHud(scene: Scene): HudState {
     income: round(economyOf(sim, player).income),
     power,
     health,
+    repair,
     starved,
     units: UNIT_TYPES.filter((type) => counts.has(type)).map((type) => ({ type, count: counts.get(type)! })),
     building,
