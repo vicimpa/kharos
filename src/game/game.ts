@@ -3,7 +3,7 @@ import type { MapSettings } from '../map/settings'
 import { createTerrainPass } from '../map/terrainPass'
 import { createRenderer } from '../render/renderer'
 import type { Session } from '../net/connect'
-import { Owner, Position, Unit, createSim, driveBattle, spawnBattle, spawnStartingUnits, type BuildingType, type Command, type SimOptions } from '../sim'
+import { Owner, Position, Unit, createSim, driveBattle, randomArmy, spawnBattle, spawnStartingUnits, type BuildingType, type Command, type SimOptions } from '../sim'
 import { createLightingPass } from '../weather/lightingPass'
 import { createPrecipitationPass } from '../weather/precipitationPass'
 import { createBoundsPass } from './boundsPass'
@@ -49,11 +49,19 @@ const PLAYER = 1
 const BATTLE_ORDERS = 0.5
 const BATTLE_PAUSE = 3
 
-/** Новая симуляция: стартовый набор игрока у начала мира, а в показательном бою — две случайные армии. */
+/**
+ * Новая симуляция: стартовый набор игрока у начала мира, а в показательном бою — две случайные армии
+ * по настройкам боя.
+ */
 function createNewSim(settings: MapSettings, battle = false) {
   const sim = createSim(simOptions(settings))
-  if (battle) spawnBattle(sim, PLAYER, 0, 0)
-  else spawnStartingUnits(sim, PLAYER, 0, 0)
+  if (battle) {
+    const { budget, gap, mirror, ...weights } = settings.battle
+    const own = randomArmy(budget, weights)
+    spawnBattle(sim, PLAYER, 0, 0, own, mirror ? own : randomArmy(budget, weights), gap)
+  } else {
+    spawnStartingUnits(sim, PLAYER, 0, 0)
+  }
   return sim
 }
 

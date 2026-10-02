@@ -13,15 +13,27 @@ const BATTLE_GAP = 10
 
 /**
  * Случайная армия из боевых юнитов на budget кредитов: юниты добираются по одному, пока хватает денег хотя бы
- * на самого дешёвого. random — источник случайных чисел от 0 до 1.
+ * на самого дешёвого из разрешённых. weights — насколько часто берётся каждый тип: 0 — не берётся совсем, тип без
+ * веса берётся с весом 1; если все веса нулевые, типы равноправны. random — источник случайных чисел от 0 до 1.
  */
-export function randomArmy(budget = ARMY_BUDGET, random: () => number = Math.random) {
-  const armed = UNIT_TYPES.filter((type) => (UNITS[type] as UnitSpec).weapon)
+export function randomArmy(budget = ARMY_BUDGET, weights: Partial<Record<UnitType, number>> = {}, random: () => number = Math.random) {
+  const weightOf = (type: UnitType) => Math.max(0, weights[type] ?? 1)
+  let armed = UNIT_TYPES.filter((type) => (UNITS[type] as UnitSpec).weapon)
+  if (armed.some((type) => weightOf(type) > 0)) armed = armed.filter((type) => weightOf(type) > 0)
+  else weights = {}
   const army: UnitType[] = []
   for (;;) {
     const affordable = armed.filter((type) => UNITS[type].cost <= budget)
     if (!affordable.length) return army
-    const type = affordable[Math.floor(random() * affordable.length)]
+    let pick = random() * affordable.reduce((sum, type) => sum + weightOf(type), 0)
+    let type = affordable[affordable.length - 1]
+    for (const candidate of affordable) {
+      pick -= weightOf(candidate)
+      if (pick < 0) {
+        type = candidate
+        break
+      }
+    }
     army.push(type)
     budget -= UNITS[type].cost
   }
@@ -29,14 +41,14 @@ export function randomArmy(budget = ARMY_BUDGET, random: () => number = Math.ran
 
 /**
  * Показательный бой: две армии по обе стороны от тайла (x, y) — own игрока player слева, foe учебного противника
- * справа. Без составов каждая сторона получает свою случайную армию той же цены.
+ * справа, каждая в gap тайлах от него. Без составов каждая сторона получает свою случайную армию той же цены.
  * Сами они не сойдутся: вести их в бой должен driveBattle.
  */
-export function spawnBattle(sim: Sim, player: number, x: number, y: number, own = randomArmy(), foe = randomArmy()) {
+export function spawnBattle(sim: Sim, player: number, x: number, y: number, own = randomArmy(), foe = randomArmy(), gap = BATTLE_GAP) {
   for (const [owner, side, army] of [[player, -1, own], [TRAINING_PLAYER, 1, foe]] as const) {
     for (const air of [false, true]) {
       const types = army.filter((type) => flies(type) === air)
-      const tiles = freeTilesNear(sim, x + side * BATTLE_GAP, y, types.length, 0, undefined, air)
+      const tiles = freeTilesNear(sim, x + side * gap, y, types.length, 0, undefined, air)
       for (let i = 0; i < types.length && i * 2 < tiles.length; i++) spawnUnit(sim, types[i], owner, tiles[i * 2], tiles[i * 2 + 1])
     }
   }

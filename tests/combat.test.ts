@@ -277,7 +277,11 @@ test('пехоту выпускают казармы, технику — маш�
 
 test('показательный бой: армии сходятся сами, и бой кончается', () => {
   const sim = createSim(options)
-  const army = randomArmy(3500, () => 0.37)
+  const army = randomArmy(3500, {}, () => 0.37)
+  // Нулевой вес убирает тип из армии, а когда запрещены все — типы снова равноправны.
+  const tanks = randomArmy(3500, { infantry: 0, rocketeer: 0, buggy: 0, lancer: 0, tesla: 0, drone: 0, gunship: 0 })
+  expect(tanks).toEqual(Array(5).fill('tank'))
+  expect(randomArmy(3500, { infantry: 0, rocketeer: 0, buggy: 0, lancer: 0, tank: 0, tesla: 0, drone: 0, gunship: 0 }).length).toBeGreaterThan(0)
   expect(army.reduce((sum, type) => sum + UNITS[type].cost, 0)).toBeGreaterThan(3500 - 60)
   expect(army.every((type) => UNITS[type].weapon)).toBe(true)
   spawnBattle(sim, 1, 0, 0)

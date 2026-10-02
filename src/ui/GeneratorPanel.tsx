@@ -1,6 +1,7 @@
 import { useState } from 'preact/hooks'
-import { DEFAULT_SETTINGS, type MapSettings, type RenderConfig, type WeatherConfig, type WorldConfig } from '../map/settings'
+import { DEFAULT_SETTINGS, type BattleConfig, type MapSettings, type RenderConfig, type WeatherConfig, type WorldConfig } from '../map/settings'
 import { PEAK_RADIUS_LIMIT, type GeneratorConfig } from '../map/terrain'
+import { UNIT_NAMES } from './names'
 
 interface Field<T> {
   key: keyof T
@@ -74,6 +75,30 @@ const WEATHER_GROUPS: Group<WeatherConfig>[] = [
       { key: 'windY', label: 'Ветер, Y', min: -8, max: 8, step: 0.1 },
       { key: 'precipitation', label: 'Осадки', min: 0, max: 1, step: 0.01 },
     ],
+  },
+]
+
+const share = (key: 'infantry' | 'rocketeer' | 'buggy' | 'lancer' | 'tank' | 'tesla' | 'drone' | 'gunship'): Field<BattleConfig> => ({
+  key,
+  label: UNIT_NAMES[key],
+  min: 0,
+  max: 3,
+  step: 0.1,
+})
+
+/** Настройки случайного боя: действуют со следующего боя. */
+const BATTLE_GROUPS: Group<BattleConfig>[] = [
+  {
+    title: 'Случайный бой',
+    fields: [
+      { key: 'budget', label: 'Цена армии', min: 500, max: 12000, step: 100 },
+      { key: 'gap', label: 'Отступ сторон', min: 4, max: 20, step: 1 },
+      { key: 'mirror', label: 'Одинаковые армии', min: 0, max: 1, step: 1 },
+    ],
+  },
+  {
+    title: 'Случайный бой: доля юнитов',
+    fields: [share('infantry'), share('rocketeer'), share('buggy'), share('lancer'), share('tank'), share('tesla'), share('drone'), share('gunship')],
   },
 ]
 
@@ -151,6 +176,8 @@ export function GeneratorPanel({ settings, onChange, onRestart }: GeneratorPanel
         values={settings.weather}
         onChange={(weather) => onChange({ ...settings, weather })}
       />
+
+      <Groups groups={BATTLE_GROUPS} values={settings.battle} onChange={(battle) => onChange({ ...settings, battle })} />
 
       <footer class="panel__footer">
         <button onClick={() => onChange(DEFAULT_SETTINGS)}>Сбросить</button>
