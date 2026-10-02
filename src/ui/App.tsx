@@ -21,6 +21,9 @@ function serverAddress() {
   return { url: server || `ws://${location.hostname}:${DEFAULT_PORT}`, lag: Number(query.get('lag')) || 0 }
 }
 
+/** Отладочная панель генератора скрыта; открывается параметром ?panel в адресной строке. */
+const SHOW_PANEL = new URLSearchParams(location.search).has('panel')
+
 /** Страница игры: холст, на котором живёт сама игра, и интерфейс поверх него. */
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -77,7 +80,9 @@ export function App() {
           place={(building) => gameRef.current?.place(building)}
         />
       )}
-      <GeneratorPanel settings={settings} onChange={setSettings} onRestart={() => gameRef.current?.restart()} />
+      {SHOW_PANEL && (
+        <GeneratorPanel settings={settings} onChange={setSettings} onRestart={() => gameRef.current?.restart()} />
+      )}
       {error !== null && (
         <div class="game__error" role="alert">
           <strong>Игра остановилась</strong>
