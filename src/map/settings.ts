@@ -27,7 +27,8 @@ export interface WeatherConfig {
 }
 
 export const DEFAULT_WEATHER_CONFIG: WeatherConfig = {
-  light: 1,
+  // Ночь: в темноте видны фары, огни зданий и вспышки боя.
+  light: 0.1,
   windX: 2,
   windY: 0.5,
   precipitation: 0,
@@ -58,6 +59,8 @@ export const DEFAULT_SETTINGS: MapSettings = {
 }
 
 const STORAGE_KEY = 'kharos.mapSettings'
+/** Версия сохранённой погоды. Меняется вместе с погодой по умолчанию: тогда сохранённая один раз отбрасывается. */
+const WEATHER_VERSION = 2
 
 /** Берёт из сохранённого только известные числовые поля; остальные остаются по умолчанию. */
 function merge<T extends object>(defaults: T, saved: unknown): T {
@@ -77,7 +80,7 @@ export function loadSettings(): MapSettings {
       generator: merge(DEFAULT_CONFIG, saved?.generator),
       world: merge(DEFAULT_WORLD_CONFIG, saved?.world),
       render: merge(DEFAULT_RENDER_CONFIG, saved?.render),
-      weather: merge(DEFAULT_WEATHER_CONFIG, saved?.weather),
+      weather: merge(DEFAULT_WEATHER_CONFIG, saved?.weatherVersion === WEATHER_VERSION ? saved.weather : undefined),
     }
   } catch {
     return DEFAULT_SETTINGS
@@ -86,7 +89,7 @@ export function loadSettings(): MapSettings {
 
 export function saveSettings(settings: MapSettings) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...settings, weatherVersion: WEATHER_VERSION }))
   } catch {
     // Хранилище может быть недоступно (приватный режим, запрет в настройках) — тогда просто не сохраняем.
   }
