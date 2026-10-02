@@ -18,7 +18,7 @@ export const UNIT_NAMES: Record<UnitType, string> = {
 export const BUILDING_NAMES: Record<BuildingType, string> = {
   command: 'Главное здание',
   refinery: 'Переработка',
-  factory: 'Завод',
+  factory: 'Машинный завод',
   generator: 'Электростанция',
   matter: 'Генератор материи',
   radar: 'Радар',

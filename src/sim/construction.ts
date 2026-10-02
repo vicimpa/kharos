@@ -1,6 +1,6 @@
 import type { Entity } from '../ecs'
 import { BUILDABLE, BUILDINGS, BUILD_RATE, CORE, canPlace, docksClear, siteAt, type BuildingSpec, type BuildingType } from './buildings'
-import { Building, Builds, Converting, Owner, Path, Position, Site, Unit } from './components'
+import { Building, Builds, Converting, Owner, Path, Position, Producer, Site, Unit } from './components'
 import { oreLeft } from './deposits'
 import { addCredits, pay, reward, spend } from './economy'
 import { overbuiltPlants } from './income'
@@ -353,6 +353,7 @@ export function construct(sim: Sim) {
     site.progress += count
     if (site.progress < siteTicks(site.type, time.step)) continue
     world.remove(entity, Site)
+    if ((BUILDINGS[site.type] as BuildingSpec).produces) world.add(entity, Producer)
     reward(sim, player, site.type)
   }
 }

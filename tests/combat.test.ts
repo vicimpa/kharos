@@ -1,8 +1,9 @@
 import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { Armed, Blast, Building, Path, Position, Shot, UNITS, Unit, WEAPONS, buildingHp, canAttack, canPlace, createSim, isWalkable, type Sim } from '../src/sim'
+import { Armed, Blast, Building, Path, Position, Producer, Shot, UNITS, Unit, WEAPONS, buildingHp, canAttack, canPlace, createSim, isWalkable, producibleBy, type Sim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
+import { addCredits } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
@@ -219,4 +220,41 @@ test('бой переживает сохранение', () => {
   seconds(copy, 3)
   expect(copy.world.get(foe, Unit)!.health).toBeLessThan(1)
   expect(UNITS.tank.hp).toBeGreaterThan(WEAPONS.cannon.damage * 2)
+})
+
+test('пехоту выпускают казармы, технику — машинный завод, летающих — космопорт', () => {
+  const sim = createSim(options)
+  addCredits(sim, 1, 10000)
+  let spot: { x: number; y: number } | undefined
+  for (let y = -60; y < 60 && !spot; y++) {
+    for (let x = -60; x < 60 && !spot; x++) if (canPlace(sim, 'command', x, y) && canPlace(sim, 'command', x + 4, y) && canPlace(sim, 'command', x + 8, y)) spot = { x, y }
+  }
+  const barracks = placeBuilding(sim.world, 'barracks', spot!.x, spot!.y, 1)
+  const factory = placeBuilding(sim.world, 'factory', spot!.x + 4, spot!.y, 1)
+  const port = placeBuilding(sim.world, 'spaceport', spot!.x + 8, spot!.y, 1)
+  expect(producibleBy(sim, barracks)).toEqual(['infantry', 'rocketeer'])
+  expect(producibleBy(sim, factory)).toEqual(['buggy', 'lancer', 'tank', 'tesla'])
+  expect(producibleBy(sim, port)).toEqual(['drone', 'gunship'])
+
+  sim.send(1, { type: 'produce', producer: barracks, unit: 'tank' })
+  sim.send(1, { type: 'produce', producer: barracks, unit: 'rocketeer' })
+  sim.send(1, { type: 'produce', producer: factory, unit: 'tank' })
+  sim.send(1, { type: 'produce', producer: port, unit: 'drone' })
+  sim.send(2, { type: 'produce', producer: port, unit: 'gunship' })
+  sim.advance(TICK)
+  expect(sim.world.get(barracks, Producer)!.queue).toEqual(['rocketeer'])
+  expect(sim.world.get(factory, Producer)!.queue).toEqual(['tank'])
+  expect(sim.world.get(port, Producer)!.queue).toEqual(['drone'])
+  seconds(sim, UNITS.tank.buildTime + 1)
+  const made: string[] = []
+  for (const [, unit] of sim.world.query(Unit)) made.push(unit.type)
+  expect(made.sort()).toEqual(['drone', 'rocketeer', 'tank'])
+
+  // Здание под разбором не производит.
+  sim.send(1, { type: 'demolish', building: barracks, builders: [] })
+  sim.send(1, { type: 'produce', producer: barracks, unit: 'infantry' })
+  sim.advance(TICK)
+  sim.advance(TICK)
+  expect(producibleBy(sim, barracks)).toEqual([])
+  expect(sim.world.get(barracks, Producer)!.queue).toEqual([])
 })

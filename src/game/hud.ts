@@ -1,6 +1,6 @@
 import type { Entity } from '../ecs'
 import {
-  Armed, BUILDABLE, BUILDINGS, Building, Converting, Hauler, ORE_PRICE, Owner, PRODUCIBLE, TRUCK_CAPACITY, Trade, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
+  Armed, BUILDABLE, BUILDINGS, Building, Converting, Hauler, ORE_PRICE, CORE, Owner, producibleBy, TRUCK_CAPACITY, Trade, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
   buildTicks, canDemolish, canDeploy, canPack, isDeployBlocked, coreCenters, creditsOf, economyOf, isSiteBlocked, oreLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, zoneEconomies, zonesOf,
   Position, type BuildingSpec, type BuildingType, type Command, type UnitType,
 } from '../sim'
@@ -84,7 +84,7 @@ export interface HudState {
     /** Команда отмены, если идущее превращение можно отменить. */
     cancel: Command | null
   } | null
-  /** Производство, если среди выбранного ровно один производитель. */
+  /** Производство, если среди выбранного ровно один производитель: MCV или готовое здание, выпускающее юнитов. */
   production: {
     producer: number
     queue: UnitType[]
@@ -171,7 +171,7 @@ export function readHud(scene: Scene): HudState {
       site = { entity, started: world.has(entity, Building), blocked: isSiteBlocked(sim, entity), progress, demolish: work.demolish }
     }
     if (canDemolish(sim, player, entity)) demolish = { building: entity, refund: refundOf(world.get(entity, Building)!.type) }
-    if (world.has(entity, Producer)) producers.push(entity)
+    if (producibleBy(sim, entity).length) producers.push(entity)
   }
 
   // Кнопки стройки показывают энергию для первой зоны: в какую попадёт здание, до выбора места неизвестно.
@@ -212,11 +212,11 @@ export function readHud(scene: Scene): HudState {
   }
   if (producers.length !== 1) return state
 
-  // Производитель один: это MCV или главное здание. У него есть и превращение, и производство.
+  // Производитель один. У MCV и главного здания есть ещё и превращение.
   const [entity] = producers
   const converting = world.get(entity, Converting)
   const isUnit = world.has(entity, Unit)
-  state.conversion = {
+  if (isUnit || world.get(entity, Building)?.type === CORE) state.conversion = {
     kind: isUnit ? 'deploy' : 'pack',
     command: isUnit ? { type: 'deploy', unit: entity } : { type: 'pack', building: entity },
     possible: isUnit ? canDeploy(sim, player, entity) : canPack(sim, player, entity),
@@ -232,7 +232,7 @@ export function readHud(scene: Scene): HudState {
     queue: [...producer.queue],
     progress: first ? round(Math.min(1, producer.progress / buildTicks(first, sim.time.step))) : 0,
     full: producer.queue.length >= QUEUE_LIMIT,
-    options: PRODUCIBLE.map((unit) => ({ unit, cost: UNITS[unit].cost, affordable: credits >= UNITS[unit].cost })),
+    options: producibleBy(sim, entity).map((unit) => ({ unit, cost: UNITS[unit].cost, affordable: credits >= UNITS[unit].cost })),
   }
   return state
 }

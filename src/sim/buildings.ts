@@ -2,6 +2,7 @@ import type { Entity, World } from '../ecs'
 import { isBuildable, isPassable, terrainAt } from '../map/terrain'
 import { Building, Owner, Position, Producer, Site } from './components'
 import type { Sim } from './sim'
+import type { UnitType } from './units'
 
 /** Что симуляция знает о виде здания. Как оно выглядит, знает клиент: см. game/buildings/buildingArt.ts. */
 export interface BuildingSpec {
@@ -31,6 +32,8 @@ export interface BuildingSpec {
    * верхнего тайла основания, facing — куда при этом смотрит грузовик. Тайл должен оставаться проходимым.
    */
   dock?: { x: number; y: number; facing: number }
+  /** Каких юнитов здание производит, когда достроено. */
+  produces?: UnitType[]
   /** Доход в кредитах в секунду. У потребителя энергии он падает вместе с её нехваткой. */
   income?: number
   /**
@@ -49,21 +52,23 @@ export const BUILD_RATE = 20
 export const BUILDINGS = {
   // Доход главного здания не даёт остаться без кредитов совсем: на генератор он копит долго, но копит.
   // Коннектор — под воротами, посередине нижней стороны. Немного руды главное здание хранит само.
-  command: { width: 3, height: 3, cost: 2000, income: 0.2, zone: 12, stores: 100, dock: { x: 1, y: 3, facing: Math.PI / 2 } },
+  command: { width: 3, height: 3, cost: 2000, income: 0.2, zone: 12, stores: 100, produces: ['builder', 'truck'], dock: { x: 1, y: 3, facing: Math.PI / 2 } },
   refinery: { width: 3, height: 2, cost: 600 },
-  factory: { width: 2, height: 2, cost: 500 },
+  // Машинный завод: машинки и тяжёлая техника.
+  factory: { width: 2, height: 2, cost: 500, produces: ['buggy', 'lancer', 'tank', 'tesla'] },
   // Электростанция.
   generator: { width: 2, height: 2, cost: 300, power: 10 },
   // Генератор материи — базовый доход: превращает энергию в кредиты.
   matter: { width: 2, height: 2, cost: 400, power: -5, income: 1, crowding: true },
   radar: { width: 2, height: 2, cost: 400 },
   windtrap: { width: 2, height: 2, cost: 300 },
-  barracks: { width: 2, height: 2, cost: 300 },
+  barracks: { width: 2, height: 2, cost: 300, produces: ['infantry', 'rocketeer'] },
   // Шахта энергии не просит и начинает свою зону: тянуть к месторождению цепочку зданий не нужно.
   // Месторождения невелики, поэтому добыча медленная, а руда дорогая. Коннектор — под левым нижним тайлом.
   mine: { width: 2, height: 2, cost: 500, zone: 6, extract: 0.5, dock: { x: 0, y: 2, facing: Math.PI / 2 } },
   silo: { width: 2, height: 1, cost: 150, stores: 200, dock: { x: 0, y: 1, facing: Math.PI / 2 } },
-  spaceport: { width: 3, height: 3, cost: 600, trades: true, dock: { x: 1, y: 3, facing: Math.PI / 2 } },
+  // Космопорт ещё и выпускает летающих.
+  spaceport: { width: 3, height: 3, cost: 600, trades: true, produces: ['drone', 'gunship'], dock: { x: 1, y: 3, facing: Math.PI / 2 } },
   turret: { width: 1, height: 1, cost: 250 },
 } satisfies Record<string, BuildingSpec>
 
@@ -72,7 +77,7 @@ export type BuildingType = keyof typeof BUILDINGS
 export const CORE: BuildingType = 'command'
 export const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[]
 /** Что возводят строители. Остальные здания появятся вместе с тем, для чего они нужны. */
-export const BUILDABLE: BuildingType[] = ['generator', 'matter', 'mine', 'silo', 'spaceport']
+export const BUILDABLE: BuildingType[] = ['generator', 'matter', 'mine', 'silo', 'spaceport', 'barracks', 'factory']
 
 /** Какие тайлы заняты зданиями. Обновляется сам: следит за появлением и исчезновением зданий в мире. */
 export interface Occupancy {
@@ -173,6 +178,6 @@ export function docksClear(sim: Sim, type: BuildingType, x: number, y: number) {
 /** Ставит здание без проверок. player — владелец; 0 — ничьё. */
 export function placeBuilding(world: World, type: BuildingType, x: number, y: number, player = 0) {
   const entity = world.spawn(Position({ x, y }), Building({ type, phase: world.count(Building) * 5 }), Owner({ player }))
-  if (type === CORE && player) world.add(entity, Producer)
+  if ((BUILDINGS[type] as BuildingSpec).produces && player) world.add(entity, Producer)
   return entity
 }

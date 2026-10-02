@@ -17,7 +17,7 @@ export { SELL_SECONDS, canSell, neededBy, stockOf, stockOfZone, zoneWith } from 
 export { dockOf } from './buildings'
 export { OVERLOAD_DAMAGE, economyOf, powerOf, powerStates, zoneEconomies } from './income'
 export type { Economy, PowerState } from './income'
-export { PRODUCIBLE, QUEUE_LIMIT, buildTicks } from './production'
+export { QUEUE_LIMIT, buildTicks, producibleBy } from './production'
 export { SAVE_VERSION, boundsOf, createSim } from './sim'
 export type { Bounds, Sim, SimOptions, SimSave } from './sim'
 export { UNITS, UNIT_TYPES, flies, isWalkable, spawnStartingUnits } from './units'

@@ -1,19 +1,27 @@
 import type { Entity, Time } from '../ecs'
-import { BUILDINGS } from './buildings'
-import { Building, Converting, Owner, Position, Producer, Unit } from './components'
+import { BUILDINGS, CORE, type BuildingSpec } from './buildings'
+import { Building, Converting, Owner, Position, Producer, Site, Unit } from './components'
 import { addCredits, pay, reward } from './economy'
 import type { Sim } from './sim'
 import { UNITS, freeTilesNear, spawnUnit, type UnitType } from './units'
 
-/** Кого производят MCV и главное здание. */
-export const PRODUCIBLE: UnitType[] = ['builder', 'truck', 'infantry', 'rocketeer', 'buggy', 'lancer', 'tank', 'tesla', 'drone', 'gunship']
+const NOTHING: UnitType[] = []
+
+/**
+ * Кого сейчас производит эта сущность: готовое здание — тех, кто записан в его виде (пехоту — казармы, технику —
+ * машинный завод, летающих — космопорт), MCV — тех же, что главное здание. Здание под разбором не производит.
+ */
+export function producibleBy(sim: Sim, entity: Entity): UnitType[] {
+  const { world } = sim
+  if (!world.has(entity, Producer) || world.has(entity, Site)) return NOTHING
+  const type = world.get(entity, Building)?.type ?? (world.get(entity, Unit)?.type === 'mcv' ? CORE : undefined)
+  return (type && (BUILDINGS[type] as BuildingSpec).produces) || NOTHING
+}
 /** Сколько заказов помещается в очередь. */
 export const QUEUE_LIMIT = 5
 
 /** Среди скольких ближайших тайлов ищется свободный выход для готового юнита. */
 const EXIT_CANDIDATES = 24
-
-const isProducible = (unit: unknown): unit is UnitType => PRODUCIBLE.includes(unit as UnitType)
 
 /** Сколько тиков строится юнит. */
 export const buildTicks = (unit: UnitType, step: number) => Math.round(UNITS[unit].buildTime / step)
@@ -22,7 +30,7 @@ export const buildTicks = (unit: UnitType, step: number) => Math.round(UNITS[uni
 export function orderUnit(sim: Sim, player: number, entity: Entity, unit: UnitType) {
   const producer = sim.world.get(entity, Producer)
   if (!producer || sim.world.get(entity, Owner)?.player !== player) return false
-  if (!isProducible(unit) || producer.queue.length >= QUEUE_LIMIT) return false
+  if (!producibleBy(sim, entity).includes(unit) || producer.queue.length >= QUEUE_LIMIT) return false
   if (!pay(sim, player, UNITS[unit].cost)) return false
   producer.queue.push(unit)
   return true
@@ -64,8 +72,8 @@ export function produceUnits(sim: Sim, time: Time) {
   const { world } = sim
   const ready: Entity[] = []
   for (const [entity, producer] of world.query(Producer)) {
-    // Пока здание сворачивается или машина разворачивается, производство стоит.
-    if (!producer.queue.length || world.has(entity, Converting)) continue
+    // Пока здание сворачивается, разбирается или машина разворачивается, производство стоит.
+    if (!producer.queue.length || world.has(entity, Converting) || world.has(entity, Site)) continue
     const needed = buildTicks(producer.queue[0], time.step)
     if (producer.progress < needed) producer.progress++
     if (producer.progress >= needed) ready.push(entity)
