@@ -1,3 +1,4 @@
+import type { Entity } from '../ecs'
 import { setBlend } from '../gl'
 import { createAtlas } from '../render/atlas'
 import { createLineProgram, createLines } from '../render/lines'
@@ -19,8 +20,19 @@ const BLAST_COLORS = [0xfff6d0, 0xffe07a, 0xffb347, 0xff7a2a, 0xd9481c, 0x8a3a24
 /** Длина следа пули и корпуса ракеты в тайлах. */
 const BULLET_TAIL = 0.45
 const ROCKET_BODY = 0.3
-/** На сколько тайлов за ракетой тянется дым. */
-const ROCKET_SMOKE = 1.6
+/** Сторона картинки клуба дыма в пикселях и число разных клубов. */
+const PUFF_FRAME = 16
+const PUFF_KINDS = 3
+/** Больше клубов разом не бывает: самые старые уступают место новым. */
+const PUFF_LIMIT = 700
+/** Через сколько тайлов пути ракета и ядро оставляют за собой клуб дыма. */
+const ROCKET_SMOKE_STEP = 0.22
+const SHELL_SMOKE_STEP = 0.4
+/** Какую долю скорости ветра набирает дым и с какой скоростью он всплывает, в тайлах в секунду. */
+const SMOKE_WIND = 0.12
+const SMOKE_RISE = 0.25
+/** Какая доля яркости остаётся у дыма в полной темноте. */
+const SMOKE_NIGHT = 0.75
 /** Как высоко поднимается ядро в верхней точке дуги — доля от дальности выстрела. */
 const SHELL_ARC = 0.3
 /** Излом разряда: через сколько тайлов ломается линия, насколько отклоняется и сколько раз в секунду меняется. */
@@ -39,7 +51,6 @@ const BULLET: Color = [1, 0.9, 0.55]
 const TRACER: Color = [0.75, 0.4, 0.05]
 const ROCKET: Color = [0.85, 0.87, 0.9]
 const FLAME: Color = [1, 0.6, 0.2]
-const SMOKE: Color = [0.5, 0.5, 0.52]
 const SHELL: Color = [0.12, 0.12, 0.14]
 const LASER: Color = [1, 0.15, 0.3]
 const SPARK: Color = [0.3, 0.6, 1]
@@ -84,15 +95,53 @@ function drawBlast(frame: number) {
   return image
 }
 
+/** Рисует клуб дыма: несколько кругов вразброс, светлые сверху и тёмные снизу. Цвет задаёт оттенок спрайта. */
+function drawPuff(kind: number) {
+  const image = new Pixmap(PUFF_FRAME, PUFF_FRAME)
+  const center = PUFF_FRAME / 2
+  const LOBES = 5
+  for (const [shift, color] of [[1, 0xa8a8ae], [0, 0xe6e6ea]] as const) {
+    image.circle(center, center + shift, 3.5, color)
+    for (let i = 0; i < LOBES; i++) {
+      const angle = (i / LOBES) * Math.PI * 2 + noise(i, kind) * 1.2
+      const reach = 2.2 + noise(i, kind + 7) * 1.4
+      image.circle(Math.round(center + Math.cos(angle) * reach), Math.round(center + Math.sin(angle) * reach) + shift, 2 + noise(i, kind + 13) * 1.2, color)
+    }
+  }
+  return image
+}
+
 /**
- * Проходы боя. lights ставится до освещения и только добавляет огни: взрывы, лучи и вспышки выстрелов светят
- * в темноте. effects ставится после освещения, чтобы ночью не темнело: рисует снаряды, лучи, взрывы
- * и полоски прочности над повреждёнными юнитами.
+ * Клуб дыма. Живёт только на экране, в симуляции его нет: x, y и скорость — в тайлах, age и life — в секундах,
+ * size — начальный поперечник в тайлах, grow — во сколько раз он вырастет к концу, shade — яркость, level — плотность.
+ */
+interface Puff {
+  x: number
+  y: number
+  speedX: number
+  speedY: number
+  age: number
+  life: number
+  size: number
+  grow: number
+  shade: number
+  level: number
+  kind: number
+}
+
+/**
+ * Проходы боя. lights ставится до освещения: добавляет огни — взрывы, лучи и вспышки выстрелов светят
+ * в темноте — и двигает дым. effects ставится после освещения, чтобы ночью не темнело: рисует дым, снаряды, лучи,
+ * взрывы и полоски прочности над повреждёнными юнитами. Дым темнеет к ночи сам, но не дочерна: иначе его не видно.
  */
 export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { lights: Pass; effects: Pass } {
-  const atlas = createAtlas(gl, Array.from({ length: BLAST_FRAMES }, (_, i) => drawBlast(i)))
+  const atlas = createAtlas(gl, [
+    ...Array.from({ length: BLAST_FRAMES }, (_, i) => drawBlast(i)),
+    ...Array.from({ length: PUFF_KINDS }, (_, i) => drawPuff(i)),
+  ])
   const spriteProgram = createSpriteProgram(gl)
   const blasts = createSprites(gl, spriteProgram)
+  const smoke = createSprites(gl, spriteProgram)
   const lineProgram = createLineProgram(gl)
   /** Светящееся складывается с картинкой, тёмное и полоски — ложатся поверх. */
   const glow = createLines(gl, lineProgram)
@@ -101,9 +150,88 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
   /** Доля отпущенного срока, которую выстрел или взрыв уже прожил, с учётом доли тика. */
   const ageOf = (thing: { age: number; life: number }, alpha: number) => Math.min(1, (thing.age + alpha) / Math.max(1, thing.life))
 
+  const puffs: Puff[] = []
+  /** Где снаряд оставил последний клуб дыма; по этому же списку видно, какие выстрелы и взрывы уже дымили. */
+  const trails = new Map<Entity, { x: number; y: number }>()
+  const alive = new Set<Entity>()
+  const spread = (size: number) => (Math.random() - 0.5) * size
+
+  const puff = (x: number, y: number, size: number, life: number, shade: number, level: number, speedX = 0, speedY = 0) => {
+    if (puffs.length >= PUFF_LIMIT) puffs.shift()
+    puffs.push({
+      x, y, speedX, speedY, age: 0, life: life * (0.75 + Math.random() * 0.5), size, grow: 1.2 + Math.random(),
+      shade, level, kind: Math.floor(Math.random() * PUFF_KINDS),
+    })
+  }
+
+  /** Новые клубы от выстрелов и взрывов этого кадра. */
+  const emitSmoke = () => {
+    const { world, time } = scene.sim
+    alive.clear()
+    for (const [entity, blast, position] of world.query(Blast, Position)) {
+      alive.add(entity)
+      if (trails.has(entity)) continue
+      trails.set(entity, { x: position.x, y: position.y })
+      // После взрыва остаётся тёмный дым: чем больше взрыв, тем его больше и тем дольше он висит.
+      const count = Math.round(3 + blast.size * 4)
+      for (let i = 0; i < count; i++) {
+        puff(position.x + spread(blast.size), position.y + spread(blast.size), blast.size * (0.5 + Math.random() * 0.4), 1.4 + blast.size, 0.3, 0.75, spread(0.5), spread(0.5))
+      }
+    }
+    for (const [entity, shot, position] of world.query(Shot, Position)) {
+      alive.add(entity)
+      const weapon: WeaponSpec = WEAPONS[shot.weapon]
+      const last = trails.get(entity)
+      if (!last) {
+        trails.set(entity, { x: shot.fromX, y: shot.fromY })
+        if (!weapon.speed) {
+          // Лазер и разряд дымят там, куда попали.
+          puff(shot.toX, shot.toY, 0.3, 0.7, 0.45, 0.5, spread(0.3), spread(0.3))
+          continue
+        }
+        // Дым у ствола летит вслед за снарядом: у пули — облачко, у ядра и ракеты — целое облако.
+        const reach = Math.hypot(shot.toX - shot.fromX, shot.toY - shot.fromY) || 1
+        const headingX = (shot.toX - shot.fromX) / reach
+        const headingY = (shot.toY - shot.fromY) / reach
+        const heavy = weapon.shot !== 'bullet'
+        for (let i = 0; i < (heavy ? 5 : 1); i++) {
+          const push = heavy ? 0.6 + Math.random() * 1.6 : 0.8
+          puff(shot.fromX, shot.fromY, heavy ? 0.4 : 0.2, heavy ? 1.1 : 0.4, 0.55, heavy ? 0.7 : 0.45, headingX * push + spread(0.6), headingY * push + spread(0.6))
+        }
+        continue
+      }
+      if (weapon.shot !== 'rocket' && weapon.shot !== 'shell') continue
+      const rocket = weapon.shot === 'rocket'
+      const step = rocket ? ROCKET_SMOKE_STEP : SHELL_SMOKE_STEP
+      const x = shot.prevX + (position.x - shot.prevX) * time.alpha
+      const y = shot.prevY + (position.y - shot.prevY) * time.alpha
+      // Дым ядра остаётся в воздухе, на высоте дуги.
+      const lift = rocket ? 0 : shellLift(shot, time.alpha)
+      const distance = Math.hypot(x - last.x, y - last.y)
+      const count = Math.min(16, Math.floor(distance / step))
+      for (let i = 1; i <= count; i++) {
+        const share = (i * step) / distance
+        const atX = last.x + (x - last.x) * share
+        const atY = last.y + (y - last.y) * share
+        if (rocket) puff(atX + spread(0.08), atY + spread(0.08), 0.32, 1.3, 0.55, 0.75, spread(0.25), spread(0.25))
+        else puff(atX, atY - lift, 0.18, 0.7, 0.5, 0.55, spread(0.15), spread(0.15))
+      }
+      if (count) {
+        const share = (count * step) / distance
+        last.x += (x - last.x) * share
+        last.y += (y - last.y) * share
+      }
+    }
+    for (const entity of trails.keys()) if (!alive.has(entity)) trails.delete(entity)
+  }
+
+  /** Как высоко над землёй ядро сейчас, в тайлах. */
+  const shellLift = (shot: { age: number; life: number; fromX: number; fromY: number; toX: number; toY: number }, alpha: number) =>
+    Math.sin(Math.PI * ageOf(shot, alpha)) * Math.hypot(shot.toX - shot.fromX, shot.toY - shot.fromY) * SHELL_ARC
+
   return {
     lights: {
-      draw({ lights }) {
+      draw({ lights, camera, width, height, delta }) {
         const { world, time } = scene.sim
         for (const [, blast, position] of world.query(Blast, Position)) {
           const left = 1 - ageOf(blast, time.alpha)
@@ -121,8 +249,42 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
             if (weapon.shot === 'rocket') lights.add(position.x, position.y, 10, 4, 0.8)
           }
         }
+
+        emitSmoke()
+        // Дым тормозит, набирает скорость ветра и понемногу всплывает; клубы растут и тают.
+        const { windX, windY, light } = scene.settings.weather
+        // Ночью дым темнее и синее, как всё вокруг.
+        const day = SMOKE_NIGHT + (1 - SMOKE_NIGHT) * light
+        const warm = day * (0.8 + 0.2 * light)
+        const drag = Math.exp(-delta * 2.5)
+        const halfWidth = width / 2 / camera.zoom + 2
+        const halfHeight = height / 2 / camera.zoom + 2
+        smoke.clear()
+        let kept = 0
+        for (const item of puffs) {
+          item.age += delta
+          if (item.age >= item.life) continue
+          puffs[kept++] = item
+          item.speedX = windX * SMOKE_WIND + (item.speedX - windX * SMOKE_WIND) * drag
+          item.speedY = windY * SMOKE_WIND - SMOKE_RISE + (item.speedY - windY * SMOKE_WIND + SMOKE_RISE) * drag
+          item.x += item.speedX * delta
+          item.y += item.speedY * delta
+          if (Math.abs(item.x - camera.x) > halfWidth || Math.abs(item.y - camera.y) > halfHeight) continue
+          const age = item.age / item.life
+          const size = item.size * (1 + (item.grow - 1) * age)
+          const level = item.level * Math.min(1, age * 8) * (1 - age)
+          const frame = atlas.frames[BLAST_FRAMES + item.kind]
+          smoke.push(
+            item.x - camera.x - size / 2, item.y - camera.y - size / 2, size, size,
+            frame.u, frame.v, frame.width, frame.height,
+            item.shade * level * warm, item.shade * level * warm, item.shade * level * day, level,
+          )
+        }
+        puffs.length = kept
       },
-      destroy() {},
+      destroy() {
+        smoke.destroy()
+      },
     },
     effects: {
       draw({ camera, width, height, time, view }) {
@@ -212,19 +374,11 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
             line(solid, x - headingX * tail, y - headingY * tail, x, y, 2, TRACER)
             line(glow, x - headingX * tail, y - headingY * tail, x, y, 2, BULLET)
           } else if (weapon.shot === 'rocket') {
-            const smoke = Math.min(ROCKET_SMOKE, Math.hypot(x - shot.fromX, y - shot.fromY))
-            const PUFFS = 6
-            for (let i = 0; i < PUFFS; i++) {
-              const from = ROCKET_BODY + (smoke * i) / PUFFS
-              const to = ROCKET_BODY + (smoke * (i + 1)) / PUFFS
-              line(solid, x - headingX * from, y - headingY * from, x - headingX * to, y - headingY * to, 3 + i * 0.6, SMOKE, 0.5 * (1 - i / PUFFS))
-            }
             line(glow, x - headingX * (ROCKET_BODY + 0.2), y - headingY * (ROCKET_BODY + 0.2), x - headingX * ROCKET_BODY, y - headingY * ROCKET_BODY, 3, FLAME)
             line(solid, x - headingX * ROCKET_BODY, y - headingY * ROCKET_BODY, x, y, 3, ROCKET)
           } else {
             // Ядро летит по дуге: чем выше, тем крупнее и тем дальше от своей тени на земле.
-            const reach = Math.hypot(shot.toX - shot.fromX, shot.toY - shot.fromY)
-            const lift = Math.sin(Math.PI * ageOf(shot, alpha)) * reach * SHELL_ARC
+            const lift = shellLift(shot, alpha)
             dot(solid, x, y, 4, SHELL, 0.35)
             dot(solid, x, y - lift, 5 + lift * 2, SHELL)
             dot(solid, x - pixel, y - lift - pixel, 2, ROCKET)
@@ -243,9 +397,10 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
           line(solid, x - half, top, x - half + half * 2 * Math.max(0, unit.health), top, BAR_HEIGHT, unit.health > 0.5 ? BAR_GOOD : BAR_BAD)
         }
 
-        if (blasts.count) {
+        if (smoke.count || blasts.count) {
           setBlend(gl, 'alpha')
           spriteProgram.use(view, { uTexture: atlas.texture })
+          smoke.draw()
           blasts.draw()
         }
         if (solid.count || glow.count) {
