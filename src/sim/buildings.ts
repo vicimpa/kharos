@@ -87,12 +87,13 @@ export interface Occupancy {
 }
 
 export function createOccupancy(world: World): Occupancy {
-  const tiles = new Map<string, Entity>()
+  const key = (x: number, y: number) => (y + 32768) * 65536 + x + 32768
+  const tiles = new Map<number, Entity>()
   const stop = world.observe([Position, Building], (entity, position, building) => {
     const { width, height } = BUILDINGS[building.type]
-    const keys: string[] = []
+    const keys: number[] = []
     for (let y = position.y; y < position.y + height; y++) {
-      for (let x = position.x; x < position.x + width; x++) keys.push(`${x},${y}`)
+      for (let x = position.x; x < position.x + width; x++) keys.push(key(x, y))
     }
     for (const key of keys) tiles.set(key, entity)
     return () => {
@@ -100,7 +101,7 @@ export function createOccupancy(world: World): Occupancy {
     }
   })
   return {
-    at: (x, y) => tiles.get(`${x},${y}`),
+    at: (x, y) => (tiles.size ? tiles.get(key(x, y)) : undefined),
     destroy: stop,
   }
 }

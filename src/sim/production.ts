@@ -4,7 +4,7 @@ import { Building, Converting, Owner, Position, Producer, Site, Unit } from './c
 import { addCredits, pay, reward } from './economy'
 import { powerSupply } from './income'
 import type { Sim } from './sim'
-import { UNITS, freeTilesNear, spawnUnit, type UnitType } from './units'
+import { UNITS, freeTilesNear, spawnUnit, tileKey, type UnitType } from './units'
 
 const NOTHING: UnitType[] = []
 
@@ -59,11 +59,11 @@ function exitOf(sim: Sim, entity: Entity) {
 
 /** Ближайший к точке проходимый тайл, в котором не стоит другой юнит; сама точка не в счёт. */
 function emptyTileNear(sim: Sim, x: number, y: number) {
-  const taken = new Set<string>()
-  for (const [, position] of sim.world.query(Position, Unit)) taken.add(`${Math.floor(position.x)},${Math.floor(position.y)}`)
+  const taken = new Set<number>()
+  for (const [, position] of sim.world.query(Position, Unit)) taken.add(tileKey(Math.floor(position.x), Math.floor(position.y)))
   const tiles = freeTilesNear(sim, x, y, EXIT_CANDIDATES, 1)
   for (let i = 0; i < tiles.length; i += 2) {
-    if (!taken.has(`${tiles[i]},${tiles[i + 1]}`)) return { x: tiles[i], y: tiles[i + 1] }
+    if (!taken.has(tileKey(tiles[i], tiles[i + 1]))) return { x: tiles[i], y: tiles[i + 1] }
   }
   return undefined
 }

@@ -33,8 +33,9 @@ export const Unit = component('Unit', {
  * Путь, по которому юнит идёт; компонент есть, только пока он в пути.
  * points — оставшиеся точки в тайлах, x, y подряд. goalX, goalY — тайл, куда он шёл изначально.
  * wait — сколько тиков подряд юнит не может сдвинуться; tries — сколько раз путь к этой точке уже прокладывался заново.
+ * near — на сколько тайлов достаточно подойти к цели: так идут к тому, в кого собираются стрелять.
  */
-export const Path = component('Path', () => ({ points: [] as number[], goalX: 0, goalY: 0, wait: 0, tries: 0 }))
+export const Path = component('Path', () => ({ points: [] as number[], goalX: 0, goalY: 0, wait: 0, tries: 0, near: 0 }))
 
 /**
  * Игрок: сущность без места на карте. Отслеживается, чтобы интерфейс узнавал о смене счёта.
@@ -87,9 +88,10 @@ export const Trade = component('Trade', { wanted: 0, delivered: 0, claimed: 0, l
 /**
  * Вооружённый юнит. target — кого он атакует, -1 — никого. chase — гнаться ли за целью, когда она вне дальности:
  * так ведёт себя юнит, которому цель указал игрок или который отвечает на огонь; иначе он бьёт только тех, до кого
- * достаёт с места. cooldown — сколько тиков до следующего выстрела.
+ * достаёт с места. cooldown — сколько тиков до следующего выстрела. stuck — сколько раз подряд гонящийся не нашёл,
+ * куда идти: чем больше, тем реже он пробует снова.
  */
-export const Armed = component('Armed', { target: -1, chase: false, cooldown: 0 })
+export const Armed = component('Armed', { target: -1, chase: false, cooldown: 0, stuck: 0 })
 
 /**
  * Выстрел. Position — где снаряд сейчас, prevX и prevY — где был тик назад. Пуля, ракета и ядро летят из (fromX, fromY)

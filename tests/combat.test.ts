@@ -299,3 +299,45 @@ test('показательный бой: армии сходятся сами, �
   expect(time).toBeLessThan(600)
   expect(sides()).toBeLessThan(2)
 })
+
+test('показательный бой: большая армия строится целиком, стороны не перемешаны, и тик остаётся коротким', () => {
+  const sim = createSim(options)
+  const army = randomArmy(60000, {}, () => 0.37)
+  spawnBattle(sim, 1, 0, 0, army, army)
+  let own = 0
+  let foe = 0
+  for (const [, position, , owner] of sim.world.query(Position, Unit, Owner)) {
+    if (owner.player === 1) {
+      own++
+      expect(position.x).toBeLessThan(0)
+    } else {
+      foe++
+      expect(position.x).toBeGreaterThan(0)
+    }
+  }
+  expect(own).toBe(army.length)
+  expect(foe).toBe(army.length)
+  // Десять секунд боя: сотни юнитов ищут путь разом, и ни один тик не должен превращаться в заметную запинку.
+  let worst = 0
+  for (let tick = 0; tick < 200; tick++) {
+    if (tick % 10 === 0) driveBattle(sim, 1)
+    const from = performance.now()
+    sim.advance(sim.time.step)
+    worst = Math.max(worst, performance.now() - from)
+  }
+  expect(worst).toBeLessThan(100)
+})
+
+test('гонящийся идёт на выстрел от цели, а не в неё саму', () => {
+  const sim = createSim(options)
+  const tank = spawnUnit(sim, 'tank', 1, 0, 0)
+  const target = spawnUnit(sim, 'tank', 2, 30, 0)
+  sim.send(1, { type: 'attack', units: [tank], target })
+  seconds(sim, 1)
+  const path = sim.world.get(tank, Path)!
+  expect(path.near).toBeGreaterThan(0)
+  // Путь кончается не ближе дальности выстрела с запасом, но в пределах выстрела.
+  const reach = Math.hypot(path.points[path.points.length - 2] - 30.5, path.points[path.points.length - 1] - 0.5)
+  expect(reach).toBeLessThanOrEqual(WEAPONS.cannon.range)
+  expect(reach).toBeGreaterThan(2)
+})

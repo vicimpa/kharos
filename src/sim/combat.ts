@@ -2,6 +2,7 @@ import type { Entity } from '../ecs'
 import { BUILDINGS } from './buildings'
 import { Armed, Blast, Building, Converting, Owner, Path, Position, Shot, Unit } from './components'
 import { releaseHauler } from './hauling'
+import { searchedTiles } from './path'
 import type { Sim } from './sim'
 import { UNITS, flies, orderMove, type UnitSpec } from './units'
 import { WEAPONS, type Armor, type WeaponSpec, type WeaponType } from './weapons'
@@ -11,6 +12,15 @@ export const BUILDING_HP = 2
 /** Раз во сколько тиков свободный юнит высматривает врага, а гонящийся за целью прокладывает путь заново. */
 const SCAN_TICKS = 5
 const CHASE_TICKS = 20
+/** На сколько тайлов ближе дальности выстрела подходит гонящийся: с запасом на то, что и он, и цель стоят не в центрах тайлов. */
+const CHASE_MARGIN = 1.5
+/** Сколько гонящихся за тик прокладывают путь и сколько тайлов они на это вместе осматривают; остальные ждут следующего раза. */
+const CHASE_SEARCHES = 16
+const CHASE_TILES = 15000
+/** На сколько стрелков сдвигается начало обхода с каждым тиком. */
+const SHOOTER_STRIDE = 17
+/** Не нашедший пути гонящийся пробует снова вдвое реже с каждой неудачей, но не больше стольких удвоений. */
+const STUCK_LIMIT = 3
 /** Насколько точно юнит должен смотреть на цель, чтобы выстрелить, в радианах. */
 const AIM = 0.12
 /** Сколько тиков виден след лазера и разряда. */
@@ -112,6 +122,7 @@ export function orderAttack(sim: Sim, player: number, units: Entity[], target: E
     if (air && !WEAPONS[weapon].air) continue
     armed.target = target
     armed.chase = true
+    armed.stuck = 0
     // Прежний путь больше не нужен: к цели юнит тронется сам в ближайший тик.
     world.remove(entity, Path)
     ordered = true
@@ -156,6 +167,7 @@ export function fight(sim: Sim) {
     if (canHit(WEAPONS[own], mark.player, from)) {
       armed.target = source
       armed.chase = true
+      armed.stuck = 0
     }
   }
 
@@ -222,10 +234,15 @@ export function fight(sim: Sim) {
   for (const entity of gone) world.destroy(entity)
 
   // Стрелки. Список собирается заранее: дальше мир и обходится заново, и меняется.
-  const shooters: { entity: Entity; armed: { target: number; chase: boolean; cooldown: number }; unit: { type: keyof typeof UNITS; facing: number } }[] = []
+  const shooters: { entity: Entity; armed: { target: number; chase: boolean; cooldown: number; stuck: number }; unit: { type: keyof typeof UNITS; facing: number } }[] = []
   for (const [entity, armed, unit] of world.query(Armed, Unit)) shooters.push({ entity, armed, unit })
 
-  for (const { entity, armed, unit } of shooters) {
+  let searches = 0
+  const searchedBefore = searchedTiles()
+  // Обход каждый тик начинается с нового места: иначе норма поисков пути всегда доставалась бы одним и тем же.
+  const first = shooters.length ? (time.tick * SHOOTER_STRIDE) % shooters.length : 0
+  for (let index = 0; index < shooters.length; index++) {
+    const { entity, armed, unit } = shooters[(first + index) % shooters.length]
     if (armed.cooldown > 0) armed.cooldown--
     const self = marks.get(entity)
     const spec: UnitSpec = UNITS[unit.type]
@@ -256,7 +273,20 @@ export function fight(sim: Sim) {
 
     if (distanceTo(target, self.x, self.y) > weapon.range) {
       if (!armed.chase) armed.target = NONE
-      else if (!moving || (time.tick + entity) % CHASE_TICKS === 0) orderMove(sim, entity, Math.floor(target.x), Math.floor(target.y))
+      // Вставший трогается снова не каждый тик, а не нашедший пути — всё реже: искать его без конца слишком дорого.
+      else if ((time.tick + entity) % (moving ? CHASE_TICKS : SCAN_TICKS << Math.min(armed.stuck, STUCK_LIMIT)) === 0) {
+        const goalX = Math.floor(target.x)
+        const goalY = Math.floor(target.y)
+        // Цель с места не сошла — прежний путь годится.
+        const path = world.get(entity, Path)
+        if (path && Math.abs(path.goalX - goalX) <= 1 && Math.abs(path.goalY - goalY) <= 1) continue
+        // Остальные дождутся своей очереди: сотня поисков пути за тик — заметная запинка.
+        if (searches++ >= CHASE_SEARCHES || searchedTiles() - searchedBefore >= CHASE_TILES) continue
+        // Идти надо не в саму цель, а на выстрел от неё: цель занята, а к зданию или в гущу врагов и не подойти.
+        const near = Math.max(0, weapon.range - CHASE_MARGIN) + Math.max(target.width, target.height) / 2
+        orderMove(sim, entity, goalX, goalY, undefined, 0, near)
+        armed.stuck = world.has(entity, Path) ? 0 : armed.stuck + 1
+      }
       continue
     }
     // На выстреле: гнавшийся встаёт. Идущий по приказу игрока не стреляет — цели у него нет.

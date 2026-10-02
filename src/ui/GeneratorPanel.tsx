@@ -91,8 +91,8 @@ const BATTLE_GROUPS: Group<BattleConfig>[] = [
   {
     title: 'Случайный бой',
     fields: [
-      { key: 'budget', label: 'Цена армии', min: 500, max: 12000, step: 100 },
-      { key: 'gap', label: 'Отступ сторон', min: 4, max: 20, step: 1 },
+      { key: 'budget', label: 'Цена армии', min: 500, max: 100000, step: 500 },
+      { key: 'gap', label: 'Отступ сторон', min: 2, max: 30, step: 1 },
       { key: 'mirror', label: 'Одинаковые армии', min: 0, max: 1, step: 1 },
     ],
   },

@@ -51,7 +51,7 @@ export const DEFAULT_WORLD_CONFIG: WorldConfig = {
 export interface BattleConfig {
   /** Сколько кредитов стоит армия каждой стороны. */
   budget: number
-  /** На сколько тайлов от точки встречи стоит каждая сторона. */
+  /** На сколько тайлов от точки встречи стоит передний ряд каждой стороны. */
   gap: number
   /** 1 — у сторон одинаковый состав, 0 — у каждой свой. */
   mirror: number
@@ -67,7 +67,7 @@ export interface BattleConfig {
 
 export const DEFAULT_BATTLE_CONFIG: BattleConfig = {
   budget: 3500,
-  gap: 10,
+  gap: 6,
   mirror: 0,
   infantry: 1,
   rocketeer: 1,

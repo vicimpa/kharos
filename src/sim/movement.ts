@@ -22,6 +22,9 @@ const ORBIT_MARGIN = 1.3
  * Сначала вправо — так двое встречных расходятся в разные стороны, а не зеркалят друг друга.
  */
 const DETOURS = [0, 0.35, -0.35, 0.7, -0.7, 1.05, -1.05, 1.4, -1.4, 1.75, -1.75]
+/** Сколько юнитов за тик прокладывают путь заново и сколько уступают дорогу; остальные ждут следующего тика. */
+const LOST_SEARCHES = 8
+const YIELD_SEARCHES = 8
 /** Сторона ячейки сетки, по которой ищутся соседи, в тайлах. Больше любого расстояния, на котором юниты мешают друг другу. */
 const CELL = 4
 
@@ -84,7 +87,9 @@ export function moveUnits(sim: Sim, time: Time) {
             continue
           }
           const share = lengthSquared ? Math.min(1, Math.max(0, along / lengthSquared)) : 0
-          if (Math.hypot(offsetX - dx * share, offsetY - dy * share) < reach) return other
+          const gapX = offsetX - dx * share
+          const gapY = offsetY - dy * share
+          if (gapX * gapX + gapY * gapY < reach * reach) return other
         }
       }
     }
@@ -93,12 +98,13 @@ export function moveUnits(sim: Sim, time: Time) {
 
   // Пути меняются после обхода: во время него состав мира трогать нельзя.
   const stopped: Entity[] = []
-  const lost: { entity: Entity; x: number; y: number; tries: number }[] = []
+  const lost: { entity: Entity; x: number; y: number; tries: number; near: number }[] = []
   const asked: { entity: Entity; by: Entity; x: number; y: number; heading: number; room: number }[] = []
   /** Юнит не может идти дальше: прокладывает путь заново или, если уже пробовал, встаёт. */
-  const giveUp = (entity: Entity, path: { goalX: number; goalY: number; tries: number }) => {
+  const giveUp = (entity: Entity, path: { goalX: number; goalY: number; tries: number; near: number }) => {
     if (path.tries >= MAX_TRIES) stopped.push(entity)
-    else lost.push({ entity, x: path.goalX, y: path.goalY, tries: path.tries + 1 })
+    // Сверх нормы — юнит просто ждёт дальше и попробует в следующий тик.
+    else if (lost.length < LOST_SEARCHES) lost.push({ entity, x: path.goalX, y: path.goalY, tries: path.tries + 1, near: path.near })
   }
 
   for (const [entity, position, unit, path] of world.query(Position, Unit, Path)) {
@@ -159,7 +165,7 @@ export function moveUnits(sim: Sim, time: Time) {
       } else if (++path.wait >= WAIT_TICKS) {
         giveUp(entity, path)
         continue
-      } else if (blocker && path.wait === YIELD_TICKS) {
+      } else if (blocker && path.wait === YIELD_TICKS && asked.length < YIELD_SEARCHES) {
         const room = radius + blocker.radius + 1
         asked.push({ entity: blocker.entity, by: entity, x: position.x, y: position.y, heading: wrap(wanted), room })
       }
@@ -178,7 +184,7 @@ export function moveUnits(sim: Sim, time: Time) {
   }
 
   for (const entity of stopped) world.remove(entity, Path)
-  for (const { entity, x, y, tries } of lost) orderMove(sim, entity, x, y, undefined, tries)
+  for (const { entity, x, y, tries, near } of lost) orderMove(sim, entity, x, y, undefined, tries, near)
   // Дорогу уступают только своим: чужой юнит стоит, где стоял.
   for (const { entity, by, x, y, heading, room } of asked) {
     if (world.get(entity, Owner)?.player === world.get(by, Owner)?.player) stepAside(sim, entity, x, y, heading, room)

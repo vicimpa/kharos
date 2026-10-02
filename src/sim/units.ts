@@ -72,6 +72,11 @@ export function isWalkable(sim: Sim, x: number, y: number) {
 /** Номер тайла одним числом: ключ для множеств тайлов. */
 export const tileKey = (x: number, y: number) => (y + 32768) * 65536 + (x + 32768)
 
+/** Набор тайлов, про который можно только спросить, входит ли в него тайл; ключ — tileKey. */
+export interface TileSet {
+  has(key: number): boolean
+}
+
 /**
  * Тайлы, занятые стоящими юнитами: путь прокладывается в обход них. Идущие юниты сюда не попадают —
  * к тому времени, как до них дойдут, они уйдут; с ними юнит расходится на ходу, см. movement.ts.
@@ -79,20 +84,27 @@ export const tileKey = (x: number, y: number) => (y + 32768) * 65536 + (x + 3276
  * тайл занят, если, встав в его центр, идущий задел бы стоящего. Так крупная машина не лезет в щель между соседями.
  * air — считать летающих, а не наземных: друг другу они не мешают.
  */
-export function standingUnits(sim: Sim, ignore: ReadonlySet<Entity>, radius: number, air = false) {
+export function standingUnits(sim: Sim, ignore: ReadonlySet<Entity>, radius: number, air = false): TileSet {
   const { world } = sim
   const tiles = new Set<number>()
   for (const [entity, position, unit] of world.query(Position, Unit)) {
     if (ignore.has(entity) || world.has(entity, Path) || flies(unit.type) !== air) continue
     const reach = UNITS[unit.type].radius + radius
-    for (let y = Math.floor(position.y - reach); y <= Math.floor(position.y + reach); y++) {
-      for (let x = Math.floor(position.x - reach); x <= Math.floor(position.x + reach); x++) {
-        if (Math.hypot(x + 0.5 - position.x, y + 0.5 - position.y) < reach) tiles.add(tileKey(x, y))
+    const right = Math.floor(position.x + reach)
+    const bottom = Math.floor(position.y + reach)
+    for (let y = Math.floor(position.y - reach); y <= bottom; y++) {
+      const dy = y + 0.5 - position.y
+      for (let x = Math.floor(position.x - reach); x <= right; x++) {
+        const dx = x + 0.5 - position.x
+        if (dx * dx + dy * dy < reach * reach) tiles.add(tileKey(x, y))
       }
     }
   }
   return tiles
 }
+
+/** Сколько тайлов осматривает поиск пути, когда к цели надо только подойти на расстояние. */
+const APPROACH_LIMIT = 3000
 
 /** Шаг между местами юнитов в группе, в тайлах: крупные машины не помещаются в один тайл. */
 const GROUP_SPACING = 2
@@ -103,7 +115,7 @@ const GROUP_SPACING = 2
  * fromRadius — с какого кольца начинать: 1 пропускает саму точку. blocked — тайлы, которые тоже не годятся.
  * air — места для летающих: им годится любой тайл карты.
  */
-export function freeTilesNear(sim: Sim, x: number, y: number, count: number, fromRadius = 0, blocked?: ReadonlySet<number>, air = false) {
+export function freeTilesNear(sim: Sim, x: number, y: number, count: number, fromRadius = 0, blocked?: TileSet, air = false) {
   const SEARCH_RADIUS = 8
   const tiles: number[] = []
   for (let radius = fromRadius; radius <= SEARCH_RADIUS && tiles.length < count * 2; radius++) {
@@ -151,8 +163,9 @@ export function spawnStartingUnits(sim: Sim, player: number, x: number, y: numbe
  * Стоящих юнитов путь обходит; если в самой цели кто-то стоит, юнит идёт на свободный тайл рядом.
  * Если идти некуда, юнит остаётся на месте.
  * ignore — кто из стоящих юнитов не препятствие; tries — который раз прокладывается путь к этой цели.
+ * near — на сколько тайлов достаточно подойти к цели; тогда сама цель может быть занята или недоступна.
  */
-export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore?: ReadonlySet<Entity>, tries = 0) {
+export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore?: ReadonlySet<Entity>, tries = 0, near = 0) {
   const { world } = sim
   const position = world.get(entity, Position)
   // Юнит, который разворачивается, с места не трогается.
@@ -160,7 +173,7 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
   const { type } = world.get(entity, Unit)!
   const air = flies(type)
   const taken = standingUnits(sim, ignore ?? new Set([entity]), UNITS[type].radius, air)
-  if (taken.has(tileKey(x, y))) {
+  if (!near && taken.has(tileKey(x, y))) {
     const [freeX, freeY] = freeTilesNear(sim, x, y, 1, 1, taken, air)
     if (freeX === undefined) return void world.remove(entity, Path)
     x = freeX
@@ -169,7 +182,7 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
   if (air) {
     // Летающему преград нет: он летит к цели по прямой.
     if (!inBounds(sim, x, y)) return void world.remove(entity, Path)
-    world.add(entity, Path({ points: [x + 0.5, y + 0.5], goalX: x, goalY: y, tries }))
+    world.add(entity, Path({ points: [x + 0.5, y + 0.5], goalX: x, goalY: y, tries, near }))
     return
   }
   const fromX = Math.floor(position.x)
@@ -179,7 +192,10 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
     if (tileX === fromX && tileY === fromY) return true
     return isWalkable(sim, tileX, tileY) && !taken.has(tileKey(tileX, tileY))
   }
-  const tiles = findPath(walkable, fromX, fromY, x, y)
+  // Подход на расстояние ищется недолго: не вышло обойти — юнит встанет поближе и попробует оттуда.
+  const tiles = findPath(walkable, fromX, fromY, x, y, near, near ? APPROACH_LIMIT : undefined)
+  // Уже достаточно близко, а идти всё равно велят: значит, надо подойти вплотную.
+  if (near && !tiles.length && (fromX - x) ** 2 + (fromY - y) ** 2 <= near * near) return orderMove(sim, entity, x, y, ignore, tries)
   // Юнит идёт по центрам тайлов.
   const points = smoothPath(
     walkable,
@@ -187,7 +203,7 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
     position.y,
     tiles.map((value) => value + 0.5),
   )
-  if (points.length) world.add(entity, Path({ points, goalX: x, goalY: y, tries }))
+  if (points.length) world.add(entity, Path({ points, goalX: x, goalY: y, tries, near }))
   else world.remove(entity, Path)
 }
 
