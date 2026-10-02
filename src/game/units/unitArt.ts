@@ -1,5 +1,5 @@
 import type { Pixmap } from '../../render/pixmap'
-import type { UnitType } from '../../sim'
+import type { TurretType, UnitType } from '../../sim'
 
 /**
  * Векторные чертежи юнитов, вид сверху. Рисуются на Pixmap в пикселях будущего спрайта, 16 пикселей на тайл;
@@ -213,6 +213,27 @@ const tesla: UnitArt = (g, angle, team) => {
   p.dot(0, 0, 1.2, ENERGY[2])
 }
 
+/**
+ * Носитель: колёсное шасси танка — по три колеса с борта и плоская палуба с четырьмя гнёздами под турели.
+ * Сами турели — отдельные сущности, их рисует turretArt.ts поверх.
+ */
+const carrier: UnitArt = (g, angle, team) => {
+  const p = pen(g, angle)
+  for (const side of [-9, 9]) {
+    for (const wheel of [-8, 0, 8]) {
+      p.bar(wheel - 3, wheel + 3, side, 4.6, INK)
+      p.bar(wheel - 2.3, wheel + 2.3, side, 3.2, IRON[1])
+      p.beam(wheel, side - 1.6, side + 1.6, 1, IRON[3])
+    }
+  }
+  p.bar(-12, 12, 0, 15, INK)
+  p.bar(-11, 11, 0, 13, STEEL[1])
+  p.bar(-11, 11, -5.5, 2, STEEL[2])
+  p.bar(-11, -9, 0, 13, team[0])
+  p.bar(10, 12, 0, 8, team[2])
+  p.beam(0.5, -5.5, 5.5, 1, STEEL[0])
+}
+
 /** Дрон: четыре винта крестом и маленький корпус. */
 const drone: UnitArt = (g, angle, team) => {
   const p = pen(g, angle)
@@ -299,6 +320,10 @@ export const UNIT_LIGHTS: Record<UnitType, UnitLights> = {
     lamps: [{ along: 10, across: -4, glow: 2.5 }, { along: 10, across: 4, glow: 2.5 }],
     beam: { along: 13, length: 60, near: 6, spread: 0.3, level: 1 },
   },
+  carrier: {
+    lamps: [{ along: 12, across: -4.5, glow: 2.5 }, { along: 12, across: 4.5, glow: 2.5 }],
+    beam: { along: 15, length: 60, near: 6, spread: 0.3, level: 1 },
+  },
   drone: {
     lamps: [{ along: 5, across: 0, glow: 1.5 }],
     beam: { along: 7, length: 40, near: 2, spread: 0.3, level: 0.8 },
@@ -309,4 +334,34 @@ export const UNIT_LIGHTS: Record<UnitType, UnitLights> = {
   },
 }
 
-export const UNIT_ART = { mcv, builder, infantry, truck, rocketeer, buggy, lancer, tank, tesla, drone, gunship } satisfies Record<UnitType, UnitArt>
+export const UNIT_ART = { mcv, builder, infantry, truck, rocketeer, buggy, lancer, tank, tesla, carrier, drone, gunship } satisfies Record<UnitType, UnitArt>
+
+/** Сторона кадра турели в пикселях: тайл. */
+export const TURRET_FRAME = 16
+
+/** Ракетная турель: квадратный блок с двумя пусковыми трубами. */
+const rocketTurret: UnitArt = (g, angle, team) => {
+  const p = pen(g, angle)
+  p.bar(-3, 3, 0, 6.4, INK)
+  p.bar(-2.4, 2.4, 0, 5, team[0])
+  p.bar(-2.4, -1.2, 0, 5, team[1])
+  for (const side of [-1.5, 1.5]) {
+    p.bar(0, 6, side, 2.2, INK)
+    p.bar(0.5, 5.5, side, 1, IRON[4])
+    p.dot(5.6, side, 0.6, HAZARD[2])
+  }
+}
+
+/** Ремонтная турель: жёлтый купол с рукой-излучателем. */
+const repairTurret: UnitArt = (g, angle) => {
+  const p = pen(g, angle)
+  p.bar(0, 5.5, 0, 2.2, INK)
+  p.bar(0, 5, 0, 1, IRON[3])
+  p.dot(5.6, 0, 1.5, INK)
+  p.dot(5.6, 0, 0.9, 0x7dffa8)
+  p.dot(-0.5, 0, 3.4, INK)
+  p.dot(-0.5, 0, 2.6, HAZARD[1])
+  p.dot(-1.2, -0.8, 1, HAZARD[2])
+}
+
+export const TURRET_ART = { rocket: rocketTurret, repair: repairTurret } satisfies Record<TurretType, UnitArt>

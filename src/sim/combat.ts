@@ -1,11 +1,12 @@
 import type { Entity } from '../ecs'
 import { BUILDINGS, type BuildingType } from './buildings'
 import { NONE, isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './common'
-import { Armed, Blast, Building, Converting, Health, Owner, Path, Position, Shot, Unit } from './components'
+import { Armed, Blast, Building, Converting, Health, Owner, Path, Position, Shot, Turret, Unit } from './components'
 import { releaseHauler } from './hauling'
 import { searchedTiles } from './path'
 import type { Sim } from './sim'
-import { UNITS, flies, orderMove, unitSpec, type UnitSpec, type UnitType } from './units'
+import { TURRETS, carrierOf, turnerOf, turretsOf } from './turrets'
+import { UNITS, flies, orderMove, unitSpec, type UnitSpec } from './units'
 import { WEAPONS, type Armor, type WeaponSpec, type WeaponType } from './weapons'
 
 /** Сколько единиц прочности у здания на кредит его цены. */
@@ -94,10 +95,12 @@ export function recover(sim: Sim) {
   }
 }
 
-/** Оружие юнита или undefined, если он безоружен. */
-const weaponOf = (sim: Sim, entity: Entity): WeaponType | undefined => {
+/** Оружие юнита или турели; undefined — безоружен. */
+export const weaponOf = (sim: Sim, entity: Entity): WeaponType | undefined => {
   const type = sim.world.get(entity, Unit)?.type
-  return type && unitSpec(type).weapon
+  if (type) return unitSpec(type).weapon
+  const turret = sim.world.get(entity, Turret)?.type
+  return turret && (TURRETS[turret] as { weapon?: WeaponType }).weapon
 }
 
 /** Может ли игрок приказать своим юнитам атаковать это: чужой юнит или чужое здание. */
@@ -108,7 +111,8 @@ export function canAttack(sim: Sim, player: number, target: Entity) {
 }
 
 /**
- * Приказывает юнитам игрока атаковать цель: они подходят на выстрел и бьют, пока цель жива.
+ * Приказывает юнитам игрока атаковать цель: они подходят на выстрел и бьют, пока цель жива. Турели носителя
+ * берут цель вместе с ним, а сам носитель подъезжает к ней на выстрел турелей.
  * Чужие, безоружные и те, чьё оружие до цели не достаёт (по летающим), из списка выбрасываются.
  */
 export function orderAttack(sim: Sim, player: number, units: Entity[], target: Entity) {
@@ -116,28 +120,41 @@ export function orderAttack(sim: Sim, player: number, units: Entity[], target: E
   if (!canAttack(sim, player, target)) return false
   const unit = world.get(target, Unit)
   const air = !!unit && flies(unit.type)
-  let ordered = false
-  for (const entity of new Set(units)) {
+  /** Берёт ли цель этот стрелок; возвращает дальность его оружия или 0. */
+  const aim = (entity: Entity) => {
     const armed = world.get(entity, Armed)
     const weapon = weaponOf(sim, entity)
-    if (!armed || !weapon || !isOwn(sim, player, entity)) continue
-    if (air && !WEAPONS[weapon].air) continue
+    if (!armed || !weapon || (air && !WEAPONS[weapon].air)) return 0
     armed.target = target
     armed.chase = true
     armed.stuck = 0
-    // Прежний путь больше не нужен: к цели юнит тронется сам в ближайший тик.
+    return WEAPONS[weapon].range
+  }
+  let ordered = false
+  for (const entity of new Set(units)) {
+    if (!isOwn(sim, player, entity)) continue
+    if (aim(entity)) {
+      // Прежний путь больше не нужен: к цели юнит тронется сам в ближайший тик.
+      world.remove(entity, Path)
+      ordered = true
+      continue
+    }
+    // Безоружный носитель подвозит турели на выстрел: путь к цели ему проложит бой, как гонящемуся.
+    if (!turretsOf(sim, entity).map(aim).some(Boolean)) continue
     world.remove(entity, Path)
     ordered = true
   }
   return ordered
 }
 
-/** Снимает с юнита цель: он снова бьёт только тех, до кого достаёт с места. */
+/** Снимает с юнита и его турелей цель: они снова бьют только тех, до кого достают с места. */
 export function stopAttack(sim: Sim, entity: Entity) {
-  const armed = sim.world.get(entity, Armed)
-  if (!armed) return
-  armed.target = NONE
-  armed.chase = false
+  for (const gunner of [entity, ...turretsOf(sim, entity)]) {
+    const armed = sim.world.get(gunner, Armed)
+    if (!armed) continue
+    armed.target = NONE
+    armed.chase = false
+  }
 }
 
 /**
@@ -236,29 +253,39 @@ export function fight(sim: Sim) {
   for (const entity of gone) world.destroy(entity)
 
   // Стрелки. Список собирается заранее: дальше мир и обходится заново, и меняется.
-  const shooters: { entity: Entity; armed: { target: number; chase: boolean; cooldown: number; stuck: number }; unit: { type: UnitType; facing: number } }[] = []
-  for (const [entity, armed, unit] of world.query(Armed, Unit)) shooters.push({ entity, armed, unit })
+  const shooters: { entity: Entity; armed: { target: number; chase: boolean; cooldown: number; stuck: number } }[] = []
+  for (const [entity, armed] of world.query(Armed)) shooters.push({ entity, armed })
 
   let searches = 0
+  /** Носители, которым в этот тик уже проложен путь к цели. */
+  const chasing = new Set<Entity>()
   const searchedBefore = searchedTiles()
   // Обход каждый тик начинается с нового места: иначе норма поисков пути всегда доставалась бы одним и тем же.
   const first = shooters.length ? (time.tick * SHOOTER_STRIDE) % shooters.length : 0
   for (let index = 0; index < shooters.length; index++) {
-    const { entity, armed, unit } = shooters[(first + index) % shooters.length]
+    const { entity, armed } = shooters[(first + index) % shooters.length]
     if (armed.cooldown > 0) armed.cooldown--
-    const self = marks.get(entity)
-    const spec: UnitSpec = UNITS[unit.type]
-    if (!self || !spec.weapon || world.has(entity, Converting)) continue
-    const weapon: WeaponSpec = WEAPONS[spec.weapon]
+    // Турель стреляет с носителя: её место — своё, а чей выстрел и кому отвечать огнём — носителя.
+    const carrier = carrierOf(sim, entity)
+    const mounted = carrier !== entity
+    const body = marks.get(carrier)
+    const position = world.get(entity, Position)
+    const turner = turnerOf(sim, entity)
+    const weaponType = weaponOf(sim, entity)
+    if (!body || !position || !turner || !weaponType || world.has(carrier, Converting)) continue
+    const self = { x: position.x, y: position.y, player: body.player }
+    const weapon: WeaponSpec = WEAPONS[weaponType]
 
     let target = marks.get(armed.target as Entity)
     if (target && !canHit(weapon, self.player, target)) target = undefined
-    const moving = world.has(entity, Path)
+    // Гонится за целью тот, кто ездит: юнит сам, турель — на своём носителе. Стреляет турель и на ходу.
+    const mover = carrier
+    const moving = world.has(mover, Path)
     if (!target) {
       armed.target = NONE
       armed.chase = false
       // Свободный юнит высматривает врага в пределах выстрела: сперва юнитов, потом здания.
-      if (moving || !onTurn(time, entity, SCAN_TICKS)) continue
+      if ((moving && !mounted) || !onTurn(time, entity, SCAN_TICKS)) continue
       let best = Infinity
       for (const mark of marks.values()) {
         if (!canHit(weapon, self.player, mark)) continue
@@ -275,34 +302,39 @@ export function fight(sim: Sim) {
 
     if (distanceTo(target, self.x, self.y) > weapon.range) {
       if (!armed.chase) armed.target = NONE
+      // Носитель везёт к цели одна его турель за тик: остальным ехать с ним же.
+      else if (mounted && chasing.has(mover)) continue
       // Вставший трогается снова не каждый тик, а не нашедший пути — всё реже: искать его без конца слишком дорого.
       else if (onTurn(time, entity, moving ? CHASE_TICKS : SCAN_TICKS << Math.min(armed.stuck, STUCK_LIMIT))) {
         const goalX = Math.floor(target.x)
         const goalY = Math.floor(target.y)
         // Цель с места не сошла — прежний путь годится.
-        const path = world.get(entity, Path)
+        const path = world.get(mover, Path)
         if (path && Math.abs(path.goalX - goalX) <= 1 && Math.abs(path.goalY - goalY) <= 1) continue
         // Остальные дождутся своей очереди: сотня поисков пути за тик — заметная запинка.
         if (searches++ >= CHASE_SEARCHES || searchedTiles() - searchedBefore >= CHASE_TILES) continue
         // Идти надо не в саму цель, а на выстрел от неё: цель занята, а к зданию или в гущу врагов и не подойти.
         const near = Math.max(0, weapon.range - CHASE_MARGIN) + Math.max(target.width, target.height) / 2
-        orderMove(sim, entity, goalX, goalY, undefined, 0, near)
-        armed.stuck = world.has(entity, Path) ? 0 : armed.stuck + 1
+        chasing.add(mover)
+        orderMove(sim, mover, goalX, goalY, undefined, 0, near)
+        armed.stuck = world.has(mover, Path) ? 0 : armed.stuck + 1
       }
       continue
     }
-    // На выстреле: гнавшийся встаёт. Идущий по приказу игрока не стреляет — цели у него нет.
-    if (moving) world.remove(entity, Path)
+    // На выстреле: гнавшийся встаёт. Идущий по приказу игрока не стреляет — цели у него нет; турель на едущем
+    // по приказу носителе стреляет, но носитель не останавливает.
+    if (moving && (!mounted || armed.chase)) world.remove(mover, Path)
 
     const wanted = Math.atan2(target.y - self.y, target.x - self.x)
-    unit.facing = turnToward(unit.facing, wanted, spec.turn * time.step)
-    if (armed.cooldown > 0 || Math.abs(wrap(wanted - unit.facing)) > AIM) continue
+    const { body: aimer } = turner
+    aimer.facing = turnToward(aimer.facing, wanted, turner.turn * time.step)
+    if (armed.cooldown > 0 || Math.abs(wrap(wanted - aimer.facing)) > AIM) continue
     armed.cooldown = Math.max(1, Math.round(weapon.reload / time.step))
 
-    // Выстрел — из точки перед юнитом.
-    const fromX = self.x + Math.cos(unit.facing) * spec.radius
-    const fromY = self.y + Math.sin(unit.facing) * spec.radius
-    const shot = { weapon: spec.weapon, player: self.player, source: entity, fromX, fromY, prevX: fromX, prevY: fromY }
+    // Выстрел — из точки перед стрелком.
+    const fromX = self.x + Math.cos(aimer.facing) * turner.radius
+    const fromY = self.y + Math.sin(aimer.facing) * turner.radius
+    const shot = { weapon: weaponType, player: self.player, source: carrier, fromX, fromY, prevX: fromX, prevY: fromY }
     if (weapon.speed) {
       // Ядру отпущено время до точки падения, наводящимся — пока не улетят слишком далеко.
       const reach = weapon.shot === 'shell' ? Math.hypot(target.x - fromX, target.y - fromY) : weapon.range * OVERFLY
@@ -322,7 +354,7 @@ export function fight(sim: Sim) {
         Position({ x: from.x, y: from.y }),
         Shot({ ...shot, fromX: from.x, fromY: from.y, target: current.entity, toX: current.x, toY: current.y, life: BEAM_TICKS }),
       )
-      hit(current, damage, weapon, entity)
+      hit(current, damage, weapon, carrier)
       damage *= CHAIN_DECAY
       from = current
       next = undefined

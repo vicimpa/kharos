@@ -58,7 +58,7 @@ export const BUILDINGS = {
   command: { width: 3, height: 3, cost: 2000, income: 0.2, zone: 12, stores: 100, produces: ['builder', 'truck'], dock: { x: 1, y: 3, facing: Math.PI / 2 } },
   refinery: { width: 3, height: 2, cost: 600 },
   // Машинный завод: машинки и тяжёлая техника.
-  factory: { width: 2, height: 2, cost: 500, power: -5, produces: ['buggy', 'lancer', 'tank', 'tesla'] },
+  factory: { width: 2, height: 2, cost: 500, power: -5, produces: ['buggy', 'lancer', 'tank', 'tesla', 'carrier'] },
   // Электростанция.
   generator: { width: 2, height: 2, cost: 300, power: 10 },
   // Генератор материи — базовый доход: превращает энергию в кредиты.

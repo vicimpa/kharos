@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { Armed, BUILDING_TYPES, Owner, Position, Repair, isOwn, UNITS, UNIT_TYPES, Unit, canAttack, canHaul, canPlace, canRepair, isWalkable, siteAt } from '../sim'
+import { BUILDING_TYPES, Owner, Position, Repair, isOwn, UNITS, UNIT_TYPES, Unit, canAttack, canFight, isFighter, canHaul, canPlace, canRepair, isWalkable, siteAt } from '../sim'
 import { placementOf } from './placing'
 import type { Scene } from './scene'
 
@@ -31,7 +31,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
   let nextUnit = 0
   let nextEnemy = 0
   /** Кого создаёт E: только вооружённые. */
-  const FIGHTERS = UNIT_TYPES.filter((type) => 'weapon' in UNITS[type])
+  const FIGHTERS = UNIT_TYPES.filter(isFighter)
 
   /** Свои юниты, центр которых попал в прямоугольник в тайлах. */
   const unitsInBox = (left: number, top: number, right: number, bottom: number) => {
@@ -136,7 +136,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
       const trucks = units.some((entity) => sim.world.get(entity, Unit)?.type === 'truck')
       // Вооружённые по врагу — атакуют: по чужому юниту или зданию под курсором.
       const enemy = unitAt(point.x, point.y, false) ?? damaged
-      const fighters = units.some((entity) => sim.world.has(entity, Armed))
+      const fighters = units.some((entity) => canFight(sim, entity))
       // Грузовики по своей шахте — привязываются к ней и возят руду.
       if (fighters && enemy !== undefined && canAttack(sim, scene.player, enemy)) {
         sim.send(scene.player, { type: 'attack', units, target: enemy })

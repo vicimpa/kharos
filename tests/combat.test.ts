@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { Armed, Blast, Building, Builds, Health, INFANTRY_REGEN, Repair, Owner, Path, Position, Producer, Shot, UNITS, Unit, WEAPONS, buildingHp, canAttack, canPlace, createSim, driveBattle, isWalkable, powerStates, producibleBy, randomArmy, spawnBattle, zoneEconomies, type Sim } from '../src/sim'
+import { Armed, Blast, Building, Builds, Carrier, Health, INFANTRY_REGEN, Repair, Turret, Owner, Path, Position, Producer, Shot, UNITS, Unit, WEAPONS, buildingHp, canAttack, canPlace, createSim, driveBattle, isWalkable, powerStates, producibleBy, randomArmy, spawnBattle, zoneEconomies, type Sim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { addCredits } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
@@ -232,7 +232,7 @@ test('пехоту выпускают казармы, технику — маш�
   }
   const [, barracks, factory, port, plant, spare] = layout.map(([type, dx]) => placeBuilding(sim.world, type, spot!.x + dx, spot!.y, 1))
   expect(producibleBy(sim, barracks)).toEqual(['infantry', 'rocketeer'])
-  expect(producibleBy(sim, factory)).toEqual(['buggy', 'lancer', 'tank', 'tesla'])
+  expect(producibleBy(sim, factory)).toEqual(['buggy', 'lancer', 'tank', 'tesla', 'carrier'])
   expect(producibleBy(sim, port)).toEqual(['drone', 'gunship'])
   // Потребляют 2 + 5 + 5 из 20.
   expect(zoneEconomies(sim, 1)[0]).toMatchObject({ produced: 20, demand: 12 })
@@ -279,7 +279,7 @@ test('показательный бой: армии сходятся сами, �
   const sim = createSim(options)
   const army = randomArmy(3500, {}, () => 0.37)
   // Нулевой вес убирает тип из армии, а когда запрещены все — типы снова равноправны.
-  const tanks = randomArmy(3500, { infantry: 0, rocketeer: 0, buggy: 0, lancer: 0, tesla: 0, drone: 0, gunship: 0 })
+  const tanks = randomArmy(3500, { infantry: 0, rocketeer: 0, buggy: 0, lancer: 0, tesla: 0, carrier: 0, drone: 0, gunship: 0 })
   expect(tanks).toEqual(Array(5).fill('tank'))
   expect(randomArmy(3500, { infantry: 0, rocketeer: 0, buggy: 0, lancer: 0, tank: 0, tesla: 0, drone: 0, gunship: 0 }).length).toBeGreaterThan(0)
   expect(army.reduce((sum, type) => sum + UNITS[type].cost, 0)).toBeGreaterThan(3500 - 60)
@@ -417,4 +417,58 @@ test('строитель чинит, только повернувшись к ц
   seconds(sim, 1)
   expect(Math.abs(sim.world.get(builder, Unit)!.facing)).toBeLessThan(0.2)
   expect(sim.world.get(tank, Health)!.value).toBeGreaterThan(0.5)
+})
+
+test('носитель везёт турели: они едут с ним, ракетные бьют врага и на ходу, ремонтная чинит соседей, но не его', () => {
+  const { sim, x, y } = field()
+  addCredits(sim, 1, 5000)
+  const carrier = spawnUnit(sim, 'carrier', 1, x + 2, y)
+  const turrets = sim.world.get(carrier, Carrier)!.turrets as Entity[]
+  expect(turrets.map((turret) => sim.world.get(turret, Turret)!.type)).toEqual(['rocket', 'rocket', 'rocket', 'repair'])
+  // Турели — не юниты: их не выделить и не подстрелить, у них нет своей прочности.
+  for (const turret of turrets) expect(sim.world.has(turret, Unit) || sim.world.has(turret, Health)).toBe(false)
+
+  // Едут вместе с носителем.
+  sim.send(1, { type: 'move', units: [carrier], x: x + 10, y })
+  seconds(sim, 1.5)
+  const at = sim.world.get(carrier, Position)!
+  for (const turret of turrets) {
+    const position = sim.world.get(turret, Position)!
+    expect(Math.hypot(position.x - at.x, position.y - at.y)).toBeLessThan(0.5)
+  }
+
+  // Ракетные турели сами бьют врага в пределах выстрела, даже пока носитель едет; урон считается за носителем.
+  const foe = spawnUnit(sim, 'tank', 2, x + 14, y + 2)
+  seconds(sim, 3)
+  expect(sim.world.get(foe, Health)!.value).toBeLessThan(1)
+  expect(sim.world.get(turrets[0], Armed)!.target).toBe(foe)
+
+  // Ремонтная чинит свой юнит рядом, а свой носитель — нет.
+  sim.world.destroy(foe)
+  const tank = spawnUnit(sim, 'tank', 1, Math.floor(at.x) + 3, Math.floor(at.y) - 2)
+  sim.world.get(tank, Health)!.value = 0.5
+  sim.world.get(carrier, Health)!.value = 0.5
+  seconds(sim, 3)
+  expect(sim.world.get(tank, Health)!.value).toBeGreaterThan(0.5)
+  expect(sim.world.get(carrier, Health)!.value).toBe(0.5)
+
+  // Переживает сохранение, а с гибелью носителя турели исчезают.
+  const copy = createSim(JSON.parse(JSON.stringify(sim.save())))
+  expect(copy.world.get(carrier, Carrier)!.turrets).toEqual(turrets)
+  copy.world.destroy(carrier)
+  copy.advance(TICK)
+  for (const turret of turrets) expect(copy.world.alive(turret)).toBe(false)
+})
+
+test('приказ атаковать носителю: он подъезжает на выстрел турелей, и они бьют цель', () => {
+  const { sim, x, y } = field()
+  const carrier = spawnUnit(sim, 'carrier', 1, x + 1, y)
+  const foe = spawnUnit(sim, 'tesla', 2, x + 18, y)
+  sim.send(1, { type: 'attack', units: [carrier], target: foe })
+  seconds(sim, 1)
+  expect(sim.world.has(carrier, Path)).toBe(true)
+  seconds(sim, 8)
+  expect(sim.world.get(foe, Health)?.value ?? 0).toBeLessThan(1)
+  const from = sim.world.get(carrier, Position)!
+  expect(Math.hypot(from.x - (x + 18.5), from.y - (y + 0.5))).toBeLessThan(WEAPONS.launcher.range + 1)
 })

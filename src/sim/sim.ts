@@ -11,6 +11,7 @@ import { earn } from './income'
 import { trade } from './trade'
 import { moveUnits } from './movement'
 import { produceUnits } from './production'
+import { followCarriers } from './turrets'
 
 /** Границы карты в тайлах. Правая и нижняя — не включая. */
 export interface Bounds {
@@ -28,7 +29,7 @@ export interface SimOptions {
 
 /** Сохранение симуляции. Обычные данные: их можно положить в JSON, на диск или отправить по сети. */
 /** Версия формата сохранения. Меняется, когда старые сохранения перестают подходить: тогда они отбрасываются. */
-export const SAVE_VERSION = 8
+export const SAVE_VERSION = 9
 
 export interface SimSave extends SimOptions {
   version: typeof SAVE_VERSION
@@ -86,6 +87,8 @@ export function createSim(source: SimOptions | SimSave): Sim {
       () => convert(sim),
       (_, time) => produceUnits(sim, time),
       (_, time) => moveUnits(sim, time),
+      // Турели встают на носители, уже сдвинувшиеся за этот тик.
+      () => followCarriers(sim),
       // После движения: работающий строитель поворачивается к стройке, и поворот сглаживается, как у идущих.
       () => construct(sim),
       () => haul(sim),

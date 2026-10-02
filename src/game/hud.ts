@@ -1,7 +1,7 @@
 import type { Entity } from '../ecs'
 import {
-  Armed, BUILDABLE, BUILDINGS, Building, Converting, Hauler, Health, ORE_PRICE, CORE, buildingSpec, isOwn, producibleBy, TRUCK_CAPACITY, Trade, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
-  buildTicks, canDemolish, canDeploy, canPack, isDeployBlocked, coreCenters, creditsOf, economyOf, isSiteBlocked, oreLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, zoneEconomies, zonesOf,
+  BUILDABLE, BUILDINGS, Building, Converting, Hauler, Health, ORE_PRICE, CORE, buildingSpec, isOwn, producibleBy, TRUCK_CAPACITY, Trade, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
+  buildTicks, canDemolish, canFight, canDeploy, canPack, isDeployBlocked, coreCenters, creditsOf, economyOf, isSiteBlocked, oreLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, zoneEconomies, zonesOf,
   Position, type BuildingType, type Command, type UnitType,
 } from '../sim'
 import type { Scene } from './scene'
@@ -126,7 +126,7 @@ export function readHud(scene: Scene): HudState {
       counts.set(unit.type, (counts.get(unit.type) ?? 0) + 1)
       unitHealth += world.get(entity, Health)?.value ?? 1
       unitCount++
-      if (world.has(entity, Armed)) armed++
+      if (canFight(sim, entity)) armed++
     }
     building = world.get(entity, Building)?.type ?? world.get(entity, Site)?.type ?? building
     if (building !== null && buildingSpec(building).extract) {

@@ -8,6 +8,7 @@ import { addCredits, creditsOf, pay, reward, spend } from './economy'
 import { overbuiltPlants } from './income'
 import type { Sim } from './sim'
 import { inCircles, inForeignZone, zoneOf } from './zones'
+import { carrierOf, turnerOf } from './turrets'
 import { UNITS, clearGround, isWalkable, orderMove, standingUnits, unitsIn } from './units'
 
 /** С какого расстояния до основания свободный строитель сам берётся за стройку или разбор, в тайлах. */
@@ -326,9 +327,9 @@ const REPAIR_AIM = 0.2
 
 /** Смотрит ли ремонтник на то, над чем работает. */
 function isAimed(sim: Sim, link: RepairLink) {
-  const unit = sim.world.get(link.from, Unit)
-  if (!unit) return true
-  return Math.abs(wrap(Math.atan2(link.toY - link.fromY, link.toX - link.fromX) - unit.facing)) <= REPAIR_AIM
+  const turner = turnerOf(sim, link.from)
+  if (!turner) return true
+  return Math.abs(wrap(Math.atan2(link.toY - link.fromY, link.toX - link.fromX) - turner.body.facing)) <= REPAIR_AIM
 }
 
 /**
@@ -338,13 +339,13 @@ function isAimed(sim: Sim, link: RepairLink) {
 export function repairLinks(sim: Sim): RepairLink[] {
   const { world } = sim
   const links: RepairLink[] = []
-  const repairers: { entity: Entity; player: number; x: number; y: number; radius: number; rate: number; site?: number }[] = []
+  const repairers: { entity: Entity; player: number; x: number; y: number; radius: number; rate: number; site?: number; carrier: Entity }[] = []
   for (const [entity, repair, position, owner] of world.query(Repair, Position, Owner)) {
-    // На ходу, разворачиваясь и недостроенным не работают.
-    if (world.has(entity, Path) || world.has(entity, Converting) || world.has(entity, Site)) continue
+    // На ходу, разворачиваясь и недостроенным не работают; турель — работает и на ходу носителя.
+    if (world.has(entity, Path) || world.has(carrierOf(sim, entity), Converting) || world.has(entity, Site)) continue
     const building = world.get(entity, Building)
     const { width, height } = building ? BUILDINGS[building.type] : { width: 0, height: 0 }
-    repairers.push({ entity, player: owner.player, x: position.x + width / 2, y: position.y + height / 2, radius: repair.radius, rate: repair.rate, site: world.get(entity, Builds)?.site })
+    repairers.push({ entity, player: owner.player, x: position.x + width / 2, y: position.y + height / 2, radius: repair.radius, rate: repair.rate, site: world.get(entity, Builds)?.site, carrier: carrierOf(sim, entity) })
   }
   if (!repairers.length) return links
 
@@ -373,7 +374,8 @@ export function repairLinks(sim: Sim): RepairLink[] {
     let best: (typeof targets)[number] | undefined
     let bestDistance = Infinity
     for (const target of targets) {
-      if (target.player !== repairer.player || target.entity === repairer.entity) continue
+      // Себя и свой носитель ремонтник не чинит.
+      if (target.player !== repairer.player || target.entity === repairer.carrier) continue
       if (target.ordered && repairer.site !== target.entity) continue
       const distance = distanceTo(target.work, repairer.x, repairer.y)
       if (distance > repairer.radius) continue
@@ -427,12 +429,12 @@ export function activeRepairs(sim: Sim): RepairLink[] {
  * Возвращает, сколько работы досталось каждой стройке и каждому повреждённому зданию или юниту.
  */
 function workDone(sim: Sim) {
-  const { world, time } = sim
+  const { time } = sim
   const done = new Map<Entity, number>()
   for (const link of repairLinks(sim)) {
-    const unit = world.get(link.from, Unit)
-    // За работой юнит поворачивается к ней — и светит на неё фарами.
-    if (unit) unit.facing = turnToward(unit.facing, Math.atan2(link.toY - link.fromY, link.toX - link.fromX), UNITS[unit.type].turn * time.step)
+    const turner = turnerOf(sim, link.from)
+    // За работой юнит или турель поворачивается к ней — и юнит светит на неё фарами.
+    if (turner) turner.body.facing = turnToward(turner.body.facing, Math.atan2(link.toY - link.fromY, link.toX - link.fromX), turner.turn * time.step)
     if (isAimed(sim, link)) done.set(link.to, (done.get(link.to) ?? 0) + link.rate)
   }
   return done

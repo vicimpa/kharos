@@ -61,6 +61,7 @@ export interface BattleConfig {
   lancer: number
   tank: number
   tesla: number
+  carrier: number
   drone: number
   gunship: number
 }
@@ -75,6 +76,7 @@ export const DEFAULT_BATTLE_CONFIG: BattleConfig = {
   lancer: 1,
   tank: 1,
   tesla: 1,
+  carrier: 1,
   drone: 1,
   gunship: 1,
 }

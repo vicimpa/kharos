@@ -2,6 +2,7 @@ import type { Entity, Time } from '../ecs'
 import { tileKey } from '../map/terrain'
 import { ownerOf, turnToward, wrap } from './common'
 import { Path, Position, Unit } from './components'
+import { searchedTiles } from './path'
 import type { Sim } from './sim'
 import { UNITS, canStand, flies, orderMove, stepAside } from './units'
 
@@ -27,6 +28,8 @@ const DETOURS = [0, 0.35, -0.35, 0.7, -0.7, 1.05, -1.05, 1.4, -1.4, 1.75, -1.75]
 /** Сколько юнитов за тик прокладывают путь заново и сколько уступают дорогу; остальные ждут следующего тика. */
 const LOST_SEARCHES = 8
 const YIELD_SEARCHES = 8
+/** Сколько тайлов за тик вместе осматривают перепрокладывающие путь; остальные ждут следующего тика. */
+const LOST_TILES = 8000
 /** Сторона ячейки сетки, по которой ищутся соседи, в тайлах. Больше любого расстояния, на котором юниты мешают друг другу. */
 const CELL = 4
 
@@ -177,7 +180,12 @@ export function moveUnits(sim: Sim, time: Time) {
   }
 
   for (const entity of stopped) world.remove(entity, Path)
-  for (const { entity, x, y, tries, near } of lost) orderMove(sim, entity, x, y, undefined, tries, near)
+  const searchedBefore = searchedTiles()
+  for (const { entity, x, y, tries, near } of lost) {
+    // Не уложившиеся в норму ждут дальше: их путь цел, и в следующий тик они попробуют снова.
+    if (searchedTiles() - searchedBefore >= LOST_TILES) break
+    orderMove(sim, entity, x, y, undefined, tries, near)
+  }
   // Дорогу уступают только своим: чужой юнит стоит, где стоял.
   for (const { entity, by, x, y, heading, room } of asked) {
     if (ownerOf(sim, entity) === ownerOf(sim, by)) stepAside(sim, entity, x, y, heading, room)

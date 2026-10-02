@@ -5,6 +5,7 @@ import { Armed, Converting, Hauler, Health, Owner, Repair, Path, Position, Produ
 import { STARTING_CREDITS, addCredits } from './economy'
 import { findPath, smoothPath } from './path'
 import type { Sim } from './sim'
+import { mountTurrets, turretSpec, type MountSpec } from './turrets'
 import type { UnitClass, WeaponType } from './weapons'
 
 /** Что симуляция знает о виде юнита. Как он выглядит, знает клиент: см. game/units/unitArt.ts. */
@@ -26,6 +27,8 @@ export interface UnitSpec {
   weapon?: WeaponType
   /** Строит и чинит всё своё в этом радиусе, в тайлах от своего центра до края цели. См. construction.ts. */
   repair?: number
+  /** Турели на юните: каждая — своя сущность, см. turrets.ts. */
+  mounts?: MountSpec[]
 }
 
 /** Боевые числа — на глаз: бой ещё не балансировался. */
@@ -43,6 +46,16 @@ export const UNITS = {
   // Тяжёлые: медленные, крепкие и дорогие.
   tank: { speed: 2.2, turn: 2.5, radius: 0.7, cost: 600, buildTime: 14, kind: 'heavy', hp: 450, weapon: 'cannon' },
   tesla: { speed: 2, turn: 2.5, radius: 0.7, cost: 700, buildTime: 16, kind: 'heavy', hp: 380, weapon: 'arc' },
+  // Носитель: колёсное шасси танка без своего оружия — на нём три ракетные турели и ремонтная.
+  carrier: {
+    speed: 3, turn: 2.5, radius: 0.8, cost: 1200, buildTime: 20, kind: 'vehicle', hp: 550,
+    mounts: [
+      { turret: 'rocket', along: 0.36, across: -0.27 },
+      { turret: 'rocket', along: 0.36, across: 0.27 },
+      { turret: 'rocket', along: -0.28, across: -0.27 },
+      { turret: 'repair', along: -0.28, across: 0.27 },
+    ],
+  },
   // Летающие.
   drone: { speed: 7.5, turn: 6, radius: 0.35, cost: 220, buildTime: 6, kind: 'air', hp: 70, weapon: 'machinegun' },
   gunship: { speed: 5, turn: 3, radius: 0.55, cost: 500, buildTime: 12, kind: 'air', hp: 160, weapon: 'launcher' },
@@ -52,6 +65,12 @@ export type UnitType = keyof typeof UNITS
 export const UNIT_TYPES = Object.keys(UNITS) as UnitType[]
 /** Описание вида юнита со всеми необязательными полями. */
 export const unitSpec = (type: UnitType): UnitSpec => UNITS[type]
+
+/** Боевой ли вид: вооружён сам или несёт вооружённые турели. */
+export const isFighter = (type: UnitType) => {
+  const { weapon, mounts } = unitSpec(type)
+  return !!weapon || !!mounts?.some(({ turret }) => turretSpec(turret).weapon)
+}
 
 /** Летает ли юнит этого вида. */
 export const flies = (type: UnitType) => unitSpec(type).kind === 'air'
@@ -110,6 +129,8 @@ export function standingUnits(sim: Sim, ignore: ReadonlySet<Entity>, radius: num
 
 /** Сколько тайлов осматривает поиск пути, когда к цели надо только подойти на расстояние. */
 const APPROACH_LIMIT = 3000
+/** Сколько тайлов осматривает поиск пути, когда юнит уступает дорогу. */
+const STEP_ASIDE_LIMIT = 300
 
 /** Шаг между местами юнитов в группе, в тайлах: крупные машины не помещаются в один тайл. */
 const GROUP_SPACING = 2
@@ -150,6 +171,7 @@ export function spawnUnit(sim: Sim, type: UnitType, player: number, x: number, y
   if (type === 'truck') world.add(entity, Hauler)
   if (spec.weapon) world.add(entity, Armed)
   if (spec.repair) world.add(entity, Repair({ radius: spec.repair }))
+  mountTurrets(sim, entity)
   return entity
 }
 
@@ -173,8 +195,9 @@ export function spawnStartingUnits(sim: Sim, player: number, x: number, y: numbe
  * Если идти некуда, юнит остаётся на месте.
  * ignore — кто из стоящих юнитов не препятствие; tries — который раз прокладывается путь к этой цели.
  * near — на сколько тайлов достаточно подойти к цели; тогда сама цель может быть занята или недоступна.
+ * limit — сколько тайлов можно осмотреть в поиске пути; по умолчанию — сколько позволяет path.ts.
  */
-export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore?: ReadonlySet<Entity>, tries = 0, near = 0) {
+export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore?: ReadonlySet<Entity>, tries = 0, near = 0, limit?: number) {
   const { world } = sim
   const position = world.get(entity, Position)
   // Юнит, который разворачивается, с места не трогается.
@@ -202,9 +225,9 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
     return isWalkable(sim, tileX, tileY) && !taken.has(tileKey(tileX, tileY))
   }
   // Подход на расстояние ищется недолго: не вышло обойти — юнит встанет поближе и попробует оттуда.
-  const tiles = findPath(walkable, fromX, fromY, x, y, near, near ? APPROACH_LIMIT : undefined)
-  // Уже достаточно близко, а идти всё равно велят: значит, надо подойти вплотную.
-  if (near && !tiles.length && (fromX - x) ** 2 + (fromY - y) ** 2 <= near * near) return orderMove(sim, entity, x, y, ignore, tries)
+  const tiles = findPath(walkable, fromX, fromY, x, y, near, near ? APPROACH_LIMIT : limit)
+  // Уже достаточно близко, а идти всё равно велят: значит, надо подойти вплотную. Цель рядом — и искать недолго.
+  if (near && !tiles.length && (fromX - x) ** 2 + (fromY - y) ** 2 <= near * near) return orderMove(sim, entity, x, y, ignore, tries, 0, APPROACH_LIMIT)
   // Юнит идёт по центрам тайлов.
   const points = smoothPath(
     walkable,
@@ -263,7 +286,8 @@ export function stepAside(sim: Sim, entity: Entity, fromX: number, fromY: number
     const x = Math.floor(position.x + sideX * sign * room)
     const y = Math.floor(position.y + sideY * sign * room)
     if (!canStand(sim, air, x, y) || taken.has(tileKey(x, y))) continue
-    orderMove(sim, entity, x, y)
+    // Отойти надо на пару тайлов: если туда не пройти, обход издалека не нужен.
+    orderMove(sim, entity, x, y, undefined, 0, 0, STEP_ASIDE_LIMIT)
     return
   }
 }

@@ -1,5 +1,6 @@
 import { component } from '../ecs'
 import type { BuildingType } from './buildings'
+import type { TurretType } from './turrets'
 import type { UnitType } from './units'
 import type { WeaponType } from './weapons'
 
@@ -129,5 +130,17 @@ export const Shot = component('Shot', {
 /** Взрыв: только картинка, урон уже нанесён. size — радиус в тайлах; age и life — как у выстрела. */
 export const Blast = component('Blast', { size: 1, age: 0, life: 0 })
 
+/**
+ * Турель: отдельная сущность на юните-носителе, см. turrets.ts. facing — куда смотрит, в мировых радианах, как у юнита;
+ * prevFacing, prevX и prevY — где была и куда смотрела тик назад: клиент рисует её между прошлым и нынешним.
+ */
+export const Turret = component('Turret', { type: 'rocket' as TurretType, facing: 0, prevFacing: 0, prevX: 0, prevY: 0 })
+
+/** Прикреплён к сущности parent: стоит на ней в along тайлов вперёд и across вправо от её центра. */
+export const Attached = component('Attached', { parent: -1, along: 0, across: 0 })
+
+/** Носитель турелей: какие турели на нём стоят. */
+export const Carrier = component('Carrier', () => ({ turrets: [] as number[] }))
+
 /** Компоненты, которые попадают в сохранение и в сеть. Новый компонент симуляции добавляй сюда. */
-export const SAVED = [Position, Building, Health, Repair, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Trade, Armed, Shot, Blast]
+export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Trade, Armed, Shot, Blast]

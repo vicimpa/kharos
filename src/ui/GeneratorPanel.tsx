@@ -78,7 +78,7 @@ const WEATHER_GROUPS: Group<WeatherConfig>[] = [
   },
 ]
 
-const share = (key: 'infantry' | 'rocketeer' | 'buggy' | 'lancer' | 'tank' | 'tesla' | 'drone' | 'gunship'): Field<BattleConfig> => ({
+const share = (key: 'infantry' | 'rocketeer' | 'buggy' | 'lancer' | 'tank' | 'tesla' | 'carrier' | 'drone' | 'gunship'): Field<BattleConfig> => ({
   key,
   label: UNIT_NAMES[key],
   min: 0,
@@ -98,7 +98,7 @@ const BATTLE_GROUPS: Group<BattleConfig>[] = [
   },
   {
     title: 'Случайный бой: доля юнитов',
-    fields: [share('infantry'), share('rocketeer'), share('buggy'), share('lancer'), share('tank'), share('tesla'), share('drone'), share('gunship')],
+    fields: [share('infantry'), share('rocketeer'), share('buggy'), share('lancer'), share('tank'), share('tesla'), share('carrier'), share('drone'), share('gunship')],
   },
 ]
 
