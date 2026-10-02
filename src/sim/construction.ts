@@ -414,7 +414,8 @@ export function repairLinks(sim: Sim): RepairLink[] {
 function isStalled(sim: Sim, entity: Entity) {
   const { world } = sim
   const site = world.get(entity, Site)
-  if (!site) return creditsOf(sim, ownerOf(sim, entity)) <= 0
+  // Бесплатная починка не стоит и без кредитов.
+  if (!site) return sim.rules.repairCost > 0 && creditsOf(sim, ownerOf(sim, entity)) <= 0
   if (site.demolish) return false
   const { x, y } = world.get(entity, Position)!
   if (buildingSpec(site.type).zone === undefined && !inControl(sim, ownerOf(sim, entity), site.type, x, y)) return true
@@ -484,7 +485,8 @@ export function construct(sim: Sim) {
       const work = workAt(sim, entity)
       if (!health || !work) continue
       const gain = Math.min(1 - health.value, (count * sim.rules.repairSpeed) / workTicks(work.cost, time.step))
-      if (spend(sim, ownerOf(sim, entity), gain * work.cost * sim.rules.repairCost)) health.value += gain
+      const price = gain * work.cost * sim.rules.repairCost
+      if (price <= 0 || spend(sim, ownerOf(sim, entity), price)) health.value += gain
       continue
     }
     const position = world.get(entity, Position)!

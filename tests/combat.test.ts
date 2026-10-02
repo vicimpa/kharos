@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { Armed, Blast, Building, Builds, Carrier, Health, INFANTRY_REGEN, Repair, Turret, Owner, Path, Position, Producer, Shot, UNITS, Unit, WEAPONS, buildingHp, canAttack, canPlace, createSim, driveBattle, isWalkable, powerStates, producibleBy, randomArmy, spawnBattle, zoneEconomies, type Sim } from '../src/sim'
+import { Armed, Blast, Building, Builds, Carrier, activeRepairs, Health, INFANTRY_REGEN, Repair, Turret, Owner, Path, Position, Producer, Shot, UNITS, Unit, WEAPONS, buildingHp, canAttack, canPlace, createSim, driveBattle, isWalkable, powerStates, producibleBy, randomArmy, spawnBattle, zoneEconomies, type Sim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { addCredits } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
@@ -491,4 +491,15 @@ test('скорость и цена ремонта берутся из прави
   const sim = createSim({ ...options, rules: { repairCost: 1 } })
   expect(sim.rules).toEqual({ repairSpeed: 2, repairCost: 1 })
   expect(createSim(JSON.parse(JSON.stringify(sim.save()))).rules.repairCost).toBe(1)
+})
+
+test('бесплатная починка идёт и без кредитов', () => {
+  const { sim, x, y } = field()
+  const builder = spawnUnit(sim, 'builder', 1, x + 2, y)
+  const tank = spawnUnit(sim, 'tank', 1, x + 5, y)
+  sim.world.get(tank, Health)!.value = 0.5
+  sim.rules.repairCost = 0
+  seconds(sim, 2)
+  expect(sim.world.get(tank, Health)!.value).toBeGreaterThan(0.5)
+  expect(activeRepairs(sim).map((link) => link.from)).toEqual([builder])
 })
