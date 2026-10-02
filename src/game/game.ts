@@ -49,7 +49,7 @@ const PLAYER = 1
 const BATTLE_ORDERS = 0.5
 const BATTLE_PAUSE = 3
 
-/** Новая симуляция: стартовый набор игрока у начала мира, а в показательном бою — две армии. */
+/** Новая симуляция: стартовый набор игрока у начала мира, а в показательном бою — две случайные армии. */
 function createNewSim(settings: MapSettings, battle = false) {
   const sim = createSim(simOptions(settings))
   if (battle) spawnBattle(sim, PLAYER, 0, 0)
@@ -62,7 +62,7 @@ function createNewSim(settings: MapSettings, battle = false) {
  * Если запустить не удалось (нет WebGL 2, не собрался шейдер), бросает ошибку.
  * onError получает ошибки, случившиеся уже во время игры; игра после них остановлена.
  * С session игра идёт на сервере: мир приходит оттуда, а местное сохранение и новый старт отключены.
- * battle — показательный бой: две армии сходятся снова и снова; сохранение игрока при этом не читается и не пишется.
+ * battle — показательный бой: две случайные армии сходятся снова и снова, каждый раз в новом составе; сохранение игрока при этом не читается и не пишется.
  */
 export function createGame(
   canvas: HTMLCanvasElement,

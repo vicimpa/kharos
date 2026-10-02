@@ -27,6 +27,14 @@ const SHOW_PANEL = new URLSearchParams(location.search).has('panel')
 /** Показательный бой вместо обычной игры: параметр ?battle в адресной строке. Сохранение он не трогает. */
 const BATTLE = new URLSearchParams(location.search).has('battle')
 
+/** Переходит между обычной игрой и показательным боем: меняет параметр ?battle и перезагружает страницу. */
+function openBattle(on: boolean) {
+  const query = new URLSearchParams(location.search)
+  if (on) query.set('battle', '')
+  else query.delete('battle')
+  location.search = query.toString()
+}
+
 /** Страница игры: холст, на котором живёт сама игра, и интерфейс поверх него. */
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -82,6 +90,18 @@ export function App() {
           send={(command) => gameRef.current?.send(command)}
           place={(building) => gameRef.current?.place(building)}
         />
+      )}
+      {hud && error === null && !serverAddress() && (
+        <div class="hud hud--battle">
+          {BATTLE ? (
+            <>
+              <button onClick={() => gameRef.current?.restart()}>Новый бой</button>
+              <button onClick={() => openBattle(false)}>В игру</button>
+            </>
+          ) : (
+            <button onClick={() => openBattle(true)}>Случайный бой</button>
+          )}
+        </div>
       )}
       {SHOW_PANEL && (
         <GeneratorPanel settings={settings} onChange={setSettings} onRestart={() => gameRef.current?.restart()} />

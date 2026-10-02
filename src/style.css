@@ -164,6 +164,15 @@ body {
   user-select: none;
 }
 
+.hud--battle {
+  top: 12px;
+  left: 50%;
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  transform: translateX(-50%);
+}
+
 .hud--rewards {
   top: 52px;
   padding: 6px 10px;

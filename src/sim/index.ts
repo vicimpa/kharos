@@ -2,7 +2,7 @@ export { BUILDABLE, BUILDINGS, BUILDING_TYPES, CORE, canPlace, siteAt } from './
 export { BUILD_RATE, ORE_PRICE } from './buildings'
 export type { BuildingSpec, BuildingType, Occupancy } from './buildings'
 export type { Command } from './commands'
-export { driveBattle, spawnBattle } from './battle'
+export { driveBattle, randomArmy, spawnBattle } from './battle'
 export { BUILDING_HP, TRAINING_PLAYER, buildingHp, canAttack, hostile } from './combat'
 export { Armed, Blast, Building, Builds, Converting, Deposit, Hauler, Owner, Path, Player, Position, Producer, Shot, Site, Trade, Unit } from './components'
 export { DEMOLISH_REFUND, DEMOLISH_SPEED, REPAIR_COST, REPAIR_SPEED, repairCostOf, canBuild, canDemolish, canRepair, coreCenters, isSiteBlocked, refundOf, siteTicks } from './construction'
