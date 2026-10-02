@@ -2,7 +2,7 @@ import { createLandWindow, minZoom, type LandWindow } from '../map/landWindow'
 import type { MapSettings } from '../map/settings'
 import { createTerrainPass } from '../map/terrainPass'
 import { createRenderer } from '../render/renderer'
-import { createSim, placeDemoBuildings, type SimOptions } from '../sim'
+import { createSim, placeDemoBuildings, spawnStartingUnits, type SimOptions } from '../sim'
 import { createLightingPass } from '../weather/lightingPass'
 import { createPrecipitationPass } from '../weather/precipitationPass'
 import { createBoundsPass } from './boundsPass'
@@ -12,7 +12,9 @@ import { createControls } from './controls'
 import { createCursorPass } from './cursorPass'
 import { startFrames } from './frames'
 import type { Scene } from './scene'
+import { createSelectionPass } from './selectionPass'
 import { loadSave, storeSave } from './storage'
+import { createUnitsPass } from './units/unitsPass'
 
 /** Как часто игра сохраняется в браузер, в секундах. */
 const SAVE_INTERVAL = 10
@@ -29,10 +31,14 @@ export interface Game {
 
 const simOptions = (settings: MapSettings): SimOptions => ({ generator: settings.generator, size: settings.world.size })
 
-/** Новая симуляция с пробными зданиями: пока игрока нет, смотреть больше не на что. */
+/** Пока сети нет, игрок один. */
+const PLAYER = 1
+
+/** Новая симуляция: стартовый набор игрока у начала мира и пробные ничьи базы вокруг. */
 function createDemoSim(settings: MapSettings) {
   const sim = createSim(simOptions(settings))
   placeDemoBuildings(sim, 0, 0)
+  spawnStartingUnits(sim, PLAYER, 0, 0)
   return sim
 }
 
@@ -46,8 +52,11 @@ export function createGame(canvas: HTMLCanvasElement, settings: MapSettings, onE
   const save = loadSave(simOptions(settings))
   const scene: Scene = {
     sim: save ? createSim(save) : createDemoSim(settings),
+    player: PLAYER,
     camera,
     settings,
+    selection: new Set(),
+    selectionBox: null,
     grid: false,
   }
 
@@ -61,9 +70,11 @@ export function createGame(canvas: HTMLCanvasElement, settings: MapSettings, onE
       return [
         createTerrainPass(gl, scene, landWindow),
         createBoundsPass(gl, scene),
+        createUnitsPass(gl, scene),
         createBuildingsPass(gl, scene),
         createPrecipitationPass(gl, scene, landWindow),
         createLightingPass(gl, scene),
+        createSelectionPass(gl, scene),
         createCursorPass(gl, scene),
       ]
     },
@@ -76,6 +87,7 @@ export function createGame(canvas: HTMLCanvasElement, settings: MapSettings, onE
 
   const restart = () => {
     scene.sim.destroy()
+    scene.selection.clear()
     scene.sim = createDemoSim(scene.settings)
     saveNow()
   }

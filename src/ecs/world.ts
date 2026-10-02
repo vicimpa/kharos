@@ -224,6 +224,7 @@ export class World {
       if (!store) return
       stores.push(store)
     }
+    if (!stores.length) return
     // Идём по самому маленькому хранилищу, остальные только проверяем.
     let driver = stores[0]
     for (const store of stores) if (store.entities.length < driver.entities.length) driver = store

@@ -1,6 +1,6 @@
 import type { Entity, World } from '../ecs'
 import { isBuildable, terrainAt } from '../map/terrain'
-import { Building, Position } from './components'
+import { Building, Owner, Position } from './components'
 import type { Sim } from './sim'
 
 /** Что симуляция знает о виде здания. Как оно выглядит, знает клиент: см. game/buildings/buildingArt.ts. */
@@ -74,6 +74,7 @@ export function canPlace(sim: Sim, type: BuildingType, x: number, y: number, gap
   return true
 }
 
-export function placeBuilding(world: World, type: BuildingType, x: number, y: number) {
-  return world.spawn(Position({ x, y }), Building({ type, phase: world.count(Building) * 5 }))
+/** Ставит здание без проверок. player — владелец; 0 — ничьё. */
+export function placeBuilding(world: World, type: BuildingType, x: number, y: number, player = 0) {
+  return world.spawn(Position({ x, y }), Building({ type, phase: world.count(Building) * 5 }), Owner({ player }))
 }

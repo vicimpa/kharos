@@ -1,4 +1,4 @@
-import type { SimOptions, SimSave } from '../sim'
+import { SAVE_VERSION, type SimOptions, type SimSave } from '../sim'
 
 const STORAGE_KEY = 'kharos.save'
 
@@ -6,7 +6,7 @@ const STORAGE_KEY = 'kharos.save'
 export function loadSave(options: SimOptions): SimSave | null {
   try {
     const save = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null') as SimSave | null
-    if (save?.version !== 1) return null
+    if (save?.version !== SAVE_VERSION) return null
     // Другой генератор — другая местность: здания из сохранения оказались бы где попало.
     if (save.size !== options.size || JSON.stringify(save.generator) !== JSON.stringify(options.generator)) return null
     return save

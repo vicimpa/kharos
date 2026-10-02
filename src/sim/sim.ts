@@ -3,6 +3,7 @@ import { createLand, type GeneratorConfig, type Land } from '../map/terrain'
 import { createOccupancy, type Occupancy } from './buildings'
 import { apply, type Command } from './commands'
 import { SAVED } from './components'
+import { moveUnits } from './movement'
 
 /** Границы карты в тайлах. Правая и нижняя — не включая. */
 export interface Bounds {
@@ -19,8 +20,11 @@ export interface SimOptions {
 }
 
 /** Сохранение симуляции. Обычные данные: их можно положить в JSON, на диск или отправить по сети. */
+/** Версия формата сохранения. Меняется, когда старые сохранения перестают подходить: тогда они отбрасываются. */
+export const SAVE_VERSION = 2
+
 export interface SimSave extends SimOptions {
-  version: 1
+  version: typeof SAVE_VERSION
   tick: number
   world: WorldSnapshot
 }
@@ -38,8 +42,8 @@ export interface Sim {
   readonly occupancy: Occupancy
   /** Время симуляции. alpha — доля тика, прошедшая после последнего: ею клиент сглаживает движение. */
   readonly time: Time
-  /** Ставит команду в очередь. Она выполнится в начале следующего тика. */
-  send(command: Command): void
+  /** Ставит команду игрока player в очередь. Она выполнится в начале следующего тика. */
+  send(player: number, command: Command): void
   /** Продвигает симуляцию на seconds реального времени. Возвращает число сделанных тиков. */
   advance(seconds: number): number
   save(): SimSave
@@ -53,16 +57,18 @@ export function createSim(source: SimOptions | SimSave): Sim {
   const bounds: Bounds = { left: -half, top: -half, right: options.size - half, bottom: options.size - half }
 
   const world = new World()
-  const queue: Command[] = []
+  const queue: { player: number; command: Command }[] = []
 
   /** Первая система тика: выполняет команды, накопившиеся с прошлого тика. */
   const commands: System = () => {
     // Команда, посланная во время выполнения другой, дождётся следующего тика.
-    for (const command of queue.splice(0)) apply(sim, command)
+    for (const { player, command } of queue.splice(0)) apply(sim, player, command)
   }
 
+  const movement: System = (_, time) => moveUnits(sim, time)
+
   // Порядок систем — порядок событий внутри тика. Новые системы симуляции добавляются сюда.
-  const loop = new Loop({ world, tick: 'tick' in source ? source.tick : 0, update: [commands] })
+  const loop = new Loop({ world, tick: 'tick' in source ? source.tick : 0, update: [commands, movement] })
   const sim: Sim = {
     options,
     bounds,
@@ -70,17 +76,16 @@ export function createSim(source: SimOptions | SimSave): Sim {
     land: createLand(options.generator),
     occupancy: createOccupancy(world),
     time: loop.time,
-    send(command) {
-      queue.push(command)
+    send(player, command) {
+      queue.push({ player, command })
     },
     advance: (seconds) => loop.advance(seconds),
-    save: () => ({ version: 1, ...options, tick: loop.time.tick, world: world.snapshot(SAVED) }),
+    save: () => ({ version: SAVE_VERSION, ...options, tick: loop.time.tick, world: world.snapshot(SAVED) }),
     destroy() {
       sim.occupancy.destroy()
       world.clear()
     },
   }
-
 
   if ('world' in source) world.restore(source.world, SAVED)
   return sim

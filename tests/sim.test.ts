@@ -18,7 +18,7 @@ function freeTile(sim: Sim) {
 test('команда выполняется в начале следующего тика, а не сразу', () => {
   const sim = createSim(options)
   const { x, y } = freeTile(sim)
-  sim.send({ type: 'placeBuilding', building: 'turret', x, y })
+  sim.send(1, { type: 'placeBuilding', building: 'turret', x, y })
   expect(sim.world.count(Building)).toBe(0)
 
   expect(sim.advance(TICK)).toBe(1)
@@ -30,12 +30,12 @@ test('негодная команда отбрасывается', () => {
   const sim = createSim(options)
   const { x, y } = freeTile(sim)
   // Две одинаковые команды за один тик: вторая метит в уже занятый тайл.
-  sim.send({ type: 'placeBuilding', building: 'turret', x, y })
-  sim.send({ type: 'placeBuilding', building: 'turret', x, y })
+  sim.send(1, { type: 'placeBuilding', building: 'turret', x, y })
+  sim.send(1, { type: 'placeBuilding', building: 'turret', x, y })
   // Команды приходят извне и могут быть какими угодно.
-  sim.send({ type: 'placeBuilding', building: 'nonsense' as 'turret', x: x + 1, y })
-  sim.send({ type: 'placeBuilding', building: 'turret', x: x + 0.5, y })
-  sim.send({ type: 'explode' } as never)
+  sim.send(1, { type: 'placeBuilding', building: 'nonsense' as 'turret', x: x + 1, y })
+  sim.send(1, { type: 'placeBuilding', building: 'turret', x: x + 0.5, y })
+  sim.send(1, { type: 'explode' } as never)
   sim.advance(TICK)
   expect(sim.world.count(Building)).toBe(1)
 })
@@ -69,7 +69,7 @@ test('сохранение восстанавливает мир, тик и но
   const [first] = sim.world.query(Position, Building)
   expect(loaded.occupancy.at(first[1].x, first[1].y)).toBe(first[0])
   const { x, y } = freeTile(loaded)
-  loaded.send({ type: 'placeBuilding', building: 'turret', x, y })
+  loaded.send(1, { type: 'placeBuilding', building: 'turret', x, y })
   loaded.advance(TICK)
   expect(loaded.occupancy.at(x, y)!).toBeGreaterThanOrEqual(save.world.next)
 })
@@ -78,7 +78,7 @@ test('две симуляции с одинаковыми командами д�
   const run = (frames: number[]) => {
     const sim = createSim(options)
     const { x, y } = freeTile(sim)
-    sim.send({ type: 'placeBuilding', building: 'turret', x, y })
+    sim.send(1, { type: 'placeBuilding', building: 'turret', x, y })
     for (const seconds of frames) sim.advance(seconds)
     return sim.save()
   }
