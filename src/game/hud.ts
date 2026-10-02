@@ -1,7 +1,7 @@
 import type { Entity } from '../ecs'
 import {
   BUILDABLE, BUILDINGS, Building, Converting, PRODUCIBLE, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
-  buildTicks, canDemolish, canDeploy, canPack, isDeployBlocked, coreCenters, creditsOf, economyOf, isSiteBlocked, oreLeft, powerOf, refundOf, rewardsOf, siteTicks, zoneEconomies,
+  buildTicks, canDemolish, canDeploy, canPack, isDeployBlocked, coreCenters, creditsOf, economyOf, isSiteBlocked, oreLeft, powerOf, refundOf, rewardsOf, siteTicks, zoneEconomies, zonesOf,
   Position, type BuildingSpec, type BuildingType, type Command, type UnitType,
 } from '../sim'
 import type { Scene } from './scene'
@@ -13,8 +13,11 @@ export interface HudState {
   rewards: string[]
   /** Доход в кредитах в секунду. */
   income: number
-  /** Энергия по зонам строительства: сколько вырабатывается и сколько просят потребители. У каждой зоны она своя. */
-  power: { produced: number; demand: number }[]
+  /**
+   * Энергия зоны строительства, в которой стоит выбранная электростанция: сколько вырабатывается и сколько
+   * просят потребители. У каждой зоны она своя, поэтому общего счётчика нет.
+   */
+  power: { produced: number; demand: number } | null
   /** Выбранные юниты по видам. */
   units: { type: UnitType; count: number }[]
   /** Выбранное здание, если выбрано оно. */
@@ -81,6 +84,8 @@ export function readHud(scene: Scene): HudState {
   let site: HudState['site'] = null
   let demolish: HudState['demolish'] = null
   let ore: number | null = null
+  let power: HudState['power'] = null
+  const zones = zoneEconomies(sim, player)
   const producers: Entity[] = []
   for (const entity of selection) {
     const unit = world.get(entity, Unit)
@@ -89,6 +94,11 @@ export function readHud(scene: Scene): HudState {
     if (building !== null && (BUILDINGS[building] as BuildingSpec).extract) {
       const position = world.get(entity, Position)!
       ore = Math.floor(oreLeft(sim, position.x, position.y))
+    }
+    if (building !== null && ((BUILDINGS[building] as BuildingSpec).power ?? 0) > 0) {
+      // Недостроенная и отрезанная от зоны электростанция ни в какую зону не входит — показывать нечего.
+      const zone = zonesOf(sim, player).findIndex((zone) => zone.buildings.includes(entity))
+      if (zone >= 0) power = { produced: zones[zone].produced, demand: zones[zone].demand }
     }
     const work = world.get(entity, Site)
     if (work) {
@@ -99,14 +109,13 @@ export function readHud(scene: Scene): HudState {
     if (world.has(entity, Producer)) producers.push(entity)
   }
 
-  const zones = zoneEconomies(sim, player)
   // Кнопки стройки показывают энергию для первой зоны: в какую попадёт здание, до выбора места неизвестно.
   const economy = zones[0] ?? economyOf(sim, player)
   const state: HudState = {
     credits,
     rewards: [...rewardsOf(sim, player)],
     income: round(economyOf(sim, player).income),
-    power: zones.map(({ produced, demand }) => ({ produced, demand })).filter(({ produced, demand }) => produced || demand),
+    power,
     units: UNIT_TYPES.filter((type) => counts.has(type)).map((type) => ({ type, count: counts.get(type)! })),
     building,
     ore,

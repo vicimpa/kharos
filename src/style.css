@@ -193,7 +193,6 @@ body {
 }
 
 .hud__power {
-  margin-left: 6px;
   color: #8fd0ff;
 }
 
@@ -292,7 +291,6 @@ body {
 }
 
 .hud button small.hud__power {
-  margin-left: 0;
   color: #8fd0ff;
 }
 

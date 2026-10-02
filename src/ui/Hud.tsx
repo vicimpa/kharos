@@ -43,15 +43,6 @@ export function Hud({ state, send, place }: HudProps) {
         <span class="hud__coin" />
         {state.credits}
         {state.income > 0 && <small>+{state.income}/с</small>}
-        {state.power.map(({ produced, demand }, zone) => (
-          <span
-            key={zone}
-            class={demand > produced ? 'hud__power is-short' : 'hud__power'}
-            title="Энергия зоны строительства: потребление / выработка"
-          >
-            ⚡ {demand}/{produced}
-          </span>
-        ))}
       </div>
 
       {fresh.length > 0 && (
@@ -72,6 +63,13 @@ export function Hud({ state, send, place }: HudProps) {
               ? `${site ? (site.demolish ? 'Разбор: ' : 'Стройка: ') : ''}${BUILDING_NAMES[building]}`
               : units.map(({ type, count }) => (count > 1 ? `${UNIT_NAMES[type]} ×${count}` : UNIT_NAMES[type])).join(', ')}
           </header>
+
+          {state.power && (
+            <div class={state.power.demand > state.power.produced ? 'hud__hint hud__power is-short' : 'hud__hint hud__power'}>
+              ⚡ Энергия зоны: потребляется {state.power.demand} из {state.power.produced}
+              {state.power.demand > state.power.produced && ' — не хватает'}
+            </div>
+          )}
 
           {ore !== null && <div class="hud__hint">{ore > 0 ? `Руды в месторождении: ${ore}` : 'Месторождение выработано'}</div>}
 
