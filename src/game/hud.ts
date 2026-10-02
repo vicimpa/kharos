@@ -1,6 +1,6 @@
 import type { Entity } from '../ecs'
 import {
-  BUILDABLE, BUILDINGS, Building, Converting, Hauler, Health, ORE_PRICE, CORE, buildingSpec, isOwn, producibleBy, TRUCK_CAPACITY, Trade, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
+  BUILDABLE, BUILDINGS, Building, Converting, Hauler, Health, ORE_PRICE, CORE, buildingSpec, isOwn, producibleBy, Trade, Inventory, amountOf, deliveredTo, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
   buildTicks, canDemolish, canFight, canDeploy, canPack, isDeployBlocked, coreCenters, creditsOf, economyOf, isSiteBlocked, oreLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, zoneEconomies, zonesOf,
   Position, type BuildingType, type Command, type UnitType,
 } from '../sim'
@@ -139,15 +139,17 @@ export function readHud(scene: Scene): HudState {
       if (zone >= 0) power = { produced: Math.round(zones[zone].produced * 10) / 10, demand: zones[zone].demand }
     }
     const hauler = world.get(entity, Hauler)
-    if (hauler) {
+    const inventory = world.get(entity, Inventory)
+    if (hauler && inventory) {
       cargo ??= { ore: 0, capacity: 0, bound: 0 }
-      cargo.ore += Math.floor(hauler.ore)
-      cargo.capacity += TRUCK_CAPACITY
+      cargo.ore += Math.floor(amountOf(inventory, 'ore'))
+      cargo.capacity += inventory.capacity
       if (hauler.mine >= 0 || hauler.port >= 0) cargo.bound++
     }
     const built = world.get(entity, Building)
-    const capacity = built && !world.has(entity, Site) ? buildingSpec(built.type).stores : undefined
-    if (built && capacity) stored = { ore: Math.floor(built.ore), capacity }
+    if (built && inventory && (buildingSpec(built.type).stores || buildingSpec(built.type).extract) && !world.has(entity, Site)) {
+      stored = { ore: Math.floor(amountOf(inventory, 'ore')), capacity: inventory.capacity }
+    }
     if (built && buildingSpec(built.type).trades && !world.has(entity, Site) && isOwn(sim, player, entity)) {
       const zone = zoneWith(sim, player, entity)
       const order = world.get(entity, Trade)
@@ -156,7 +158,7 @@ export function readHud(scene: Scene): HudState {
         available: zone ? Math.floor(stockOfZone(sim, zone).ore) : 0,
         price: ORE_PRICE,
         order: order
-          ? { wanted: Math.round(order.wanted), delivered: Math.floor(order.delivered), flight: order.total ? round(1 - order.left / order.total) : null }
+          ? { wanted: Math.round(order.wanted), delivered: Math.floor(deliveredTo(sim, entity)), flight: order.total ? round(1 - order.left / order.total) : null }
           : null,
       }
     }

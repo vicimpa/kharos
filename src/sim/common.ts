@@ -47,7 +47,3 @@ export function nearest<T>(items: Iterable<T>, distance: (item: T) => number, li
   }
   return best
 }
-
-/** Занят ли грузовик работой у коннектора прямо сейчас: приехал к нему сам, а не ждёт очереди. */
-export const holdsDock = (hauler: { mine: number; port: number; waiting: boolean }) =>
-  (hauler.mine !== NONE || hauler.port !== NONE) && !hauler.waiting

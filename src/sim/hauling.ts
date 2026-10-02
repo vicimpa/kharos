@@ -1,22 +1,17 @@
 import type { Entity } from '../ecs'
-import { BUILDINGS, CORE, dockOf, isReady, type BuildingSpec, type Dock } from './buildings'
-import { NONE, holdsDock, isOwn, nearest, onTurn, ownerOf, turnToward, wrap } from './common'
-import { Building, Converting, Hauler, Owner, Path, Position, Trade, Unit } from './components'
+import { BUILDINGS, buildingSpec, isReady, type BuildingSpec } from './buildings'
+import { NONE, isOwn, nearest, onTurn, ownerOf } from './common'
+import { Beam, Building, Converting, Hauler, Inventory, Owner, Path, Position, Site, Trade } from './components'
 import { oreLeft, takeOre } from './deposits'
+import { amountOf, approach, beamFor, put, reaches, resetBeams, roomFor, transfer } from './inventory'
 import type { Sim } from './sim'
-import { neededBy, storeOre, zoneWith } from './trade'
-import { UNITS, clearGround, orderMove } from './units'
+import { neededBy, zoneWith } from './trade'
+import { UNITS } from './units'
 
 /** Сколько руды помещается в грузовик. */
-export const TRUCK_CAPACITY = 20
-/** Сколько руды в секунду грузовик выгружает в здание и забирает из хранилища. */
-export const UNLOAD_RATE = 10
-/** Раз во сколько тиков грузовик, не вставший к коннектору, пробует подъехать снова. */
+export const TRUCK_CAPACITY = UNITS.truck.inventory
+/** Раз во сколько тиков грузовик, не дотянувшийся до луча, пробует подъехать снова. */
 const RETRY_TICKS = 20
-/** С какого расстояния до коннектора грузовик ждёт очереди на месте, а не подъезжает ближе, в тайлах. */
-const WAIT_RADIUS = 2.5
-/** Насколько точно грузовик встаёт задом к зданию, в радианах. */
-const ALIGNED = 0.05
 const EPSILON = 1e-9
 
 const specOf = (sim: Sim, building: Entity): BuildingSpec | undefined => {
@@ -27,15 +22,8 @@ const specOf = (sim: Sim, building: Entity): BuildingSpec | undefined => {
 /** Может ли игрок привязать грузовики к этому зданию: это его готовая шахта. */
 export const canHaul = (sim: Sim, player: number, mine: Entity) => isReady(sim, player, mine) && !!specOf(sim, mine)?.extract
 
-/** Коннектор здания на карте или undefined, если у здания его нет. */
-function dockAt(sim: Sim, building: Entity): Dock | undefined {
-  const position = sim.world.get(building, Position)
-  const type = sim.world.get(building, Building)?.type
-  return position && type ? dockOf(type, position.x, position.y) : undefined
-}
-
 /**
- * Привязывает грузовики игрока к его шахте: с этого момента они сами возят руду из неё на базу.
+ * Привязывает грузовики игрока к его шахте: с этого момента они сами возят руду из неё в хранилища.
  * Не грузовики и чужие юниты из списка выбрасываются.
  */
 export function assignHaulers(sim: Sim, player: number, mine: Entity, units: Entity[]) {
@@ -45,10 +33,16 @@ export function assignHaulers(sim: Sim, player: number, mine: Entity, units: Ent
   for (const truck of trucks) {
     releaseHauler(sim, truck)
     world.get(truck, Hauler)!.mine = mine
-    // Тронется сам в ближайший тик: гружёный — на базу, пустой — к шахте.
+    // Тронется сам в ближайший тик: гружёный — в хранилище, пустой — к шахте.
     world.remove(truck, Path)
   }
   return trucks.length > 0
+}
+
+/** Сколько руды в кузове грузовика. */
+const cargoOf = (sim: Sim, truck: Entity) => {
+  const inventory = sim.world.get(truck, Inventory)
+  return inventory ? amountOf(inventory, 'ore') : 0
 }
 
 /**
@@ -59,21 +53,11 @@ export function releaseHauler(sim: Sim, truck: Entity) {
   const hauler = sim.world.get(truck, Hauler)
   if (!hauler) return
   const order = sim.world.get(hauler.port as Entity, Trade)
-  if (order) order.claimed = Math.max(0, order.claimed - hauler.ore)
+  if (order) order.claimed = Math.max(0, order.claimed - cargoOf(sim, truck))
   hauler.mine = hauler.base = hauler.port = hauler.source = NONE
-  hauler.docked = hauler.waiting = false
-  // Гружёный останется гружёным: привязанный к шахте, он сначала отвезёт груз на базу.
-  hauler.full = hauler.ore > 0
-}
-
-/** Ближайшее к грузовику своё главное здание, которое не сворачивается; NONE — такого нет. */
-function pickBase(sim: Sim, truck: Entity, player: number): Entity {
-  const { world } = sim
-  const bases: Entity[] = []
-  for (const [entity, , building] of world.query(Position, Building)) {
-    if (building.type === CORE && isReady(sim, player, entity) && !world.has(entity, Converting)) bases.push(entity)
-  }
-  return closest(sim, truck, bases)
+  hauler.loading = hauler.waiting = false
+  // Гружёный останется гружёным: привязанный к шахте, он сначала отвезёт груз в хранилище.
+  hauler.full = cargoOf(sim, truck) > 0
 }
 
 /** Ближайшее к грузовику здание из списка; NONE — список пуст. */
@@ -87,61 +71,87 @@ function closest(sim: Sim, truck: Entity, buildings: Iterable<Entity>): Entity {
   return nearest(buildings, distance) ?? (NONE as Entity)
 }
 
-/** Годится ли здание, чтобы забирать из него руду для космопорта: готовое хранилище с коннектором и рудой. */
-function isSource(sim: Sim, player: number, building: Entity) {
-  const spec = specOf(sim, building)
-  return !!spec?.stores && !!spec.dock && isReady(sim, player, building) && sim.world.get(building, Building)!.ore > EPSILON
+/** Своё готовое хранилище, которое не сворачивается. */
+function isStore(sim: Sim, player: number, building: Entity) {
+  return !!specOf(sim, building)?.stores && isReady(sim, player, building) && !sim.world.has(building, Converting)
+}
+
+/** Годится ли здание, чтобы выгрузить в него руду из грузовика: хранилище, где есть место, и луч между ними найдётся. */
+function isBase(sim: Sim, player: number, building: Entity, truck: Entity) {
+  const inventory = sim.world.get(building, Inventory)
+  return isStore(sim, player, building) && !!inventory && roomFor(inventory, 'ore') > EPSILON && beamFor(sim, truck, building) !== undefined
+}
+
+/** Ближайшее к грузовику хранилище, куда можно выгрузиться; NONE — места нет нигде. */
+function pickBase(sim: Sim, truck: Entity, player: number): Entity {
+  const stores: Entity[] = []
+  for (const [entity] of sim.world.query(Building, Inventory)) if (isBase(sim, player, entity, truck)) stores.push(entity)
+  return closest(sim, truck, stores)
+}
+
+/** Годится ли здание, чтобы забирать из него руду для космопорта: хранилище с рудой, и луч между ними найдётся. */
+function isSource(sim: Sim, player: number, building: Entity, truck: Entity) {
+  const inventory = sim.world.get(building, Inventory)
+  return isStore(sim, player, building) && !!inventory && amountOf(inventory, 'ore') > EPSILON && beamFor(sim, building, truck) !== undefined
 }
 
 /** Ближайшее к грузовику хранилище с рудой в зоне космопорта; NONE — руды в зоне нет. */
 function pickSource(sim: Sim, truck: Entity, player: number, port: Entity): Entity {
-  const stores = zoneWith(sim, player, port)?.buildings.filter((entity) => isSource(sim, player, entity)) ?? []
+  const stores = zoneWith(sim, player, port)?.buildings.filter((entity) => isSource(sim, player, entity, truck)) ?? []
   return closest(sim, truck, stores)
 }
 
-/**
- * Ведёт грузовик к коннектору. Если тайл коннектора свободен — едет на него. Своих стоящих юнитов с него
- * просит уйти; чужих и другой грузовик, который сейчас у коннектора работает, ждёт неподалёку.
- */
-function seekDock(sim: Sim, truck: Entity, dock: Dock) {
-  const { world } = sim
-  // Грузовик, который сам встал к этому коннектору — подключён или ещё разворачивается, — остаётся.
-  const works = (entity: Entity) => {
-    const other = world.get(entity, Hauler)
-    return !!other && holdsDock(other)
+/** Подводит грузовик к зданию на длину луча, который перенесёт руду между ними. */
+function seek(sim: Sim, truck: Entity, building: Entity, toBuilding: boolean) {
+  const beam = toBuilding ? beamFor(sim, truck, building) : beamFor(sim, building, truck)
+  if (beam !== undefined) approach(sim, truck, building, sim.world.get(beam, Beam)!.radius)
+}
+
+/** Раз в тик: шахты добывают руду в свои склады, пока там есть место. */
+function extract(sim: Sim) {
+  const { world, time } = sim
+  const mines: { entity: Entity; rate: number }[] = []
+  for (const [entity, building] of world.query(Building, Inventory)) {
+    const rate = buildingSpec(building.type).extract
+    if (rate && !world.has(entity, Site)) mines.push({ entity, rate })
   }
-  if (clearGround(sim, ownerOf(sim, truck), dock.x, dock.y, 1, 1, true, truck, works)) return orderMove(sim, truck, dock.x, dock.y)
-  // Издалека подъезжает поближе: orderMove сам поставит его на свободный тайл рядом с занятым.
-  const position = world.get(truck, Position)!
-  if (Math.hypot(dock.x + 0.5 - position.x, dock.y + 0.5 - position.y) > WAIT_RADIUS) orderMove(sim, truck, dock.x, dock.y)
+  // Первая добыча заводит месторождению сущность, а состав мира меняется после обхода.
+  for (const { entity, rate } of mines) {
+    const inventory = world.get(entity, Inventory)!
+    const { x, y } = world.get(entity, Position)!
+    put(inventory, 'ore', takeOre(sim, x, y, Math.min(rate * time.step, roomFor(inventory, 'ore'))))
+  }
 }
 
 /**
- * Раз в тик: грузовики возят руду. У шахты, главного здания, хранилища и космопорта есть коннектор — тайл вплотную
- * к зданию; грузовик встаёт на него задом к зданию, и только тогда идёт погрузка или выгрузка. Коннектор один,
- * поэтому здание работает с одним грузовиком, а остальные ждут рядом.
+ * Раз в тик: шахты добывают, грузовики возят руду. Руду между зданием и грузовиком переносит транспортный луч
+ * (см. inventory.ts): грузовику достаточно встать в его радиусе. Луч за тик работает с одним грузовиком,
+ * остальные ждут рядом.
  *
- * Работ две. Привязанный к шахте грузовик грузится у неё — шахта работает, только пока он подключён, — и везёт руду
- * к ближайшему главному зданию, в хранилища его зоны строительства; если места в них нет, стоит у коннектора и ждёт.
- * Позванный космопортом забирает руду из хранилищ его зоны и везёт к нему, пока заявка не набрана.
+ * Работ две. Привязанный к шахте грузовик забирает из неё добытое и везёт в ближайшее хранилище, где есть место;
+ * если места нет нигде, ждёт с грузом. Позванный космопортом забирает руду из хранилищ его зоны и везёт к нему,
+ * пока заявка не набрана.
  */
 export function haul(sim: Sim) {
   const { world, time } = sim
+  resetBeams(sim)
+  extract(sim)
   // Приказы и поиск зданий — после обхода: внутри него нельзя ни обходить мир заново, ни менять его состав.
-  const seeking: { truck: Entity; dock: Dock }[] = []
-  /** Гружёным из шахты нужно главное здание, порожним от космопорта — хранилище с рудой. */
+  const seeking: { truck: Entity; building: Entity; toBuilding: boolean }[] = []
+  /** Гружёным из шахты нужно хранилище, порожним от космопорта — хранилище с рудой. */
   const homeless: Entity[] = []
   const sourceless: Entity[] = []
   const released: Entity[] = []
-  const docked: Entity[] = []
+  const working: { truck: Entity; building: Entity; toBuilding: boolean }[] = []
 
-  for (const [entity, hauler, position, unit, owner] of world.query(Hauler, Position, Unit, Owner)) {
+  for (const [entity, hauler, owner] of world.query(Hauler, Owner)) {
+    hauler.loading = false
     const forPort = hauler.port !== NONE
     if (!forPort && hauler.mine === NONE) continue
     if (forPort) {
       // Заявку закрыли, корабль улетел или космопорта больше нет.
       const order = isReady(sim, owner.player, hauler.port as Entity) ? world.get(hauler.port as Entity, Trade) : undefined
-      if (!order || order.total > 0 || (!hauler.full && hauler.ore <= 0 && neededBy(order) <= EPSILON)) {
+      if (!order || order.total > 0 || (!hauler.full && cargoOf(sim, entity) <= 0 && neededBy(sim, hauler.port as Entity) <= EPSILON)) {
         released.push(entity)
         continue
       }
@@ -150,113 +160,94 @@ export function haul(sim: Sim) {
       released.push(entity)
       continue
     }
-    if (world.has(entity, Path) || world.has(entity, Converting)) {
-      hauler.docked = false
-      continue
-    }
+    if (world.has(entity, Path) || world.has(entity, Converting)) continue
     const retry = onTurn(time, entity, RETRY_TICKS)
 
-    let target: Entity
+    let building: Entity
     if (forPort) {
-      target = (hauler.full ? hauler.port : hauler.source) as Entity
-      if (!hauler.full && !isSource(sim, owner.player, target)) {
-        hauler.docked = false
+      building = (hauler.full ? hauler.port : hauler.source) as Entity
+      if (!hauler.full && !isSource(sim, owner.player, building, entity)) {
         if (retry || hauler.source !== NONE) sourceless.push(entity)
         hauler.source = NONE
         continue
       }
     } else if (hauler.full) {
-      target = hauler.base as Entity
-      const valid = world.get(target, Building)?.type === CORE && isReady(sim, owner.player, target) && !world.has(target, Converting)
-      if (!valid) {
-        hauler.docked = false
+      building = hauler.base as Entity
+      if (!isBase(sim, owner.player, building, entity)) {
         if (retry || hauler.base !== NONE) homeless.push(entity)
         hauler.base = NONE
         continue
       }
     } else {
-      target = hauler.mine as Entity
+      building = hauler.mine as Entity
     }
 
-    const dock = dockAt(sim, target)!
-    if (Math.floor(position.x) !== dock.x || Math.floor(position.y) !== dock.y) {
-      hauler.docked = false
-      // Только что получивший работу трогается сразу, ждущий очереди — раз в RETRY_TICKS.
-      if (retry || !hauler.waiting) seeking.push({ truck: entity, dock })
+    const toBuilding = hauler.full
+    if (!(toBuilding ? reaches(sim, entity, building) : reaches(sim, building, entity))) {
+      // Только что получивший работу трогается сразу, не нашедший места — раз в RETRY_TICKS.
+      if (retry || !hauler.waiting) seeking.push({ truck: entity, building, toBuilding })
       hauler.waiting = true
       continue
     }
     hauler.waiting = false
-    // На коннекторе: разворачивается задом к зданию и подключается.
-    unit.facing = turnToward(unit.facing, dock.facing, UNITS[unit.type].turn * time.step)
-    hauler.docked = Math.abs(wrap(dock.facing - unit.facing)) < ALIGNED
-    if (hauler.docked) docked.push(entity)
+    working.push({ truck: entity, building, toBuilding })
   }
 
   for (const truck of released) releaseHauler(sim, truck)
 
-  for (const truck of docked) {
+  for (const { truck, building, toBuilding } of working) {
     const hauler = world.get(truck, Hauler)!
-    const player = ownerOf(sim, truck)
+    const cargo = world.get(truck, Inventory)!
 
     if (hauler.port !== NONE) {
       const order = world.get(hauler.port as Entity, Trade)!
-      if (hauler.full) {
+      if (toBuilding) {
         // Выгрузка в космопорт.
-        const amount = Math.min(UNLOAD_RATE * time.step, hauler.ore)
-        hauler.ore -= amount
-        order.delivered += amount
-        order.claimed = Math.max(0, order.claimed - amount)
-        if (hauler.ore > EPSILON) continue
-        hauler.ore = 0
-        hauler.full = hauler.docked = false
+        const moved = transfer(sim, truck, building, 'ore')
+        order.claimed = Math.max(0, order.claimed - moved)
+        hauler.loading = moved > 0
+        if (amountOf(cargo, 'ore') > EPSILON) continue
+        hauler.full = false
         hauler.source = NONE
-        if (neededBy(order) <= EPSILON) releaseHauler(sim, truck)
+        if (neededBy(sim, hauler.port as Entity) <= EPSILON) releaseHauler(sim, truck)
         else sourceless.push(truck)
         continue
       }
       // Погрузка из хранилища: не больше, чем заявке ещё нужно.
-      const store = world.get(hauler.source as Entity, Building)!
-      const amount = Math.max(0, Math.min(UNLOAD_RATE * time.step, TRUCK_CAPACITY - hauler.ore, store.ore, neededBy(order)))
-      store.ore -= amount
-      hauler.ore += amount
-      order.claimed += amount
-      if (hauler.ore >= TRUCK_CAPACITY - EPSILON || neededBy(order) <= EPSILON) {
-        if (hauler.ore >= TRUCK_CAPACITY - EPSILON) hauler.ore = TRUCK_CAPACITY
-        hauler.full = true
-        hauler.docked = false
-        seeking.push({ truck, dock: dockAt(sim, hauler.port as Entity)! })
-      }
+      const moved = transfer(sim, building, truck, 'ore', neededBy(sim, hauler.port as Entity))
+      order.claimed += moved
+      hauler.loading = moved > 0
+      if (roomFor(cargo, 'ore') <= EPSILON || neededBy(sim, hauler.port as Entity) <= EPSILON) hauler.full = true
+      // Доли копятся с погрешностью: полный кузов — ровно полный.
+      if (roomFor(cargo, 'ore') <= EPSILON) put(cargo, 'ore', EPSILON)
       continue
     }
 
-    if (hauler.full) {
-      // Выгрузка в хранилища зоны главного здания.
-      const zone = zoneWith(sim, player, hauler.base as Entity)
-      if (zone) hauler.ore -= storeOre(sim, zone, Math.min(UNLOAD_RATE * time.step, hauler.ore))
-      if (hauler.ore > EPSILON) continue
-      hauler.ore = 0
-      hauler.full = hauler.docked = false
+    if (toBuilding) {
+      // Выгрузка в хранилище; кончилось место — ищет другое.
+      const moved = transfer(sim, truck, building, 'ore')
+      hauler.loading = moved > 0
+      if (amountOf(cargo, 'ore') > EPSILON) {
+        if (roomFor(world.get(building, Inventory)!, 'ore') <= EPSILON) homeless.push(truck)
+        continue
+      }
+      cargo.items.ore = 0
+      hauler.full = false
       hauler.base = NONE
-      // Месторождение могло кончиться, пока он ездил.
-      const { x, y } = world.get(hauler.mine as Entity, Position)!
-      if (oreLeft(sim, x, y) <= 0) releaseHauler(sim, truck)
-      else seeking.push({ truck, dock: dockAt(sim, hauler.mine as Entity)! })
       continue
     }
-    // Погрузка у шахты.
-    const mine = hauler.mine as Entity
-    const { x, y } = world.get(mine, Position)!
-    hauler.ore += takeOre(sim, x, y, Math.min(specOf(sim, mine)!.extract! * time.step, TRUCK_CAPACITY - hauler.ore))
-    const spent = oreLeft(sim, x, y) <= 0
-    if (hauler.ore >= TRUCK_CAPACITY - EPSILON || (spent && hauler.ore > 0)) {
+    // Погрузка у шахты. Месторождение выработано, а в шахте пусто — везёт, что успел набрать.
+    const moved = transfer(sim, building, truck, 'ore')
+    hauler.loading = moved > 0
+    const mine = world.get(building, Inventory)!
+    const { x, y } = world.get(building, Position)!
+    const spent = oreLeft(sim, x, y) <= 0 && amountOf(mine, 'ore') <= EPSILON
+    if (roomFor(cargo, 'ore') <= EPSILON || (spent && amountOf(cargo, 'ore') > 0)) {
       // Доли копятся с погрешностью: полный кузов — ровно полный.
-      if (hauler.ore >= TRUCK_CAPACITY - EPSILON) hauler.ore = TRUCK_CAPACITY
+      put(cargo, 'ore', EPSILON)
       hauler.full = true
-      hauler.docked = false
       homeless.push(truck)
     } else if (spent) {
-      // Месторождение выработано, а везти нечего.
       releaseHauler(sim, truck)
     }
   }
@@ -264,21 +255,17 @@ export function haul(sim: Sim) {
   for (const truck of homeless) {
     const hauler = world.get(truck, Hauler)!
     hauler.base = pickBase(sim, truck, ownerOf(sim, truck))
-    if (hauler.base !== NONE) seeking.push({ truck, dock: dockAt(sim, hauler.base as Entity)! })
+    hauler.waiting = false
   }
   for (const truck of sourceless) {
     const hauler = world.get(truck, Hauler)!
     if (hauler.port === NONE) continue
     hauler.source = pickSource(sim, truck, ownerOf(sim, truck), hauler.port as Entity)
-    if (hauler.source !== NONE) {
-      seeking.push({ truck, dock: dockAt(sim, hauler.source as Entity)! })
-    } else if (hauler.ore > EPSILON) {
-      // Руды в хранилищах больше нет — везёт, что успел набрать.
-      hauler.full = true
-      seeking.push({ truck, dock: dockAt(sim, hauler.port as Entity)! })
-    } else {
-      releaseHauler(sim, truck)
-    }
+    hauler.waiting = false
+    if (hauler.source !== NONE) continue
+    // Руды в хранилищах больше нет — везёт, что успел набрать.
+    if (cargoOf(sim, truck) > EPSILON) hauler.full = true
+    else releaseHauler(sim, truck)
   }
-  for (const { truck, dock } of seeking) seekDock(sim, truck, dock)
+  for (const { truck, building, toBuilding } of seeking) seek(sim, truck, building, toBuilding)
 }

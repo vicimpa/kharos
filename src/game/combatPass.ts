@@ -5,7 +5,7 @@ import { createLineProgram, createLines } from '../render/lines'
 import { Pixmap } from '../render/pixmap'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites } from '../render/sprites'
-import { Blast, Health, Position, Shot, UNITS, Unit, WEAPONS, activeRepairs, flies, type RepairLink, type WeaponSpec } from '../sim'
+import { BUILDINGS, Beam, Blast, Building, Health, Position, Shot, UNITS, Unit, WEAPONS, activeRepairs, flies, type RepairLink, type WeaponSpec } from '../sim'
 import type { Scene } from './scene'
 import { drawnPosition } from './units/unitsPass'
 
@@ -52,6 +52,12 @@ const WELD_SPARKS = 4
 const WELD_SPREAD = 0.35
 const WELD_RATE = 12
 
+/** Транспортный луч: через сколько тайлов по нему бегут комочки груза и с какой скоростью, в тайлах в секунду. */
+const CARGO_STEP = 0.3
+const CARGO_SPEED = 2.5
+/** На сколько тайлов вглубь основания здания уходит транспортный луч. */
+const BEAM_INSET = 0.4
+
 /** Высота полоски прочности в пикселях экрана и её отступ над юнитом в тайлах. */
 const BAR_HEIGHT = 3
 const BAR_GAP = 0.25
@@ -68,6 +74,9 @@ const CORE: Color = [1, 1, 1]
 /** Луч стройки и починки и луч разбора. */
 const MEND: Color = [0.3, 1, 0.55]
 const WRECK: Color = [1, 0.22, 0.1]
+/** Транспортный луч и груз на нём. */
+const TRACTOR: Color = [0.25, 0.95, 0.85]
+const CARGO: Color = [1, 0.62, 0.35]
 const BAR_BACK: Color = [0.03, 0.05, 0.08]
 const BAR_GOOD: Color = [0.45, 0.9, 0.55]
 const BAR_BAD: Color = [1, 0.35, 0.25]
@@ -188,6 +197,44 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
     return { fromX, fromY, toX, toY }
   }
 
+  /** Где на сущности конец транспортного луча, протянутого к точке (x, y): юнит — где нарисован, здание — ближняя к точке часть основания. */
+  const endOf = (entity: Entity, x: number, y: number, alpha: number) => {
+    const { world } = scene.sim
+    const position = world.get(entity, Position)
+    if (!position) return undefined
+    const unit = world.get(entity, Unit)
+    if (unit) return drawnPosition(position, unit, alpha)
+    const type = world.get(entity, Building)?.type
+    if (type === undefined) return { x: position.x, y: position.y }
+    const { width, height } = BUILDINGS[type]
+    const insetX = Math.min(BEAM_INSET, width / 2)
+    const insetY = Math.min(BEAM_INSET, height / 2)
+    return {
+      x: Math.min(position.x + width - insetX, Math.max(position.x + insetX, x)),
+      y: Math.min(position.y + height - insetY, Math.max(position.y + insetY, y)),
+    }
+  }
+  /** Центр сущности: от него тянется луч к другой. */
+  const centerOf = (entity: Entity, alpha: number) => {
+    const { world } = scene.sim
+    const position = world.get(entity, Position)
+    if (!position) return undefined
+    const unit = world.get(entity, Unit)
+    if (unit) return drawnPosition(position, unit, alpha)
+    const type = world.get(entity, Building)?.type
+    return type === undefined ? position : { x: position.x + BUILDINGS[type].width / 2, y: position.y + BUILDINGS[type].height / 2 }
+  }
+  /** Концы транспортного луча этого кадра: откуда груз уходит и куда приходит. */
+  const tractorOf = (entity: Entity, target: Entity, pulling: boolean, alpha: number) => {
+    const ownCenter = centerOf(entity, alpha)
+    const otherCenter = centerOf(target, alpha)
+    if (!ownCenter || !otherCenter) return undefined
+    const own = endOf(entity, otherCenter.x, otherCenter.y, alpha)!
+    const other = endOf(target, ownCenter.x, ownCenter.y, alpha)!
+    const [from, to] = pulling ? [other, own] : [own, other]
+    return { fromX: from.x, fromY: from.y, toX: to.x, toY: to.y }
+  }
+
   const puff = (x: number, y: number, size: number, life: number, shade: number, level: number, speedX = 0, speedY = 0) => {
     if (puffs.length >= PUFF_LIMIT) puffs.shift()
     puffs.push({
@@ -287,6 +334,12 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
           const { toX, toY } = beamOf(link, time.alpha)
           // Свет сварки мерцает.
           lights.add(toX, toY, 12, 5, 0.5 + 0.5 * noise(link.from + link.to, Math.floor(time.elapsed * WELD_RATE * 2)))
+        }
+
+        for (const [entity, beam] of world.query(Beam)) {
+          if (beam.target < 0) continue
+          const ends = tractorOf(entity, beam.target as Entity, beam.pulling, time.alpha)
+          if (ends) lights.add((ends.fromX + ends.toX) / 2, (ends.fromY + ends.toY) / 2, 10, 4, 0.5)
         }
 
         emitSmoke()
@@ -450,6 +503,30 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
             const reach = WELD_SPREAD * (0.4 + 0.6 * noise(seed + i * 13, Math.floor(beat))) * phase
             // Искра падает: чем дальше улетела, тем ниже.
             dot(glow, toX + Math.cos(angle) * reach, toY + Math.sin(angle) * reach + reach * phase * 0.6, 2, i % 2 ? CORE : color, 1 - phase)
+          }
+        }
+
+        // Транспортный луч: бирюзовая полоса, по которой груз бежит от того, кто отдаёт, к тому, кто забирает.
+        for (const [entity, beam] of world.query(Beam)) {
+          if (beam.target < 0) continue
+          const ends = tractorOf(entity, beam.target as Entity, beam.pulling, alpha)
+          if (!ends) continue
+          const { fromX, fromY, toX, toY } = ends
+          if (!visible(fromX, fromY) && !visible(toX, toY)) continue
+          const shimmer = 0.75 + 0.25 * Math.sin(time * 9 + entity)
+          line(glow, fromX, fromY, toX, toY, 7, TRACTOR, 0.18 * shimmer)
+          line(glow, fromX, fromY, toX, toY, 2, TRACTOR, 0.55 * shimmer)
+          dot(glow, fromX, fromY, 6, TRACTOR, 0.7)
+          dot(glow, toX, toY, 6, TRACTOR, 0.7)
+          const length = Math.hypot(toX - fromX, toY - fromY)
+          const count = Math.floor(length / CARGO_STEP)
+          const shift = ((time * CARGO_SPEED) / CARGO_STEP) % 1
+          for (let i = 0; i < count; i++) {
+            const share = ((i + shift) * CARGO_STEP) / length
+            // У концов груз проявляется и тает.
+            const level = Math.min(1, share * 4, (1 - share) * 4)
+            dot(solid, fromX + (toX - fromX) * share, fromY + (toY - fromY) * share, 3, CARGO, level)
+            dot(glow, fromX + (toX - fromX) * share, fromY + (toY - fromY) * share, 2, CARGO, level * 0.6)
           }
         }
 

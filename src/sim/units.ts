@@ -1,8 +1,9 @@
 import type { Entity } from '../ecs'
 import { isPassable, terrainAt, tileKey } from '../map/terrain'
-import { holdsDock, isOwn } from './common'
+import { isOwn } from './common'
 import { Armed, Converting, Hauler, Health, Owner, Repair, Path, Position, Producer, Unit } from './components'
 import { STARTING_CREDITS, addCredits } from './economy'
+import { equipStorage, type BeamSpec } from './inventory'
 import { findPath, smoothPath } from './path'
 import type { Sim } from './sim'
 import { mountTurrets, turretSpec, type MountSpec } from './turrets'
@@ -29,6 +30,10 @@ export interface UnitSpec {
   repair?: number
   /** Турели на юните: каждая — своя сущность, см. turrets.ts. */
   mounts?: MountSpec[]
+  /** Склад: сколько ресурсов юнит везёт. См. inventory.ts. */
+  inventory?: number
+  /** Транспортный луч: им юнит отдаёт ресурсы со своего склада или забирает на него. */
+  beam?: BeamSpec
 }
 
 /** Боевые числа — на глаз: бой ещё не балансировался. */
@@ -36,8 +41,8 @@ export const UNITS = {
   mcv: { speed: 2.5, turn: 2.2, radius: 0.8, cost: 2000, buildTime: 30, kind: 'heavy', hp: 800 },
   builder: { speed: 4, turn: 5, radius: 0.45, cost: 150, buildTime: 5, kind: 'vehicle', hp: 100, repair: 5 },
   infantry: { speed: 3, turn: 10, radius: 0.3, cost: 60, buildTime: 3, kind: 'infantry', hp: 50, weapon: 'rifle' },
-  // Грузовик возит руду из шахты в хранилище: см. hauling.ts.
-  truck: { speed: 3.5, turn: 4, radius: 0.45, cost: 200, buildTime: 8, kind: 'vehicle', hp: 150 },
+  // Грузовик возит руду из шахты в хранилище: см. hauling.ts. Луча у него нет: грузят и разгружают его здания.
+  truck: { speed: 3.5, turn: 4, radius: 0.45, cost: 200, buildTime: 8, kind: 'vehicle', hp: 150, inventory: 20 },
   // Пехота.
   rocketeer: { speed: 2.6, turn: 10, radius: 0.3, cost: 120, buildTime: 5, kind: 'infantry', hp: 45, weapon: 'launcher' },
   // Машинки: быстрые и хрупкие.
@@ -183,6 +188,7 @@ export function spawnUnit(sim: Sim, type: UnitType, player: number, x: number, y
   if (type === 'truck') world.add(entity, Hauler)
   if (spec.weapon) world.add(entity, Armed)
   if (spec.repair) world.add(entity, Repair({ radius: spec.repair }))
+  equipStorage(world, entity, spec)
   mountTurrets(sim, entity)
   return entity
 }
@@ -286,9 +292,8 @@ export function stepAside(sim: Sim, entity: Entity, fromX: number, fromY: number
   const position = world.get(entity, Position)
   const unit = world.get(entity, Unit)
   if (!position || !unit || world.has(entity, Path) || world.has(entity, Converting)) return
-  // Грузовик у коннектора место не уступает: иначе ждущий очереди сгонял бы того, кто грузится.
-  const hauler = world.get(entity, Hauler)
-  if (hauler && holdsDock(hauler)) return
+  // Грузовик под лучом место не уступает: иначе ждущий очереди сгонял бы того, кто грузится.
+  if (world.get(entity, Hauler)?.loading) return
   const sideX = -Math.sin(heading)
   const sideY = Math.cos(heading)
   const side = (position.x - fromX) * sideX + (position.y - fromY) * sideY >= 0 ? 1 : -1

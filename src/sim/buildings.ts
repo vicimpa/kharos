@@ -1,7 +1,8 @@
 import type { Entity, World } from '../ecs'
-import { isBuildable, isPassable, terrainAt, tileKey } from '../map/terrain'
+import { isBuildable, terrainAt, tileKey } from '../map/terrain'
 import { isOwn } from './common'
 import { Building, Health, Repair, Owner, Position, Producer, Site } from './components'
+import { equipStorage, type BeamSpec } from './inventory'
 import type { Sim } from './sim'
 import type { UnitType } from './units'
 
@@ -20,19 +21,18 @@ export interface BuildingSpec {
   /** Энергия: больше нуля — вырабатывает, меньше — потребляет. */
   power?: number
   /**
-   * Сколько руды в секунду здание добывает из месторождения под собой — прямо в кузов грузовика на коннекторе.
+   * Сколько руды в секунду здание добывает из месторождения под собой — в свой склад, пока там есть место.
    * Ставится только на месторождение.
    */
   extract?: number
-  /** Сколько руды помещается в здании. Руду привозят грузовики — к коннектору главного здания зоны. */
-  stores?: number
+  /** Склад: сколько ресурсов помещается в здании. См. inventory.ts. */
+  inventory?: number
+  /** Склад здания — хранилище руды: в него свозят добытое, из него продают, он входит в запас игрока. */
+  stores?: boolean
+  /** Транспортный луч: им здание отдаёт ресурсы со своего склада или забирает на него. См. inventory.ts. */
+  beam?: BeamSpec
   /** Через это здание продают руду: грузовики свозят её сюда из хранилищ его зоны, см. trade.ts. */
   trades?: boolean
-  /**
-   * Коннектор: тайл вплотную к зданию, на который грузовик встаёт задом к нему. x и y — сдвиг тайла от левого
-   * верхнего тайла основания, facing — куда при этом смотрит грузовик. Тайл должен оставаться проходимым.
-   */
-  dock?: { x: number; y: number; facing: number }
   /** Каких юнитов здание производит, когда достроено. Потребитель энергии при её нехватке производит медленнее. */
   produces?: UnitType[]
   /** Доход в кредитах в секунду. У потребителя энергии он падает вместе с её нехваткой. */
@@ -52,10 +52,13 @@ export const ORE_PRICE = 4
 /** Сколько кредитов цены здания один строитель возводит за секунду: здание за 300 строится 15 секунд. */
 export const BUILD_RATE = 20
 
+/** Луч хранилища: принимает руду из грузовиков и отдаёт её в них. */
+const STORE_BEAM: BeamSpec = { radius: 2, rate: 10, give: true, take: true }
+
 export const BUILDINGS = {
   // Доход главного здания не даёт остаться без кредитов совсем: на генератор он копит долго, но копит.
-  // Коннектор — под воротами, посередине нижней стороны. Немного руды главное здание хранит само.
-  command: { width: 3, height: 3, cost: 2000, income: 0.2, zone: 12, stores: 100, produces: ['builder', 'truck'], dock: { x: 1, y: 3, facing: Math.PI / 2 } },
+  // Немного руды главное здание хранит само и лучом принимает её из грузовиков и отдаёт в них.
+  command: { width: 3, height: 3, cost: 2000, income: 0.2, zone: 12, inventory: 100, stores: true, beam: STORE_BEAM, produces: ['builder', 'truck'] },
   refinery: { width: 3, height: 2, cost: 600 },
   // Машинный завод: машинки и тяжёлая техника.
   factory: { width: 2, height: 2, cost: 500, power: -5, produces: ['buggy', 'lancer', 'tank', 'tesla', 'carrier'] },
@@ -67,11 +70,13 @@ export const BUILDINGS = {
   windtrap: { width: 2, height: 2, cost: 300 },
   barracks: { width: 2, height: 2, cost: 300, power: -2, produces: ['infantry', 'rocketeer'] },
   // Шахта энергии не просит и начинает свою зону: тянуть к месторождению цепочку зданий не нужно.
-  // Месторождения невелики, поэтому добыча медленная, а руда дорогая. Коннектор — под левым нижним тайлом.
-  mine: { width: 2, height: 2, cost: 500, zone: 6, extract: 0.5, dock: { x: 0, y: 2, facing: Math.PI / 2 } },
-  silo: { width: 2, height: 1, cost: 150, stores: 200, dock: { x: 0, y: 1, facing: Math.PI / 2 } },
+  // Месторождения невелики, поэтому добыча медленная, а руда дорогая. Добытое копится в шахте, пока грузовик
+  // не заберёт: забирать сам он не умеет, руду ему отдаёт луч шахты.
+  mine: { width: 2, height: 2, cost: 500, zone: 6, extract: 0.5, inventory: 40, beam: { radius: 2, rate: 10, give: true } },
+  silo: { width: 2, height: 1, cost: 150, inventory: 200, stores: true, beam: STORE_BEAM },
   // Космопорт ещё и выпускает летающих. Энергию просит всегда, но от её нехватки замедляется только производство.
-  spaceport: { width: 3, height: 3, cost: 600, power: -5, trades: true, produces: ['drone', 'gunship'], dock: { x: 1, y: 3, facing: Math.PI / 2 } },
+  // Руду на продажу его луч забирает из грузовиков в трюм корабля.
+  spaceport: { width: 3, height: 3, cost: 600, power: -5, trades: true, inventory: 400, beam: { radius: 2, rate: 10, take: true }, produces: ['drone', 'gunship'] },
   turret: { width: 1, height: 1, cost: 250 },
 } satisfies Record<string, BuildingSpec>
 
@@ -152,45 +157,14 @@ export function canPlace(sim: Sim, type: BuildingType, x: number, y: number, gap
   return true
 }
 
-/** Коннектор здания на карте: тайл и куда смотрит вставший на него грузовик. */
-export interface Dock {
-  x: number
-  y: number
-  facing: number
-}
-
-/** Коннектор здания этого вида с левым верхним углом основания в (x, y); undefined — у вида его нет. */
-export function dockOf(type: BuildingType, x: number, y: number): Dock | undefined {
-  const dock = buildingSpec(type).dock
-  return dock && { x: x + dock.x, y: y + dock.y, facing: dock.facing }
-}
-
-/**
- * Не мешает ли здание коннекторам: его основание не накрывает коннектор другого здания или площадки,
- * а его собственный коннектор приходится на проходимый тайл, не занятый зданием или площадкой.
- */
-export function docksClear(sim: Sim, type: BuildingType, x: number, y: number) {
-  const { width, height } = BUILDINGS[type]
-  const covers = (dock: Dock | undefined) => !!dock && dock.x >= x && dock.x < x + width && dock.y >= y && dock.y < y + height
-  for (const [entity, position, building] of sim.world.query(Position, Building)) {
-    if (!sim.world.has(entity, Site) && covers(dockOf(building.type, position.x, position.y))) return false
-  }
-  for (const [, position, site] of sim.world.query(Position, Site)) {
-    if (covers(dockOf(site.type, position.x, position.y))) return false
-  }
-  const own = dockOf(type, x, y)
-  if (!own) return true
-  if (!isPassable(terrainAt(sim.land, own.x, own.y)) || sim.occupancy.at(own.x, own.y) !== undefined) return false
-  return siteAt(sim, own.x, own.y) === undefined
-}
-
 /** Заготовка компонента нового здания: сдвиг анимации у каждого свой. */
 export const newBuilding = (world: World, type: BuildingType) => Building({ type, phase: world.count(Building) * 5 })
 
 /** Даёт готовому зданию то, что положено его виду помимо производства. */
 export function equip(world: World, entity: Entity, type: BuildingType) {
-  const { repair } = buildingSpec(type)
-  if (repair) world.add(entity, Repair({ radius: repair }))
+  const spec = buildingSpec(type)
+  if (spec.repair) world.add(entity, Repair({ radius: spec.repair }))
+  equipStorage(world, entity, spec)
 }
 
 /** Ставит здание без проверок. player — владелец; 0 — ничьё. */
