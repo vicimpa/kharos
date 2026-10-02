@@ -1,7 +1,7 @@
 import type { Entity } from '../ecs'
 import {
   BUILDABLE, BUILDINGS, Building, Converting, PRODUCIBLE, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
-  buildTicks, canDemolish, canDeploy, canPack, coreCenters, creditsOf, economyOf, oreLeft, powerOf, refundOf, rewardsOf, siteTicks, zoneEconomies,
+  buildTicks, canDemolish, canDeploy, canPack, coreCenters, creditsOf, economyOf, isSiteBlocked, oreLeft, powerOf, refundOf, rewardsOf, siteTicks, zoneEconomies,
   Position, type BuildingSpec, type BuildingType, type Command, type UnitType,
 } from '../sim'
 import type { Scene } from './scene'
@@ -26,6 +26,8 @@ export interface HudState {
     entity: number
     /** Строитель уже начал работу: до этого площадка только размечена. */
     started: boolean
+    /** На ещё не начатой площадке стоят юниты: пока не уйдут, стройка не начнётся. */
+    blocked: boolean
     /** Готовность от 0 до 1. */
     progress: number
     /** Здание разбирают: готовность идёт к нулю. */
@@ -87,7 +89,7 @@ export function readHud(scene: Scene): HudState {
     const work = world.get(entity, Site)
     if (work) {
       const progress = round(Math.min(1, work.progress / siteTicks(work.type, sim.time.step)))
-      site = { entity, started: world.has(entity, Building), progress, demolish: work.demolish }
+      site = { entity, started: world.has(entity, Building), blocked: isSiteBlocked(sim, entity), progress, demolish: work.demolish }
     }
     if (canDemolish(sim, player, entity)) demolish = { building: entity, refund: refundOf(world.get(entity, Building)!.type) }
     if (world.has(entity, Producer)) producers.push(entity)

@@ -184,12 +184,20 @@ export function stepAside(sim: Sim, entity: Entity, fromX: number, fromY: number
   }
 }
 
-/** Отправляет юнитов, оказавшихся внутри основания нового здания, на свободные тайлы рядом. */
-export function evictUnits(sim: Sim, x: number, y: number, width: number, height: number) {
+/** Юниты, чей центр лежит внутри прямоугольника в тайлах. */
+export function unitsIn(sim: Sim, x: number, y: number, width: number, height: number) {
   const inside: Entity[] = []
   for (const [entity, position] of sim.world.query(Position, Unit)) {
     if (position.x >= x && position.x < x + width && position.y >= y && position.y < y + height) inside.push(entity)
   }
+  return inside
+}
+
+/**
+ * Отправляет юнитов, оказавшихся внутри основания здания, на свободные тайлы рядом.
+ * inside — кого именно отправлять; по умолчанию всех, кто там есть.
+ */
+export function evictUnits(sim: Sim, x: number, y: number, width: number, height: number, inside = unitsIn(sim, x, y, width, height)) {
   if (!inside.length) return
   const group = new Set(inside)
   const taken = standingUnits(sim, group, UNITS.mcv.radius)

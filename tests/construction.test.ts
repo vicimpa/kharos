@@ -95,17 +95,42 @@ test('два строителя строят вдвое быстрее одно�
   expect(progress(2)).toBe(80)
 })
 
-test('юниты уходят с площадки, когда начинается стройка', () => {
+test('свои юниты уходят с площадки, и только потом начинается стройка', () => {
   const { sim, builders, site } = start()
   const [soldier] = unitsOf(sim, 'infantry')
   sim.send(1, { type: 'move', units: [soldier], x: site.x, y: site.y })
+  sim.send(1, { type: 'move', units: [builders[1]], x: site.x + 1, y: site.y + 1 })
   seconds(sim, 10)
-  expect(Math.floor(sim.world.get(soldier, Position)!.x)).toBe(site.x)
+  const inside = (entity: Entity) => {
+    const position = sim.world.get(entity, Position)!
+    return position.x >= site.x && position.x < site.x + 2 && position.y >= site.y && position.y < site.y + 2
+  }
+  expect(inside(soldier)).toBe(true)
+  expect(inside(builders[1])).toBe(true)
+  sim.send(1, { type: 'build', building: 'generator', x: site.x, y: site.y, builders: [builders[0]] })
+  seconds(sim, 10)
+  // Ушёл и пехотинец, и строитель, стоявший на площадке без дела.
+  expect(inside(soldier)).toBe(false)
+  expect(inside(builders[1])).toBe(false)
+  expect(sim.occupancy.at(site.x, site.y)).toBeDefined()
+})
+
+test('чужой юнит на площадке держит стройку, пока не уйдёт', () => {
+  const { sim, builders, site } = start()
+  const stranger = spawnUnit(sim, 'infantry', 2, site.x, site.y)
   sim.send(1, { type: 'build', building: 'generator', x: site.x, y: site.y, builders })
   seconds(sim, 10)
-  const position = sim.world.get(soldier, Position)!
-  expect(sim.occupancy.at(Math.floor(position.x), Math.floor(position.y))).toBeUndefined()
-  expect(sim.occupancy.at(site.x, site.y)).toBeDefined()
+  const entity = siteAt(sim, site.x, site.y)!
+  // Чужого не выгнали, стройка не началась, тайлы свободны.
+  expect(Math.floor(sim.world.get(stranger, Position)!.x)).toBe(site.x)
+  expect(sim.world.has(entity, Building)).toBe(false)
+  expect(sim.world.get(entity, Site)!.progress).toBe(0)
+  expect(sim.occupancy.at(site.x, site.y)).toBeUndefined()
+
+  sim.send(2, { type: 'move', units: [stranger], x: site.x - 3, y: site.y })
+  seconds(sim, 5)
+  expect(sim.world.has(entity, Building)).toBe(true)
+  expect(sim.world.get(entity, Site)!.progress).toBeGreaterThan(0)
 })
 
 test('строить можно только в радиусе контроля, за кредиты и только строителями', () => {

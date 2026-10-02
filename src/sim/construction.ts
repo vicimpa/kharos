@@ -1,11 +1,11 @@
 import type { Entity } from '../ecs'
-import { BUILDABLE, BUILDINGS, BUILD_RATE, CORE, canPlace, type BuildingSpec, type BuildingType } from './buildings'
+import { BUILDABLE, BUILDINGS, BUILD_RATE, CORE, canPlace, siteAt, type BuildingSpec, type BuildingType } from './buildings'
 import { Building, Builds, Converting, Owner, Path, Position, Site, Unit } from './components'
 import { oreLeft } from './deposits'
 import { addCredits, pay, reward } from './economy'
 import type { Sim } from './sim'
 import { inCircles, inForeignZone, zoneOf } from './zones'
-import { UNITS, evictUnits, isWalkable, orderMove, standingUnits, tileKey } from './units'
+import { UNITS, evictUnits, isWalkable, orderMove, standingUnits, tileKey, unitsIn } from './units'
 
 /** С какого расстояния до основания строитель работает, в тайлах: с соседнего тайла, в том числе углового. */
 const REACH = 1.2
@@ -73,6 +73,8 @@ function approach(sim: Sim, builder: Entity, site: Entity, claimed: Set<number>)
       if (x >= corner.x && x < corner.x + width && y >= corner.y && y < corner.y + height) continue
       const key = tileKey(x, y)
       if (claimed.has(key) || taken.has(key) || !isWalkable(sim, x, y)) continue
+      // На соседней площадке не встают: оттуда строителя попросят, как только там начнут строить.
+      if (siteAt(sim, x, y) !== undefined) continue
       const distance = Math.hypot(x + 0.5 - position.x, y + 0.5 - position.y)
       if (distance < bestDistance) {
         best = { x, y }
@@ -83,6 +85,37 @@ function approach(sim: Sim, builder: Entity, site: Entity, claimed: Set<number>)
   if (!best) return
   claimed.add(tileKey(best.x, best.y))
   orderMove(sim, builder, best.x, best.y)
+}
+
+/** Стоят ли на основании ещё не начатой площадки юниты: пока они там, стройка не начнётся. */
+export function isSiteBlocked(sim: Sim, site: Entity) {
+  const { world } = sim
+  const position = world.get(site, Position)
+  const work = world.get(site, Site)
+  if (!position || !work || world.has(site, Building)) return false
+  return unitsIn(sim, position.x, position.y, BUILDINGS[work.type].width, BUILDINGS[work.type].height).length > 0
+}
+
+/**
+ * Освобождает основание площадки перед началом стройки и говорит, свободно ли оно. Свои стоящие юниты
+ * с evict уходят сами — и строители тоже; тех, кто едет, не трогают: проедут. Чужих остаётся только ждать.
+ */
+function clearSite(sim: Sim, site: Entity, evict: boolean) {
+  const { world } = sim
+  const { x, y } = world.get(site, Position)!
+  const { width, height } = BUILDINGS[world.get(site, Site)!.type]
+  const player = world.get(site, Owner)?.player
+  const inside = unitsIn(sim, x, y, width, height)
+  if (!inside.length) return true
+  if (evict) {
+    const own = inside.filter((entity) => {
+      if (world.get(entity, Owner)?.player !== player || world.has(entity, Path)) return false
+      // Строителя этой же площадки на её край ведёт approach.
+      return world.get(entity, Builds)?.site !== site
+    })
+    evictUnits(sim, x, y, width, height, own)
+  }
+  return false
 }
 
 /** Своя стройка: площадка или недостроенное здание игрока. */
@@ -111,6 +144,8 @@ export function assignBuilders(sim: Sim, player: number, site: Entity, units: En
 export function orderBuild(sim: Sim, player: number, type: BuildingType, x: number, y: number, builders: Entity[]) {
   if (!canBuild(sim, player, type, x, y) || !pay(sim, player, BUILDINGS[type].cost)) return undefined
   const site = sim.world.spawn(Position({ x, y }), Site({ type }), Owner({ player }))
+  // Свои юниты уходят с площадки сразу, не дожидаясь строителя.
+  clearSite(sim, site, true)
   assignBuilders(sim, player, site, builders)
   return site
 }
@@ -207,7 +242,8 @@ function volunteer(sim: Sim) {
 /**
  * Раз в тик: строители, стоящие вплотную к своей площадке, вкладывают в неё работу — чем их больше, тем быстрее.
  * Здание под разбор они так же разбирают.
- * С первым тиком работы площадка становится недостроенным зданием и занимает тайлы; юниты с неё уходят.
+ * С первым тиком работы площадка становится недостроенным зданием и занимает тайлы. Пока на ней стоят юниты,
+ * работа не начинается: свои с неё уходят, чужих ждут.
  * Стройка вне радиуса контроля (главное здание свернули) стоит, пока контроль не вернётся.
  */
 export function construct(sim: Sim) {
@@ -258,8 +294,9 @@ export function construct(sim: Sim) {
     }
     if ((BUILDINGS[site.type] as BuildingSpec).zone === undefined && !inControl(sim, player, site.type, position.x, position.y)) continue
     if (!world.has(entity, Building)) {
+      // Выгонять пробуют не каждый тик: поиск пути недёшев.
+      if (!clearSite(sim, entity, (time.tick + entity) % RETRY_TICKS === 0)) continue
       world.add(entity, Building({ type: site.type, phase: world.count(Building) * 5 }))
-      evictUnits(sim, position.x, position.y, BUILDINGS[site.type].width, BUILDINGS[site.type].height)
     }
     site.progress += count
     if (site.progress < siteTicks(site.type, time.step)) continue

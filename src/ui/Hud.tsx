@@ -86,7 +86,9 @@ export function Hud({ state, send, place }: HudProps) {
                       : 'Ждёт строителя: выбери его и щёлкни по зданию правой кнопкой'
                     : site.started
                       ? `Строится — ${percent(site.progress)}`
-                      : 'Ждёт строителя'}
+                      : site.blocked
+                        ? 'Место занято юнитами'
+                        : 'Ждёт строителя'}
                 </em>
               </div>
               <button onClick={() => send({ type: 'cancelBuild', site: site.entity })}>
