@@ -165,58 +165,50 @@ const factory: BuildingArt = {
 const GOLD = [0xc9962b, 0xf0c95a, 0xfff0b0] as const
 
 /**
- * Генератор материи: камера синтеза с пульсирующим ядром в кольце огней, две катушки по бокам
- * и лента, по которой готовые слитки уезжают в приёмный люк.
+ * Генератор материи: камера синтеза с пульсирующим ядром в кольце огней, катушки по углам
+ * и короткая лента, по которой готовый слиток уезжает в приёмный люк.
  */
 const matter: BuildingArt = {
   ...BUILDINGS.matter,
   draw(g, t, light) {
-    slab(g, 0, 0, 32, 48, 3, STEEL)
+    slab(g, 0, 1, 32, 31, 3, STEEL)
 
-    // Лента от камеры к люку у нижнего края; слитки идут с шагом в полленты, поэтому цикл замыкается.
-    g.rect(10, 24, 12, 20, INK)
-    g.rect(11, 25, 10, 18, IRON[0])
-    for (let y = 26; y < 43; y += 2) g.rect(11, y, 10, 1, IRON[1])
-    const shift = Math.floor(t * ART_FRAMES) % 8
-    for (const start of [0, 8]) {
-      const y = 25 + start + shift
-      if (y > 38) continue
-      g.rect(13, y, 6, 3, INK)
-      g.rect(13, y, 6, 2, GOLD[1])
-      g.rect(13, y, 3, 1, GOLD[2])
-      g.rect(13, y + 2, 6, 1, GOLD[0])
-    }
-    g.rect(9, 40, 14, 5, INK)
-    g.rect(10, 41, 12, 3, DARK)
-    g.rect(10, 41, 12, 1, RUST[1])
-    for (const x of [4, 25]) {
-      g.rect(x, 30, 3, 10, INK)
-      g.rect(x + 1, 31, 1, 8, RUST[1])
-    }
+    // Лента от камеры к люку у нижнего края: за цикл по ней проезжает один слиток.
+    g.rect(10, 18, 12, 10, INK)
+    g.rect(11, 19, 10, 8, IRON[0])
+    for (let y = 20; y < 27; y += 2) g.rect(11, y, 10, 1, IRON[1])
+    const y = 17 + Math.floor(t * ART_FRAMES) % 8
+    g.rect(13, y, 6, 3, INK)
+    g.rect(13, y, 6, 2, GOLD[1])
+    g.rect(13, y, 3, 1, GOLD[2])
+    g.rect(13, y + 2, 6, 1, GOLD[0])
+    g.rect(9, 25, 14, 4, INK)
+    g.rect(10, 26, 12, 2, DARK)
+    g.rect(10, 26, 12, 1, RUST[1])
 
     // Камера синтеза выше двора и выступает над основанием.
-    slab(g, 2, -5, 28, 30, 6, IRON)
-    g.circle(16, 8, 11, INK)
-    g.circle(16, 8, 10, DARK)
-    g.ring(16, 8, 9, 1.5, STEEL[2])
+    slab(g, 3, -5, 26, 26, 5, IRON)
+    g.circle(16, 6, 10, INK)
+    g.circle(16, 6, 9, DARK)
+    g.ring(16, 6, 8, 1.5, STEEL[2])
     // Огни кольца бегут навстречу друг другу к ядру: энергия стекается внутрь.
     const LIGHTS = 8
     for (let i = 0; i < LIGHTS; i++) {
       const angle = (i / LIGHTS) * TURN
-      const x = Math.round(16 + Math.cos(angle) * 9)
-      const y = Math.round(8 + Math.sin(angle) * 9)
-      bulb(g, light, x - 1, y - 1, chase(t * 2, (i % 4) / 4))
+      const x = Math.round(16 + Math.cos(angle) * 8)
+      const lightY = Math.round(6 + Math.sin(angle) * 8)
+      bulb(g, light, x - 1, lightY - 1, chase(t * 2, (i % 4) / 4))
     }
     // Ядро: золотое, когда материя готова, и гаснет к следующей порции.
     const glow = pulse(t * 2)
-    lamp(g, light, 16, 8, 5, 0.35 + glow * 0.65)
-    g.circle(16, 8, 2.5, GOLD[glow > 0.5 ? 1 : 0])
-    if (glow > 0.8) g.circle(15, 7, 1, GOLD[2])
+    lamp(g, light, 16, 6, 4, 0.35 + glow * 0.65)
+    g.circle(16, 6, 2, GOLD[glow > 0.5 ? 1 : 0])
+    if (glow > 0.8) g.rect(15, 5, 1, 1, GOLD[2])
 
-    // Катушки по бокам камеры.
-    for (const [x, offset] of [[5, 0], [27, 0.5]]) {
-      tower(g, x, 23, 2, 5, STEEL)
-      bulb(g, light, x - 1, 16, pulse(t * 2, offset))
+    // Катушки по нижним углам.
+    for (const [x, offset] of [[4, 0], [28, 0.5]]) {
+      tower(g, x, 26, 2, 4, STEEL)
+      bulb(g, light, x - 1, 20, pulse(t * 2, offset))
     }
   },
 }

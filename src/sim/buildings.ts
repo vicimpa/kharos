@@ -30,7 +30,7 @@ export const BUILDINGS = {
   // Электростанция.
   generator: { width: 2, height: 2, cost: 300, buildTime: 15, power: 10 },
   // Генератор материи — базовый доход: превращает энергию в кредиты.
-  matter: { width: 2, height: 3, cost: 400, buildTime: 20, power: -5, income: 1, crowding: true },
+  matter: { width: 2, height: 2, cost: 400, buildTime: 20, power: -5, income: 1, crowding: true },
   radar: { width: 2, height: 2, cost: 400, buildTime: 15 },
   windtrap: { width: 2, height: 2, cost: 300, buildTime: 15 },
   barracks: { width: 2, height: 2, cost: 300, buildTime: 15 },
