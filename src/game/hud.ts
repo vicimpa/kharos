@@ -1,6 +1,6 @@
 import type { Entity } from '../ecs'
 import {
-  Armed, BUILDABLE, BUILDINGS, Building, Converting, Hauler, ORE_PRICE, CORE, buildingSpec, isOwn, producibleBy, TRUCK_CAPACITY, Trade, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
+  Armed, BUILDABLE, BUILDINGS, Building, Converting, Hauler, Health, ORE_PRICE, CORE, buildingSpec, isOwn, producibleBy, TRUCK_CAPACITY, Trade, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
   buildTicks, canDemolish, canDeploy, canPack, isDeployBlocked, coreCenters, creditsOf, economyOf, isSiteBlocked, oreLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, zoneEconomies, zonesOf,
   Position, type BuildingType, type Command, type UnitType,
 } from '../sim'
@@ -124,7 +124,7 @@ export function readHud(scene: Scene): HudState {
     const unit = world.get(entity, Unit)
     if (unit) {
       counts.set(unit.type, (counts.get(unit.type) ?? 0) + 1)
-      unitHealth += unit.health
+      unitHealth += world.get(entity, Health)?.value ?? 1
       unitCount++
       if (world.has(entity, Armed)) armed++
     }
@@ -160,9 +160,10 @@ export function readHud(scene: Scene): HudState {
           : null,
       }
     }
-    if (built && built.health < 1) {
-      health = round(built.health)
-      repair = repairCostOf(built.type, built.health)
+    const left = world.get(entity, Health)?.value ?? 1
+    if (built && left < 1) {
+      health = round(left)
+      repair = repairCostOf(BUILDINGS[built.type].cost, left)
     }
     if (built && powerStates(sim).get(entity) === 'starved') starved = true
     const work = world.get(entity, Site)

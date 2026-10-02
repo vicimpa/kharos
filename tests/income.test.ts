@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import {
-  BUILDINGS, Building, Builds, CORE, Owner, Player, Site, Unit,
+  BUILDINGS, Building, Builds, CORE, Health, Owner, Player, Site, Unit,
   OVERLOAD_DAMAGE, REPAIR_COST, REPAIR_SPEED, canBuild, canDeploy, canPlace, createSim, creditsOf, economyOf, powerOf, powerStates, refundOf, rewardsOf, siteAt, zoneEconomies, zoneOf, zonesOf, spawnStartingUnits, type BuildingType, type Sim,
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
@@ -254,7 +254,7 @@ test('перегруженная электростанция теряет пр�
   for (const builder of builders) sim.world.destroy(builder)
   const plant = put(sim, 'generator', x + 6, y + 4)
   const first = put(sim, 'matter', x + 6, y)
-  const health = () => sim.world.get(plant, Building)!.health
+  const health = () => sim.world.get(plant, Health)!.value
   // Энергии хватает: никто не страдает.
   seconds(sim, 5)
   expect(health()).toBe(1)
@@ -292,7 +292,7 @@ test('строители чинят повреждённое здание — п
   put(sim, 'matter', x + 6, y)
   const builders: Entity[] = []
   for (const [entity, unit] of sim.world.query(Unit)) if (unit.type === 'builder') builders.push(entity)
-  const health = () => sim.world.get(plant, Building)!.health
+  const health = () => sim.world.get(plant, Health)!.value
 
   // Целое здание работой не считается.
   sim.send(1, { type: 'assist', units: builders, site: plant })
@@ -300,7 +300,7 @@ test('строители чинят повреждённое здание — п
   expect(sim.world.has(builders[0], Builds)).toBe(false)
 
   // Свободные строители рядом сами берутся за починку. Она идёт вдвое быстрее стройки и стоит половину цены за целое здание.
-  sim.world.get(plant, Building)!.health = 0.2
+  sim.world.get(plant, Health)!.value = 0.2
   const credits = creditsOf(sim, 1)
   const repairTime = 5 + (0.8 * (BUILDINGS.generator.cost / 20)) / REPAIR_SPEED
   seconds(sim, 5)
@@ -313,12 +313,12 @@ test('строители чинят повреждённое здание — п
   expect(Math.abs(paid - 0.8 * BUILDINGS.generator.cost * REPAIR_COST)).toBeLessThan(15)
 
   // Без кредитов починка стоит.
-  sim.world.get(plant, Building)!.health = 0.5
+  sim.world.get(plant, Health)!.value = 0.5
   for (const [entity, player] of sim.world.query(Player)) if (player.id === 1) sim.world.set(entity, Player, { credits: 0, earned: 0 })
   seconds(sim, 10)
   expect(health()).toBeLessThan(0.6)
   expect(health()).toBeGreaterThan(0.5)
-  sim.world.get(plant, Building)!.health = 1
+  sim.world.get(plant, Health)!.value = 1
   sim.advance(TICK)
   expect(sim.world.has(builders[0], Builds)).toBe(false)
 

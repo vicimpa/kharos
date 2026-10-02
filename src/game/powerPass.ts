@@ -4,7 +4,7 @@ import { createAtlas } from '../render/atlas'
 import { Pixmap } from '../render/pixmap'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites } from '../render/sprites'
-import { BUILDINGS, Building, Position, powerStates, type PowerState } from '../sim'
+import { BUILDINGS, Building, Health, Position, powerStates, type PowerState } from '../sim'
 import type { Scene } from './scene'
 
 /** Сторона картинки молнии в пикселях: молния растягивается на всё здание. */
@@ -143,11 +143,12 @@ export function createPowerPass(gl: WebGL2RenderingContext, scene: Scene): Pass 
             1, 1, 1, 1,
           )
         }
-        if (building.health < 1) {
-          const [r, g, b] = building.health > 0.5 ? BAR_GOOD : BAR_BAD
+        const health = world.get(entity, Health)?.value ?? 1
+        if (health < 1) {
+          const [r, g, b] = health > 0.5 ? BAR_GOOD : BAR_BAD
           const top = y + spec.height + BAR_GAP
           sprites.push(x, top, spec.width, barHeight, whiteU, whiteV, 0, 0, ...BAR_BACK, 1)
-          sprites.push(x, top, spec.width * Math.max(0, building.health), barHeight, whiteU, whiteV, 0, 0, r, g, b, 1)
+          sprites.push(x, top, spec.width * Math.max(0, health), barHeight, whiteU, whiteV, 0, 0, r, g, b, 1)
         }
       }
 

@@ -1,7 +1,7 @@
 import type { Entity } from '../ecs'
 import { isPassable, terrainAt, tileKey } from '../map/terrain'
 import { holdsDock, isOwn } from './common'
-import { Armed, Converting, Hauler, Owner, Path, Position, Producer, Unit } from './components'
+import { Armed, Converting, Hauler, Health, Owner, Repair, Path, Position, Producer, Unit } from './components'
 import { STARTING_CREDITS, addCredits } from './economy'
 import { findPath, smoothPath } from './path'
 import type { Sim } from './sim'
@@ -24,12 +24,15 @@ export interface UnitSpec {
   hp: number
   /** Чем вооружён; без оружия юнит в бою не участвует. См. combat.ts. */
   weapon?: WeaponType
+  /** Строит и чинит всё своё в этом радиусе, в тайлах от своего центра до края цели. См. construction.ts. */
+  repair?: number
 }
 
 /** Боевые числа — на глаз: бой ещё не балансировался. */
 export const UNITS = {
   mcv: { speed: 2.5, turn: 2.2, radius: 0.8, cost: 2000, buildTime: 30, kind: 'heavy', hp: 800 },
-  builder: { speed: 4, turn: 5, radius: 0.45, cost: 150, buildTime: 5, kind: 'vehicle', hp: 100 },
+  // С соседнего тайла, в том числе углового, дотягивается до здания; с запасом — до юнита, стоящего не в центре тайла.
+  builder: { speed: 4, turn: 5, radius: 0.45, cost: 150, buildTime: 5, kind: 'vehicle', hp: 100, repair: 1.5 },
   infantry: { speed: 3, turn: 10, radius: 0.3, cost: 60, buildTime: 3, kind: 'infantry', hp: 50, weapon: 'rifle' },
   // Грузовик возит руду из шахты в хранилище: см. hauling.ts.
   truck: { speed: 3.5, turn: 4, radius: 0.45, cost: 200, buildTime: 8, kind: 'vehicle', hp: 150 },
@@ -62,6 +65,9 @@ export function inBounds(sim: Sim, x: number, y: number) {
 
 /** Может ли юнит находиться в тайле: наземному нужен проходимый тайл без здания, летающему — любой внутри карты. */
 export const canStand = (sim: Sim, air: boolean, x: number, y: number) => (air ? inBounds(sim, x, y) : isWalkable(sim, x, y))
+
+/** Какую долю прочности пехотинец восстанавливает сам за секунду. */
+export const INFANTRY_REGEN = 0.02
 
 /** С чем игрок появляется в мире. */
 const STARTING_UNITS: UnitType[] = ['mcv', 'builder', 'builder', 'infantry', 'infantry', 'infantry']
@@ -137,10 +143,14 @@ export function freeTilesNear(sim: Sim, x: number, y: number, count: number, fro
 export function spawnUnit(sim: Sim, type: UnitType, player: number, x: number, y: number) {
   const position = { x: x + 0.5, y: y + 0.5 }
   const { world } = sim
-  const entity = world.spawn(Position(position), Unit({ type, prevX: position.x, prevY: position.y }), Owner({ player }))
+  const spec = unitSpec(type)
+  // Пехоту не чинят: она поправляется сама.
+  const infantry = spec.kind === 'infantry'
+  const entity = world.spawn(Position(position), Unit({ type, prevX: position.x, prevY: position.y }), Owner({ player }), Health(infantry ? { repairable: false, regen: INFANTRY_REGEN } : {}))
   if (type === 'mcv') world.add(entity, Producer)
   if (type === 'truck') world.add(entity, Hauler)
-  if (unitSpec(type).weapon) world.add(entity, Armed)
+  if (spec.weapon) world.add(entity, Armed)
+  if (spec.repair) world.add(entity, Repair({ radius: spec.repair }))
   return entity
 }
 

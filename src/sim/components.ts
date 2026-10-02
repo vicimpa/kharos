@@ -8,9 +8,23 @@ export const Position = component('Position', { x: 0, y: 0 })
 
 /**
  * Здание. phase — сдвиг анимации в кадрах, чтобы одинаковые здания не мигали в такт.
- * health — прочность от 1 до 0: в нуле здание разрушается. ore — сколько руды лежит в здании, если оно её хранит.
+ * ore — сколько руды лежит в здании, если оно её хранит.
  */
-export const Building = component('Building', { type: 'command' as BuildingType, phase: 0, health: 1, ore: 0 })
+export const Building = component('Building', { type: 'command' as BuildingType, phase: 0, ore: 0 })
+
+/**
+ * Прочность юнита или здания: value — от 1 до 0, в нуле юнит гибнет, а здание разрушается.
+ * Сколько урона стоит за единицей, знает вид: см. UnitSpec.hp и buildingHp.
+ * repairable — чинят ли это те, у кого есть Repair. regen — какую долю прочности в секунду оно восстанавливает само.
+ */
+export const Health = component('Health', { value: 1, repairable: true, regen: 0 })
+
+/**
+ * Ремонтник: строит, разбирает и чинит всё своё, до чего дотягивается, — стройки, повреждённые здания и юнитов
+ * с Health.repairable. radius — на сколько тайлов от его центра до края цели он дотягивается; rate — сколько работы
+ * вкладывает за тик в каждую цель: единица — один строитель. На ходу не работает.
+ */
+export const Repair = component('Repair', { radius: 1.5, rate: 1 })
 
 /** Чьё это. Игрок 0 — ничей: такими сущностями никто не командует. */
 export const Owner = component('Owner', { player: 0 })
@@ -18,7 +32,6 @@ export const Owner = component('Owner', { player: 0 })
 /**
  * Юнит. prevX, prevY — где он был тик назад: клиент рисует его между прошлым и нынешним местом.
  * facing — куда смотрит, в радианах от -π до π: 0 — вправо, растёт по часовой стрелке. prevFacing — куда смотрел тик назад.
- * health — прочность от 1 до 0: в нуле юнит гибнет.
  */
 export const Unit = component('Unit', {
   type: 'infantry' as UnitType,
@@ -26,7 +39,6 @@ export const Unit = component('Unit', {
   prevY: 0,
   facing: Math.PI / 2,
   prevFacing: Math.PI / 2,
-  health: 1,
 })
 
 /**
@@ -64,7 +76,7 @@ export const Converting = component('Converting', { left: 0, total: 0 })
  */
 export const Site = component('Site', { type: 'generator' as BuildingType, progress: 0, demolish: false })
 
-/** Строитель занят стройкой: едет к площадке site или работает на ней. */
+/** Ремонтник едет к работе site — стройке, разбору или тому, что надо починить, — чтобы она оказалась в его радиусе. */
 export const Builds = component('Builds', { site: 0 })
 
 /** Месторождение, из которого уже добывали: mined — сколько руды забрано. Место — левый верхний тайл месторождения. */
@@ -118,4 +130,4 @@ export const Shot = component('Shot', {
 export const Blast = component('Blast', { size: 1, age: 0, life: 0 })
 
 /** Компоненты, которые попадают в сохранение и в сеть. Новый компонент симуляции добавляй сюда. */
-export const SAVED = [Position, Building, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Trade, Armed, Shot, Blast]
+export const SAVED = [Position, Building, Health, Repair, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Trade, Armed, Shot, Blast]

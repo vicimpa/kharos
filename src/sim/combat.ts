@@ -1,7 +1,7 @@
 import type { Entity } from '../ecs'
 import { BUILDINGS, type BuildingType } from './buildings'
 import { NONE, isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './common'
-import { Armed, Blast, Building, Converting, Owner, Path, Position, Shot, Unit } from './components'
+import { Armed, Blast, Building, Converting, Health, Owner, Path, Position, Shot, Unit } from './components'
 import { releaseHauler } from './hauling'
 import { searchedTiles } from './path'
 import type { Sim } from './sim'
@@ -59,8 +59,8 @@ interface Mark {
   air: boolean
   armor: Armor
   hp: number
-  /** Компонент, в котором лежит прочность. */
-  body: { health: number }
+  /** Компонент прочности: урон пишется прямо в него. */
+  health: { value: number }
 }
 
 /** Расстояние от точки до края цели в тайлах. */
@@ -70,21 +70,28 @@ function distanceTo(mark: Mark, x: number, y: number) {
 
 function collectMarks(sim: Sim) {
   const marks = new Map<Entity, Mark>()
-  for (const [entity, position, unit, owner] of sim.world.query(Position, Unit, Owner)) {
+  for (const [entity, position, unit, owner, health] of sim.world.query(Position, Unit, Owner, Health)) {
     const spec: UnitSpec = UNITS[unit.type]
     marks.set(entity, {
       entity, player: owner.player, x: position.x, y: position.y, left: position.x, top: position.y, width: 0, height: 0,
-      radius: spec.radius, air: spec.kind === 'air', armor: spec.kind, hp: spec.hp, body: unit,
+      radius: spec.radius, air: spec.kind === 'air', armor: spec.kind, hp: spec.hp, health,
     })
   }
-  for (const [entity, position, building, owner] of sim.world.query(Position, Building, Owner)) {
+  for (const [entity, position, building, owner, health] of sim.world.query(Position, Building, Owner, Health)) {
     const { width, height } = BUILDINGS[building.type]
     marks.set(entity, {
       entity, player: owner.player, x: position.x + width / 2, y: position.y + height / 2, left: position.x, top: position.y, width, height,
-      radius: 0, air: false, armor: 'building', hp: buildingHp(building.type), body: building,
+      radius: 0, air: false, armor: 'building', hp: buildingHp(building.type), health,
     })
   }
   return marks
+}
+
+/** Раз в тик: те, чья прочность восстанавливается сама (Health.regen), понемногу поправляются. */
+export function recover(sim: Sim) {
+  for (const [, health] of sim.world.query(Health)) {
+    if (health.regen > 0 && health.value < 1) health.value = Math.min(1, health.value + health.regen * sim.time.step)
+  }
 }
 
 /** Оружие юнита или undefined, если он безоружен. */
@@ -150,8 +157,8 @@ export function fight(sim: Sim) {
   /** Наносит урон. source — кто стрелял: уцелевший свободный юнит отвечает ему огнём. */
   const hit = (mark: Mark, amount: number, weapon: WeaponSpec, source: Entity) => {
     if (dead.has(mark.entity)) return
-    mark.body.health -= (amount * (weapon.vs?.[mark.armor] ?? 1)) / mark.hp
-    if (mark.body.health <= 0) {
+    mark.health.value -= (amount * (weapon.vs?.[mark.armor] ?? 1)) / mark.hp
+    if (mark.health.value <= 0) {
       dead.add(mark.entity)
       return
     }

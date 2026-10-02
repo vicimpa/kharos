@@ -1,7 +1,7 @@
 import type { Entity } from '../ecs'
 import { BUILDINGS, CORE, canPlace, docksClear, placeBuilding } from './buildings'
 import { isOwn, onTurn, ownerOf } from './common'
-import { Building, Converting, Path, Position, Producer, Unit } from './components'
+import { Building, Converting, Health, Path, Position, Producer, Unit } from './components'
 import { reward } from './economy'
 import type { Sim } from './sim'
 import { clearGround, spawnUnit } from './units'
@@ -95,6 +95,8 @@ export function convert(sim: Sim) {
     const player = ownerOf(sim, entity)
     // Очередь производства переезжает вместе с игроком: заказы не теряются.
     const production = world.get(entity, Producer)
+    // Прочность тоже: свернув разбитое здание, целую машину не получить.
+    const health = world.get(entity, Health)?.value ?? 1
 
     if (world.has(entity, Unit)) {
       const site = deploySite(sim, entity)
@@ -103,6 +105,7 @@ export function convert(sim: Sim) {
       world.destroy(entity)
       const core = placeBuilding(world, CORE, site.x, site.y, player)
       if (production) world.set(core, Producer, production)
+      world.set(core, Health, { value: health })
       reward(sim, player, 'deploy')
     } else {
       const position = world.get(entity, Position)!
@@ -110,6 +113,7 @@ export function convert(sim: Sim) {
       world.destroy(entity)
       const mcv = spawnUnit(sim, 'mcv', player, position.x + Math.floor(width / 2), position.y + Math.floor(height / 2))
       if (production) world.set(mcv, Producer, production)
+      world.set(mcv, Health, { value: health })
     }
   }
 }

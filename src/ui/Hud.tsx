@@ -80,7 +80,7 @@ export function Hud({ state, send, place }: HudProps) {
             <div class="hud__hint">Прочность: {percent(state.health)}. Починка стоит {state.repair}: выбери строителей и щёлкни по зданию правой кнопкой</div>
           )}
 
-          {state.army && state.army.health < 1 && <div class="hud__hint">Прочность: {percent(state.army.health)}</div>}
+          {state.army && state.army.health < 1 && <div class="hud__hint">Прочность: {percent(state.army.health)}. Технику чинят строители, пехота поправляется сама</div>}
           {state.army && state.army.armed > 0 && (
             <div class="hud__hint">Сами стреляют по врагам в пределах выстрела. Правый щелчок по врагу — атаковать</div>
           )}

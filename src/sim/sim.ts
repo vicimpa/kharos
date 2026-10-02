@@ -1,7 +1,7 @@
 import { Loop, World, type System, type Time, type WorldSnapshot } from '../ecs'
 import { createLand, type GeneratorConfig, type Land } from '../map/terrain'
 import { createOccupancy, type Occupancy } from './buildings'
-import { fight } from './combat'
+import { fight, recover } from './combat'
 import { apply, type Command } from './commands'
 import { SAVED } from './components'
 import { construct } from './construction'
@@ -28,7 +28,7 @@ export interface SimOptions {
 
 /** Сохранение симуляции. Обычные данные: их можно положить в JSON, на диск или отправить по сети. */
 /** Версия формата сохранения. Меняется, когда старые сохранения перестают подходить: тогда они отбрасываются. */
-export const SAVE_VERSION = 7
+export const SAVE_VERSION = 8
 
 export interface SimSave extends SimOptions {
   version: typeof SAVE_VERSION
@@ -92,6 +92,7 @@ export function createSim(source: SimOptions | SimSave): Sim {
       () => trade(sim),
       // После движения и работ: стреляющий юнит поворачивается к цели, и погибшие в этот тик уже ничего не делают.
       () => fight(sim),
+      () => recover(sim),
       () => earn(sim),
     ],
   })

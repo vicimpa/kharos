@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { Armed, Blast, Building, Owner, Path, Position, Producer, Shot, UNITS, Unit, WEAPONS, buildingHp, canAttack, canPlace, createSim, driveBattle, isWalkable, powerStates, producibleBy, randomArmy, spawnBattle, zoneEconomies, type Sim } from '../src/sim'
+import { Armed, Blast, Building, Builds, Health, INFANTRY_REGEN, Repair, Owner, Path, Position, Producer, Shot, UNITS, Unit, WEAPONS, buildingHp, canAttack, canPlace, createSim, driveBattle, isWalkable, powerStates, producibleBy, randomArmy, spawnBattle, zoneEconomies, type Sim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { addCredits } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
@@ -32,7 +32,7 @@ function untilShot(sim: Sim) {
   expect(sim.world.count(Shot)).toBeGreaterThan(0)
 }
 
-const health = (sim: Sim, entity: Entity) => sim.world.get(entity, Unit)?.health
+const health = (sim: Sim, entity: Entity) => sim.world.get(entity, Health)?.value
 const alive = (sim: Sim, entity: Entity) => sim.world.alive(entity)
 
 test('пехотинцы сами стреляют во врага в пределах выстрела: пули летят, цель гибнет и взрывается', () => {
@@ -203,7 +203,7 @@ test('здания разрушаются: прочность считается
   expect(sim.occupancy.at(spot.x, spot.y)).toBe(building)
   seconds(sim, 4)
   expect(sim.world.get(tank, Armed)!.target).toBe(building)
-  const left = sim.world.get(building, Building)!.health
+  const left = sim.world.get(building, Health)!.value
   expect(left).toBeLessThan(1)
   expect(left).toBeGreaterThan(0.5)
   seconds(sim, 40)
@@ -218,7 +218,7 @@ test('бой переживает сохранение', () => {
   untilShot(sim)
   const copy = createSim(JSON.parse(JSON.stringify(sim.save())))
   seconds(copy, 3)
-  expect(copy.world.get(foe, Unit)!.health).toBeLessThan(1)
+  expect(copy.world.get(foe, Health)!.value).toBeLessThan(1)
   expect(UNITS.tank.hp).toBeGreaterThan(WEAPONS.cannon.damage * 2)
 })
 
@@ -340,4 +340,61 @@ test('гонящийся идёт на выстрел от цели, а не в 
   const reach = Math.hypot(path.points[path.points.length - 2] - 30.5, path.points[path.points.length - 1] - 0.5)
   expect(reach).toBeLessThanOrEqual(WEAPONS.cannon.range)
   expect(reach).toBeGreaterThan(2)
+})
+
+test('строитель чинит повреждённую технику — по приказу и сам; пехоту не чинит, она поправляется сама', () => {
+  const { sim, x, y } = field()
+  addCredits(sim, 1, 1000)
+  const builder = spawnUnit(sim, 'builder', 1, x + 2, y)
+  const tank = spawnUnit(sim, 'tank', 1, x + 8, y)
+  const soldier = spawnUnit(sim, 'infantry', 1, x + 4, y + 2)
+  const value = (entity: Entity) => sim.world.get(entity, Health)!.value
+
+  // Целый юнит работой не считается, раненый пехотинец — тоже.
+  sim.world.get(soldier, Health)!.value = 0.5
+  sim.send(1, { type: 'assist', units: [builder], site: tank })
+  sim.send(1, { type: 'assist', units: [builder], site: soldier })
+  seconds(sim, 2)
+  expect(sim.world.has(builder, Builds)).toBe(false)
+  expect(sim.world.has(builder, Path)).toBe(false)
+  expect(value(soldier)).toBeCloseTo(0.5 + INFANTRY_REGEN * 2)
+
+  // Повреждённый танк свободный строитель находит сам, подъезжает и чинит; починка стоит денег.
+  sim.world.get(tank, Health)!.value = 0.5
+  seconds(sim, 1.5)
+  expect(sim.world.get(builder, Builds)?.site).toBe(tank)
+  seconds(sim, 30)
+  expect(value(tank)).toBe(1)
+  expect(sim.world.has(builder, Builds)).toBe(false)
+  const from = sim.world.get(builder, Position)!
+  const to = sim.world.get(tank, Position)!
+  expect(Math.hypot(from.x - to.x, from.y - to.y)).toBeLessThan(3)
+
+  // Сам себя строитель не чинит, не своего — тоже.
+  sim.world.get(builder, Health)!.value = 0.5
+  const { x: nearX, y: nearY } = sim.world.get(builder, Position)!
+  const foe = spawnUnit(sim, 'builder', 0, Math.floor(nearX) + 1, Math.floor(nearY))
+  sim.world.get(foe, Health)!.value = 0.5
+  seconds(sim, 3)
+  expect(value(builder)).toBe(0.5)
+  expect(value(foe)).toBe(0.5)
+  seconds(sim, 30)
+  expect(value(soldier)).toBe(1)
+})
+
+test('всё, у чего есть Repair, чинит своих в радиусе — и нескольких сразу; не дотягивается — не чинит', () => {
+  const { sim, x, y } = field()
+  addCredits(sim, 1, 5000)
+  // Ремонтная станция: здание, которому выдан Repair.
+  const station = placeBuilding(sim.world, 'turret', x + 6, y, 1)
+  sim.world.add(station, Repair({ radius: 3 }))
+  const near = spawnUnit(sim, 'tank', 1, x + 4, y)
+  const other = spawnUnit(sim, 'buggy', 1, x + 8, y + 1)
+  const far = spawnUnit(sim, 'tank', 1, x + 14, y)
+  for (const entity of [near, other, far]) sim.world.get(entity, Health)!.value = 0.5
+  seconds(sim, 1)
+  const value = (entity: Entity) => sim.world.get(entity, Health)!.value
+  expect(value(near)).toBeGreaterThan(0.5)
+  expect(value(other)).toBeGreaterThan(0.5)
+  expect(value(far)).toBe(0.5)
 })

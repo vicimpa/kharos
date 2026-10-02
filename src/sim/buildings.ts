@@ -1,7 +1,7 @@
 import type { Entity, World } from '../ecs'
 import { isBuildable, isPassable, terrainAt, tileKey } from '../map/terrain'
 import { isOwn } from './common'
-import { Building, Owner, Position, Producer, Site } from './components'
+import { Building, Health, Repair, Owner, Position, Producer, Site } from './components'
 import type { Sim } from './sim'
 import type { UnitType } from './units'
 
@@ -42,6 +42,8 @@ export interface BuildingSpec {
    * Поэтому отдача от них падает, и ставить их без счёта невыгодно.
    */
   crowding?: boolean
+  /** Готовое здание строит и чинит всё своё в этом радиусе, в тайлах от своего центра до края цели. */
+  repair?: number
 }
 
 /** Сколько кредитов приносит единица руды, проданная через космопорт. */
@@ -185,9 +187,16 @@ export function docksClear(sim: Sim, type: BuildingType, x: number, y: number) {
 /** Заготовка компонента нового здания: сдвиг анимации у каждого свой. */
 export const newBuilding = (world: World, type: BuildingType) => Building({ type, phase: world.count(Building) * 5 })
 
+/** Даёт готовому зданию то, что положено его виду помимо производства. */
+export function equip(world: World, entity: Entity, type: BuildingType) {
+  const { repair } = buildingSpec(type)
+  if (repair) world.add(entity, Repair({ radius: repair }))
+}
+
 /** Ставит здание без проверок. player — владелец; 0 — ничьё. */
 export function placeBuilding(world: World, type: BuildingType, x: number, y: number, player = 0) {
-  const entity = world.spawn(Position({ x, y }), newBuilding(world, type), Owner({ player }))
+  const entity = world.spawn(Position({ x, y }), newBuilding(world, type), Health, Owner({ player }))
   if (buildingSpec(type).produces && player) world.add(entity, Producer)
+  equip(world, entity, type)
   return entity
 }

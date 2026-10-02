@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { Armed, BUILDING_TYPES, Owner, Position, isOwn, UNITS, UNIT_TYPES, Unit, canAttack, canHaul, canPlace, canRepair, isWalkable, siteAt } from '../sim'
+import { Armed, BUILDING_TYPES, Owner, Position, Repair, isOwn, UNITS, UNIT_TYPES, Unit, canAttack, canHaul, canPlace, canRepair, isWalkable, siteAt } from '../sim'
 import { placementOf } from './placing'
 import type { Scene } from './scene'
 
@@ -127,11 +127,12 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
       const x = Math.floor(point.x)
       const y = Math.floor(point.y)
       const units = [...scene.selection]
-      // Работа для строителей: стройка, разбор или своё повреждённое здание.
+      // Работа для строителей: стройка, разбор или своё повреждённое — здание или юнит.
       const damaged = sim.occupancy.at(x, y)
-      const site = siteAt(sim, x, y) ?? (damaged !== undefined && canRepair(sim, scene.player, damaged) ? damaged : undefined)
-      const builders = units.some((entity) => sim.world.get(entity, Unit)?.type === 'builder')
-      // Строители по своей стройке — строят, по повреждённому зданию — чинят; остальные выбранные при этом стоят.
+      const broken = unitAt(point.x, point.y) ?? damaged
+      const site = siteAt(sim, x, y) ?? (broken !== undefined && canRepair(sim, scene.player, broken) ? broken : undefined)
+      const builders = units.some((entity) => sim.world.has(entity, Repair))
+      // Строители по своей стройке — строят, по повреждённому зданию или юниту — чинят; остальные выбранные при этом стоят.
       const trucks = units.some((entity) => sim.world.get(entity, Unit)?.type === 'truck')
       // Вооружённые по врагу — атакуют: по чужому юниту или зданию под курсором.
       const enemy = unitAt(point.x, point.y, false) ?? damaged

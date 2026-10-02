@@ -5,7 +5,7 @@ import { createLineProgram, createLines } from '../render/lines'
 import { Pixmap } from '../render/pixmap'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites } from '../render/sprites'
-import { Blast, Position, Shot, UNITS, Unit, WEAPONS, flies, type WeaponSpec } from '../sim'
+import { Blast, Health, Position, Shot, UNITS, Unit, WEAPONS, flies, type WeaponSpec } from '../sim'
 import type { Scene } from './scene'
 import { drawnPosition } from './units/unitsPass'
 
@@ -397,15 +397,15 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
         }
 
         // Полоски прочности над повреждёнными юнитами — своими и чужими.
-        for (const [, unit, position] of world.query(Unit, Position)) {
-          if (unit.health >= 1 || !visible(position.x, position.y)) continue
+        for (const [, { value: health }, unit, position] of world.query(Health, Unit, Position)) {
+          if (health >= 1 || !visible(position.x, position.y)) continue
           const { x, y } = drawnPosition(position, unit, alpha)
           const { radius } = UNITS[unit.type]
           const half = radius + 0.1
           // Летающий нарисован над землёй там же, где стоит, поэтому полоска на том же месте.
           const top = y - radius - BAR_GAP - (flies(unit.type) ? 0.1 : 0)
           strip(solid, x - half - pixel, top, x + half + pixel, top, (BAR_HEIGHT + 2) * pixel, BAR_BACK)
-          strip(solid, x - half, top, x - half + half * 2 * Math.max(0, unit.health), top, BAR_HEIGHT * pixel, unit.health > 0.5 ? BAR_GOOD : BAR_BAD)
+          strip(solid, x - half, top, x - half + half * 2 * Math.max(0, health), top, BAR_HEIGHT * pixel, health > 0.5 ? BAR_GOOD : BAR_BAD)
         }
 
         if (smoke.count || blasts.count) {

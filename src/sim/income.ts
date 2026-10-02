@@ -1,6 +1,6 @@
 import type { Entity } from '../ecs'
 import { BUILDINGS, buildingSpec, type BuildingSpec, type BuildingType } from './buildings'
-import { Building, Player } from './components'
+import { Building, Health, Player } from './components'
 import type { Sim } from './sim'
 import { allZones, type Zone } from './zones'
 
@@ -26,7 +26,7 @@ function economyOfZone(sim: Sim, zone: Zone): Economy {
     const power = spec.power ?? 0
     const income = spec.income ?? 0
     // Повреждённая электростанция даёт энергии во столько же раз меньше, во сколько упала её прочность.
-    if (power > 0) economy.produced += power * building.health
+    if (power > 0) economy.produced += power * (sim.world.get(entity, Health)?.value ?? 1)
     if (power < 0) {
       // Тесное здание просит тем больше, чем их уже в зоне: первое — одну норму, второе — две, третье — три.
       economy.demand -= power * (spec.crowding ? ++economy.crowd : 1)
@@ -152,9 +152,9 @@ function wear(sim: Sim, all: Book[]) {
     if (!overload) continue
     for (const entity of zone.buildings) {
       if (powerAt(sim, entity) <= 0) continue
-      const building = world.get(entity, Building)!
-      building.health -= OVERLOAD_DAMAGE * overload * time.step
-      if (building.health <= 0) ruined.push(entity)
+      const health = world.get(entity, Health)!
+      health.value -= OVERLOAD_DAMAGE * overload * time.step
+      if (health.value <= 0) ruined.push(entity)
     }
   }
   for (const entity of ruined) world.destroy(entity)
