@@ -169,10 +169,11 @@ test('здание разбирают строители в полтора ра�
   expect(sim.world.has(plant, Site) || sim.world.has(core, Site)).toBe(false)
   expect(sim.world.get(site, Site)!.demolish).toBe(false)
 
-  // Без строителя здание стоит целым, но уже не работает и зону не расширяет.
+  // Пока строитель не подошёл, здание стоит целым, но уже не работает и зону не расширяет.
+  sim.world.destroy(builders[1])
   sim.send(1, { type: 'demolish', building: plant, builders: [] })
   sim.send(1, { type: 'demolish', building: link, builders: [] })
-  seconds(sim, 2)
+  sim.advance(TICK)
   expect(sim.world.get(plant, Site)).toEqual({ type: 'generator', progress: 300, demolish: true })
   expect(economyOf(sim, 1).produced).toBe(0)
   expect(canBuild(sim, 1, 'silo', x + 17, y + 3)).toBe(false)
@@ -185,8 +186,7 @@ test('здание разбирают строители в полтора ра�
   expect(canBuild(sim, 1, 'silo', x + 17, y + 3)).toBe(true)
   expect(creditsOf(sim, 1) - credits).toBeLessThan(2)
 
-  // Один строитель разбирает электростанцию за 15 / 1,5 = 10 секунд, не считая дороги.
-  sim.send(1, { type: 'assist', units: [builders[0]], site: plant })
+  // Свободный строитель рядом берётся за разбор сам. Один разбирает электростанцию за 15 / 1,5 = 10 секунд, не считая дороги.
   let ticks = 0
   let working = 0
   while (sim.world.alive(plant) && ticks++ < 1200) {

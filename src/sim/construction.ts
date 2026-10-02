@@ -8,6 +8,8 @@ import { UNITS, evictUnits, isWalkable, orderMove, standingUnits, tileKey } from
 
 /** С какого расстояния до основания строитель работает, в тайлах: с соседнего тайла, в том числе углового. */
 const REACH = 1.2
+/** С какого расстояния до основания свободный строитель сам берётся за стройку или разбор, в тайлах. */
+export const WORK_RADIUS = 10
 /** Раз во сколько тиков строитель, не дошедший до площадки, пробует подъехать снова. */
 const RETRY_TICKS = 20
 
@@ -152,6 +154,49 @@ export function demolish(sim: Sim, player: number, building: Entity, builders: E
 }
 
 /**
+ * Свободные строители сами берутся за работу поблизости: каждый идёт на ближайшую свою стройку или разбор
+ * не дальше WORK_RADIUS. Стройку вне зоны не берут — она всё равно стоит. Строитель проверяет окрестности
+ * не каждый тик, а раз в RETRY_TICKS, причём каждый в свой тик.
+ */
+function volunteer(sim: Sim) {
+  const { world, time } = sim
+  const idle: Entity[] = []
+  for (const [entity, unit] of world.query(Unit, Owner)) {
+    if (unit.type !== 'builder' || (time.tick + entity) % RETRY_TICKS !== 0) continue
+    if (world.has(entity, Builds) || world.has(entity, Path) || world.has(entity, Converting)) continue
+    idle.push(entity)
+  }
+  if (!idle.length) return
+
+  const sites: { entity: Entity; x: number; y: number; type: BuildingType; player: number; demolish: boolean }[] = []
+  for (const [entity, position, site, owner] of world.query(Position, Site, Owner)) {
+    sites.push({ entity, x: position.x, y: position.y, type: site.type, player: owner.player, demolish: site.demolish })
+  }
+  /** Зона нужна только стройке; считается раз на игрока и только если до неё дошло дело. */
+  const open = new Map<Entity, boolean>()
+  for (const builder of idle) {
+    const position = world.get(builder, Position)!
+    const player = world.get(builder, Owner)!.player
+    let best: Entity | undefined
+    let bestDistance = WORK_RADIUS
+    for (const site of sites) {
+      if (site.player !== player) continue
+      const distance = distanceTo(site, site.type, position.x, position.y)
+      if (distance > bestDistance) continue
+      let workable = open.get(site.entity)
+      if (workable === undefined) {
+        workable = site.demolish || inControl(sim, player, site.type, site.x, site.y)
+        open.set(site.entity, workable)
+      }
+      if (!workable) continue
+      best = site.entity
+      bestDistance = distance
+    }
+    if (best !== undefined) assignBuilders(sim, player, best, [builder])
+  }
+}
+
+/**
  * Раз в тик: строители, стоящие вплотную к своей площадке, вкладывают в неё работу — чем их больше, тем быстрее.
  * Здание под разбор они так же разбирают.
  * С первым тиком работы площадка становится недостроенным зданием и занимает тайлы; юниты с неё уходят.
@@ -190,6 +235,7 @@ export function construct(sim: Sim) {
 
   for (const entity of free) world.remove(entity, Builds)
   for (const { builder, site } of late) approach(sim, builder, site, new Set())
+  volunteer(sim)
 
   for (const [entity, count] of workers) {
     const site = world.get(entity, Site)!

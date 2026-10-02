@@ -6,6 +6,7 @@ import {
   canBuild, canPlace, createSim, creditsOf, isWalkable, rewardsOf, siteAt, spawnStartingUnits, type Sim,
 } from '../src/sim'
 import { BUILD_RATE } from '../src/sim/buildings'
+import { WORK_RADIUS } from '../src/sim/construction'
 import { spawnUnit } from '../src/sim/units'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
@@ -81,6 +82,8 @@ test('строитель возводит здание: кредиты спис�
 test('два строителя строят вдвое быстрее одного', () => {
   const progress = (count: number) => {
     const { sim, builders, site } = start()
+    // Лишнего строителя убираем: свободный сам пришёл бы помогать.
+    for (const builder of builders.slice(count)) sim.world.destroy(builder)
     sim.send(1, { type: 'build', building: 'generator', x: site.x, y: site.y, builders: builders.slice(0, count) })
     seconds(sim, 6)
     const entity = sim.occupancy.at(site.x, site.y)!
@@ -196,4 +199,29 @@ test('сохранение посреди стройки продолжаетс�
   seconds(copy, 12)
   expect(copy.save()).toEqual(sim.save())
   expect(copy.world.count(Site)).toBe(0)
+})
+
+test('свободный строитель сам берётся за стройку рядом, а за далёкую и за стройку вне зоны — нет', () => {
+  const { sim, core, builders, site } = start()
+  sim.world.destroy(builders[1])
+  sim.send(1, { type: 'build', building: 'generator', x: site.x, y: site.y, builders: [] })
+  seconds(sim, 1.1)
+  const entity = siteAt(sim, site.x, site.y)!
+  expect(sim.world.get(builders[0], Builds)).toEqual({ site: entity })
+  seconds(sim, 6)
+  expect(sim.world.get(entity, Site)!.progress).toBeGreaterThan(0)
+
+  // Приказ идти снимает его со стройки; уехав дальше WORK_RADIUS, он не возвращается.
+  const position = sim.world.get(builders[0], Position)!
+  spawnUnit(sim, 'builder', 1, site.x + WORK_RADIUS + 6, site.y)
+  const far = unitsOf(sim, 'builder').find((builder) => builder !== builders[0])!
+  seconds(sim, 2)
+  expect(sim.world.has(far, Builds)).toBe(false)
+
+  // Главное здание свёрнуто — стройка стоит, и браться за неё незачем.
+  sim.send(1, { type: 'pack', building: core })
+  seconds(sim, 10.1)
+  sim.send(1, { type: 'move', units: [builders[0]], x: Math.floor(position.x) - 1, y: Math.floor(position.y) })
+  seconds(sim, 3)
+  expect(sim.world.has(builders[0], Builds)).toBe(false)
 })
