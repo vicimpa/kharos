@@ -1,6 +1,6 @@
 import type { Entity, World } from '../ecs'
 import { isBuildable, terrainAt } from '../map/terrain'
-import { Building, Owner, Position } from './components'
+import { Building, Owner, Position, Producer } from './components'
 import type { Sim } from './sim'
 
 /** Что симуляция знает о виде здания. Как оно выглядит, знает клиент: см. game/buildings/buildingArt.ts. */
@@ -24,6 +24,8 @@ export const BUILDINGS = {
 } satisfies Record<string, BuildingSpec>
 
 export type BuildingType = keyof typeof BUILDINGS
+/** Главное здание — Settlement Core: в него разворачивается MCV. */
+export const CORE: BuildingType = 'command'
 export const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[]
 
 /** Какие тайлы заняты зданиями. Обновляется сам: следит за появлением и исчезновением зданий в мире. */
@@ -76,5 +78,7 @@ export function canPlace(sim: Sim, type: BuildingType, x: number, y: number, gap
 
 /** Ставит здание без проверок. player — владелец; 0 — ничьё. */
 export function placeBuilding(world: World, type: BuildingType, x: number, y: number, player = 0) {
-  return world.spawn(Position({ x, y }), Building({ type, phase: world.count(Building) * 5 }), Owner({ player }))
+  const entity = world.spawn(Position({ x, y }), Building({ type, phase: world.count(Building) * 5 }), Owner({ player }))
+  if (type === CORE && player) world.add(entity, Producer)
+  return entity
 }

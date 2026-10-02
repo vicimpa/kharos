@@ -152,3 +152,104 @@ body {
   font: inherit;
   cursor: pointer;
 }
+
+.hud {
+  position: absolute;
+  left: 12px;
+  border: 1px solid #1f3a57;
+  border-radius: 6px;
+  background: rgba(8, 17, 28, 0.9);
+  color: #d6e6f5;
+  font-size: 13px;
+  user-select: none;
+}
+
+.hud--credits {
+  top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.hud__coin {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #f0c95a;
+  box-shadow: inset -2px -2px 0 #c9962b;
+}
+
+.hud--selection {
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 280px;
+  padding: 10px;
+}
+
+.hud__title {
+  font-weight: 600;
+}
+
+.hud__row {
+  display: flex;
+  gap: 6px;
+}
+
+.hud__row button {
+  flex: 1;
+}
+
+.hud button {
+  padding: 6px 8px;
+  border: 1px solid #2d5b88;
+  border-radius: 4px;
+  background: #14304b;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.hud button:hover:not(:disabled) {
+  background: #1c4368;
+}
+
+.hud button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.hud button small {
+  color: #f0c95a;
+}
+
+.hud__progress {
+  position: relative;
+  height: 22px;
+  overflow: hidden;
+  border: 1px solid #1f3a57;
+  border-radius: 4px;
+  background: #0b1826;
+}
+
+.hud__progress span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: #24598c;
+}
+
+.hud__progress em {
+  position: relative;
+  display: block;
+  padding: 0 8px;
+  overflow: hidden;
+  font-style: normal;
+  font-size: 12px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

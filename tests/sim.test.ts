@@ -62,7 +62,13 @@ test('сохранение восстанавливает мир, тик и но
   expect(loaded.time.elapsed).toBe(sim.time.elapsed)
   expect(loaded.save()).toEqual(save)
 
-  const rows = (sim: Sim) => [...sim.world.query(Position, Building)].map(([entity, p, b]) => [entity, p.x, p.y, b.type])
+  const rows = (sim: Sim) => {
+    const found: unknown[] = []
+    for (const [entity, position, building] of sim.world.query(Position, Building)) {
+      found.push([entity, position.x, position.y, building.type])
+    }
+    return found
+  }
   expect(rows(loaded)).toEqual(rows(sim))
 
   // Занятость восстановилась вместе со зданиями, новые сущности не занимают старые номера.

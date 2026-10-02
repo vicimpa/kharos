@@ -1,6 +1,7 @@
 import type { Entity } from '../ecs'
 import { isPassable, terrainAt } from '../map/terrain'
-import { Owner, Path, Position, Unit } from './components'
+import { Converting, Owner, Path, Position, Producer, Unit } from './components'
+import { STARTING_CREDITS, addCredits } from './economy'
 import { findPath, smoothPath } from './path'
 import type { Sim } from './sim'
 
@@ -10,12 +11,15 @@ export interface UnitSpec {
   speed: number
   /** Радиус в тайлах: по нему юнит выбирается мышью. */
   radius: number
+  /** Цена в кредитах и время производства в секундах. */
+  cost: number
+  buildTime: number
 }
 
 export const UNITS = {
-  mcv: { speed: 2.5, radius: 0.8 },
-  builder: { speed: 4, radius: 0.45 },
-  infantry: { speed: 3, radius: 0.3 },
+  mcv: { speed: 2.5, radius: 0.8, cost: 2000, buildTime: 30 },
+  builder: { speed: 4, radius: 0.45, cost: 150, buildTime: 5 },
+  infantry: { speed: 3, radius: 0.3, cost: 60, buildTime: 3 },
 } satisfies Record<string, UnitSpec>
 
 export type UnitType = keyof typeof UNITS
@@ -37,11 +41,12 @@ const GROUP_SPACING = 2
 /**
  * Проходимые тайлы вокруг точки, от ближних к дальним: места для группы юнитов, через GROUP_SPACING тайлов.
  * Возвращает не больше count тайлов (x, y подряд); если рядом их меньше — сколько нашлось.
+ * fromRadius — с какого кольца начинать: 1 пропускает саму точку.
  */
-export function freeTilesNear(sim: Sim, x: number, y: number, count: number) {
+export function freeTilesNear(sim: Sim, x: number, y: number, count: number, fromRadius = 0) {
   const SEARCH_RADIUS = 8
   const tiles: number[] = []
-  for (let radius = 0; radius <= SEARCH_RADIUS && tiles.length < count * 2; radius++) {
+  for (let radius = fromRadius; radius <= SEARCH_RADIUS && tiles.length < count * 2; radius++) {
     for (let dy = -radius; dy <= radius; dy++) {
       for (let dx = -radius; dx <= radius; dx++) {
         // Только кольцо на расстоянии radius: внутренние тайлы уже проверены.
@@ -58,11 +63,18 @@ export function freeTilesNear(sim: Sim, x: number, y: number, count: number) {
 /** Создаёт юнит в центре тайла (x, y). */
 export function spawnUnit(sim: Sim, type: UnitType, player: number, x: number, y: number) {
   const position = { x: x + 0.5, y: y + 0.5 }
-  return sim.world.spawn(Position(position), Unit({ type, prevX: position.x, prevY: position.y }), Owner({ player }))
+  const { world } = sim
+  const entity = world.spawn(Position(position), Unit({ type, prevX: position.x, prevY: position.y }), Owner({ player }))
+  if (type === 'mcv') world.add(entity, Producer)
+  return entity
 }
 
-/** Стартовый набор игрока вокруг тайла (x, y). Возвращает созданных юнитов; их меньше, если места не хватило. */
+/**
+ * Стартовый набор игрока вокруг тайла (x, y) и стартовые кредиты.
+ * Возвращает созданных юнитов; их меньше, если места не хватило.
+ */
 export function spawnStartingUnits(sim: Sim, player: number, x: number, y: number) {
+  addCredits(sim, player, STARTING_CREDITS)
   const tiles = freeTilesNear(sim, x, y, STARTING_UNITS.length)
   const units: Entity[] = []
   for (let i = 0; i < STARTING_UNITS.length && i * 2 < tiles.length; i++) {
@@ -77,7 +89,8 @@ export function spawnStartingUnits(sim: Sim, player: number, x: number, y: numbe
  */
 export function orderMove(sim: Sim, entity: Entity, x: number, y: number) {
   const position = sim.world.get(entity, Position)
-  if (!position) return
+  // Юнит, который разворачивается, с места не трогается.
+  if (!position || sim.world.has(entity, Converting)) return
   const walkable = (tileX: number, tileY: number) => isWalkable(sim, tileX, tileY)
   const tiles = findPath(walkable, Math.floor(position.x), Math.floor(position.y), x, y)
   // Юнит идёт по центрам тайлов.

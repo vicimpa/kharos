@@ -24,5 +24,20 @@ export const Unit = component('Unit', { type: 'infantry' as UnitType, prevX: 0, 
  */
 export const Path = component('Path', () => ({ points: [] as number[], goalX: 0, goalY: 0, blocked: false }))
 
+/** Игрок: сущность без места на карте. Отслеживается, чтобы интерфейс узнавал о смене счёта. */
+export const Player = component('Player', { id: 0, credits: 0 }, { tracked: true })
+
+/**
+ * Производство юнитов: есть у MCV и у главного здания.
+ * queue — очередь заказов, первый строится сейчас; progress — сколько тиков он уже строится.
+ */
+export const Producer = component('Producer', () => ({ queue: [] as UnitType[], progress: 0 }))
+
+/**
+ * Превращение: MCV разворачивается в главное здание или здание сворачивается обратно.
+ * Компонент есть, только пока оно идёт. left — сколько тиков осталось, total — сколько было всего.
+ */
+export const Converting = component('Converting', { left: 0, total: 0 })
+
 /** Компоненты, которые попадают в сохранение и в сеть. Новый компонент симуляции добавляй сюда. */
-export const SAVED = [Position, Building, Owner, Unit, Path]
+export const SAVED = [Position, Building, Owner, Unit, Path, Player, Producer, Converting]

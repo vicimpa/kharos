@@ -2,7 +2,7 @@ import { createLandWindow, minZoom, type LandWindow } from '../map/landWindow'
 import type { MapSettings } from '../map/settings'
 import { createTerrainPass } from '../map/terrainPass'
 import { createRenderer } from '../render/renderer'
-import { createSim, placeDemoBuildings, spawnStartingUnits, type SimOptions } from '../sim'
+import { createSim, placeDemoBuildings, spawnStartingUnits, type Command, type SimOptions } from '../sim'
 import { createLightingPass } from '../weather/lightingPass'
 import { createPrecipitationPass } from '../weather/precipitationPass'
 import { createBoundsPass } from './boundsPass'
@@ -11,6 +11,7 @@ import { Camera } from './camera'
 import { createControls } from './controls'
 import { createCursorPass } from './cursorPass'
 import { startFrames } from './frames'
+import { readHud, type HudState } from './hud'
 import type { Scene } from './scene'
 import { createSelectionPass } from './selectionPass'
 import { loadSave, storeSave } from './storage'
@@ -25,6 +26,10 @@ export interface Game {
   setSettings(settings: MapSettings): void
   /** Начинает мир заново с теми же настройками. */
   restart(): void
+  /** Состояние интерфейса игрока на этот момент. */
+  hud(): HudState
+  /** Посылает симуляции команду от имени игрока. */
+  send(command: Command): void
   /** Останавливает игру и освобождает ресурсы. */
   destroy(): void
 }
@@ -130,6 +135,8 @@ export function createGame(canvas: HTMLCanvasElement, settings: MapSettings, onE
       if (changed) restart()
     },
     restart,
+    hud: () => readHud(scene),
+    send: (command) => scene.sim.send(scene.player, command),
     destroy() {
       stop()
       window.removeEventListener('pagehide', saveNow)

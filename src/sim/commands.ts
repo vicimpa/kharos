@@ -1,6 +1,8 @@
 import type { Entity } from '../ecs'
 import { BUILDINGS, canPlace, placeBuilding, type BuildingType } from './buildings'
 import { Owner, Unit } from './components'
+import { DEPLOY_SECONDS, PACK_SECONDS, canDeploy, canPack, startConverting } from './conversion'
+import { cancelUnit, orderUnit } from './production'
 import type { Sim } from './sim'
 import { UNITS, isWalkable, orderGroupMove, spawnUnit, type UnitType } from './units'
 
@@ -15,6 +17,14 @@ export type Command =
   | { type: 'placeBuilding'; building: BuildingType; x: number; y: number }
   /** Отправить своих юнитов к тайлу (x, y). */
   | { type: 'move'; units: number[]; x: number; y: number }
+  /** Развернуть свой MCV в главное здание на месте. */
+  | { type: 'deploy'; unit: number }
+  /** Свернуть своё главное здание обратно в MCV. */
+  | { type: 'pack'; building: number }
+  /** Заказать юнит у своего MCV или главного здания. */
+  | { type: 'produce'; producer: number; unit: UnitType }
+  /** Отменить последний заказ в очереди производителя. */
+  | { type: 'cancelProduction'; producer: number }
   /** Отладка: создать юнит в тайле. Уйдёт, когда юнитов начнёт производить главное здание. */
   | { type: 'spawnUnit'; unit: UnitType; x: number; y: number }
 
@@ -42,6 +52,22 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
       orderGroupMove(sim, units, command.x, command.y)
       return true
     }
+    case 'deploy': {
+      const unit = command.unit as Entity
+      if (!canDeploy(sim, player, unit)) return false
+      startConverting(sim, unit, DEPLOY_SECONDS)
+      return true
+    }
+    case 'pack': {
+      const building = command.building as Entity
+      if (!canPack(sim, player, building)) return false
+      startConverting(sim, building, PACK_SECONDS)
+      return true
+    }
+    case 'produce':
+      return orderUnit(sim, player, command.producer as Entity, command.unit)
+    case 'cancelProduction':
+      return cancelUnit(sim, player, command.producer as Entity)
     case 'spawnUnit': {
       if (!Object.hasOwn(UNITS, command.unit) || !isTile(command.x, command.y)) return false
       if (!isWalkable(sim, command.x, command.y)) return false

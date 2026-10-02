@@ -12,7 +12,7 @@ const RIGHT = 2
 
 /**
  * Управление с холста и клавиатуры.
- * Левая кнопка — выделение: щелчок по юниту или рамка; с Shift — добавить к выбранным.
+ * Левая кнопка — выделение: щелчок по юниту или своему зданию, рамка — по юнитам; с Shift — добавить к выбранным.
  * Правая кнопка — приказ выбранным идти в точку; если её тянуть (или среднюю) — двигается камера.
  * Колесо — масштаб, WASD и стрелки — камера.
  * Отладочные клавиши: G — сетка, B — поставить здание под мышью, U — создать юнит под мышью.
@@ -55,6 +55,8 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
 
   const select = (units: Entity[], add: boolean) => {
     if (!add) scene.selection.clear()
+    // Здание с юнитами вместе не выбирается.
+    for (const entity of scene.selection) if (!scene.sim.world.has(entity, Unit)) scene.selection.delete(entity)
     for (const entity of units) scene.selection.add(entity)
   }
 
@@ -95,7 +97,13 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
         select(found, event.shiftKey)
       } else {
         const unit = unitAt(point.x, point.y)
-        select(unit === undefined ? [] : [unit], event.shiftKey)
+        if (unit !== undefined) select([unit], event.shiftKey)
+        else {
+          // Не юнит — тогда, может быть, своё здание. Здание выбирается только одно и без юнитов.
+          const building = scene.sim.occupancy.at(Math.floor(point.x), Math.floor(point.y))
+          const own = building !== undefined && scene.sim.world.get(building, Owner)?.player === scene.player
+          select(own ? [building] : [], false)
+        }
       }
     } else if (button === RIGHT && !dragged && scene.selection.size) {
       scene.sim.send(scene.player, {
@@ -166,8 +174,8 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     const down = Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp'))
     if (right || down) camera.moveBy(right * step, down * step)
 
-    // Погибшие и исчезнувшие юниты выпадают из выделения.
-    for (const entity of scene.selection) if (!scene.sim.world.has(entity, Unit)) scene.selection.delete(entity)
+    // Погибшие и исчезнувшие выпадают из выделения.
+    for (const entity of scene.selection) if (!scene.sim.world.alive(entity)) scene.selection.delete(entity)
   }
 
   return {

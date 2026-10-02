@@ -1,9 +1,10 @@
+import type { Entity } from '../ecs'
 import { setBlend } from '../gl'
 import { createAtlas } from '../render/atlas'
 import { Pixmap } from '../render/pixmap'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites } from '../render/sprites'
-import { Position, UNITS, Unit } from '../sim'
+import { BUILDINGS, Building, Converting, Owner, Position, Producer, UNITS, Unit, buildTicks } from '../sim'
 import type { Scene } from './scene'
 import { drawnPosition } from './units/unitsPass'
 
@@ -11,12 +12,22 @@ import { drawnPosition } from './units/unitsPass'
 const RING_SIZE = 64
 /** Насколько кольцо шире самого юнита, в тайлах. */
 const RING_MARGIN = 0.2
-/** Толщина рамки выделения в пикселях экрана. */
-const BOX_BORDER = 1
+/** Толщина рамок в пикселях экрана. */
+const BORDER = 1
 const BOX_FILL_ALPHA = 0.12
+/** Высота полоски прогресса в пикселях экрана и её отступ от сущности в тайлах. */
+const BAR_HEIGHT = 4
+const BAR_GAP = 0.3
+
+type Color = readonly [number, number, number]
+const SELECTED: Color = [0.35, 1, 0.45]
+const BAR_BACK: Color = [0.03, 0.05, 0.08]
+const BAR_CONVERTING: Color = [1, 0.8, 0.3]
+const BAR_PRODUCING: Color = [0.35, 0.65, 1]
 
 /**
- * Выделение: кольца вокруг выбранных юнитов и рамка, которую игрок тянет мышью.
+ * Выделение и прогресс: кольца вокруг выбранных юнитов, рамка вокруг выбранного здания, рамка, которую
+ * игрок тянет мышью, и полоски превращения и производства над своими сущностями.
  * Ставить выше освещения, чтобы ночью не темнело.
  */
 export function createSelectionPass(gl: WebGL2RenderingContext, scene: Scene): Pass {
@@ -25,45 +36,86 @@ export function createSelectionPass(gl: WebGL2RenderingContext, scene: Scene): P
   const white = new Pixmap(4, 4).rect(0, 0, 4, 4, 0xffffff)
   const atlas = createAtlas(gl, [ring, white])
   const [ringFrame, whiteFrame] = atlas.frames
+  // Середина кадра белой заливки: по краям текстуры цвет подмешивался бы от соседей.
+  const whiteU = whiteFrame.u + whiteFrame.width / 2
+  const whiteV = whiteFrame.v + whiteFrame.height / 2
 
   const program = createSpriteProgram(gl)
   const sprites = createSprites(gl, program)
 
+  /** Закрашенный прямоугольник в тайлах от камеры. */
+  const rect = (x: number, y: number, width: number, height: number, [r, g, b]: Color, alpha = 1) =>
+    sprites.push(x, y, width, height, whiteU, whiteV, 0, 0, r * alpha, g * alpha, b * alpha, alpha)
+
+  /** Рамка толщиной border внутри прямоугольника. */
+  const frame = (x: number, y: number, width: number, height: number, border: number, color: Color) => {
+    rect(x, y, width, border, color)
+    rect(x, y + height - border, width, border, color)
+    rect(x, y, border, height, color)
+    rect(x + width - border, y, border, height, color)
+  }
+
   return {
     draw({ camera, view }) {
       const { world, time } = scene.sim
+      const pixel = 1 / camera.zoom
       sprites.clear()
 
-      for (const entity of scene.selection) {
+      /** Где сущность на экране: верхний левый угол и размер в тайлах от камеры. Для юнита — описанный квадрат. */
+      const boundsOf = (entity: Entity) => {
         const position = world.get(entity, Position)
+        if (!position) return null
         const unit = world.get(entity, Unit)
-        if (!position || !unit) continue
-        const { x, y } = drawnPosition(position, unit, time.alpha)
-        const size = (UNITS[unit.type].radius + RING_MARGIN) * 2
-        sprites.push(
-          x - camera.x - size / 2, y - camera.y - size / 2, size, size,
-          ringFrame.u, ringFrame.v, ringFrame.width, ringFrame.height,
-          0.35, 1, 0.45, 1,
-        )
+        if (unit) {
+          const { x, y } = drawnPosition(position, unit, time.alpha)
+          const size = (UNITS[unit.type].radius + RING_MARGIN) * 2
+          return { x: x - camera.x - size / 2, y: y - camera.y - size / 2, width: size, height: size, round: true }
+        }
+        const building = world.get(entity, Building)
+        if (!building) return null
+        const { width, height } = BUILDINGS[building.type]
+        return { x: position.x - camera.x, y: position.y - camera.y, width, height, round: false }
+      }
+
+      for (const entity of scene.selection) {
+        const bounds = boundsOf(entity)
+        if (!bounds) continue
+        if (bounds.round) {
+          sprites.push(
+            bounds.x, bounds.y, bounds.width, bounds.height,
+            ringFrame.u, ringFrame.v, ringFrame.width, ringFrame.height,
+            ...SELECTED, 1,
+          )
+        } else {
+          frame(bounds.x, bounds.y, bounds.width, bounds.height, pixel * 2, SELECTED)
+        }
+      }
+
+      /** Полоска прогресса над сущностью: value от 0 до 1. */
+      const bar = (entity: Entity, value: number, color: Color) => {
+        const bounds = boundsOf(entity)
+        if (!bounds) return
+        const height = BAR_HEIGHT * pixel
+        const top = bounds.y - BAR_GAP - height
+        rect(bounds.x - pixel, top - pixel, bounds.width + pixel * 2, height + pixel * 2, BAR_BACK)
+        rect(bounds.x, top, bounds.width * Math.min(1, Math.max(0, value)), height, color)
+      }
+      for (const [entity, converting, owner] of world.query(Converting, Owner)) {
+        if (owner.player === scene.player) bar(entity, 1 - converting.left / converting.total, BAR_CONVERTING)
+      }
+      for (const [entity, producer, owner] of world.query(Producer, Owner)) {
+        if (owner.player !== scene.player || !producer.queue.length || world.has(entity, Converting)) continue
+        bar(entity, producer.progress / buildTicks(producer.queue[0], time.step), BAR_PRODUCING)
       }
 
       const box = scene.selectionBox
       if (box) {
         const left = Math.min(box.fromX, box.toX) - camera.x
         const top = Math.min(box.fromY, box.toY) - camera.y
-        const boxWidth = Math.abs(box.toX - box.fromX)
-        const boxHeight = Math.abs(box.toY - box.fromY)
-        const border = BOX_BORDER / camera.zoom
-        // Середина кадра белой заливки: по краям текстуры цвет подмешивался бы от соседей.
-        const u = whiteFrame.u + whiteFrame.width / 2
-        const v = whiteFrame.v + whiteFrame.height / 2
-        const rect = (x: number, y: number, rectWidth: number, rectHeight: number, alpha: number) =>
-          sprites.push(x, y, rectWidth, rectHeight, u, v, 0, 0, 0.35 * alpha, alpha, 0.45 * alpha, alpha)
-        rect(left, top, boxWidth, boxHeight, BOX_FILL_ALPHA)
-        rect(left, top, boxWidth, border, 1)
-        rect(left, top + boxHeight - border, boxWidth, border, 1)
-        rect(left, top, border, boxHeight, 1)
-        rect(left + boxWidth - border, top, border, boxHeight, 1)
+        const width = Math.abs(box.toX - box.fromX)
+        const height = Math.abs(box.toY - box.fromY)
+        rect(left, top, width, height, SELECTED, BOX_FILL_ALPHA)
+        frame(left, top, width, height, BORDER * pixel, SELECTED)
       }
       if (!sprites.count) return
 

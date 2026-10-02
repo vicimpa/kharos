@@ -3,7 +3,9 @@ import { createLand, type GeneratorConfig, type Land } from '../map/terrain'
 import { createOccupancy, type Occupancy } from './buildings'
 import { apply, type Command } from './commands'
 import { SAVED } from './components'
+import { convert } from './conversion'
 import { moveUnits } from './movement'
+import { produceUnits } from './production'
 
 /** Границы карты в тайлах. Правая и нижняя — не включая. */
 export interface Bounds {
@@ -21,7 +23,7 @@ export interface SimOptions {
 
 /** Сохранение симуляции. Обычные данные: их можно положить в JSON, на диск или отправить по сети. */
 /** Версия формата сохранения. Меняется, когда старые сохранения перестают подходить: тогда они отбрасываются. */
-export const SAVE_VERSION = 2
+export const SAVE_VERSION = 3
 
 export interface SimSave extends SimOptions {
   version: typeof SAVE_VERSION
@@ -65,10 +67,17 @@ export function createSim(source: SimOptions | SimSave): Sim {
     for (const { player, command } of queue.splice(0)) apply(sim, player, command)
   }
 
-  const movement: System = (_, time) => moveUnits(sim, time)
-
   // Порядок систем — порядок событий внутри тика. Новые системы симуляции добавляются сюда.
-  const loop = new Loop({ world, tick: 'tick' in source ? source.tick : 0, update: [commands, movement] })
+  const loop = new Loop({
+    world,
+    tick: 'tick' in source ? source.tick : 0,
+    update: [
+      commands,
+      () => convert(sim),
+      (_, time) => produceUnits(sim, time),
+      (_, time) => moveUnits(sim, time),
+    ],
+  })
   const sim: Sim = {
     options,
     bounds,
