@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { createGame, type Game } from '../game/game'
+import { createGame, type Game, type GameMode } from '../game/game'
 import { loadSettings, saveSettings } from '../map/settings'
 import { connect } from '../net/connect'
 import { DEFAULT_PORT } from '../net/protocol'
@@ -24,14 +24,18 @@ function serverAddress() {
 /** Отладочная панель генератора скрыта; открывается параметром ?panel в адресной строке. */
 const SHOW_PANEL = new URLSearchParams(location.search).has('panel')
 
-/** Показательный бой вместо обычной игры: параметр ?battle в адресной строке. Сохранение он не трогает. */
-const BATTLE = new URLSearchParams(location.search).has('battle')
+/**
+ * Во что играют: параметр ?battle в адресной строке — показательный бой, ?sandbox — тестовая карта,
+ * без них — обычная игра. Бой и тестовая карта сохранение не трогают.
+ */
+const MODES = ['battle', 'sandbox'] as const
+const MODE: GameMode = MODES.find((mode) => new URLSearchParams(location.search).has(mode)) ?? 'play'
 
-/** Переходит между обычной игрой и показательным боем: меняет параметр ?battle и перезагружает страницу. */
-function openBattle(on: boolean) {
+/** Переходит в другой режим игры: меняет параметр в адресной строке и перезагружает страницу. */
+function openMode(mode: GameMode) {
   const query = new URLSearchParams(location.search)
-  if (on) query.set('battle', '')
-  else query.delete('battle')
+  for (const other of MODES) query.delete(other)
+  if (mode !== 'play') query.set(mode, '')
   location.search = query.toString()
 }
 
@@ -50,7 +54,7 @@ export function App() {
     const start = async () => {
       const session = server ? await connect(server.url, server.lag) : undefined
       if (closed) return session?.sim.destroy()
-      gameRef.current = createGame(canvasRef.current!, settings, setError, session, BATTLE)
+      gameRef.current = createGame(canvasRef.current!, settings, setError, session, MODE)
     }
     start().catch(setError)
     return () => {
@@ -93,13 +97,16 @@ export function App() {
       )}
       {hud && error === null && !serverAddress() && (
         <div class="hud hud--battle">
-          {BATTLE ? (
+          {MODE === 'play' ? (
             <>
-              <button onClick={() => gameRef.current?.restart()}>Новый бой</button>
-              <button onClick={() => openBattle(false)}>В игру</button>
+              <button onClick={() => openMode('battle')}>Случайный бой</button>
+              <button onClick={() => openMode('sandbox')}>Тестовая карта</button>
             </>
           ) : (
-            <button onClick={() => openBattle(true)}>Случайный бой</button>
+            <>
+              <button onClick={() => gameRef.current?.restart()}>{MODE === 'battle' ? 'Новый бой' : 'Заново'}</button>
+              <button onClick={() => openMode('play')}>В игру</button>
+            </>
           )}
         </div>
       )}

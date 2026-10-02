@@ -3,7 +3,7 @@ import type { MapSettings } from '../map/settings'
 import { createTerrainPass } from '../map/terrainPass'
 import { createRenderer } from '../render/renderer'
 import type { Session } from '../net/connect'
-import { Position, Unit, createSim, isOwn, driveBattle, randomArmy, spawnBattle, spawnStartingUnits, type BuildingType, type Command, type SimOptions } from '../sim'
+import { Position, Unit, createSim, isOwn, driveBattle, randomArmy, spawnBattle, spawnSandbox, spawnStartingUnits, type BuildingType, type Command, type SimOptions } from '../sim'
 import { createLightingPass } from '../weather/lightingPass'
 import { createPrecipitationPass } from '../weather/precipitationPass'
 import { createBoundsPass } from './boundsPass'
@@ -50,12 +50,21 @@ const BATTLE_ORDERS = 0.5
 const BATTLE_PAUSE = 3
 
 /**
- * Новая симуляция: стартовый набор игрока у начала мира, а в показательном бою — две случайные армии
- * по настройкам боя.
+ * Во что играют: обычная игра; показательный бой — две случайные армии сходятся снова и снова, каждый раз в новом
+ * составе; тестовая карта — готовая база, чтобы сразу посмотреть, как всё работает. Бой и тестовая карта
+ * сохранение игрока не читают и не пишут.
  */
-function createNewSim(settings: MapSettings, battle = false) {
+export type GameMode = 'play' | 'battle' | 'sandbox'
+
+/**
+ * Новая симуляция: стартовый набор игрока у начала мира, в показательном бою — две случайные армии
+ * по настройкам боя, на тестовой карте — готовая база.
+ */
+function createNewSim(settings: MapSettings, mode: GameMode = 'play') {
   const sim = createSim(simOptions(settings))
-  if (battle) {
+  // Если месторождения рядом не нашлось, тестовая карта начинается как обычная игра.
+  if (mode === 'sandbox' && spawnSandbox(sim, PLAYER)) return sim
+  if (mode === 'battle') {
     const { budget, gap, mirror, ...weights } = settings.battle
     const own = randomArmy(budget, weights)
     spawnBattle(sim, PLAYER, 0, 0, own, mirror ? own : randomArmy(budget, weights), gap)
@@ -70,17 +79,17 @@ function createNewSim(settings: MapSettings, battle = false) {
  * Если запустить не удалось (нет WebGL 2, не собрался шейдер), бросает ошибку.
  * onError получает ошибки, случившиеся уже во время игры; игра после них остановлена.
  * С session игра идёт на сервере: мир приходит оттуда, а местное сохранение и новый старт отключены.
- * battle — показательный бой: две случайные армии сходятся снова и снова, каждый раз в новом составе; сохранение игрока при этом не читается и не пишется.
+ * mode — во что играют, см. GameMode.
  */
 export function createGame(
   canvas: HTMLCanvasElement,
   settings: MapSettings,
   onError: (error: unknown) => void,
   session?: Session,
-  battle = false,
+  mode: GameMode = 'play',
 ): Game {
   const camera = new Camera()
-  const save = session || battle ? null : loadSave(simOptions(settings))
+  const save = session || mode !== 'play' ? null : loadSave(simOptions(settings))
   // Камера возвращается туда, где была, только вместе с миром: в новом мире старое место ничего не значит.
   const view = save ? loadCamera() : null
   if (view) {
@@ -90,7 +99,7 @@ export function createGame(
   }
   const scene: Scene = {
     // Правила берутся из настроек, а не из сохранения: их меняют на ходу.
-    sim: session ? session.sim : save ? createSim({ ...save, rules: settings.rules }) : createNewSim(settings, battle),
+    sim: session ? session.sim : save ? createSim({ ...save, rules: settings.rules }) : createNewSim(settings, mode),
     player: session ? session.player : PLAYER,
     camera,
     settings,
@@ -132,13 +141,14 @@ export function createGame(
   const controls = createControls(canvas, scene)
 
   const saveNow = () => {
-    if (session || battle) return
+    if (session || mode !== 'play') return
     storeSave(scene.sim.save())
     storeCamera(camera)
   }
   let sinceSave = 0
-  // На сервере игрок появляется не в начале мира: камера встаёт на его юнит, как только мир пришёл.
-  let centered = !session
+  // На сервере игрок появляется не в начале мира, а база тестовой карты — у ближайшего месторождения:
+  // камера встаёт на его юнит, как только мир готов.
+  let centered = !session && mode !== 'sandbox'
 
   const restart = () => {
     // Мир сервера один на всех: начать его заново клиент не может.
@@ -146,9 +156,10 @@ export function createGame(
     scene.sim.destroy()
     scene.selection.clear()
     scene.placing = null
-    scene.sim = createNewSim(scene.settings, battle)
+    scene.sim = createNewSim(scene.settings, mode)
     // Новый мир — камера снова у стартового набора.
     camera.x = camera.y = 0
+    centered = mode !== 'sandbox'
     saveNow()
   }
 
@@ -156,7 +167,7 @@ export function createGame(
   let battleOver = 0
 
   const stop = startFrames((seconds) => {
-    if (battle) {
+    if (mode === 'battle') {
       sinceOrders += seconds
       if (battleOver) {
         battleOver += seconds
