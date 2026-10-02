@@ -1,30 +1,17 @@
 import { expect, test } from 'bun:test'
-import { World } from '../src/ecs'
-import { BUILDING_ART, BUILDING_TYPES } from '../src/game/buildings/buildingArt'
-import { canPlace, createOccupancy, placeBuilding, placeDemoBuildings } from '../src/game/buildings/buildings'
-import { Camera } from '../src/game/camera'
-import { Building } from '../src/game/components'
-import type { Scene } from '../src/game/scene'
+import { BUILDING_ART } from '../src/game/buildings/buildingArt'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { createLand } from '../src/map/terrain'
 import { Pixmap } from '../src/render/pixmap'
+import { BUILDING_TYPES, Building, canPlace, createSim, placeDemoBuildings, type Sim } from '../src/sim'
+import { placeBuilding } from '../src/sim/buildings'
 
-function createScene(): Scene {
-  const world = new World()
-  return {
-    world,
-    land: createLand(DEFAULT_SETTINGS.generator),
-    camera: new Camera(),
-    settings: DEFAULT_SETTINGS,
-    occupancy: createOccupancy(world),
-    grid: false,
-  }
-}
+const createScene = () => ({ sim: createSim({ generator: DEFAULT_SETTINGS.generator, size: 1024 }) })
+type Scene = { sim: Sim }
 
 /** Ближайший к началу мира тайл, где встаёт турель 1×1. */
 function freeTile(scene: Scene) {
   for (let y = 0; y < 400; y++) {
-    for (let x = 0; x < 400; x++) if (canPlace(scene, 'turret', x, y)) return { x, y }
+    for (let x = 0; x < 400; x++) if (canPlace(scene.sim, 'turret', x, y)) return { x, y }
   }
   throw new Error('В мире не нашлось скалы')
 }
@@ -32,29 +19,29 @@ function freeTile(scene: Scene) {
 test('занятость следит за появлением и исчезновением зданий', () => {
   const scene = createScene()
   const { x, y } = freeTile(scene)
-  const turret = placeBuilding(scene.world, 'turret', x, y)
-  expect(scene.occupancy.at(x, y)).toBe(turret)
-  expect(canPlace(scene, 'turret', x, y)).toBe(false)
+  const turret = placeBuilding(scene.sim.world, 'turret', x, y)
+  expect(scene.sim.occupancy.at(x, y)).toBe(turret)
+  expect(canPlace(scene.sim, 'turret', x, y)).toBe(false)
 
-  scene.world.destroy(turret)
-  expect(scene.occupancy.at(x, y)).toBeUndefined()
-  expect(canPlace(scene, 'turret', x, y)).toBe(true)
+  scene.sim.world.destroy(turret)
+  expect(scene.sim.occupancy.at(x, y)).toBeUndefined()
+  expect(canPlace(scene.sim, 'turret', x, y)).toBe(true)
 })
 
 test('зазор не даёт ставить здания вплотную', () => {
   const scene = createScene()
   const { x, y } = freeTile(scene)
-  placeBuilding(scene.world, 'turret', x, y)
-  expect(canPlace(scene, 'turret', x - 2, y, 2)).toBe(false)
+  placeBuilding(scene.sim.world, 'turret', x, y)
+  expect(canPlace(scene.sim, 'turret', x - 2, y, 2)).toBe(false)
 })
 
 test('пробная расстановка ставит здания только на скале и без наложений', () => {
   const scene = createScene()
-  placeDemoBuildings(scene, 0, 0)
-  expect(scene.world.count(Building)).toBeGreaterThan(50)
-  scene.world.clear()
-  expect(scene.world.count(Building)).toBe(0)
-  expect(scene.occupancy.at(0, 0)).toBeUndefined()
+  placeDemoBuildings(scene.sim, 0, 0)
+  expect(scene.sim.world.count(Building)).toBeGreaterThan(50)
+  scene.sim.world.clear()
+  expect(scene.sim.world.count(Building)).toBe(0)
+  expect(scene.sim.occupancy.at(0, 0)).toBeUndefined()
 })
 
 test('каждый чертёж рисуется во всех кадрах и сообщает одни и те же огни', () => {

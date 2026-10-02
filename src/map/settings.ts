@@ -33,14 +33,26 @@ export const DEFAULT_WEATHER_CONFIG: WeatherConfig = {
   precipitation: 0,
 }
 
+/** Параметры мира, не относящиеся к генератору местности. Их смена, как и смена генератора, начинает мир заново. */
+export interface WorldConfig {
+  /** Сторона карты в тайлах. Временная мера: с окончательным размером мира определимся позже. */
+  size: number
+}
+
+export const DEFAULT_WORLD_CONFIG: WorldConfig = {
+  size: 1024,
+}
+
 export interface MapSettings {
   generator: GeneratorConfig
+  world: WorldConfig
   render: RenderConfig
   weather: WeatherConfig
 }
 
 export const DEFAULT_SETTINGS: MapSettings = {
   generator: DEFAULT_CONFIG,
+  world: DEFAULT_WORLD_CONFIG,
   render: DEFAULT_RENDER_CONFIG,
   weather: DEFAULT_WEATHER_CONFIG,
 }
@@ -63,6 +75,7 @@ export function loadSettings(): MapSettings {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null')
     return {
       generator: merge(DEFAULT_CONFIG, saved?.generator),
+      world: merge(DEFAULT_WORLD_CONFIG, saved?.world),
       render: merge(DEFAULT_RENDER_CONFIG, saved?.render),
       weather: merge(DEFAULT_WEATHER_CONFIG, saved?.weather),
     }

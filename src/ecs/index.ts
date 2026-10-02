@@ -3,4 +3,4 @@ export type { Component, ComponentInit, ComponentInput, ComponentOptions, Entity
 export { Loop } from './loop'
 export type { LoopOptions, System, Time } from './loop'
 export { World } from './world'
-export type { ChangeListener, Cleanup, DataOf, Row } from './world'
+export type { ChangeListener, Cleanup, DataOf, Row, WorldSnapshot } from './world'

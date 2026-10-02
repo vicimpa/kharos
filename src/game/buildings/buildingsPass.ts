@@ -3,9 +3,9 @@ import { createAtlas, type AtlasFrame } from '../../render/atlas'
 import { Pixmap } from '../../render/pixmap'
 import type { Pass } from '../../render/renderer'
 import { createSpriteProgram, createSprites } from '../../render/sprites'
-import { Building, Position } from '../components'
+import { BUILDING_TYPES, Building, Position, type BuildingType } from '../../sim'
 import type { Scene } from '../scene'
-import { ART_FRAMES, ART_TILE, BUILDING_ART, BUILDING_TYPES, type BuildingArt, type BuildingType } from './buildingArt'
+import { ART_FRAMES, ART_TILE, BUILDING_ART, type BuildingArt } from './buildingArt'
 
 /** Поля вокруг основания в пикселях спрайта: место для высоких частей. */
 const PAD = ART_TILE
@@ -81,7 +81,7 @@ export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): P
       const step = Math.floor(time * FRAMES_PER_SECOND)
 
       visible.length = 0
-      for (const [, position, building] of scene.world.query(Position, Building)) {
+      for (const [, position, building] of scene.sim.world.query(Position, Building)) {
         const sheet = sheets.get(building.type)!
         if (position.x + sheet.art.width < camera.x - halfWidth || position.x > camera.x + halfWidth) continue
         if (position.y + sheet.art.height < camera.y - halfHeight || position.y > camera.y + halfHeight) continue

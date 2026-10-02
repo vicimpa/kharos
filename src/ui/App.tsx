@@ -31,7 +31,7 @@ export function App() {
   return (
     <main class="game">
       <canvas ref={canvasRef} class="game__canvas" />
-      <GeneratorPanel settings={settings} onChange={setSettings} />
+      <GeneratorPanel settings={settings} onChange={setSettings} onRestart={() => gameRef.current?.restart()} />
       {error !== null && (
         <div class="game__error" role="alert">
           <strong>Игра остановилась</strong>

@@ -14,9 +14,6 @@ export interface Time {
   alpha: number
 }
 
-/** Самый длинный кадр, который цикл в браузере отдаёт системам. */
-const MAX_FRAME_SECONDS = 0.25
-
 /** Система — обычная функция. Порядок вызова задаёт место в списке. */
 export type System = (world: World, time: Time) => void
 
@@ -24,6 +21,8 @@ export interface LoopOptions {
   world: World
   /** Тиков симуляции в секунду. По умолчанию 20. */
   tickRate?: number
+  /** С какого тика начать: номер из сохранения. По умолчанию 0. */
+  tick?: number
   /** Системы симуляции: вызываются каждый тик с постоянным шагом. */
   update?: System[]
   /** Системы кадра: вызываются раз в кадр после тиков. Состояние игры не меняют, только показывают. */
@@ -54,12 +53,14 @@ export class Loop {
     this.update = options.update ?? []
     this.render = options.render ?? []
     this.maxTicks = options.maxTicksPerFrame ?? 5
-    this.time = { tick: 0, step: 1 / (options.tickRate ?? 20), elapsed: 0, delta: 0, alpha: 0 }
+    const tick = options.tick ?? 0
+    const step = 1 / (options.tickRate ?? 20)
+    this.time = { tick, step, elapsed: tick * step, delta: 0, alpha: 0 }
   }
 
   /**
    * Один кадр: делает столько тиков, сколько накопилось за seconds, затем вызывает системы кадра.
-   * Возвращает число сделанных тиков. Вызывается из start(), а в тестах и на сервере — напрямую.
+   * Возвращает число сделанных тиков. Кто и как часто это вызывает, цикл не знает: в браузере — кадр, на сервере — таймер.
    */
   advance(seconds: number) {
     const { world, time } = this
@@ -87,29 +88,5 @@ export class Loop {
     // Между кадрами мир меняют ещё и обработчики ввода — их изменения тоже надо раздать.
     world.flush()
     return ticks
-  }
-
-  /**
-   * Запускает цикл в браузере. Возвращает остановку. Ошибка в системе останавливает цикл:
-   * с onError она передаётся туда, без него — уходит в консоль.
-   */
-  start(onError?: (error: unknown) => void) {
-    let frame = 0
-    let last: number | undefined
-    const tick = (now: number) => {
-      // Вкладка была в фоне — кадр «длился» минуты. Системам кадра такой скачок ни к чему.
-      const seconds = last === undefined ? 0 : Math.min((now - last) / 1000, MAX_FRAME_SECONDS)
-      last = now
-      try {
-        this.advance(seconds)
-      } catch (error) {
-        if (!onError) throw error
-        onError(error)
-        return
-      }
-      frame = requestAnimationFrame(tick)
-    }
-    frame = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(frame)
   }
 }

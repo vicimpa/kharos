@@ -1,6 +1,4 @@
-import type { System } from '../ecs'
-import { BUILDING_TYPES } from './buildings/buildingArt'
-import { canPlace, placeBuilding } from './buildings/buildings'
+import { BUILDING_TYPES, canPlace } from '../sim'
 import type { Scene } from './scene'
 
 const KEY_SPEED = 900 // пикселей экрана в секунду
@@ -40,8 +38,9 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     const tile = camera.pointerTile
     if (!tile) return
     const type = BUILDING_TYPES[nextType % BUILDING_TYPES.length]
-    if (!canPlace(scene, type, tile.x, tile.y)) return
-    placeBuilding(scene.world, type, tile.x, tile.y)
+    // Проверка здесь — только чтобы не слать заведомо негодную команду; решает симуляция.
+    if (!canPlace(scene.sim, type, tile.x, tile.y)) return
+    scene.sim.send({ type: 'placeBuilding', building: type, x: tile.x, y: tile.y })
     nextType++
   }
   const onKeyDown = (event: KeyboardEvent) => {
@@ -64,9 +63,9 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
   window.addEventListener('keyup', onKeyUp)
   window.addEventListener('blur', onBlur)
 
-  /** Система кадра: двигает камеру, пока зажаты клавиши. */
-  const update: System = (_, time) => {
-    const step = (KEY_SPEED * time.delta) / camera.zoom
+  /** Раз в кадр: двигает камеру, пока зажаты клавиши. seconds — время с прошлого кадра. */
+  const update = (seconds: number) => {
+    const step = (KEY_SPEED * seconds) / camera.zoom
     const right = Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'))
     const down = Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp'))
     if (right || down) camera.moveBy(right * step, down * step)

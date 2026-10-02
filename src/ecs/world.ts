@@ -11,6 +11,16 @@ export type Cleanup = void | (() => void)
 
 export type ChangeListener = (entity: Entity) => void
 
+/** Снимок мира в виде, пригодном для JSON: сущности с данными их компонентов по именам. */
+export interface WorldSnapshot {
+  /** Номер, который получит следующая новая сущность. */
+  next: number
+  entities: [id: number, components: Record<string, object>][]
+}
+
+/** Копия данных компонента. Данные сохраняемых компонентов обязаны переживать JSON. */
+const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value))
+
 interface Observer {
   components: Component<any>[]
   enter: (entity: Entity, ...data: any[]) => Cleanup
@@ -291,6 +301,46 @@ export class World {
   /** Уничтожает все сущности. Подписки и наблюдатели остаются. */
   clear() {
     for (const entity of [...this.entities]) this.destroy(entity)
+  }
+
+  /**
+   * Снимок перечисленных компонентов. Сущности, у которых нет ни одного из них, в снимок не попадают:
+   * так в нём не оказывается то, что живёт только на клиенте.
+   */
+  snapshot(components: Component<any>[]): WorldSnapshot {
+    const entities: WorldSnapshot['entities'] = []
+    for (const entity of this.entities) {
+      const data: Record<string, object> = {}
+      let found = false
+      for (const component of components) {
+        const value = this.stores[component.id]?.get(entity)
+        if (value === undefined) continue
+        data[component.key] = copy(value)
+        found = true
+      }
+      if (found) entities.push([entity, data])
+    }
+    return { next: this.nextEntity, entities }
+  }
+
+  /**
+   * Заменяет содержимое мира снимком: сущности получают прежние номера, поэтому ссылки между ними остаются верными.
+   * Компоненты снимка, которых нет в списке, пропускаются. Наблюдатели и подписки срабатывают как обычно.
+   */
+  restore(snapshot: WorldSnapshot, components: Component<any>[]) {
+    if (this.iterating) throw new Error('Нельзя восстанавливать мир во время обхода запроса')
+    this.clear()
+    const byKey = new Map(components.map((component) => [component.key, component]))
+    for (const [id, data] of snapshot.entities) {
+      const entity = id as Entity
+      this.entities.add(entity)
+      for (const key in data) {
+        const component = byKey.get(key)
+        if (component) this.add(entity, component(copy(data[key])))
+      }
+      if (id >= this.nextEntity) this.nextEntity = id + 1
+    }
+    if (snapshot.next > this.nextEntity) this.nextEntity = snapshot.next
   }
 
   private mark(entity: Entity, component: Component<any>) {

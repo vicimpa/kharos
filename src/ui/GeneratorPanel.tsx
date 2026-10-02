@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { DEFAULT_SETTINGS, type MapSettings, type RenderConfig, type WeatherConfig } from '../map/settings'
+import { DEFAULT_SETTINGS, type MapSettings, type RenderConfig, type WeatherConfig, type WorldConfig } from '../map/settings'
 import { PEAK_RADIUS_LIMIT, type GeneratorConfig } from '../map/terrain'
 
 interface Field<T> {
@@ -45,6 +45,13 @@ const GENERATOR_GROUPS: Group<GeneratorConfig>[] = [
   { title: 'Биом: солончаки', fields: biomeFields('salt') },
   { title: 'Биом: красные пустоши', fields: biomeFields('red') },
   { title: 'Биом: топи', fields: biomeFields('marsh') },
+]
+
+const WORLD_GROUPS: Group<WorldConfig>[] = [
+  {
+    title: 'Мир',
+    fields: [{ key: 'size', label: 'Сторона карты', min: 128, max: 4096, step: 64 }],
+  },
 ]
 
 const RENDER_GROUPS: Group<RenderConfig>[] = [
@@ -101,10 +108,12 @@ function Groups<T extends object>({ groups, values, onChange }: GroupsProps<T>) 
 interface GeneratorPanelProps {
   settings: MapSettings
   onChange: (settings: MapSettings) => void
+  /** Начать мир заново с теми же настройками. */
+  onRestart: () => void
 }
 
 /** Отладочная панель: меняет параметры генератора и отрисовки, карта обновляется на лету. */
-export function GeneratorPanel({ settings, onChange }: GeneratorPanelProps) {
+export function GeneratorPanel({ settings, onChange, onRestart }: GeneratorPanelProps) {
   const [open, setOpen] = useState(true)
   const setGenerator = (generator: GeneratorConfig) => onChange({ ...settings, generator })
   const setSeed = (seed: number) => setGenerator({ ...settings.generator, seed })
@@ -135,6 +144,7 @@ export function GeneratorPanel({ settings, onChange }: GeneratorPanelProps) {
       </label>
 
       <Groups groups={GENERATOR_GROUPS} values={settings.generator} onChange={setGenerator} />
+      <Groups groups={WORLD_GROUPS} values={settings.world} onChange={(world) => onChange({ ...settings, world })} />
       <Groups groups={RENDER_GROUPS} values={settings.render} onChange={(render) => onChange({ ...settings, render })} />
       <Groups
         groups={WEATHER_GROUPS}
@@ -144,6 +154,7 @@ export function GeneratorPanel({ settings, onChange }: GeneratorPanelProps) {
 
       <footer class="panel__footer">
         <button onClick={() => onChange(DEFAULT_SETTINGS)}>Сбросить</button>
+        <button onClick={onRestart}>Новый мир</button>
         <button onClick={() => navigator.clipboard.writeText(JSON.stringify(settings, null, 2))}>
           Скопировать JSON
         </button>

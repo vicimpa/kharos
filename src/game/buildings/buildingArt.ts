@@ -1,4 +1,5 @@
 import type { Pixmap } from '../../render/pixmap'
+import { BUILDINGS, type BuildingType } from '../../sim/buildings'
 
 /**
  * Векторные чертежи зданий. Рисуются на Pixmap в пикселях будущего спрайта: ART_TILE пикселей на тайл,
@@ -85,8 +86,7 @@ function bulb(g: Pixmap, light: EmitLight, x: number, y: number, level: number) 
 
 /** Генератор: реактор под куполом с бегущим кольцом огней и два бака с подачей по трубам. */
 const generator: BuildingArt = {
-  width: 2,
-  height: 2,
+  ...BUILDINGS.generator,
   draw(g, t, light) {
     slab(g, 0, 1, 32, 31, 3, STEEL)
     g.rect(3, 4, 26, 22, STEEL[0])
@@ -117,8 +117,7 @@ const generator: BuildingArt = {
 
 /** Завод: ребристый цех с воротами и вентилятором, перед воротами — пандус. */
 const factory: BuildingArt = {
-  width: 2,
-  height: 2,
+  ...BUILDINGS.factory,
   draw(g, t, light) {
     slab(g, 0, 4, 32, 28, 3, STEEL)
 
@@ -163,8 +162,7 @@ const factory: BuildingArt = {
 
 /** Космопорт: посадочная площадка с маяком, диспетчерская и вращающийся радар. */
 const starport: BuildingArt = {
-  width: 2,
-  height: 3,
+  ...BUILDINGS.starport,
   draw(g, t, light) {
     slab(g, 0, 0, 32, 48, 3, STEEL)
 
@@ -214,8 +212,7 @@ function windows(g: Pixmap, xs: number[], y: number) {
 
 /** Штаб: двухъярусная цитадель с куполом-маяком, угловыми башенками и мачтой связи. */
 const command: BuildingArt = {
-  width: 3,
-  height: 3,
+  ...BUILDINGS.command,
   draw(g, t, light) {
     slab(g, 0, 2, 48, 46, 3, STEEL)
     g.rect(18, 36, 12, 1, RUST[1])
@@ -245,8 +242,7 @@ const command: BuildingArt = {
 
 /** Перерабатывающий завод: баки, печь с трубой и приёмный лоток с лентой. */
 const refinery: BuildingArt = {
-  width: 3,
-  height: 2,
+  ...BUILDINGS.refinery,
   draw(g, t, light) {
     slab(g, 0, 2, 48, 30, 3, STEEL)
 
@@ -276,8 +272,7 @@ const refinery: BuildingArt = {
 
 /** Радар: мачта с вращающейся тарелкой и аппаратная будка. */
 const radar: BuildingArt = {
-  width: 2,
-  height: 2,
+  ...BUILDINGS.radar,
   draw(g, t, light) {
     slab(g, 0, 2, 32, 30, 3, STEEL)
     g.rect(3, 5, 26, 21, STEEL[0])
@@ -306,8 +301,7 @@ const radar: BuildingArt = {
 
 /** Ветроуловитель: широкая шахта с крыльчаткой. */
 const windtrap: BuildingArt = {
-  width: 2,
-  height: 2,
+  ...BUILDINGS.windtrap,
   draw(g, t, light) {
     slab(g, 0, 2, 32, 30, 3, STEEL)
     for (const x of [3, 25]) {
@@ -331,8 +325,7 @@ const windtrap: BuildingArt = {
 
 /** Казармы: длинный корпус со знаменем на крыше, дверью и плацем. */
 const barracks: BuildingArt = {
-  width: 2,
-  height: 2,
+  ...BUILDINGS.barracks,
   draw(g, t, light) {
     slab(g, 0, 3, 32, 29, 3, STEEL)
     g.rect(4, 21, 24, 1, RUST[1])
@@ -355,8 +348,7 @@ const barracks: BuildingArt = {
 
 /** Хранилище: два бака с перемычкой. */
 const silo: BuildingArt = {
-  width: 2,
-  height: 1,
+  ...BUILDINGS.silo,
   draw(g, t, light) {
     slab(g, 0, 1, 32, 15, 2, STEEL)
     pipe(g, 12, 9, 8)
@@ -369,8 +361,7 @@ const silo: BuildingArt = {
 
 /** Турель: башня с орудием, которое обводит окрестности. */
 const turret: BuildingArt = {
-  width: 1,
-  height: 1,
+  ...BUILDINGS.turret,
   draw(g, t, light) {
     slab(g, 0, 1, 16, 15, 2, STEEL)
     tower(g, 8, 9, 5, 3, IRON)
@@ -396,7 +387,4 @@ export const BUILDING_ART = {
   barracks,
   silo,
   turret,
-} satisfies Record<string, BuildingArt>
-
-export type BuildingType = keyof typeof BUILDING_ART
-export const BUILDING_TYPES = Object.keys(BUILDING_ART) as BuildingType[]
+} satisfies Record<BuildingType, BuildingArt>
