@@ -98,6 +98,8 @@ export const DEFAULT_SETTINGS: MapSettings = {
 const STORAGE_KEY = 'kharos.mapSettings'
 /** Версия сохранённой погоды. Меняется вместе с погодой по умолчанию: тогда сохранённая один раз отбрасывается. */
 const WEATHER_VERSION = 2
+/** То же для настроек боя: раньше они сохранялись целиком и перекрывали значения из кода. */
+const BATTLE_VERSION = 2
 
 /** Берёт из сохранённого только известные числовые поля; остальные остаются по умолчанию. */
 function merge<T extends object>(defaults: T, saved: unknown): T {
@@ -118,16 +120,32 @@ export function loadSettings(): MapSettings {
       world: merge(DEFAULT_WORLD_CONFIG, saved?.world),
       render: merge(DEFAULT_RENDER_CONFIG, saved?.render),
       weather: merge(DEFAULT_WEATHER_CONFIG, saved?.weatherVersion === WEATHER_VERSION ? saved.weather : undefined),
-      battle: merge(DEFAULT_BATTLE_CONFIG, saved?.battle),
+      battle: merge(DEFAULT_BATTLE_CONFIG, saved?.battleVersion === BATTLE_VERSION ? saved.battle : undefined),
     }
   } catch {
     return DEFAULT_SETTINGS
   }
 }
 
+/** Только те поля, что отличаются от значений по умолчанию: остальные и дальше берутся из кода, даже если он изменится. */
+function changed<T extends object>(defaults: T, values: T): Partial<T> {
+  const result: Partial<T> = {}
+  for (const key of Object.keys(defaults) as (keyof T)[]) if (values[key] !== defaults[key]) result[key] = values[key]
+  return result
+}
+
 export function saveSettings(settings: MapSettings) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...settings, weatherVersion: WEATHER_VERSION }))
+    const saved = {
+      generator: changed(DEFAULT_CONFIG, settings.generator),
+      world: changed(DEFAULT_WORLD_CONFIG, settings.world),
+      render: changed(DEFAULT_RENDER_CONFIG, settings.render),
+      weather: changed(DEFAULT_WEATHER_CONFIG, settings.weather),
+      battle: changed(DEFAULT_BATTLE_CONFIG, settings.battle),
+      weatherVersion: WEATHER_VERSION,
+      battleVersion: BATTLE_VERSION,
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved))
   } catch {
     // Хранилище может быть недоступно (приватный режим, запрет в настройках) — тогда просто не сохраняем.
   }
