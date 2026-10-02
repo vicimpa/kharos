@@ -40,7 +40,7 @@ export interface Game {
   destroy(): void
 }
 
-const simOptions = (settings: MapSettings): SimOptions => ({ generator: settings.generator, size: settings.world.size })
+const simOptions = (settings: MapSettings): SimOptions => ({ generator: settings.generator, size: settings.world.size, rules: settings.rules })
 
 /** В одиночной игре игрок один. */
 const PLAYER = 1
@@ -89,7 +89,8 @@ export function createGame(
     camera.zoomTo(view.zoom)
   }
   const scene: Scene = {
-    sim: session ? session.sim : save ? createSim(save) : createNewSim(settings, battle),
+    // Правила берутся из настроек, а не из сохранения: их меняют на ходу.
+    sim: session ? session.sim : save ? createSim({ ...save, rules: settings.rules }) : createNewSim(settings, battle),
     player: session ? session.player : PLAYER,
     camera,
     settings,
@@ -211,6 +212,8 @@ export function createGame(
     setSettings(next) {
       const changed = next.generator !== scene.settings.generator || next.world !== scene.settings.world
       scene.settings = next
+      // Правила сервера задаёт сервер.
+      if (!session) Object.assign(scene.sim.rules, next.rules)
       if (changed) restart()
     },
     restart,

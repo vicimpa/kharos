@@ -52,13 +52,13 @@ export function canBuild(sim: Sim, player: number, type: BuildingType, x: number
   return zone !== undefined || inControl(sim, player, type, x, y)
 }
 
-/** Во сколько раз чинить быстрее, чем строить: полностью разбитое чинится за половину времени стройки. */
+/** Во сколько раз чинить быстрее, чем строить, по умолчанию: полностью разбитое чинится за половину времени стройки. См. Sim.rules. */
 export const REPAIR_SPEED = 2
-/** Какую долю цены здания или юнита стоит починить его с нуля до целого. Платят по мере починки. */
+/** Какую долю цены здания или юнита стоит починить его с нуля до целого, по умолчанию. Платят по мере починки. См. Sim.rules. */
 export const REPAIR_COST = 0.5
 
-/** Сколько кредитов стоит дочинить то, что стоит cost кредитов, с прочностью health. */
-export const repairCostOf = (cost: number, health: number) => Math.ceil(cost * REPAIR_COST * (1 - health))
+/** Сколько кредитов стоит дочинить то, что стоит cost кредитов, с прочностью health; share — доля цены за полную починку. */
+export const repairCostOf = (cost: number, health: number, share = REPAIR_COST) => Math.ceil(cost * share * (1 - health))
 
 /**
  * Можно ли это чинить: готовое повреждённое здание или повреждённый юнит, чья прочность чинится
@@ -481,8 +481,8 @@ export function construct(sim: Sim) {
       const health = world.get(entity, Health)
       const work = workAt(sim, entity)
       if (!health || !work) continue
-      const gain = Math.min(1 - health.value, (count * REPAIR_SPEED) / workTicks(work.cost, time.step))
-      if (spend(sim, ownerOf(sim, entity), gain * work.cost * REPAIR_COST)) health.value += gain
+      const gain = Math.min(1 - health.value, (count * sim.rules.repairSpeed) / workTicks(work.cost, time.step))
+      if (spend(sim, ownerOf(sim, entity), gain * work.cost * sim.rules.repairCost)) health.value += gain
       continue
     }
     const position = world.get(entity, Position)!

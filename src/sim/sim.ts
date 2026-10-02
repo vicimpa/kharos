@@ -4,7 +4,7 @@ import { createOccupancy, type Occupancy } from './buildings'
 import { fight, recover } from './combat'
 import { apply, type Command } from './commands'
 import { SAVED } from './components'
-import { construct } from './construction'
+import { REPAIR_COST, REPAIR_SPEED, construct } from './construction'
 import { convert } from './conversion'
 import { haul } from './hauling'
 import { earn } from './income'
@@ -21,10 +21,22 @@ export interface Bounds {
   bottom: number
 }
 
+/** Числа правил, которые можно менять на ходу, не начиная мир заново. */
+export interface Rules {
+  /** Во сколько раз чинить быстрее, чем строить. */
+  repairSpeed: number
+  /** Какую долю цены здания или юнита стоит починить его с нуля до целого. */
+  repairCost: number
+}
+
+export const DEFAULT_RULES: Rules = { repairSpeed: REPAIR_SPEED, repairCost: REPAIR_COST }
+
 export interface SimOptions {
   generator: GeneratorConfig
   /** Сторона карты в тайлах. Карта — квадрат с центром в начале координат. */
   size: number
+  /** Правила; чего нет — по умолчанию. */
+  rules?: Partial<Rules>
 }
 
 /** Сохранение симуляции. Обычные данные: их можно положить в JSON, на диск или отправить по сети. */
@@ -48,6 +60,8 @@ export interface Sim {
   readonly world: World
   readonly land: Land
   readonly occupancy: Occupancy
+  /** Правила. Поля можно менять на ходу: со следующего тика симуляция считает по новым. */
+  readonly rules: Rules
   /** Время симуляции. alpha — доля тика, прошедшая после последнего: ею клиент сглаживает движение. */
   readonly time: Time
   /** Ставит команду игрока player в очередь. Она выполнится в начале следующего тика. */
@@ -66,7 +80,9 @@ export function boundsOf(size: number): Bounds {
 
 /** Создаёт симуляцию: новую или, если передано сохранение, продолжает его. */
 export function createSim(source: SimOptions | SimSave): Sim {
-  const options: SimOptions = { generator: source.generator, size: source.size }
+  const rules: Rules = { ...DEFAULT_RULES, ...source.rules }
+  // Правила в сохранение попадают такими, какие они на момент сохранения.
+  const options: SimOptions = { generator: source.generator, size: source.size, rules }
   const bounds = boundsOf(options.size)
 
   const world = new World()
@@ -105,6 +121,7 @@ export function createSim(source: SimOptions | SimSave): Sim {
     world,
     land: createLand(options.generator),
     occupancy: createOccupancy(world),
+    rules,
     time: loop.time,
     send(player, command) {
       queue.push({ player, command })

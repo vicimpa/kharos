@@ -1,4 +1,5 @@
 import { DEFAULT_CONFIG, type GeneratorConfig } from './terrain'
+import { DEFAULT_RULES, type Rules } from '../sim'
 
 /** Параметры отрисовки: меняют только картинку, мир при этом не перегенерируется. */
 export interface RenderConfig {
@@ -81,12 +82,16 @@ export const DEFAULT_BATTLE_CONFIG: BattleConfig = {
   gunship: 1,
 }
 
+/** Правила симуляции: меняются на ходу, мир при этом не начинается заново. */
+export type RulesConfig = Rules
+
 export interface MapSettings {
   generator: GeneratorConfig
   world: WorldConfig
   render: RenderConfig
   weather: WeatherConfig
   battle: BattleConfig
+  rules: RulesConfig
 }
 
 export const DEFAULT_SETTINGS: MapSettings = {
@@ -95,6 +100,7 @@ export const DEFAULT_SETTINGS: MapSettings = {
   render: DEFAULT_RENDER_CONFIG,
   weather: DEFAULT_WEATHER_CONFIG,
   battle: DEFAULT_BATTLE_CONFIG,
+  rules: DEFAULT_RULES,
 }
 
 const STORAGE_KEY = 'kharos.mapSettings'
@@ -123,6 +129,7 @@ export function loadSettings(): MapSettings {
       render: merge(DEFAULT_RENDER_CONFIG, saved?.render),
       weather: merge(DEFAULT_WEATHER_CONFIG, saved?.weatherVersion === WEATHER_VERSION ? saved.weather : undefined),
       battle: merge(DEFAULT_BATTLE_CONFIG, saved?.battleVersion === BATTLE_VERSION ? saved.battle : undefined),
+      rules: merge(DEFAULT_RULES, saved?.rules),
     }
   } catch {
     return DEFAULT_SETTINGS
@@ -144,6 +151,7 @@ export function saveSettings(settings: MapSettings) {
       render: changed(DEFAULT_RENDER_CONFIG, settings.render),
       weather: changed(DEFAULT_WEATHER_CONFIG, settings.weather),
       battle: changed(DEFAULT_BATTLE_CONFIG, settings.battle),
+      rules: changed(DEFAULT_RULES, settings.rules),
       weatherVersion: WEATHER_VERSION,
       battleVersion: BATTLE_VERSION,
     }

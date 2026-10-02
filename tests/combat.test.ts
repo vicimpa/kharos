@@ -472,3 +472,22 @@ test('приказ атаковать носителю: он подъезжае�
   const from = sim.world.get(carrier, Position)!
   expect(Math.hypot(from.x - (x + 18.5), from.y - (y + 0.5))).toBeLessThan(WEAPONS.launcher.range + 1)
 })
+
+test('скорость и цена ремонта берутся из правил симуляции и меняются на ходу', () => {
+  const repaired = (repairSpeed: number) => {
+    const { sim, x, y } = field()
+    addCredits(sim, 1, 5000)
+    const station = placeBuilding(sim.world, 'turret', x + 6, y, 1)
+    sim.world.add(station, Repair({ radius: 3 }))
+    const tank = spawnUnit(sim, 'tank', 1, x + 4, y)
+    sim.world.get(tank, Health)!.value = 0.2
+    sim.rules.repairSpeed = repairSpeed
+    seconds(sim, 2)
+    return sim.world.get(tank, Health)!.value - 0.2
+  }
+  expect(repaired(4)).toBeCloseTo(repaired(2) * 2, 2)
+
+  const sim = createSim({ ...options, rules: { repairCost: 1 } })
+  expect(sim.rules).toEqual({ repairSpeed: 2, repairCost: 1 })
+  expect(createSim(JSON.parse(JSON.stringify(sim.save()))).rules.repairCost).toBe(1)
+})

@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { DEFAULT_SETTINGS, type BattleConfig, type MapSettings, type RenderConfig, type WeatherConfig, type WorldConfig } from '../map/settings'
+import { DEFAULT_SETTINGS, type BattleConfig, type MapSettings, type RenderConfig, type RulesConfig, type WeatherConfig, type WorldConfig } from '../map/settings'
 import { PEAK_RADIUS_LIMIT, type GeneratorConfig } from '../map/terrain'
 import { UNIT_NAMES } from './names'
 
@@ -74,6 +74,17 @@ const WEATHER_GROUPS: Group<WeatherConfig>[] = [
       { key: 'windX', label: 'Ветер, X', min: -8, max: 8, step: 0.1 },
       { key: 'windY', label: 'Ветер, Y', min: -8, max: 8, step: 0.1 },
       { key: 'precipitation', label: 'Осадки', min: 0, max: 1, step: 0.01 },
+    ],
+  },
+]
+
+/** Правила: действуют сразу, мир не начинается заново. */
+const RULES_GROUPS: Group<RulesConfig>[] = [
+  {
+    title: 'Ремонт',
+    fields: [
+      { key: 'repairSpeed', label: 'Скорость, раз от стройки', min: 0.1, max: 10, step: 0.1 },
+      { key: 'repairCost', label: 'Цена, доля от цены', min: 0, max: 2, step: 0.05 },
     ],
   },
 ]
@@ -176,6 +187,8 @@ export function GeneratorPanel({ settings, onChange, onRestart }: GeneratorPanel
         values={settings.weather}
         onChange={(weather) => onChange({ ...settings, weather })}
       />
+
+      <Groups groups={RULES_GROUPS} values={settings.rules} onChange={(rules) => onChange({ ...settings, rules })} />
 
       <Groups groups={BATTLE_GROUPS} values={settings.battle} onChange={(battle) => onChange({ ...settings, battle })} />
 

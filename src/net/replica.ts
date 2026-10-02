@@ -1,6 +1,6 @@
 import { World, type Time } from '../ecs'
 import { createLand } from '../map/terrain'
-import { boundsOf, type Command, type Sim } from '../sim'
+import { DEFAULT_RULES, boundsOf, type Command, type Sim } from '../sim'
 import { createOccupancy } from '../sim/buildings'
 import { SAVED } from '../sim/components'
 import { SAVE_VERSION } from '../sim/sim'
@@ -33,6 +33,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     world,
     land: createLand(options.generator),
     occupancy,
+    rules: { ...DEFAULT_RULES, ...options.rules },
     time,
     send(_player, command: Command) {
       // Игрока сервер знает по соединению; номеру из сообщения он бы и не поверил.
