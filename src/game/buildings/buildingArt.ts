@@ -254,6 +254,7 @@ const command: BuildingArt = {
 
     tower(g, 38, 20, 2, 7, IRON)
     bulb(g, light, 37, 12, chase(t * 2, 0))
+    connector(g, light, 16, 48, t)
   },
 }
 
@@ -408,10 +409,49 @@ const mine: BuildingArt = {
     g.rect(11, 3, 1, 12, IRON[2])
     bulb(g, light, 2, 6, pulse(t))
     bulb(g, light, 27, 7, pulse(t, 0.5))
+    connector(g, light, 0, 32, t)
   },
 }
 
 /** Хранилище: два бака с перемычкой. */
+/** Коннектор для грузовика: стыковочная рама под зданием, вокруг тайла (x, y) в пикселях; огни зовут подъехать. */
+function connector(g: Pixmap, light: EmitLight, x: number, y: number, t: number) {
+  g.rect(x + 2, y, 12, 3, INK)
+  g.rect(x + 3, y, 10, 2, IRON[2])
+  g.rect(x + 6, y, 4, 2, RUST[1])
+  for (const [side, offset] of [[x + 1, 0], [x + 13, 0.5]]) {
+    g.rect(side, y, 2, 6, INK)
+    g.rect(side, y + 1, 1, 4, IRON[3])
+    bulb(g, light, side, y + 5, pulse(t * 2, offset))
+  }
+}
+
+/** Космопорт: посадочная площадка с разметкой и бегущими огнями, сбоку — диспетчерская башня. */
+const spaceport: BuildingArt = {
+  ...BUILDINGS.spaceport,
+  draw(g, t, light) {
+    slab(g, 0, 1, 48, 47, 3, STEEL)
+    g.rect(3, 4, 42, 38, IRON[0])
+    g.rect(4, 5, 41, 37, IRON[1])
+    // Посадочный круг с крестом.
+    g.ring(22, 24, 15, 2, GOLD[0])
+    g.ring(22, 24, 8, 1, IRON[3])
+    g.rect(21, 12, 2, 24, IRON[3])
+    g.rect(10, 23, 24, 2, IRON[3])
+    g.circle(22, 24, 3, INK)
+    g.circle(22, 24, 2, GOLD[1])
+    // Огни по кругу бегут к центру захода.
+    const LIGHTS = 8
+    for (let i = 0; i < LIGHTS; i++) {
+      const angle = (i / LIGHTS) * TURN
+      bulb(g, light, Math.round(22 + Math.cos(angle) * 18) - 1, Math.round(24 + Math.sin(angle) * 17) - 1, chase(t, i / LIGHTS))
+    }
+    // Диспетчерская.
+    tower(g, 41, 12, 4, 9, STEEL)
+    lamp(g, light, 41, 2, 2, pulse(t * 2))
+  },
+}
+
 const silo: BuildingArt = {
   ...BUILDINGS.silo,
   draw(g, t, light) {
@@ -452,5 +492,6 @@ export const BUILDING_ART = {
   barracks,
   mine,
   silo,
+  spaceport,
   turret,
 } satisfies Record<BuildingType, BuildingArt>

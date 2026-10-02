@@ -7,6 +7,7 @@ import { construct } from './construction'
 import { convert } from './conversion'
 import { haul } from './hauling'
 import { earn } from './income'
+import { trade } from './trade'
 import { moveUnits } from './movement'
 import { produceUnits } from './production'
 
@@ -87,6 +88,7 @@ export function createSim(source: SimOptions | SimSave): Sim {
       // После движения: работающий строитель поворачивается к стройке, и поворот сглаживается, как у идущих.
       () => construct(sim),
       () => haul(sim),
+      () => trade(sim),
       () => earn(sim),
     ],
   })

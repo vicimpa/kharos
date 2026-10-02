@@ -43,6 +43,11 @@ export function Hud({ state, send, place }: HudProps) {
         <span class="hud__coin" />
         {state.credits}
         {state.income > 0 && <small>+{state.income}/с</small>}
+        {state.stock && (
+          <span class="hud__ore" title="Руда в хранилищах">
+            ◆ {state.stock.ore}/{state.stock.capacity}
+          </span>
+        )}
       </div>
 
       {fresh.length > 0 && (
@@ -87,6 +92,31 @@ export function Hud({ state, send, place }: HudProps) {
               {state.cargo.bound > 0 ? 'Возит руду из шахты' : 'Правый щелчок по шахте — возить из неё руду'}
             </div>
           )}
+          {state.trade &&
+            (state.trade.order ? (
+              <div class="hud__progress">
+                <span style={{ width: percent(state.trade.order.progress) }} />
+                <em>
+                  Заявка в пути: {state.trade.order.ore} руды за {state.trade.order.ore * state.trade.price}
+                </em>
+              </div>
+            ) : (
+              <>
+                <div class="hud__hint">
+                  Руды в хранилищах зоны: {state.trade.available}. Цена: {state.trade.price} за единицу
+                </div>
+                <div class="hud__row">
+                  {[50, state.trade.available]
+                    .filter((amount, i, all) => amount > 0 && amount <= state.trade!.available && all.indexOf(amount) === i)
+                    .map((amount) => (
+                      <button key={amount} onClick={() => send({ type: 'sell', port: state.trade!.port, amount })}>
+                        Продать {amount} <small>+{amount * state.trade!.price}</small>
+                      </button>
+                    ))}
+                  {state.trade.available < 1 && <button disabled>Продавать нечего</button>}
+                </div>
+              </>
+            ))}
 
           {ore !== null && <div class="hud__hint">{ore > 0 ? `Руды в месторождении: ${ore}` : 'Месторождение выработано'}</div>}
 

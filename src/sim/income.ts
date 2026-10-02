@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { BUILDINGS, ORE_PRICE, type BuildingSpec, type BuildingType } from './buildings'
+import { BUILDINGS, type BuildingSpec, type BuildingType } from './buildings'
 import { Building, Player } from './components'
 import type { Sim } from './sim'
 import { allZones, type Zone } from './zones'
@@ -13,13 +13,11 @@ export interface Economy {
   income: number
   /** Сколько в зоне зданий, которым тесно друг с другом (см. BuildingSpec.crowding). */
   crowd: number
-  /** Сколько руды в секунду продают хранилища зоны. */
-  ore: number
 }
 
 /** Хозяйство зоны. Если энергии не хватает, потребители работают на ту долю, на которую её хватает. */
 function economyOfZone(sim: Sim, zone: Zone): Economy {
-  const economy: Economy = { produced: 0, demand: 0, income: 0, crowd: 0, ore: 0 }
+  const economy: Economy = { produced: 0, demand: 0, income: 0, crowd: 0 }
   /** Доход потребителей при полной энергии. */
   let powered = 0
   for (const entity of zone.buildings) {
@@ -27,8 +25,6 @@ function economyOfZone(sim: Sim, zone: Zone): Economy {
     const spec: BuildingSpec = BUILDINGS[building.type]
     const power = spec.power ?? 0
     const income = spec.income ?? 0
-    // Хранилище продаёт руду из своего запаса; в последний тик — остаток.
-    if (spec.handles) economy.ore += Math.min(spec.handles, building.ore / sim.time.step)
     // Повреждённая электростанция даёт энергии во столько же раз меньше, во сколько упала её прочность.
     if (power > 0) economy.produced += power * building.health
     if (power < 0) {
@@ -40,7 +36,6 @@ function economyOfZone(sim: Sim, zone: Zone): Economy {
     }
   }
   if (powered) economy.income += powered * Math.min(1, economy.produced / economy.demand)
-  economy.income += economy.ore * ORE_PRICE
   return economy
 }
 
@@ -61,13 +56,12 @@ export const zoneEconomies = (sim: Sim, player: number): readonly Economy[] => e
 
 /** Итог по всем зонам игрока. Для дохода это то, что он получает; энергию так складывать можно только для справки. */
 export function economyOf(sim: Sim, player: number): Economy {
-  const total: Economy = { produced: 0, demand: 0, income: 0, crowd: 0, ore: 0 }
+  const total: Economy = { produced: 0, demand: 0, income: 0, crowd: 0 }
   for (const economy of zoneEconomies(sim, player)) {
     total.produced += economy.produced
     total.demand += economy.demand
     total.income += economy.income
     total.crowd += economy.crowd
-    total.ore += economy.ore
   }
   return total
 }
@@ -162,7 +156,7 @@ function wear(sim: Sim, zones: Map<number, Zone[]>, all: Map<number, Economy[]>)
 }
 
 /**
- * Раз в тик: начисляет игрокам доход, списывает из хранилищ проданную руду и изнашивает перегруженные электростанции.
+ * Раз в тик: начисляет игрокам доход и изнашивает перегруженные электростанции.
  * Доли кредита копятся в earned, на счёт попадают целые.
  */
 export function earn(sim: Sim) {
@@ -171,15 +165,6 @@ export function earn(sim: Sim) {
   const all = economies(sim)
   // Износ — в самом конце: разрушенное здание исчезает из мира, а зоны этого тика о нём ещё помнят.
   if (!zones.size) return
-  for (const list of zones.values()) {
-    for (const zone of list) {
-      for (const entity of zone.buildings) {
-        const building = world.get(entity, Building)!
-        const handles = (BUILDINGS[building.type] as BuildingSpec).handles
-        if (handles && building.ore > 0) building.ore = Math.max(0, building.ore - handles * time.step)
-      }
-    }
-  }
   const paid: { entity: number; credits: number; earned: number }[] = []
   for (const [entity, player] of world.query(Player)) {
     const income = all.get(player.id)?.reduce((sum, economy) => sum + economy.income, 0)

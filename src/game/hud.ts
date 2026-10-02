@@ -1,6 +1,6 @@
 import type { Entity } from '../ecs'
 import {
-  BUILDABLE, BUILDINGS, Building, Converting, Hauler, PRODUCIBLE, TRUCK_CAPACITY, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
+  BUILDABLE, BUILDINGS, Building, Converting, Hauler, ORE_PRICE, Owner, PRODUCIBLE, TRUCK_CAPACITY, Trade, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
   buildTicks, canDemolish, canDeploy, canPack, isDeployBlocked, coreCenters, creditsOf, economyOf, isSiteBlocked, oreLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, zoneEconomies, zonesOf,
   Position, type BuildingSpec, type BuildingType, type Command, type UnitType,
 } from '../sim'
@@ -29,8 +29,15 @@ export interface HudState {
   building: BuildingType | null
   /** Сколько руды осталось под выбранной шахтой. */
   ore: number | null
+  /** Запас руды игрока во всех хранилищах; null — хранить негде. */
+  stock: { ore: number; capacity: number } | null
   /** Запас выбранного хранилища. */
   stored: { ore: number; capacity: number } | null
+  /**
+   * Продажа, если выбран свой готовый космопорт. available — сколько руды в хранилищах его зоны, price — цена единицы.
+   * order — заявка в пути: сколько руды и готовность от 0 до 1.
+   */
+  trade: { port: number; available: number; price: number; order: { ore: number; progress: number } | null } | null
   /** Груз выбранных грузовиков вместе; bound — сколько из них привязано к шахте. */
   cargo: { ore: number; capacity: number; bound: number } | null
   /** Стройка, если выбранное здание ещё не достроено. */
@@ -95,6 +102,7 @@ export function readHud(scene: Scene): HudState {
   let ore: number | null = null
   let stored: HudState['stored'] = null
   let cargo: HudState['cargo'] = null
+  let trade: HudState['trade'] = null
   let power: HudState['power'] = null
   let health: number | null = null
   let repair = 0
@@ -124,6 +132,16 @@ export function readHud(scene: Scene): HudState {
     const built = world.get(entity, Building)
     const capacity = built && !world.has(entity, Site) ? (BUILDINGS[built.type] as BuildingSpec).stores : undefined
     if (built && capacity) stored = { ore: Math.floor(built.ore), capacity }
+    if (built && (BUILDINGS[built.type] as BuildingSpec).trades && !world.has(entity, Site) && world.get(entity, Owner)?.player === player) {
+      const zone = zoneWith(sim, player, entity)
+      const order = world.get(entity, Trade)
+      trade = {
+        port: entity,
+        available: zone ? Math.floor(stockOfZone(sim, zone).ore) : 0,
+        price: ORE_PRICE,
+        order: order ? { ore: order.ore, progress: round(1 - order.left / order.total) } : null,
+      }
+    }
     if (built && built.health < 1) {
       health = round(built.health)
       repair = repairCostOf(built.type, built.health)
@@ -140,6 +158,7 @@ export function readHud(scene: Scene): HudState {
 
   // Кнопки стройки показывают энергию для первой зоны: в какую попадёт здание, до выбора места неизвестно.
   const economy = zones[0] ?? economyOf(sim, player)
+  const stock = stockOf(sim, player)
   const state: HudState = {
     credits,
     rewards: [...rewardsOf(sim, player)],
@@ -151,7 +170,9 @@ export function readHud(scene: Scene): HudState {
     units: UNIT_TYPES.filter((type) => counts.has(type)).map((type) => ({ type, count: counts.get(type)! })),
     building,
     ore,
+    stock: stock.capacity ? { ore: Math.floor(stock.ore), capacity: stock.capacity } : null,
     stored,
+    trade,
     cargo,
     site,
     demolish,

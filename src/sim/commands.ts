@@ -6,6 +6,7 @@ import { DEPLOY_SECONDS, PACK_SECONDS, canDeploy, canPack, cancelDeploy, startCo
 import { assignHaulers, releaseHauler } from './hauling'
 import { cancelUnit, orderUnit } from './production'
 import type { Sim } from './sim'
+import { sellOre } from './trade'
 import { UNITS, isWalkable, orderGroupMove, spawnUnit, type UnitType } from './units'
 
 /**
@@ -35,6 +36,8 @@ export type Command =
   | { type: 'assist'; units: number[]; site: number }
   /** Привязать свои грузовики к своей шахте: они будут возить руду из неё в хранилища. */
   | { type: 'haul'; units: number[]; mine: number }
+  /** Заявка на продажу: космопорт забирает до amount руды из хранилищ своей зоны и позже приносит кредиты. */
+  | { type: 'sell'; port: number; amount: number }
   /** Отменить свою стройку и вернуть кредиты; для здания под разбор — отменить разбор. */
   | { type: 'cancelBuild'; site: number }
   /** Назначить своё готовое здание под разбор и послать к нему своих строителей. Отменяется через cancelBuild. */
@@ -83,6 +86,8 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
       if (!Array.isArray(command.units)) return false
       return assignHaulers(sim, player, command.mine as Entity, command.units as Entity[])
     }
+    case 'sell':
+      return sellOre(sim, player, command.port as Entity, command.amount)
     case 'cancelBuild':
       return cancelBuild(sim, player, command.site as Entity)
     case 'demolish': {

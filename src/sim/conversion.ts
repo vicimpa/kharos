@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { BUILDINGS, CORE, canPlace, placeBuilding } from './buildings'
+import { BUILDINGS, CORE, canPlace, docksClear, placeBuilding } from './buildings'
 import { Building, Converting, Owner, Path, Position, Producer, Unit } from './components'
 import { reward } from './economy'
 import type { Sim } from './sim'
@@ -23,7 +23,7 @@ export function canDeploy(sim: Sim, player: number, entity: Entity) {
   if (world.get(entity, Unit)?.type !== 'mcv' || world.get(entity, Owner)?.player !== player) return false
   if (world.has(entity, Converting)) return false
   const site = deploySite(sim, entity)
-  if (!canPlace(sim, CORE, site.x, site.y)) return false
+  if (!canPlace(sim, CORE, site.x, site.y) || !docksClear(sim, CORE, site.x, site.y)) return false
   return !inForeignZone(sim, player, site.x, site.y, BUILDINGS[CORE].width, BUILDINGS[CORE].height)
 }
 

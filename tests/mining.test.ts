@@ -1,8 +1,9 @@
 import { expect, test } from 'bun:test'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
+import type { Entity } from '../src/ecs'
 import {
-  BUILDINGS, Building, Deposit, Hauler, TRUCK_CAPACITY, canBuild, canPlace, createSim, creditsOf, depositAt, depositIn, depositNear, oreLeft, rewardsOf,
-  zoneEconomies, zonesOf, type DepositSpot, type Sim,
+  BUILDINGS, Building, Deposit, Hauler, ORE_PRICE, Position, SELL_SECONDS, TRUCK_CAPACITY, Trade, Unit, canBuild, canSell, isWalkable, stockOf, canPlace, createSim, creditsOf, depositAt, depositIn, depositNear, oreLeft, rewardsOf,
+  zonesOf, type DepositSpot, type Sim,
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { addCredits } from '../src/sim/economy'
@@ -72,7 +73,7 @@ test('шахта ставится только на месторождение �
 })
 
 /** Крутит симуляцию, пока условие не выполнится; падает, если не дождалась за limit секунд. */
-function until(sim: Sim, done: () => boolean, limit = 120) {
+function until(sim: Sim, done: () => boolean, limit = 200) {
   for (let i = 0; i < limit / TICK; i++) {
     if (done()) return
     sim.advance(TICK)
@@ -80,22 +81,39 @@ function until(sim: Sim, done: () => boolean, limit = 120) {
   throw new Error('Не дождались')
 }
 
-test('шахта работает, только пока у неё стоит грузовик; руду возят в хранилище, там она продаётся', () => {
-  const { sim, spot } = start()
-  addCredits(sim, 1, 0)
-  const mine = placeBuilding(sim.world, 'mine', spot.x, spot.y, 1)
-  const silo = placeBuilding(sim.world, 'silo', spot.x + 3, spot.y, 1)
-  const stock = () => sim.world.get(silo, Building)!.ore
-  // Без грузовика шахта стоит, сколько бы хранилищ рядом ни было.
+/** База у месторождения: шахта, главное здание справа от неё и грузовик игрока 1. */
+function base() {
+  const sim = createSim(options)
+  for (let cellY = -6; cellY < 6; cellY++) {
+    for (let cellX = -6; cellX < 6; cellX++) {
+      const spot = depositIn(sim, cellX, cellY)
+      if (!spot || !canPlace(sim, 'command', spot.x + 5, spot.y)) continue
+      // Оба коннектора и место под грузовики должны быть проходимы.
+      const free = [[0, 2], [6, 3], [-1, 0], [-1, 1], [-1, 2], [1, 2]].every(([x, y]) => isWalkable(sim, spot.x + x, spot.y + y))
+      if (!free) continue
+      addCredits(sim, 1, 0)
+      const mine = placeBuilding(sim.world, 'mine', spot.x, spot.y, 1)
+      const core = placeBuilding(sim.world, 'command', spot.x + 5, spot.y, 1)
+      const truck = spawnUnit(sim, 'truck', 1, spot.x - 1, spot.y)
+      return { sim, spot, mine, core, truck }
+    }
+  }
+  throw new Error('В мире не нашлось места под базу у месторождения')
+}
+
+const onTile = (sim: Sim, unit: Entity, x: number, y: number) => {
+  const position = sim.world.get(unit, Position)!
+  return Math.floor(position.x) === x && Math.floor(position.y) === y
+}
+
+test('шахта работает, только пока грузовик стоит на её коннекторе задом; руду он везёт к главному зданию', () => {
+  const { sim, spot, mine, core, truck } = base()
+  const cargo = () => sim.world.get(truck, Hauler)!
+  const stock = () => sim.world.get(core, Building)!.ore
+  // Без привязки грузовик стоит, шахта тоже.
   seconds(sim, 5)
   expect(oreLeft(sim, spot.x, spot.y)).toBe(spot.ore)
-  expect(zoneEconomies(sim, 1)).toEqual([{ produced: 0, demand: 0, income: 0, crowd: 0, ore: 0 }])
-
-  // Грузовик без привязки сам за руду не берётся.
-  const truck = spawnUnit(sim, 'truck', 1, spot.x - 1, spot.y)
-  const cargo = () => sim.world.get(truck, Hauler)!
-  seconds(sim, 3)
-  expect(cargo().ore).toBe(0)
+  expect(cargo().mine).toBe(-1)
   // Чужой грузовик к шахте не привязать.
   const stranger = spawnUnit(sim, 'truck', 2, spot.x - 1, spot.y + 1)
   sim.send(2, { type: 'haul', units: [stranger], mine })
@@ -104,24 +122,28 @@ test('шахта работает, только пока у неё стоит г
   expect(sim.world.get(stranger, Hauler)!.mine).toBe(-1)
   sim.world.destroy(stranger)
 
-  // Привязанный грузится со скоростью шахты и везёт полный кузов в хранилище.
+  // Грузовик встаёт на коннектор под шахтой носом от неё, и только тогда идёт руда.
+  until(sim, () => cargo().docked)
+  expect(onTile(sim, truck, spot.x, spot.y + 2)).toBe(true)
+  expect(sim.world.get(truck, Unit)!.facing).toBeCloseTo(Math.PI / 2)
+  expect(oreLeft(sim, spot.x, spot.y)).toBeGreaterThan(spot.ore - 1)
   seconds(sim, 10)
-  expect(cargo().ore).toBeCloseTo(20, 0)
+  expect(cargo().ore).toBeCloseTo(BUILDINGS.mine.extract * 10, 0)
   expect(oreLeft(sim, spot.x, spot.y)).toBeCloseTo(spot.ore - cargo().ore)
+
+  // Полный едет к коннектору главного здания и выгружается в его запас; сама руда кредитов не даёт.
   until(sim, () => cargo().full)
   expect(cargo().ore).toBe(TRUCK_CAPACITY)
   until(sim, () => stock() > 0)
-  expect(zoneEconomies(sim, 1)[0].ore).toBe(2)
+  expect(onTile(sim, truck, spot.x + 6, spot.y + 3)).toBe(true)
+  until(sim, () => !cargo().full)
+  expect(stock()).toBeCloseTo(TRUCK_CAPACITY)
+  expect(stockOf(sim, 1)).toEqual({ ore: stock(), capacity: BUILDINGS.command.stores })
   // Разгрузился — вернулся к шахте сам.
-  until(sim, () => !cargo().full && cargo().ore > 0)
-  expect(creditsOf(sim, 1)).toBeGreaterThan(0)
-  seconds(sim, 60)
-  // Всё добытое либо продано, либо лежит в хранилище, либо едет в кузове.
-  const mined = spot.ore - oreLeft(sim, spot.x, spot.y)
-  expect(mined).toBeGreaterThan(TRUCK_CAPACITY)
-  expect(Math.abs(mined - creditsOf(sim, 1) - stock() - cargo().ore)).toBeLessThan(1.5)
+  until(sim, () => cargo().docked && cargo().ore > 0)
+  expect(onTile(sim, truck, spot.x, spot.y + 2)).toBe(true)
 
-  // Приказ идти снимает грузовик с маршрута.
+  // Приказ идти снимает грузовик с маршрута, и шахта встаёт.
   sim.send(1, { type: 'move', units: [truck], x: spot.x - 3, y: spot.y })
   seconds(sim, 5)
   expect(cargo().mine).toBe(-1)
@@ -129,60 +151,110 @@ test('шахта работает, только пока у неё стоит г
   seconds(sim, 5)
   expect(oreLeft(sim, spot.x, spot.y)).toBe(left)
 
-  // Сохранение помнит и добытое, и груз.
+  // Сохранение помнит и добытое, и груз, и запас.
   const copy = createSim(JSON.parse(JSON.stringify(sim.save())))
   expect(oreLeft(copy, spot.x, spot.y)).toBe(left)
   expect(copy.world.get(truck, Hauler)!.ore).toBe(cargo().ore)
+  expect(copy.world.get(core, Building)!.ore).toBe(stock())
 })
 
-test('шахта грузит один грузовик, остальные ждут рядом; полное хранилище больше не принимает', () => {
-  const { sim, spot } = start()
-  addCredits(sim, 1, 0)
-  const mine = placeBuilding(sim.world, 'mine', spot.x, spot.y, 1)
-  const silo = placeBuilding(sim.world, 'silo', spot.x + 3, spot.y, 1)
-  const trucks = [spawnUnit(sim, 'truck', 1, spot.x - 1, spot.y), spawnUnit(sim, 'truck', 1, spot.x - 1, spot.y + 1)]
-  const haulers = () => trucks.map((truck) => sim.world.get(truck, Hauler)!)
-  sim.send(1, { type: 'haul', units: trucks, mine })
+test('коннектор один: второй грузовик ждёт рядом, своих с коннектора выгоняют, чужой его блокирует', () => {
+  const { sim, spot, mine, truck } = base()
+  const second = spawnUnit(sim, 'truck', 1, spot.x - 1, spot.y + 1)
+  const hauler = (entity: Entity) => sim.world.get(entity, Hauler)!
+  // Свой пехотинец стоит на коннекторе — его попросят уйти.
+  const soldier = spawnUnit(sim, 'infantry', 1, spot.x, spot.y + 2)
+  sim.send(1, { type: 'haul', units: [truck, second], mine })
+  until(sim, () => hauler(truck).docked || hauler(second).docked)
+  expect(onTile(sim, soldier, spot.x, spot.y + 2)).toBe(false)
   seconds(sim, 10)
-  // За 10 секунд шахта выдала 20 руды, и вся она в одном кузове.
-  expect(haulers().filter((hauler) => hauler.loading).length).toBe(1)
-  expect(haulers().map((hauler) => Math.round(hauler.ore)).sort((a, b) => a - b)).toEqual([0, 20])
-  // Первый уехал — шахта взялась за второго.
-  until(sim, () => haulers().some((hauler) => hauler.full))
-  seconds(sim, 3)
-  expect(haulers().filter((hauler) => hauler.loading).length).toBe(1)
-  expect(haulers().every((hauler) => hauler.full || hauler.loading)).toBe(true)
+  // Грузится один; второй пуст и стоит не на коннекторе.
+  const [busy, idle] = hauler(truck).docked ? [truck, second] : [second, truck]
+  expect(hauler(idle).docked).toBe(false)
+  expect(hauler(idle).ore).toBe(0)
+  expect(hauler(busy).ore).toBeGreaterThan(0)
+  // Первый уехал — второй занял коннектор.
+  until(sim, () => hauler(busy).full)
+  until(sim, () => hauler(idle).docked)
 
-  // Хранилище конечно: в полное грузовик выгружает только то, что успело продаться.
-  const capacity = BUILDINGS.silo.stores
-  sim.world.get(silo, Building)!.ore = capacity
-  until(sim, () => haulers().some((hauler) => hauler.full && hauler.ore < TRUCK_CAPACITY))
-  const waiting = haulers().find((hauler) => hauler.full && hauler.ore < TRUCK_CAPACITY)!
-  const before = waiting.ore
-  seconds(sim, 5)
-  expect(sim.world.get(silo, Building)!.ore).toBeLessThanOrEqual(capacity)
-  expect(sim.world.get(silo, Building)!.ore).toBeGreaterThan(capacity - 3)
-  // За 5 секунд продано 10 руды — столько же и выгружено; без ограничения ушло бы 100.
-  expect(before - waiting.ore).toBeGreaterThan(8)
-  expect(before - waiting.ore).toBeLessThan(12)
+  // Чужой юнит на коннекторе главного здания: грузовик не выгружается и никого не гонит.
+  const stranger = spawnUnit(sim, 'infantry', 2, spot.x + 6, spot.y + 3)
+  seconds(sim, 30)
+  expect(hauler(busy).ore).toBe(TRUCK_CAPACITY)
+  expect(onTile(sim, stranger, spot.x + 6, spot.y + 3)).toBe(true)
+  sim.send(2, { type: 'move', units: [stranger], x: spot.x + 6, y: spot.y + 7 })
+  until(sim, () => !hauler(busy).full)
 })
 
-test('выработанное месторождение: грузовик довозит остаток и освобождается, шахту второй раз не поставить', () => {
-  const { sim, spot } = start()
-  addCredits(sim, 1, 0)
-  const mine = placeBuilding(sim.world, 'mine', spot.x, spot.y, 1)
-  placeBuilding(sim.world, 'silo', spot.x + 3, spot.y, 1)
-  const truck = spawnUnit(sim, 'truck', 1, spot.x - 1, spot.y)
+test('хранилище конечно: когда место кончилось, грузовик ждёт у коннектора; хранилища зоны добавляют места', () => {
+  const { sim, spot, mine, core, truck } = base()
+  const capacity = BUILDINGS.command.stores
+  sim.world.get(core, Building)!.ore = capacity - 5
   sim.send(1, { type: 'haul', units: [truck], mine })
-  seconds(sim, 3)
+  const cargo = () => sim.world.get(truck, Hauler)!
+  until(sim, () => cargo().full && cargo().docked)
+  seconds(sim, 10)
+  // Влезло только пять единиц, остальное в кузове.
+  expect(sim.world.get(core, Building)!.ore).toBe(capacity)
+  expect(cargo().ore).toBeCloseTo(TRUCK_CAPACITY - 5)
+
+  // Хранилище в той же зоне принимает остаток.
+  const silo = placeBuilding(sim.world, 'silo', spot.x + 9, spot.y, 1)
+  until(sim, () => !cargo().full)
+  expect(sim.world.get(silo, Building)!.ore).toBeCloseTo(TRUCK_CAPACITY - 5)
+  expect(stockOf(sim, 1).capacity).toBe(capacity + BUILDINGS.silo.stores)
+})
+
+test('космопорт продаёт руду по заявке: руда уходит сразу, кредиты приходят позже', () => {
+  const { sim, spot, core } = base()
+  sim.world.get(core, Building)!.ore = 80
+  const credits = creditsOf(sim, 1)
+  // Без космопорта руда лежит и денег не приносит.
+  seconds(sim, 5)
+  expect(creditsOf(sim, 1) - credits).toBeLessThanOrEqual(1)
+  expect(canBuild(sim, 1, 'spaceport', spot.x + 9, spot.y)).toBe(true)
+  const port = placeBuilding(sim.world, 'spaceport', spot.x + 9, spot.y, 1)
+  expect(canSell(sim, 1, port)).toBe(true)
+  expect(canSell(sim, 2, port)).toBe(false)
+
+  sim.send(2, { type: 'sell', port, amount: 50 })
+  sim.send(1, { type: 'sell', port, amount: 50 })
+  sim.advance(TICK)
+  expect(sim.world.get(core, Building)!.ore).toBe(30)
+  // Пока заявка в пути, вторую космопорт не берёт.
+  sim.send(1, { type: 'sell', port, amount: 10 })
+  sim.advance(TICK)
+  expect(sim.world.get(core, Building)!.ore).toBe(30)
+  const before = creditsOf(sim, 1)
+  seconds(sim, SELL_SECONDS - 1)
+  expect(creditsOf(sim, 1) - before).toBeLessThan(10)
+  seconds(sim, 1)
+  const income = BUILDINGS.command.income * SELL_SECONDS
+  expect(Math.abs(creditsOf(sim, 1) - before - 50 * ORE_PRICE - income)).toBeLessThanOrEqual(1)
+
+  // Просить можно больше, чем есть: продастся остаток.
+  sim.send(1, { type: 'sell', port, amount: 1000 })
+  sim.advance(TICK)
+  expect(sim.world.get(core, Building)!.ore).toBe(0)
+  expect(sim.world.get(port, Trade)!.ore).toBe(30)
+})
+
+test('коннекторы нельзя застраивать, а выработанное месторождение освобождает грузовик', () => {
+  const { sim, spot, mine, truck } = base()
+  addCredits(sim, 1, 1000)
+  // Тайл под шахтой и тайл под воротами главного здания — коннекторы.
+  expect(canBuild(sim, 1, 'silo', spot.x, spot.y + 2)).toBe(false)
+  expect(canBuild(sim, 1, 'silo', spot.x + 5, spot.y + 3)).toBe(false)
+  expect(canBuild(sim, 1, 'silo', spot.x + 2, spot.y + 3)).toBe(true)
+
+  sim.send(1, { type: 'haul', units: [truck], mine })
+  const cargo = () => sim.world.get(truck, Hauler)!
+  until(sim, () => cargo().docked)
   for (const [, deposit] of sim.world.query(Deposit)) deposit.mined = spot.ore - 1
   until(sim, () => oreLeft(sim, spot.x, spot.y) === 0)
-  until(sim, () => sim.world.get(truck, Hauler)!.mine === -1)
-  expect(sim.world.get(truck, Hauler)!.ore).toBe(0)
-  seconds(sim, 10)
-  const credits = creditsOf(sim, 1)
-  expect(credits).toBeGreaterThan(0)
-  seconds(sim, 5)
-  expect(creditsOf(sim, 1)).toBe(credits)
+  // Довёз остаток и освободился.
+  until(sim, () => cargo().mine === -1)
+  expect(cargo().ore).toBe(0)
+  expect(stockOf(sim, 1).ore).toBeGreaterThan(1)
   expect(canBuild(sim, 1, 'mine', spot.x, spot.y)).toBe(false)
 })

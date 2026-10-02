@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { BUILDABLE, BUILDINGS, BUILD_RATE, CORE, canPlace, siteAt, type BuildingSpec, type BuildingType } from './buildings'
+import { BUILDABLE, BUILDINGS, BUILD_RATE, CORE, canPlace, docksClear, siteAt, type BuildingSpec, type BuildingType } from './buildings'
 import { Building, Builds, Converting, Owner, Path, Position, Site, Unit } from './components'
 import { oreLeft } from './deposits'
 import { addCredits, pay, reward, spend } from './economy'
@@ -40,9 +40,10 @@ export function inControl(sim: Sim, player: number, type: BuildingType, x: numbe
 /**
  * Может ли игрок заложить здесь здание: вид строится строителями, место годится, лежит в своей зоне строительства
  * и не задевает чужую. Здание с собственной зоной своей зоны не требует — оно начинает новую.
+ * Коннекторы зданий застраивать нельзя, а свой должен прийтись на проходимый тайл.
  */
 export function canBuild(sim: Sim, player: number, type: BuildingType, x: number, y: number) {
-  if (!BUILDABLE.includes(type) || !canPlace(sim, type, x, y)) return false
+  if (!BUILDABLE.includes(type) || !canPlace(sim, type, x, y) || !docksClear(sim, type, x, y)) return false
   const { width, height, zone }: BuildingSpec = BUILDINGS[type]
   if (inForeignZone(sim, player, x, y, width, height)) return false
   // Шахта встаёт ровно на месторождение, в котором ещё есть руда.

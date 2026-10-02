@@ -196,6 +196,11 @@ body {
   color: #8fd0ff;
 }
 
+.hud__ore {
+  margin-left: 6px;
+  color: #e58a4a;
+}
+
 .hud__power.is-short {
   color: #ff8a70;
 }

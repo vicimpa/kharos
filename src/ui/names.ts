@@ -19,6 +19,7 @@ export const BUILDING_NAMES: Record<BuildingType, string> = {
   barracks: 'Казармы',
   mine: 'Шахта',
   silo: 'Хранилище',
+  spaceport: 'Космопорт',
   turret: 'Турель',
 }
 

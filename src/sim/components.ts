@@ -7,7 +7,7 @@ export const Position = component('Position', { x: 0, y: 0 })
 
 /**
  * Здание. phase — сдвиг анимации в кадрах, чтобы одинаковые здания не мигали в такт.
- * health — прочность от 1 до 0: в нуле здание разрушается. ore — сколько руды лежит в хранилище.
+ * health — прочность от 1 до 0: в нуле здание разрушается. ore — сколько руды лежит в здании, если оно её хранит.
  */
 export const Building = component('Building', { type: 'command' as BuildingType, phase: 0, health: 1, ore: 0 })
 
@@ -66,10 +66,14 @@ export const Builds = component('Builds', { site: 0 })
 export const Deposit = component('Deposit', { mined: 0 })
 
 /**
- * Грузовик. ore — руда в кузове. mine — шахта, к которой он привязан, store — хранилище, куда везёт; -1 — нет.
- * full — кузов надо везти в хранилище; loading — шахта грузит именно его.
+ * Грузовик. ore — руда в кузове. mine — шахта, к которой он привязан, base — главное здание, куда везёт; -1 — нет.
+ * full — кузов надо везти на базу; docked — стоит на коннекторе задом к зданию, идёт погрузка или выгрузка;
+ * waiting — уже получил приказ ехать к коннектору и ждёт очереди.
  */
-export const Hauler = component('Hauler', { ore: 0, mine: -1, store: -1, full: false, loading: false })
+export const Hauler = component('Hauler', { ore: 0, mine: -1, base: -1, full: false, docked: false, waiting: false })
+
+/** Заявка на продажу руды в пути: есть у космопорта, пока корабль летит. ore — сколько руды, left и total — тики. */
+export const Trade = component('Trade', { ore: 0, left: 0, total: 0 })
 
 /** Компоненты, которые попадают в сохранение и в сеть. Новый компонент симуляции добавляй сюда. */
-export const SAVED = [Position, Building, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler]
+export const SAVED = [Position, Building, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Trade]
