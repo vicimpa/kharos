@@ -144,7 +144,7 @@ function wheels(p: ReturnType<typeof pen>, side: number, spread: number) {
   }
 }
 
-/** Багги: узкая быстрая машина с пулемётом. */
+/** Багги: узкая быстрая машина с дугой безопасности. Пассажира с миниганом рисует gunnerTurret поверх. */
 const buggy: UnitArt = (g, angle, team) => {
   const p = pen(g, angle)
   wheels(p, 4.5, 4)
@@ -152,10 +152,11 @@ const buggy: UnitArt = (g, angle, team) => {
   p.bar(-5, 6, 0, 5, IRON[2])
   p.bar(-5, 6, -2, 1, IRON[3])
   p.bar(-5, -3, 0, 5, team[0])
-  p.bar(3, 5, 0, 3, team[2])
-  p.bar(-1, 8, 0, 1.6, INK)
-  p.dot(-1, 0, 2.6, INK)
-  p.dot(-1, 0, 1.6, team[1])
+  // Водитель за лобовым стеклом и дуга над ним.
+  p.bar(4.5, 6, 0, 4, team[2])
+  p.dot(2.5, 0, 1.3, INK)
+  p.dot(2.5, 0, 0.8, STEEL[4])
+  p.beam(1, -3.5, 3.5, 1, INK)
 }
 
 /** Лазерная машина: излучатель на шасси. */
@@ -387,4 +388,16 @@ const arcTurret: UnitArt = (g, angle, team) => {
   p.dot(0, 0, 1.2, ENERGY[2])
 }
 
-export const TURRET_ART = { arc: arcTurret, cannon: cannonTurret, rocket: rocketTurret, repair: repairTurret } satisfies Record<TurretType, UnitArt>
+/** Пассажир багги: плечи и шлем в цвет команды, миниган — светлый блок стволов с жёлтым дульным срезом. */
+const gunnerTurret: UnitArt = (g, angle, team) => {
+  const p = pen(g, angle)
+  p.beam(0, -3.6, 3.6, 4.4, INK)
+  p.beam(0, -2.8, 2.8, 2.8, team[1])
+  p.bar(0, 7.5, 1.8, 3, INK)
+  p.bar(1, 7, 1.8, 1.4, IRON[4])
+  p.dot(7.2, 1.8, 0.8, HAZARD[2])
+  p.dot(-1, -0.6, 1.5, INK)
+  p.dot(-1, -0.6, 0.9, team[2])
+}
+
+export const TURRET_ART = { gunner: gunnerTurret, arc: arcTurret, cannon: cannonTurret, rocket: rocketTurret, repair: repairTurret } satisfies Record<TurretType, UnitArt>

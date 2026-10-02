@@ -41,7 +41,11 @@ export const UNITS = {
   // Пехота.
   rocketeer: { speed: 2.6, turn: 10, radius: 0.3, cost: 120, buildTime: 5, kind: 'infantry', hp: 45, weapon: 'launcher' },
   // Машинки: быстрые и хрупкие.
-  buggy: { speed: 6, turn: 5, radius: 0.45, cost: 250, buildTime: 7, kind: 'vehicle', hp: 120, weapon: 'machinegun' },
+  // Багги: за водителем сидит пассажир с миниганом и стреляет во все стороны.
+  buggy: {
+    speed: 6, turn: 5, radius: 0.45, cost: 250, buildTime: 7, kind: 'vehicle', hp: 120,
+    mounts: [{ turret: 'gunner', along: -0.16, across: 0 }],
+  },
   lancer: { speed: 4.5, turn: 4.5, radius: 0.45, cost: 350, buildTime: 9, kind: 'vehicle', hp: 140, weapon: 'laser' },
   // Тяжёлые: медленные, крепкие и дорогие.
   // Танк бьёт ядрами из башни: она поворачивается сама, и стрелять можно на ходу.
