@@ -4,6 +4,7 @@ import { Building, Converting, Owner, Path, Position, Producer, Unit } from './c
 import { reward } from './economy'
 import type { Sim } from './sim'
 import { evictUnits, spawnUnit } from './units'
+import { inForeignZone } from './zones'
 
 /** Сколько секунд MCV разворачивается в главное здание и сколько здание сворачивается обратно. */
 export const DEPLOY_SECONDS = 3
@@ -16,13 +17,14 @@ export function deploySite(sim: Sim, entity: Entity) {
   return { x: Math.floor(position.x) - Math.floor(width / 2), y: Math.floor(position.y) - Math.floor(height / 2) }
 }
 
-/** Может ли игрок развернуть этот юнит прямо сейчас: это его MCV, он не занят, и под ним свободная скала. */
+/** Может ли игрок развернуть этот юнит прямо сейчас: это его MCV, он не занят, под ним свободная скала и не чужая зона. */
 export function canDeploy(sim: Sim, player: number, entity: Entity) {
   const { world } = sim
   if (world.get(entity, Unit)?.type !== 'mcv' || world.get(entity, Owner)?.player !== player) return false
   if (world.has(entity, Converting)) return false
   const site = deploySite(sim, entity)
-  return canPlace(sim, CORE, site.x, site.y)
+  if (!canPlace(sim, CORE, site.x, site.y)) return false
+  return !inForeignZone(sim, player, site.x, site.y, BUILDINGS[CORE].width, BUILDINGS[CORE].height)
 }
 
 /** Может ли игрок свернуть это здание: это его главное здание, и оно не сворачивается уже. */

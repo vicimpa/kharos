@@ -1,10 +1,10 @@
 import type { Entity } from '../ecs'
-import { BUILDINGS, CORE } from './buildings'
+import { BUILDINGS, type BuildingSpec } from './buildings'
 import { Building, Owner, Position, Site } from './components'
 import type { Sim } from './sim'
 
 /** Радиус зоны строительства вокруг главного здания, в тайлах от его центра. */
-export const CONTROL_RADIUS = 12
+export const CONTROL_RADIUS = BUILDINGS.command.zone
 /** На сколько тайлов от своего центра расширяет зону любое другое готовое здание. */
 export const EXPAND_RADIUS = 5
 
@@ -16,7 +16,7 @@ export function inCircles(circles: readonly number[], x: number, y: number) {
   return false
 }
 
-/** Зона строительства: главное здание и всё, что к нему пристроено. */
+/** Зона строительства: здание, которое её начало (главное или другое с собственной зоной), и всё, что к нему пристроено. */
 export interface Zone {
   /** Круги, из которых зона состоит: x, y и радиус подряд. */
   circles: number[]
@@ -25,7 +25,7 @@ export interface Zone {
 }
 
 /**
- * Зоны строительства всех игроков. Зону задаёт главное здание, а расширяют готовые здания, стоящие в ней:
+ * Зоны строительства всех игроков. Зону задаёт главное здание (и любое здание с BuildingSpec.zone), а расширяют готовые здания, стоящие в ней:
  * каждое добавляет свой круг, и по цепочке зона растёт дальше. Здание, до которого цепочка от главного
  * не дотягивается, ни в какую зону не входит. Нет главного здания — нет и зоны.
  * Два главных здания дают две зоны; если второе стоит внутри зоны первого, зона у них общая.
@@ -36,12 +36,12 @@ export function allZones(sim: Sim): Map<number, Zone[]> {
   const cores = new Map<number, number[]>()
   for (const [entity, position, building, owner] of sim.world.query(Position, Building, Owner)) {
     if (sim.world.has(entity, Site)) continue
-    const { width, height } = BUILDINGS[building.type]
-    const core = building.type === CORE
+    const { width, height, zone }: BuildingSpec = BUILDINGS[building.type]
+    const core = zone !== undefined
     const target = core ? cores : waiting
     let list = target.get(owner.player)
     if (!list) target.set(owner.player, (list = []))
-    list.push(entity, position.x + width / 2, position.y + height / 2, core ? CONTROL_RADIUS : EXPAND_RADIUS)
+    list.push(entity, position.x + width / 2, position.y + height / 2, zone ?? EXPAND_RADIUS)
   }
 
   const result = new Map<number, Zone[]>()
@@ -83,3 +83,19 @@ export const zonesOf = (sim: Sim, player: number): readonly Zone[] => allZones(s
 
 /** Все зоны игрока одним списком кругов: x, y и радиус подряд. */
 export const zoneOf = (sim: Sim, player: number): readonly number[] => zonesOf(sim, player).flatMap((zone) => zone.circles)
+
+/**
+ * Задевает ли основание здания чужую зону строительства: в чужих зонах строить нельзя.
+ * Проверяются центр и углы основания. Там, где зоны двух игроков перекрываются, не строит ни один.
+ */
+export function inForeignZone(sim: Sim, player: number, x: number, y: number, width: number, height: number) {
+  for (const [other, zones] of allZones(sim)) {
+    if (other === player) continue
+    for (const { circles } of zones) {
+      if (inCircles(circles, x + width / 2, y + height / 2)) return true
+      if (inCircles(circles, x, y) || inCircles(circles, x + width, y)) return true
+      if (inCircles(circles, x, y + height) || inCircles(circles, x + width, y + height)) return true
+    }
+  }
+  return false
+}

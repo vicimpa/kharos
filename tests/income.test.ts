@@ -3,7 +3,7 @@ import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import {
   BUILDINGS, Building, Builds, CORE, Owner, Site, Unit,
-  canBuild, canPlace, createSim, creditsOf, economyOf, powerOf, refundOf, rewardsOf, siteAt, zoneEconomies, zoneOf, zonesOf, spawnStartingUnits, type BuildingType, type Sim,
+  canBuild, canDeploy, canPlace, createSim, creditsOf, economyOf, powerOf, refundOf, rewardsOf, siteAt, zoneEconomies, zoneOf, zonesOf, spawnStartingUnits, type BuildingType, type Sim,
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { REWARDS, STARTING_CREDITS } from '../src/sim/economy'
@@ -226,4 +226,22 @@ test('энергия у каждой зоны своя: электростанц
   // Главное здание внутри чужой зоны свою не начинает: зона у них общая.
   put(sim, 'command', x + 10, y + 6)
   expect(zonesOf(sim, 1).length).toBe(2)
+})
+
+test('в чужой зоне не строят и не разворачиваются', () => {
+  const { sim, x, y } = start()
+  // Главное здание игрока 2 — справа, зоны перекрываются между x + 11 и x + 15.
+  placeBuilding(sim.world, 'command', x + 22, y + 2, 2)
+  expect(canBuild(sim, 1, 'silo', x + 6, y + 2)).toBe(true)
+  // В перекрытии зон не строит ни один.
+  expect(canBuild(sim, 1, 'silo', x + 12, y + 3)).toBe(false)
+  expect(canBuild(sim, 2, 'silo', x + 12, y + 3)).toBe(false)
+  expect(canBuild(sim, 2, 'silo', x + 18, y + 3)).toBe(true)
+
+  sim.send(2, { type: 'spawnUnit', unit: 'mcv', x: x + 8, y: y + 8 })
+  sim.send(2, { type: 'spawnUnit', unit: 'mcv', x: x + 20, y: y + 9 })
+  sim.advance(TICK)
+  const mcvs: Entity[] = []
+  for (const [entity, unit, owner] of sim.world.query(Unit, Owner)) if (unit.type === 'mcv' && owner.player === 2) mcvs.push(entity)
+  expect(mcvs.map((mcv) => canDeploy(sim, 2, mcv))).toEqual([false, true])
 })

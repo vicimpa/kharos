@@ -1,9 +1,9 @@
 import type { Entity } from '../ecs'
-import { BUILDABLE, BUILDINGS, BUILD_RATE, CORE, canPlace, type BuildingType } from './buildings'
+import { BUILDABLE, BUILDINGS, BUILD_RATE, CORE, canPlace, type BuildingSpec, type BuildingType } from './buildings'
 import { Building, Builds, Converting, Owner, Path, Position, Site, Unit } from './components'
 import { addCredits, pay, reward } from './economy'
 import type { Sim } from './sim'
-import { inCircles, zoneOf } from './zones'
+import { inCircles, inForeignZone, zoneOf } from './zones'
 import { UNITS, evictUnits, isWalkable, orderMove, standingUnits, tileKey } from './units'
 
 /** С какого расстояния до основания строитель работает, в тайлах: с соседнего тайла, в том числе углового. */
@@ -35,10 +35,15 @@ export function inControl(sim: Sim, player: number, type: BuildingType, x: numbe
   return inCircles(zoneOf(sim, player), x + width / 2, y + height / 2)
 }
 
-/** Может ли игрок заложить здесь здание: вид строится строителями, место годится и лежит в зоне строительства. */
+/**
+ * Может ли игрок заложить здесь здание: вид строится строителями, место годится, лежит в своей зоне строительства
+ * и не задевает чужую. Здание с собственной зоной своей зоны не требует — оно начинает новую.
+ */
 export function canBuild(sim: Sim, player: number, type: BuildingType, x: number, y: number) {
-  if (!BUILDABLE.includes(type)) return false
-  return canPlace(sim, type, x, y) && inControl(sim, player, type, x, y)
+  if (!BUILDABLE.includes(type) || !canPlace(sim, type, x, y)) return false
+  const { width, height, zone }: BuildingSpec = BUILDINGS[type]
+  if (inForeignZone(sim, player, x, y, width, height)) return false
+  return zone !== undefined || inControl(sim, player, type, x, y)
 }
 
 /** Расстояние от точки до основания площадки в тайлах; внутри основания — ноль. */
@@ -185,7 +190,7 @@ function volunteer(sim: Sim) {
       if (distance > bestDistance) continue
       let workable = open.get(site.entity)
       if (workable === undefined) {
-        workable = site.demolish || inControl(sim, player, site.type, site.x, site.y)
+        workable = site.demolish || (BUILDINGS[site.type] as BuildingSpec).zone !== undefined || inControl(sim, player, site.type, site.x, site.y)
         open.set(site.entity, workable)
       }
       if (!workable) continue
@@ -248,7 +253,7 @@ export function construct(sim: Sim) {
       world.destroy(entity)
       continue
     }
-    if (!inControl(sim, player, site.type, position.x, position.y)) continue
+    if ((BUILDINGS[site.type] as BuildingSpec).zone === undefined && !inControl(sim, player, site.type, position.x, position.y)) continue
     if (!world.has(entity, Building)) {
       world.add(entity, Building({ type: site.type, phase: world.count(Building) * 5 }))
       evictUnits(sim, position.x, position.y, BUILDINGS[site.type].width, BUILDINGS[site.type].height)

@@ -1,7 +1,7 @@
 import { setBlend } from '../gl'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites, createWhiteTexture } from '../render/sprites'
-import { BUILDINGS, CONTROL_RADIUS, zoneOf } from '../sim'
+import { BUILDINGS, CONTROL_RADIUS, allZones } from '../sim'
 import { placementOf } from './placing'
 import type { Scene } from './scene'
 
@@ -52,21 +52,29 @@ export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass
       rects.clear()
       if (placement) {
         const size = CONTROL_DASH / camera.zoom
-        const zone = zoneOf(scene.sim, scene.player)
-        for (let i = 0; i < zone.length; i += 3) {
-          const radius = zone[i + 2]
-          // Точки идут с одним шагом на любом круге, поэтому на малом их меньше.
-          const dashes = Math.round((CONTROL_DASHES * radius) / CONTROL_RADIUS)
-          dashes: for (let dash = 0; dash < dashes; dash++) {
-            const angle = (dash / dashes) * Math.PI * 2
-            const x = zone[i] + Math.cos(angle) * radius
-            const y = zone[i + 1] + Math.sin(angle) * radius
-            // Рисуется только внешняя граница зоны: точка внутри соседнего круга — не граница.
-            for (let other = 0; other < zone.length; other += 3) {
-              if (other !== i && Math.hypot(x - zone[other], y - zone[other + 1]) < zone[other + 2] - 0.01) continue dashes
+        /** Внешняя граница зоны пунктиром. zone — круги: x, y и радиус подряд. */
+        const outline = (zone: readonly number[], color: Color) => {
+          for (let i = 0; i < zone.length; i += 3) {
+            const radius = zone[i + 2]
+            // Точки идут с одним шагом на любом круге, поэтому на малом их меньше.
+            const dashes = Math.round((CONTROL_DASHES * radius) / CONTROL_RADIUS)
+            dashes: for (let dash = 0; dash < dashes; dash++) {
+              const angle = (dash / dashes) * Math.PI * 2
+              const x = zone[i] + Math.cos(angle) * radius
+              const y = zone[i + 1] + Math.sin(angle) * radius
+              // Рисуется только внешняя граница зоны: точка внутри соседнего круга — не граница.
+              for (let other = 0; other < zone.length; other += 3) {
+                if (other !== i && Math.hypot(x - zone[other], y - zone[other + 1]) < zone[other + 2] - 0.01) continue dashes
+              }
+              rect(x - camera.x - size / 2, y - camera.y - size / 2, size, size, color, BORDER_ALPHA)
             }
-            rect(x - camera.x - size / 2, y - camera.y - size / 2, size, size, CONTROL, BORDER_ALPHA)
           }
+        }
+        // Свои зоны — где строить можно, чужие — где нельзя.
+        for (const [player, zones] of allZones(scene.sim)) {
+          const own = player === scene.player
+          if (own) outline(zones.flatMap((zone) => zone.circles), CONTROL)
+          else for (const zone of zones) outline(zone.circles, FORBIDDEN)
         }
         const { width, height } = BUILDINGS[placement.type]
         area(placement.x, placement.y, width, height, placement.allowed ? ALLOWED : FORBIDDEN)
