@@ -1,7 +1,7 @@
 import type { Entity } from '../ecs'
 import { tileKey } from '../map/terrain'
 import { BUILDABLE, BUILDINGS, BUILD_RATE, CORE, buildingSpec, canPlace, equip, docksClear, newBuilding, siteAt, type BuildingSpec, type BuildingType } from './buildings'
-import { isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './common'
+import { NONE, isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './common'
 import { Building, Builds, Converting, Health, Owner, Path, Position, Producer, Repair, Site, Unit } from './components'
 import { oreLeft } from './deposits'
 import { addCredits, creditsOf, pay, reward, spend } from './economy'
@@ -432,9 +432,11 @@ export function activeRepairs(sim: Sim): RepairLink[] {
  * Возвращает, сколько работы досталось каждой стройке и каждому повреждённому зданию или юниту.
  */
 function workDone(sim: Sim) {
-  const { time } = sim
+  const { world, time } = sim
   const done = new Map<Entity, number>()
+  for (const [, repair] of world.query(Repair)) repair.target = NONE
   for (const link of repairLinks(sim)) {
+    world.get(link.from, Repair)!.target = link.to
     const turner = turnerOf(sim, link.from)
     // За работой юнит или турель поворачивается к ней — и юнит светит на неё фарами.
     if (turner) turner.body.facing = turnToward(turner.body.facing, Math.atan2(link.toY - link.fromY, link.toX - link.fromX), turner.turn * time.step)

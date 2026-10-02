@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { NONE } from './common'
+import { NONE, turnToward, wrap } from './common'
 import { Armed, Attached, Carrier, Owner, Position, Repair, Turret, Unit } from './components'
 import type { Sim } from './sim'
 import { UNITS, unitSpec } from './units'
@@ -22,6 +22,8 @@ export interface TurretSpec {
 }
 
 export const TURRETS = {
+  // Танковая башня: тяжёлая, поворачивается медленно, ядро вылетает с конца длинного ствола.
+  cannon: { turn: 2, radius: 0.85, weapon: 'cannon' },
   rocket: { turn: 4, radius: 0.2, weapon: 'launcher' },
   repair: { turn: 4, radius: 0.2, repair: 5 },
 } satisfies Record<string, TurretSpec>
@@ -59,7 +61,7 @@ export function mountTurrets(sim: Sim, entity: Entity) {
       Position(at),
       Owner({ player }),
       Attached({ parent: entity, along, across }),
-      Turret({ type, facing: unit.facing, prevFacing: unit.facing, prevX: at.x, prevY: at.y }),
+      Turret({ type, prevX: at.x, prevY: at.y }),
     )
     if (spec.weapon) world.add(turret, Armed)
     if (spec.repair) world.add(turret, Repair({ radius: spec.repair }))
@@ -82,13 +84,24 @@ export function turnerOf(sim: Sim, entity: Entity): { body: { facing: number }; 
   const unit = sim.world.get(entity, Unit)
   if (unit) return { body: unit, turn: UNITS[unit.type].turn, radius: UNITS[unit.type].radius }
   const turret = sim.world.get(entity, Turret)
-  if (turret) return { body: turret, turn: TURRETS[turret.type].turn, radius: TURRETS[turret.type].radius }
-  return undefined
+  if (!turret) return undefined
+  // Турель хранит поворот относительно носителя, а наводят её в мировых углах.
+  const hull = sim.world.get(sim.world.get(entity, Attached)?.parent as Entity, Unit)
+  const base = () => hull?.facing ?? 0
+  const body = {
+    get facing() {
+      return wrap(base() + turret.angle)
+    },
+    set facing(value: number) {
+      turret.angle = wrap(value - base())
+    },
+  }
+  return { body, turn: TURRETS[turret.type].turn, radius: TURRETS[turret.type].radius }
 }
 
 /**
  * Раз в тик, после движения: турели встают на свои места на носителях, а турели погибших носителей исчезают.
- * Направление турели своё: носитель, поворачиваясь, её не крутит.
+ * Поворот турели — относительно носителя: поворачиваясь, носитель поворачивает и её.
  */
 export function followCarriers(sim: Sim) {
   const { world } = sim
@@ -96,7 +109,7 @@ export function followCarriers(sim: Sim) {
   for (const [entity, attached, position, turret] of world.query(Attached, Position, Turret)) {
     turret.prevX = position.x
     turret.prevY = position.y
-    turret.prevFacing = turret.facing
+    turret.prevAngle = turret.angle
     const parent = attached.parent as Entity
     const unit = world.get(parent, Unit)
     const at = world.get(parent, Position)
@@ -110,6 +123,18 @@ export function followCarriers(sim: Sim) {
   }
   // Состав мира меняется после обхода.
   for (const entity of orphans) world.destroy(entity)
+}
+
+/**
+ * Раз в тик, после работ и боя: турель без цели и без работы поворачивается туда же, куда смотрит её носитель.
+ * Так свободные башни едут стволом вперёд, а не туда, куда стреляли в последний раз.
+ */
+export function restTurrets(sim: Sim) {
+  const { world, time } = sim
+  for (const [entity, turret] of world.query(Turret)) {
+    if ((world.get(entity, Armed)?.target ?? NONE) !== NONE || (world.get(entity, Repair)?.target ?? NONE) !== NONE) continue
+    turret.angle = turnToward(turret.angle, 0, TURRETS[turret.type].turn * time.step)
+  }
 }
 
 /** Может ли юнит воевать: вооружён сам или несёт вооружённые турели. */

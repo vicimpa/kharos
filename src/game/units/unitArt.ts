@@ -186,15 +186,14 @@ function heavyHull(p: ReturnType<typeof pen>, team: TeamColors) {
   p.bar(-8, -6, 0, 10, team[0])
 }
 
-/** Танк: гусеницы, башня и длинный ствол. */
+/** Танк: гусеницы, корпус и погон под башню. Башня — отдельная турель, её рисует cannonTurret поверх. */
 const tank: UnitArt = (g, angle, team) => {
   const p = pen(g, angle)
   heavyHull(p, team)
-  p.bar(0, 14, 0, 3.6, INK)
-  p.bar(0, 13, 0, 1.6, IRON[3])
-  p.dot(-1, 0, 5.6, INK)
-  p.dot(-1, 0, 4.6, STEEL[2])
-  p.dot(-2, -1, 2, team[1])
+  p.bar(6, 9, 0, 8, STEEL[2])
+  p.beam(7.5, -3, 3, 1, STEEL[0])
+  p.dot(-1, 0, 6.4, INK)
+  p.dot(-1, 0, 5.6, STEEL[0])
 }
 
 /** Разрядник: тяжёлое шасси с катушкой и двумя электродами. */
@@ -336,8 +335,22 @@ export const UNIT_LIGHTS: Record<UnitType, UnitLights> = {
 
 export const UNIT_ART = { mcv, builder, infantry, truck, rocketeer, buggy, lancer, tank, tesla, carrier, drone, gunship } satisfies Record<UnitType, UnitArt>
 
-/** Сторона кадра турели в пикселях: тайл. */
-export const TURRET_FRAME = 16
+/** Сторона кадра турели в пикселях: два тайла, чтобы влез длинный ствол. */
+export const TURRET_FRAME = 32
+
+/** Танковая башня: круглая, с люком и длинным стволом с дульным тормозом. */
+const cannonTurret: UnitArt = (g, angle, team) => {
+  const p = pen(g, angle)
+  p.bar(2, 13, 0, 3.6, INK)
+  p.bar(2, 12.5, 0, 1.6, IRON[3])
+  p.bar(11.5, 14, 0, 4.4, INK)
+  p.bar(12, 13.5, 0, 2.6, IRON[2])
+  p.dot(0, 0, 5.4, INK)
+  p.dot(0, 0, 4.4, STEEL[2])
+  p.dot(-1, 0, 3.4, team[0])
+  p.dot(-1.5, -1.5, 1.6, team[1])
+  p.dot(-2, 1.5, 1, IRON[4])
+}
 
 /** Ракетная турель: квадратный блок с двумя пусковыми трубами. */
 const rocketTurret: UnitArt = (g, angle, team) => {
@@ -364,4 +377,4 @@ const repairTurret: UnitArt = (g, angle) => {
   p.dot(-1.2, -0.8, 1, HAZARD[2])
 }
 
-export const TURRET_ART = { rocket: rocketTurret, repair: repairTurret } satisfies Record<TurretType, UnitArt>
+export const TURRET_ART = { cannon: cannonTurret, rocket: rocketTurret, repair: repairTurret } satisfies Record<TurretType, UnitArt>

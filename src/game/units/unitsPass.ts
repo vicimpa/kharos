@@ -128,7 +128,9 @@ export function createUnitsPasses(gl: WebGL2RenderingContext, scene: Scene): { g
           const { x, y } = drawnPosition(position, turret, time.alpha)
           if (Math.abs(x - camera.x) > halfWidth || Math.abs(y - camera.y) > halfHeight) continue
           const team: Team = owner.player === scene.player ? 'own' : 'foe'
-          const { u, v, width: frameWidth, height: frameHeight } = turretFramesOf(team, turret.type)[directionOf(drawnFacing(turret, time.alpha))]
+          // Поворот турели — относительно носителя: оба сглаживаются по отдельности, как в симуляции.
+          const facing = drawnFacing(carrier, time.alpha) + turret.prevAngle + wrap(turret.angle - turret.prevAngle) * time.alpha
+          const { u, v, width: frameWidth, height: frameHeight } = turretFramesOf(team, turret.type)[directionOf(facing)]
           const left = x - camera.x - TURRET_TILES / 2
           const top = y - camera.y - TURRET_TILES / 2
           shadows.push(left + shadowShift / 2, top + shadowShift / 2, TURRET_TILES, TURRET_TILES, u, v, frameWidth, frameHeight, 0, 0, 0, shadowAlpha)

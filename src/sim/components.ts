@@ -24,8 +24,9 @@ export const Health = component('Health', { value: 1, repairable: true, regen: 0
  * Ремонтник: строит, разбирает и чинит своё — стройки, повреждённые здания и юнитов с Health.repairable. Работа
  * у него одна за раз, и юнит работает, только повернувшись к ней. radius — на сколько тайлов от его центра до края
  * цели он дотягивается; rate — сколько работы вкладывает за тик: единица — один строитель. На ходу не работает.
+ * target — над чем он работает в этот тик; NONE — ни над чем.
  */
-export const Repair = component('Repair', { radius: 5, rate: 1 })
+export const Repair = component('Repair', { radius: 5, rate: 1, target: -1 })
 
 /** Чьё это. Игрок 0 — ничей: такими сущностями никто не командует. */
 export const Owner = component('Owner', { player: 0 })
@@ -131,10 +132,11 @@ export const Shot = component('Shot', {
 export const Blast = component('Blast', { size: 1, age: 0, life: 0 })
 
 /**
- * Турель: отдельная сущность на юните-носителе, см. turrets.ts. facing — куда смотрит, в мировых радианах, как у юнита;
- * prevFacing, prevX и prevY — где была и куда смотрела тик назад: клиент рисует её между прошлым и нынешним.
+ * Турель: отдельная сущность на юните-носителе, см. turrets.ts. angle — её поворот относительно носителя, в радианах
+ * от -π до π: 0 — туда же, куда носитель; поворачиваясь, носитель несёт её с собой. Куда она смотрит в мире — см. turnerOf.
+ * prevAngle, prevX и prevY — каким был поворот и где она была тик назад: клиент рисует её между прошлым и нынешним.
  */
-export const Turret = component('Turret', { type: 'rocket' as TurretType, facing: 0, prevFacing: 0, prevX: 0, prevY: 0 })
+export const Turret = component('Turret', { type: 'rocket' as TurretType, angle: 0, prevAngle: 0, prevX: 0, prevY: 0 })
 
 /** Прикреплён к сущности parent: стоит на ней в along тайлов вперёд и across вправо от её центра. */
 export const Attached = component('Attached', { parent: -1, along: 0, across: 0 })

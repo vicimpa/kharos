@@ -179,11 +179,13 @@ export function fight(sim: Sim) {
       dead.add(mark.entity)
       return
     }
-    const armed = world.get(mark.entity, Armed)
     const from = marks.get(source)
-    const own = weaponOf(sim, mark.entity)
-    if (!armed || !from || !own || armed.target !== NONE || world.has(mark.entity, Path)) return
-    if (canHit(WEAPONS[own], mark.player, from)) {
+    if (!from || world.has(mark.entity, Path)) return
+    // Отвечают и сам юнит, и его турели.
+    for (const gunner of [mark.entity, ...turretsOf(sim, mark.entity)]) {
+      const armed = world.get(gunner, Armed)
+      const own = weaponOf(sim, gunner)
+      if (!armed || !own || armed.target !== NONE || !canHit(WEAPONS[own], mark.player, from)) continue
       armed.target = source
       armed.chase = true
       armed.stuck = 0

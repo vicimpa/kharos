@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { Armed, Blast, Building, Builds, Carrier, activeRepairs, Health, INFANTRY_REGEN, Repair, Turret, Owner, Path, Position, Producer, Shot, UNITS, Unit, WEAPONS, buildingHp, canAttack, canPlace, createSim, driveBattle, isWalkable, powerStates, producibleBy, randomArmy, spawnBattle, zoneEconomies, type Sim } from '../src/sim'
+import { Armed, Blast, Building, Builds, Carrier, activeRepairs, Health, INFANTRY_REGEN, isFighter, Repair, wrap, Turret, Owner, Path, Position, Producer, Shot, UNITS, Unit, WEAPONS, buildingHp, canAttack, canPlace, createSim, driveBattle, isWalkable, powerStates, producibleBy, randomArmy, spawnBattle, zoneEconomies, type Sim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { addCredits } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
@@ -34,6 +34,8 @@ function untilShot(sim: Sim) {
 
 const health = (sim: Sim, entity: Entity) => sim.world.get(entity, Health)?.value
 const alive = (sim: Sim, entity: Entity) => sim.world.alive(entity)
+/** Цель первой турели юнита: у танка — башни. */
+const gunTarget = (sim: Sim, entity: Entity) => sim.world.get(sim.world.get(entity, Carrier)!.turrets[0] as Entity, Armed)!.target
 
 test('пехотинцы сами стреляют во врага в пределах выстрела: пули летят, цель гибнет и взрывается', () => {
   const { sim, x, y } = field()
@@ -133,6 +135,55 @@ test('ядро бьёт по площади и падает туда, где ц�
   expect(blasted).toBe(true)
 })
 
+test('танк наводит башню, а не корпус, стреляет на ходу, а без цели ровняет башню по корпусу', () => {
+  const { sim, x, y } = field()
+  const tank = spawnUnit(sim, 'tank', 1, x + 5, y)
+  const [tower] = sim.world.get(tank, Carrier)!.turrets as Entity[]
+  // Враг сбоку: поворачивается башня, корпус смотрит, куда смотрел.
+  const facing = sim.world.get(tank, Unit)!.facing
+  const foe = spawnUnit(sim, 'truck', 2, x + 10, y)
+  untilShot(sim)
+  expect(Math.abs(facing)).toBeGreaterThan(1)
+  expect(sim.world.get(tank, Unit)!.facing).toBe(facing)
+  // Поворот башни — относительно корпуса: она смотрит вправо, корпус — вниз.
+  expect(Math.abs(wrap(sim.world.get(tower, Turret)!.angle + facing))).toBeLessThan(0.13)
+  expect(sim.world.get(tower, Armed)!.target).toBe(foe)
+
+  // Едет по приказу — и стреляет на ходу, не останавливаясь.
+  while (sim.world.get(tower, Armed)!.cooldown > 3) sim.advance(TICK)
+  // Корпус разворачивается в дорогу и уводит башню с собой: ей нужно время, чтобы навестись снова.
+  sim.send(1, { type: 'move', units: [tank], x, y })
+  let fired = false
+  for (let i = 0; i < 60 && !fired; i++) {
+    const before = sim.world.count(Shot)
+    sim.advance(TICK)
+    fired ||= sim.world.has(tank, Path) && sim.world.count(Shot) > before
+  }
+  expect(fired).toBe(true)
+
+  // Цели нет — башня поворачивается туда же, куда корпус.
+  sim.world.destroy(foe)
+  seconds(sim, 4)
+  expect(sim.world.get(tower, Armed)!.target).toBe(-1)
+  expect(sim.world.get(tower, Turret)!.angle).toBe(0)
+})
+
+test('турели носителя, попавшего под огонь издалека, отвечают: носитель едет к стрелку', () => {
+  const { sim, x, y } = field()
+  expect(WEAPONS.cannon.range).toBeGreaterThan(WEAPONS.launcher.range)
+  const carrier = spawnUnit(sim, 'carrier', 1, x, y)
+  const tank = spawnUnit(sim, 'tank', 2, x + 7, y)
+  // Пушка до носителя достаёт, а ракеты до танка — нет.
+  sim.world.get(tank, Position)!.x = sim.world.get(tank, Unit)!.prevX = x + 8.1
+  for (let i = 0; i < 200 && health(sim, carrier) === 1; i++) sim.advance(TICK)
+  sim.advance(TICK)
+  const turrets = sim.world.get(carrier, Carrier)!.turrets as Entity[]
+  const rockets = turrets.filter((turret) => sim.world.has(turret, Armed))
+  for (const turret of rockets) expect(sim.world.get(turret, Armed)).toMatchObject({ target: tank, chase: true })
+  seconds(sim, 1)
+  expect(sim.world.get(carrier, Position)!.x).toBeGreaterThan(x + 0.5)
+})
+
 test('разряд перескакивает на соседей, слабея', () => {
   const { sim, x, y } = field()
   spawnUnit(sim, 'tesla', 1, x, y)
@@ -172,12 +223,12 @@ test('летающие летят по прямой над зданиями, а 
   const tesla = spawnUnit(sim, 'tesla', 2, x + 15, y + 2)
   seconds(sim, 5)
   expect(health(sim, drone)).toBe(1)
-  expect(sim.world.get(tank, Armed)!.target).toBe(-1)
+  expect(gunTarget(sim, tank)).toBe(-1)
   // А дрон по ним стреляет.
   expect(health(sim, tank)! < 1 || health(sim, tesla)! < 1).toBe(true)
   sim.send(2, { type: 'attack', units: [tank, tesla], target: drone })
   seconds(sim, 1)
-  expect(sim.world.get(tank, Armed)!.target).toBe(-1)
+  expect(gunTarget(sim, tank)).toBe(-1)
 
   // Ракетчик достаёт.
   spawnUnit(sim, 'rocketeer', 2, x + 12, y + 3)
@@ -202,7 +253,7 @@ test('здания разрушаются: прочность считается
   expect(buildingHp('generator')).toBe(600)
   expect(sim.occupancy.at(spot.x, spot.y)).toBe(building)
   seconds(sim, 4)
-  expect(sim.world.get(tank, Armed)!.target).toBe(building)
+  expect(gunTarget(sim, tank)).toBe(building)
   const left = sim.world.get(building, Health)!.value
   expect(left).toBeLessThan(1)
   expect(left).toBeGreaterThan(0.5)
@@ -283,7 +334,7 @@ test('показательный бой: армии сходятся сами, �
   expect(tanks).toEqual(Array(5).fill('tank'))
   expect(randomArmy(3500, { infantry: 0, rocketeer: 0, buggy: 0, lancer: 0, tank: 0, tesla: 0, drone: 0, gunship: 0 }).length).toBeGreaterThan(0)
   expect(army.reduce((sum, type) => sum + UNITS[type].cost, 0)).toBeGreaterThan(3500 - 60)
-  expect(army.every((type) => UNITS[type].weapon)).toBe(true)
+  expect(army.every(isFighter)).toBe(true)
   spawnBattle(sim, 1, 0, 0)
   const sides = () => {
     const players = new Set<number>()

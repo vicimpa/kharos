@@ -11,7 +11,7 @@ import { earn } from './income'
 import { trade } from './trade'
 import { moveUnits } from './movement'
 import { produceUnits } from './production'
-import { followCarriers } from './turrets'
+import { followCarriers, restTurrets } from './turrets'
 
 /** Границы карты в тайлах. Правая и нижняя — не включая. */
 export interface Bounds {
@@ -41,7 +41,7 @@ export interface SimOptions {
 
 /** Сохранение симуляции. Обычные данные: их можно положить в JSON, на диск или отправить по сети. */
 /** Версия формата сохранения. Меняется, когда старые сохранения перестают подходить: тогда они отбрасываются. */
-export const SAVE_VERSION = 9
+export const SAVE_VERSION = 10
 
 export interface SimSave extends SimOptions {
   version: typeof SAVE_VERSION
@@ -111,6 +111,8 @@ export function createSim(source: SimOptions | SimSave): Sim {
       () => trade(sim),
       // После движения и работ: стреляющий юнит поворачивается к цели, и погибшие в этот тик уже ничего не делают.
       () => fight(sim),
+      // После работ и боя: кому не досталось ни того, ни другого, — те турели разворачиваются по корпусу.
+      () => restTurrets(sim),
       () => recover(sim),
       () => earn(sim),
     ],
