@@ -1,3 +1,4 @@
+import type { Entity } from '../ecs'
 import { BUILDINGS, ORE_PRICE, type BuildingSpec, type BuildingType } from './buildings'
 import { Building, Player, Position } from './components'
 import { oreLeft, takeOre } from './deposits'
@@ -108,14 +109,77 @@ export function powerOf(type: BuildingType, economy: Economy) {
 }
 
 /**
- * Раз в тик: начисляет игрокам доход и вынимает из месторождений добытую руду.
+ * Какую долю прочности в секунду теряет электростанция, когда с зоны просят вдвое больше энергии, чем она даёт.
+ * При меньшем перегрузе урон меньше во столько же раз, при большем — не растёт.
+ */
+export const OVERLOAD_DAMAGE = 0.01
+/** Какую долю прочности в секунду здание восстанавливает само, пока его ничто не разрушает. */
+export const SELF_REPAIR = 0.005
+
+/** Насколько зона перегружена: 0 — энергии хватает, 1 — просят вдвое больше, чем есть, и выше. */
+const overloadOf = (economy: Economy) => (economy.produced > 0 && economy.demand > economy.produced ? Math.min(1, economy.demand / economy.produced - 1) : 0)
+
+/** Что нехватка энергии делает со зданием: электростанция перегружена и разрушается, потребитель работает медленнее. */
+export type PowerState = 'overload' | 'starved'
+
+/** Здания всех игроков, которым сейчас не хватает энергии. Тех, у кого всё в порядке, здесь нет. */
+export function powerStates(sim: Sim): Map<Entity, PowerState> {
+  const states = new Map<Entity, PowerState>()
+  const all = economies(sim)
+  for (const [player, zones] of allZones(sim)) {
+    zones.forEach((zone, i) => {
+      const economy = all.get(player)![i]
+      if (economy.demand <= economy.produced) return
+      for (const entity of zone.buildings) {
+        const power = (BUILDINGS[sim.world.get(entity, Building)!.type] as BuildingSpec).power ?? 0
+        if (power) states.set(entity, power > 0 ? 'overload' : 'starved')
+      }
+    })
+  }
+  return states
+}
+
+/**
+ * Раз в тик: перегруженные электростанции теряют прочность и в нуле разрушаются, остальные здания
+ * понемногу восстанавливаются сами.
+ */
+function wear(sim: Sim, zones: Map<number, Zone[]>, all: Map<number, Economy[]>) {
+  const { world, time } = sim
+  const damage = new Map<Entity, number>()
+  for (const [player, list] of zones) {
+    list.forEach((zone, i) => {
+      const overload = overloadOf(all.get(player)![i])
+      if (!overload) return
+      for (const entity of zone.buildings) {
+        const power = (BUILDINGS[world.get(entity, Building)!.type] as BuildingSpec).power ?? 0
+        if (power > 0) damage.set(entity, OVERLOAD_DAMAGE * overload * time.step)
+      }
+    })
+  }
+  // Состав мира меняется после обхода.
+  const ruined: Entity[] = []
+  for (const [entity, building] of world.query(Building)) {
+    const lost = damage.get(entity)
+    if (lost !== undefined) {
+      building.health -= lost
+      if (building.health <= 0) ruined.push(entity)
+    } else if (building.health < 1) {
+      building.health = Math.min(1, building.health + SELF_REPAIR * time.step)
+    }
+  }
+  for (const entity of ruined) world.destroy(entity)
+}
+
+/**
+ * Раз в тик: начисляет игрокам доход, вынимает из месторождений добытую руду и изнашивает перегруженные электростанции.
  * Доли кредита копятся в earned, на счёт попадают целые.
  */
 export function earn(sim: Sim) {
   const { world, time } = sim
   const zones = allZones(sim)
-  if (!zones.size) return
   const all = economies(sim)
+  // Износ — в самом конце: разрушенное здание исчезает из мира, а зоны этого тика о нём ещё помнят.
+  if (!zones.size) return wear(sim, zones, all)
   for (const list of zones.values()) {
     for (const zone of list) {
       const { mines, share } = miningOf(sim, zone)
@@ -131,4 +195,5 @@ export function earn(sim: Sim) {
     paid.push({ entity, credits: player.credits + whole, earned: earned - whole })
   }
   for (const { entity, credits, earned } of paid) world.set(entity as never, Player, { credits, earned })
+  wear(sim, zones, all)
 }

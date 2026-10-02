@@ -15,6 +15,7 @@ import { createDepositsPass } from './depositsPass'
 import { startFrames } from './frames'
 import { readHud, type HudState } from './hud'
 import type { Scene } from './scene'
+import { createPowerPass } from './powerPass'
 import { createSelectionPass } from './selectionPass'
 import { loadSave, storeSave } from './storage'
 import { createUnitsPass } from './units/unitsPass'
@@ -92,6 +93,7 @@ export function createGame(
         buildings,
         createPrecipitationPass(gl, scene, landWindow),
         createLightingPass(gl, scene, [units, buildings]),
+        createPowerPass(gl, scene),
         createSelectionPass(gl, scene),
         createCursorPass(gl, scene),
       ]

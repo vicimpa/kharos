@@ -3,7 +3,7 @@ import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import {
   BUILDINGS, Building, Builds, CORE, Owner, Site, Unit,
-  canBuild, canDeploy, canPlace, createSim, creditsOf, economyOf, powerOf, refundOf, rewardsOf, siteAt, zoneEconomies, zoneOf, zonesOf, spawnStartingUnits, type BuildingType, type Sim,
+  OVERLOAD_DAMAGE, SELF_REPAIR, canBuild, canDeploy, canPlace, createSim, creditsOf, economyOf, powerOf, powerStates, refundOf, rewardsOf, siteAt, zoneEconomies, zoneOf, zonesOf, spawnStartingUnits, type BuildingType, type Sim,
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { REWARDS, STARTING_CREDITS } from '../src/sim/economy'
@@ -244,4 +244,36 @@ test('в чужой зоне не строят и не разворачиваю�
   const mcvs: Entity[] = []
   for (const [entity, unit, owner] of sim.world.query(Unit, Owner)) if (unit.type === 'mcv' && owner.player === 2) mcvs.push(entity)
   expect(mcvs.map((mcv) => canDeploy(sim, 2, mcv))).toEqual([false, true])
+})
+
+test('перегруженная электростанция теряет прочность и разрушается; без перегруза чинится сама', () => {
+  const { sim, x, y } = start()
+  const plant = put(sim, 'generator', x + 6, y + 4)
+  const first = put(sim, 'matter', x + 6, y)
+  const health = () => sim.world.get(plant, Building)!.health
+  // Энергии хватает: никто не страдает.
+  seconds(sim, 5)
+  expect(health()).toBe(1)
+  expect(powerStates(sim).size).toBe(0)
+
+  // Просят 15 при 10: перегруз наполовину, станция под ударом, потребители замедлены.
+  const second = put(sim, 'matter', x + 9, y)
+  expect(powerStates(sim)).toEqual(new Map([[plant, 'overload'], [first, 'starved'], [second, 'starved']]))
+  seconds(sim, 20)
+  expect(health()).toBeCloseTo(1 - OVERLOAD_DAMAGE * 0.5 * 20)
+
+  // Перегруз сняли — станция понемногу восстанавливается.
+  sim.world.destroy(second)
+  const damaged = health()
+  seconds(sim, 4)
+  expect(health()).toBeCloseTo(damaged + SELF_REPAIR * 4)
+  expect(powerStates(sim).size).toBe(0)
+
+  // Сильный перегруз доводит станцию до разрушения; дальше потребители стоят без энергии.
+  put(sim, 'matter', x + 9, y)
+  put(sim, 'matter', x + 9, y + 4)
+  seconds(sim, 1 / OVERLOAD_DAMAGE + 5)
+  expect(sim.world.has(plant, Building)).toBe(false)
+  expect(economyOf(sim, 1).produced).toBe(0)
+  expect(economyOf(sim, 1).income).toBeCloseTo(0.2)
 })

@@ -67,9 +67,11 @@ export function Hud({ state, send, place }: HudProps) {
           {state.power && (
             <div class={state.power.demand > state.power.produced ? 'hud__hint hud__power is-short' : 'hud__hint hud__power'}>
               ⚡ Энергия зоны: потребляется {state.power.demand} из {state.power.produced}
-              {state.power.demand > state.power.produced && ' — не хватает'}
+              {state.power.demand > state.power.produced && ' — перегруз, станции разрушаются'}
             </div>
           )}
+          {state.starved && <div class="hud__hint hud__power is-short">⚡ Не хватает энергии: здание работает медленнее</div>}
+          {state.health !== null && <div class="hud__hint">Прочность: {percent(state.health)}</div>}
 
           {ore !== null && <div class="hud__hint">{ore > 0 ? `Руды в месторождении: ${ore}` : 'Месторождение выработано'}</div>}
 

@@ -5,8 +5,11 @@ import type { UnitType } from './units'
 /** Место на карте в тайлах. У здания — левый верхний тайл основания, у юнита — его центр. */
 export const Position = component('Position', { x: 0, y: 0 })
 
-/** Здание. phase — сдвиг анимации в кадрах, чтобы одинаковые здания не мигали в такт. */
-export const Building = component('Building', { type: 'command' as BuildingType, phase: 0 })
+/**
+ * Здание. phase — сдвиг анимации в кадрах, чтобы одинаковые здания не мигали в такт.
+ * health — прочность от 1 до 0: в нуле здание разрушается.
+ */
+export const Building = component('Building', { type: 'command' as BuildingType, phase: 0, health: 1 })
 
 /** Чьё это. Игрок 0 — ничей: такими сущностями никто не командует. */
 export const Owner = component('Owner', { player: 0 })
