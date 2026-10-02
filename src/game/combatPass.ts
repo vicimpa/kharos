@@ -39,6 +39,11 @@ const SHELL_ARC = 0.3
 const ARC_STEP = 0.45
 const ARC_SWAY = 0.28
 const ARC_RATE = 30
+/**
+ * Размеры вспышек, лучей и снарядов заданы в точках: точка — пиксель экрана при таком масштабе (пикселей на тайл).
+ * При другом масштабе они меняются вместе с миром, а не остаются прежними на экране.
+ */
+const EFFECT_ZOOM = 32
 /** Сколько тиков после выстрела у ствола видна вспышка. */
 const MUZZLE_TICKS = 1
 
@@ -291,15 +296,21 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
         const { world } = scene.sim
         const { alpha } = scene.sim.time
         const pixel = 1 / camera.zoom
+        const point = 1 / EFFECT_ZOOM
         const halfWidth = width / 2 / camera.zoom + 3
         const halfHeight = height / 2 / camera.zoom + 3
         const visible = (x: number, y: number) => Math.abs(x - camera.x) < halfWidth && Math.abs(y - camera.y) < halfHeight
-        /** Отрезок в тайлах мира; толщина — в пикселях экрана. */
-        const line = (lines: typeof glow, fromX: number, fromY: number, toX: number, toY: number, thickness: number, [r, g, b]: Color, level = 1) =>
-          lines.push(fromX - camera.x, fromY - camera.y, toX - camera.x, toY - camera.y, thickness * pixel, r * level, g * level, b * level, level)
-        /** Квадрат со стороной в пикселях экрана вокруг точки. */
+        /** Отрезок в тайлах мира; толщина — тоже в тайлах. */
+        const strip = (lines: typeof glow, fromX: number, fromY: number, toX: number, toY: number, width: number, [r, g, b]: Color, level = 1) =>
+          lines.push(fromX - camera.x, fromY - camera.y, toX - camera.x, toY - camera.y, width, r * level, g * level, b * level, level)
+        /** Размер эффекта в тайлах по его размеру в точках: уменьшается и растёт вместе с миром, но не тоньше пикселя экрана. */
+        const sized = (points: number) => Math.max(points * point, pixel)
+        /** Отрезок эффекта в тайлах мира; толщина — в точках эффектов. */
+        const line = (lines: typeof glow, fromX: number, fromY: number, toX: number, toY: number, thickness: number, color: Color, level = 1) =>
+          strip(lines, fromX, fromY, toX, toY, sized(thickness), color, level)
+        /** Квадрат со стороной в точках эффектов вокруг точки. */
         const dot = (lines: typeof glow, x: number, y: number, size: number, color: Color, level = 1) =>
-          line(lines, x - (size * pixel) / 2, y, x + (size * pixel) / 2, y, size, color, level)
+          strip(lines, x - sized(size) / 2, y, x + sized(size) / 2, y, sized(size), color, level)
 
         blasts.clear()
         glow.clear()
@@ -381,7 +392,7 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
             const lift = shellLift(shot, alpha)
             dot(solid, x, y, 4, SHELL, 0.35)
             dot(solid, x, y - lift, 5 + lift * 2, SHELL)
-            dot(solid, x - pixel, y - lift - pixel, 2, ROCKET)
+            dot(solid, x - point, y - lift - point, 2, ROCKET)
           }
         }
 
@@ -393,8 +404,8 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
           const half = radius + 0.1
           // Летающий нарисован над землёй там же, где стоит, поэтому полоска на том же месте.
           const top = y - radius - BAR_GAP - (flies(unit.type) ? 0.1 : 0)
-          line(solid, x - half - pixel, top, x + half + pixel, top, BAR_HEIGHT + 2, BAR_BACK)
-          line(solid, x - half, top, x - half + half * 2 * Math.max(0, unit.health), top, BAR_HEIGHT, unit.health > 0.5 ? BAR_GOOD : BAR_BAD)
+          strip(solid, x - half - pixel, top, x + half + pixel, top, (BAR_HEIGHT + 2) * pixel, BAR_BACK)
+          strip(solid, x - half, top, x - half + half * 2 * Math.max(0, unit.health), top, BAR_HEIGHT * pixel, unit.health > 0.5 ? BAR_GOOD : BAR_BAD)
         }
 
         if (smoke.count || blasts.count) {
