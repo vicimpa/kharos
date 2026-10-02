@@ -231,6 +231,33 @@ body {
   flex: 1;
 }
 
+/* Список зданий: по карточке на строку — название слева, энергия и цена справа. */
+.hud__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hud__list button {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.hud__list button span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hud__list .hud__cost {
+  min-width: 32px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .hud button {
   padding: 6px 8px;
   border: 1px solid #2d5b88;
@@ -262,6 +289,11 @@ body {
 
 .hud button small {
   color: #f0c95a;
+}
+
+.hud button small.hud__power {
+  margin-left: 0;
+  color: #8fd0ff;
 }
 
 .hud__progress {

@@ -84,7 +84,7 @@ export function Hud({ state, send, place }: HudProps) {
 
           {construction && (
             <>
-              <div class="hud__row">
+              <div class="hud__list">
                 {construction.options.map(({ building, cost, affordable, power }) => (
                   <button
                     key={building}
@@ -99,8 +99,9 @@ export function Hud({ state, send, place }: HudProps) {
                     }
                     onClick={() => place(construction.placing === building ? null : building)}
                   >
-                    {BUILDING_NAMES[building]} <small>{cost}</small>
+                    <span>{BUILDING_NAMES[building]}</span>
                     {power !== 0 && <small class="hud__power">⚡{power > 0 ? `+${power}` : power}</small>}
+                    <small class="hud__cost">{cost}</small>
                   </button>
                 ))}
               </div>
