@@ -5,6 +5,7 @@ import {
   BUILDINGS, Building, Builds, CORE, Owner, Position, Site, Unit,
   canBuild, canPlace, createSim, creditsOf, isWalkable, rewardsOf, siteAt, spawnStartingUnits, type Sim,
 } from '../src/sim'
+import { BUILD_RATE } from '../src/sim/buildings'
 import { spawnUnit } from '../src/sim/units'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
@@ -57,7 +58,7 @@ test('строитель возводит здание: кредиты спис�
   sim.advance(TICK)
   expect(creditsOf(sim, 1)).toBe(credits - BUILDINGS.generator.cost)
   const entity = siteAt(sim, site.x + 1, site.y + 1)!
-  expect(sim.world.get(entity, Site)).toEqual({ type: 'generator', progress: 0 })
+  expect(sim.world.get(entity, Site)).toEqual({ type: 'generator', progress: 0, demolish: false })
   // Пока строитель не доехал, площадка никому не мешает, но второе здание на неё не поставить.
   expect(isWalkable(sim, site.x, site.y)).toBe(true)
   expect(canBuild(sim, 1, 'silo', site.x, site.y)).toBe(false)
@@ -68,7 +69,7 @@ test('строитель возводит здание: кредиты спис�
   expect(isWalkable(sim, site.x, site.y)).toBe(false)
   expect(sim.world.has(entity, Site)).toBe(true)
 
-  seconds(sim, BUILDINGS.generator.buildTime)
+  seconds(sim, BUILDINGS.generator.cost / BUILD_RATE)
   expect(sim.world.has(entity, Site)).toBe(false)
   expect(sim.world.get(entity, Building)!.type).toBe('generator')
   // Первый генератор приносит награду.

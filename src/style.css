@@ -277,15 +277,6 @@ body {
   background: #1c4368;
 }
 
-.hud button.is-danger {
-  border-color: #b5503c;
-  background: #5a2419;
-}
-
-.hud button.is-danger:hover {
-  background: #7a3020;
-}
-
 .hud__hint {
   color: #8fa9c2;
   font-size: 12px;

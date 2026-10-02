@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import {
-  BUILDINGS, Building, CORE, Owner, Unit,
+  BUILDINGS, Building, Builds, CORE, Owner, Site, Unit,
   canBuild, canPlace, createSim, creditsOf, economyOf, powerOf, refundOf, rewardsOf, siteAt, zoneOf, spawnStartingUnits, type BuildingType, type Sim,
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
@@ -148,32 +148,58 @@ test('готовые здания расширяют зону строитель
   expect(zoneOf(sim, 1).length).toBe(0)
 })
 
-test('разбор возвращает половину цены, сужает зону и не трогает чужое, главное и недостроенное', () => {
+test('здание разбирают строители в полтора раза быстрее стройки; половина цены возвращается в конце', () => {
   const { sim, x, y } = start()
-  const plant = put(sim, 'generator', x + 6, y)
+  const plant = put(sim, 'generator', x + 6, y + 6)
   const link = put(sim, 'silo', x + 13, y + 5)
   const core = coreOf(sim)
+  const builders: Entity[] = []
+  for (const [entity, unit] of sim.world.query(Unit)) if (unit.type === 'builder') builders.push(entity)
   expect(refundOf('generator')).toBe(150)
   expect(canBuild(sim, 1, 'silo', x + 17, y + 3)).toBe(true)
 
-  sim.send(1, { type: 'build', building: 'silo', x: x + 6, y: y + 6, builders: [] })
+  // Чужое, главное и недостроенное под разбор не идут.
+  sim.send(1, { type: 'build', building: 'silo', x: x + 9, y: y + 9, builders: [] })
   sim.advance(TICK)
-  const site = siteAt(sim, x + 6, y + 6)!
-  const credits = creditsOf(sim, 1)
-  sim.send(2, { type: 'demolish', building: plant })
-  sim.send(1, { type: 'demolish', building: core })
-  sim.send(1, { type: 'demolish', building: site })
+  const site = siteAt(sim, x + 9, y + 9)!
+  sim.send(2, { type: 'demolish', building: plant, builders: [] })
+  sim.send(1, { type: 'demolish', building: core, builders: [] })
+  sim.send(1, { type: 'demolish', building: site, builders: [] })
   sim.advance(TICK)
-  expect(sim.world.alive(plant) && sim.world.alive(core) && sim.world.alive(site)).toBe(true)
-  expect(creditsOf(sim, 1)).toBe(credits)
+  expect(sim.world.has(plant, Site) || sim.world.has(core, Site)).toBe(false)
+  expect(sim.world.get(site, Site)!.demolish).toBe(false)
 
-  sim.send(1, { type: 'demolish', building: plant })
-  sim.send(1, { type: 'demolish', building: link })
-  sim.advance(TICK)
-  expect(sim.world.alive(plant) || sim.world.alive(link)).toBe(false)
-  expect(creditsOf(sim, 1)).toBe(credits + 150 + 75)
-  expect(sim.occupancy.at(x + 6, y)).toBeUndefined()
+  // Без строителя здание стоит целым, но уже не работает и зону не расширяет.
+  sim.send(1, { type: 'demolish', building: plant, builders: [] })
+  sim.send(1, { type: 'demolish', building: link, builders: [] })
+  seconds(sim, 2)
+  expect(sim.world.get(plant, Site)).toEqual({ type: 'generator', progress: 300, demolish: true })
   expect(economyOf(sim, 1).produced).toBe(0)
-  // Звено цепочки разобрано — зона сжалась обратно.
   expect(canBuild(sim, 1, 'silo', x + 17, y + 3)).toBe(false)
+
+  // Отмена разбора возвращает здание в строй, денег при этом не даёт.
+  const credits = creditsOf(sim, 1)
+  sim.send(1, { type: 'cancelBuild', site: link })
+  sim.advance(TICK)
+  expect(sim.world.has(link, Site)).toBe(false)
+  expect(canBuild(sim, 1, 'silo', x + 17, y + 3)).toBe(true)
+  expect(creditsOf(sim, 1) - credits).toBeLessThan(2)
+
+  // Один строитель разбирает электростанцию за 15 / 1,5 = 10 секунд, не считая дороги.
+  sim.send(1, { type: 'assist', units: [builders[0]], site: plant })
+  let ticks = 0
+  let working = 0
+  while (sim.world.alive(plant) && ticks++ < 1200) {
+    if (sim.world.get(plant, Site)!.progress < 300) working++
+    sim.advance(TICK)
+  }
+  expect(sim.world.alive(plant)).toBe(false)
+  expect(working).toBe(199)
+  expect(sim.occupancy.at(x + 6, y + 6)).toBeUndefined()
+  // Строитель освобождается на следующем тике.
+  sim.advance(TICK)
+  expect(sim.world.has(builders[0], Builds)).toBe(false)
+  const gained = creditsOf(sim, 1) - credits
+  expect(gained).toBeGreaterThanOrEqual(150)
+  expect(gained).toBeLessThan(150 + 20)
 })

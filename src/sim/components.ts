@@ -51,9 +51,10 @@ export const Converting = component('Converting', { left: 0, total: 0 })
 /**
  * Стройка. Пока строитель не начал работу, это только площадка: у сущности нет компонента Building,
  * она не занимает тайлы и сквозь неё ходят. С началом работы появляется Building, а Site остаётся до конца стройки.
- * progress — сколько тиков работы одного строителя уже вложено.
+ * progress — сколько тиков работы одного строителя уже вложено. demolish — здание не строят, а разбирают:
+ * progress идёт от полного к нулю, и в нуле здание исчезает.
  */
-export const Site = component('Site', { type: 'generator' as BuildingType, progress: 0 })
+export const Site = component('Site', { type: 'generator' as BuildingType, progress: 0, demolish: false })
 
 /** Строитель занят стройкой: едет к площадке site или работает на ней. */
 export const Builds = component('Builds', { site: 0 })

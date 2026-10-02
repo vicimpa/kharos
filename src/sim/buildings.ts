@@ -8,9 +8,8 @@ export interface BuildingSpec {
   /** Сколько тайлов здание занимает на земле. */
   width: number
   height: number
-  /** Цена в кредитах и время стройки в секундах, если строит один строитель. */
+  /** Цена в кредитах. Из неё же считается время стройки: см. BUILD_RATE. */
   cost: number
-  buildTime: number
   /** Энергия: больше нуля — вырабатывает, меньше — потребляет. */
   power?: number
   /** Доход в кредитах в секунду. У потребителя энергии он падает вместе с её нехваткой. */
@@ -22,20 +21,23 @@ export interface BuildingSpec {
   crowding?: boolean
 }
 
+/** Сколько кредитов цены здания один строитель возводит за секунду: здание за 300 строится 15 секунд. */
+export const BUILD_RATE = 20
+
 export const BUILDINGS = {
   // Доход главного здания не даёт остаться без кредитов совсем: на генератор он копит долго, но копит.
-  command: { width: 3, height: 3, cost: 2000, buildTime: 30, income: 0.2 },
-  refinery: { width: 3, height: 2, cost: 600, buildTime: 25 },
-  factory: { width: 2, height: 2, cost: 500, buildTime: 20 },
+  command: { width: 3, height: 3, cost: 2000, income: 0.2 },
+  refinery: { width: 3, height: 2, cost: 600 },
+  factory: { width: 2, height: 2, cost: 500 },
   // Электростанция.
-  generator: { width: 2, height: 2, cost: 300, buildTime: 15, power: 10 },
+  generator: { width: 2, height: 2, cost: 300, power: 10 },
   // Генератор материи — базовый доход: превращает энергию в кредиты.
-  matter: { width: 2, height: 2, cost: 400, buildTime: 20, power: -5, income: 1, crowding: true },
-  radar: { width: 2, height: 2, cost: 400, buildTime: 15 },
-  windtrap: { width: 2, height: 2, cost: 300, buildTime: 15 },
-  barracks: { width: 2, height: 2, cost: 300, buildTime: 15 },
-  silo: { width: 2, height: 1, cost: 150, buildTime: 8 },
-  turret: { width: 1, height: 1, cost: 250, buildTime: 10 },
+  matter: { width: 2, height: 2, cost: 400, power: -5, income: 1, crowding: true },
+  radar: { width: 2, height: 2, cost: 400 },
+  windtrap: { width: 2, height: 2, cost: 300 },
+  barracks: { width: 2, height: 2, cost: 300 },
+  silo: { width: 2, height: 1, cost: 150 },
+  turret: { width: 1, height: 1, cost: 250 },
 } satisfies Record<string, BuildingSpec>
 
 export type BuildingType = keyof typeof BUILDINGS

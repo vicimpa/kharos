@@ -2,7 +2,7 @@ export { BUILDABLE, BUILDINGS, BUILDING_TYPES, CORE, canPlace, siteAt } from './
 export type { BuildingSpec, BuildingType, Occupancy } from './buildings'
 export type { Command } from './commands'
 export { Building, Builds, Converting, Owner, Path, Player, Position, Producer, Site, Unit } from './components'
-export { DEMOLISH_REFUND, canBuild, canDemolish, coreCenters, refundOf, siteTicks } from './construction'
+export { DEMOLISH_REFUND, DEMOLISH_SPEED, canBuild, canDemolish, coreCenters, refundOf, siteTicks } from './construction'
 export { CONTROL_RADIUS, EXPAND_RADIUS, zoneOf } from './zones'
 export { canDeploy, canPack, deploySite } from './conversion'
 export { REWARDS, creditsOf, rewardsOf } from './economy'

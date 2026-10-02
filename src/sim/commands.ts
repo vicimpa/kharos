@@ -31,10 +31,10 @@ export type Command =
   | { type: 'build'; building: BuildingType; x: number; y: number; builders: number[] }
   /** Послать своих строителей на свою стройку. */
   | { type: 'assist'; units: number[]; site: number }
-  /** Отменить свою стройку и вернуть кредиты. */
+  /** Отменить свою стройку и вернуть кредиты; для здания под разбор — отменить разбор. */
   | { type: 'cancelBuild'; site: number }
-  /** Разобрать своё готовое здание и вернуть часть его цены. */
-  | { type: 'demolish'; building: number }
+  /** Назначить своё готовое здание под разбор и послать к нему своих строителей. Отменяется через cancelBuild. */
+  | { type: 'demolish'; building: number; builders: number[] }
   /** Отладка: создать юнит в тайле. Уйдёт, когда юнитов начнёт производить главное здание. */
   | { type: 'spawnUnit'; unit: UnitType; x: number; y: number }
 
@@ -74,8 +74,10 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
     }
     case 'cancelBuild':
       return cancelBuild(sim, player, command.site as Entity)
-    case 'demolish':
-      return demolish(sim, player, command.building as Entity)
+    case 'demolish': {
+      const builders = Array.isArray(command.builders) ? (command.builders as Entity[]) : []
+      return demolish(sim, player, command.building as Entity, builders)
+    }
     case 'deploy': {
       const unit = command.unit as Entity
       if (!canDeploy(sim, player, unit)) return false

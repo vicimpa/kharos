@@ -26,6 +26,8 @@ export interface HudState {
     started: boolean
     /** Готовность от 0 до 1. */
     progress: number
+    /** Здание разбирают: готовность идёт к нулю. */
+    demolish: boolean
   } | null
   /** Разбор, если выбрано своё готовое здание, которое можно разобрать. refund — сколько кредитов вернётся. */
   demolish: { building: number; refund: number } | null
@@ -78,7 +80,7 @@ export function readHud(scene: Scene): HudState {
     const work = world.get(entity, Site)
     if (work) {
       const progress = round(Math.min(1, work.progress / siteTicks(work.type, sim.time.step)))
-      site = { entity, started: world.has(entity, Building), progress }
+      site = { entity, started: world.has(entity, Building), progress, demolish: work.demolish }
     }
     if (canDemolish(sim, player, entity)) demolish = { building: entity, refund: refundOf(world.get(entity, Building)!.type) }
     if (world.has(entity, Producer)) producers.push(entity)

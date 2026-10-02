@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { BUILDABLE, BUILDINGS, CORE, canPlace, type BuildingType } from './buildings'
+import { BUILDABLE, BUILDINGS, BUILD_RATE, CORE, canPlace, type BuildingType } from './buildings'
 import { Building, Builds, Converting, Owner, Path, Position, Site, Unit } from './components'
 import { addCredits, pay, reward } from './economy'
 import type { Sim } from './sim'
@@ -15,7 +15,7 @@ const TURN = Math.PI * 2
 const wrap = (angle: number) => angle - TURN * Math.round(angle / TURN)
 
 /** Сколько тиков работы одного строителя нужно на здание. */
-export const siteTicks = (type: BuildingType, step: number) => Math.round(BUILDINGS[type].buildTime / step)
+export const siteTicks = (type: BuildingType, step: number) => Math.round(BUILDINGS[type].cost / BUILD_RATE / step)
 
 /** Центры главных зданий игрока, x и y подряд. */
 export function coreCenters(sim: Sim, player: number) {
@@ -105,16 +105,26 @@ export function orderBuild(sim: Sim, player: number, type: BuildingType, x: numb
   return site
 }
 
-/** Отменяет стройку: площадка или недостроенное здание исчезает, кредиты возвращаются целиком. */
+/**
+ * Отменяет стройку: площадка или недостроенное здание исчезает, кредиты возвращаются целиком.
+ * Отмена разбора оставляет здание целым: денег за него ещё не выдавали.
+ */
 export function cancelBuild(sim: Sim, player: number, site: Entity) {
   if (!isOwnSite(sim, player, site)) return false
-  addCredits(sim, player, BUILDINGS[sim.world.get(site, Site)!.type].cost)
+  const { type, demolish } = sim.world.get(site, Site)!
+  if (demolish) {
+    sim.world.remove(site, Site)
+    return true
+  }
+  addCredits(sim, player, BUILDINGS[type].cost)
   sim.world.destroy(site)
   return true
 }
 
 /** Какую долю цены возвращает разбор готового здания. */
 export const DEMOLISH_REFUND = 0.5
+/** Во сколько раз разбирать быстрее, чем строить. */
+export const DEMOLISH_SPEED = 1.5
 
 /** Сколько кредитов вернёт разбор здания этого вида. */
 export const refundOf = (type: BuildingType) => Math.floor(BUILDINGS[type].cost * DEMOLISH_REFUND)
@@ -128,18 +138,22 @@ export function canDemolish(sim: Sim, player: number, building: Entity) {
 }
 
 /**
- * Разбирает готовое здание: оно исчезает сразу, игроку возвращается часть цены. Зона строительства
- * при этом не обязательна — так можно забрать хоть что-то за здание, оставшееся без главного.
+ * Назначает готовое здание под разбор и посылает к нему строителей. Разбирают его строители — так же, как строят,
+ * только быстрее; часть цены возвращается, когда здание разобрано до конца. С этого момента здание не работает
+ * и зону не расширяет. Зона строительства для разбора не нужна — так можно забрать хоть что-то за здание,
+ * оставшееся без главного.
  */
-export function demolish(sim: Sim, player: number, building: Entity) {
+export function demolish(sim: Sim, player: number, building: Entity, builders: Entity[]) {
   if (!canDemolish(sim, player, building)) return false
-  addCredits(sim, player, refundOf(sim.world.get(building, Building)!.type))
-  sim.world.destroy(building)
+  const { type } = sim.world.get(building, Building)!
+  sim.world.add(building, Site({ type, progress: siteTicks(type, sim.time.step), demolish: true }))
+  assignBuilders(sim, player, building, builders)
   return true
 }
 
 /**
  * Раз в тик: строители, стоящие вплотную к своей площадке, вкладывают в неё работу — чем их больше, тем быстрее.
+ * Здание под разбор они так же разбирают.
  * С первым тиком работы площадка становится недостроенным зданием и занимает тайлы; юниты с неё уходят.
  * Стройка вне радиуса контроля (главное здание свернули) стоит, пока контроль не вернётся.
  */
@@ -180,7 +194,15 @@ export function construct(sim: Sim) {
   for (const [entity, count] of workers) {
     const site = world.get(entity, Site)!
     const position = world.get(entity, Position)!
-    if (!inControl(sim, world.get(entity, Owner)?.player ?? 0, site.type, position.x, position.y)) continue
+    const player = world.get(entity, Owner)?.player ?? 0
+    if (site.demolish) {
+      site.progress -= count * DEMOLISH_SPEED
+      if (site.progress > 0) continue
+      addCredits(sim, player, refundOf(site.type))
+      world.destroy(entity)
+      continue
+    }
+    if (!inControl(sim, player, site.type, position.x, position.y)) continue
     if (!world.has(entity, Building)) {
       world.add(entity, Building({ type: site.type, phase: world.count(Building) * 5 }))
       evictUnits(sim, position.x, position.y, BUILDINGS[site.type].width, BUILDINGS[site.type].height)
@@ -188,6 +210,6 @@ export function construct(sim: Sim) {
     site.progress += count
     if (site.progress < siteTicks(site.type, time.step)) continue
     world.remove(entity, Site)
-    reward(sim, world.get(entity, Owner)?.player ?? 0, site.type)
+    reward(sim, player, site.type)
   }
 }

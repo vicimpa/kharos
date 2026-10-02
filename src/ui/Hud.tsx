@@ -36,8 +36,6 @@ export function Hud({ state, send, place }: HudProps) {
   const { units, building, site, demolish, construction, conversion, production } = state
   const selected = units.length > 0 || building !== null
   const fresh = useNewRewards(state.rewards)
-  // Разбор — в два щелчка: здание исчезает сразу, и половина цены теряется. Хранится, какое здание ждёт подтверждения.
-  const [confirming, setConfirming] = useState<number | null>(null)
 
   return (
     <>
@@ -70,7 +68,7 @@ export function Hud({ state, send, place }: HudProps) {
         <section class="hud hud--selection">
           <header class="hud__title">
             {building !== null
-              ? `${site ? 'Стройка: ' : ''}${BUILDING_NAMES[building]}`
+              ? `${site ? (site.demolish ? 'Разбор: ' : 'Стройка: ') : ''}${BUILDING_NAMES[building]}`
               : units.map(({ type, count }) => (count > 1 ? `${UNIT_NAMES[type]} ×${count}` : UNIT_NAMES[type])).join(', ')}
           </header>
 
@@ -78,25 +76,30 @@ export function Hud({ state, send, place }: HudProps) {
             <>
               <div class="hud__progress">
                 <span style={{ width: percent(site.progress) }} />
-                <em>{site.started ? `Строится — ${percent(site.progress)}` : 'Ждёт строителя'}</em>
+                <em>
+                  {site.demolish
+                    ? site.progress < 1
+                      ? `Разбирается — осталось ${percent(site.progress)}`
+                      : 'Ждёт строителя: выбери его и щёлкни по зданию правой кнопкой'
+                    : site.started
+                      ? `Строится — ${percent(site.progress)}`
+                      : 'Ждёт строителя'}
+                </em>
               </div>
-              <button onClick={() => send({ type: 'cancelBuild', site: site.entity })}>Отменить стройку</button>
+              <button onClick={() => send({ type: 'cancelBuild', site: site.entity })}>
+                {site.demolish ? 'Отменить разбор' : 'Отменить стройку'}
+              </button>
             </>
           )}
 
-          {demolish &&
-            (confirming === demolish.building ? (
-              <div class="hud__row">
-                <button class="is-danger" onClick={() => send({ type: 'demolish', building: demolish.building })}>
-                  Разобрать <small>+{demolish.refund}</small>
-                </button>
-                <button onClick={() => setConfirming(null)}>Оставить</button>
-              </div>
-            ) : (
-              <button title="Здание исчезнет, вернётся половина цены" onClick={() => setConfirming(demolish.building)}>
-                Разобрать <small>+{demolish.refund}</small>
-              </button>
-            ))}
+          {demolish && (
+            <button
+              title="Здание разберут строители; когда закончат, вернётся половина цены"
+              onClick={() => send({ type: 'demolish', building: demolish.building, builders: [] })}
+            >
+              Разобрать <small>+{demolish.refund}</small>
+            </button>
+          )}
 
           {construction && (
             <>
