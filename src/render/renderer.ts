@@ -34,7 +34,7 @@ export interface Lights {
   readonly data: number[]
   /**
    * Огонь в точке (x, y) в тайлах. cutRadius — радиус освещённого пятна на земле, bloomRadius — радиус ореола,
-   * оба в пикселях местности. level — яркость от 0 до 1.
+   * оба в пикселях местности; нулевой радиус — без пятна или без ореола. level — яркость от 0 до 1.
    */
   add(x: number, y: number, cutRadius: number, bloomRadius: number, level: number): void
 }

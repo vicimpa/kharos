@@ -105,8 +105,9 @@ export function createLightingPass(gl: WebGL2RenderingContext, scene: Scene): Pa
         if (level <= MIN_LEVEL) continue
         const x = data[i] - camera.x
         const y = data[i + 1] - camera.y
-        cut.push(x, y, data[i + 2], level)
-        bloom.push(x, y, data[i + 3], level)
+        // Нулевой радиус — огонь без пятна или без ореола.
+        if (data[i + 2] > 0) cut.push(x, y, data[i + 2], level)
+        if (data[i + 3] > 0) bloom.push(x, y, data[i + 3], level)
       }
 
       setBlend(gl, 'add')
