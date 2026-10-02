@@ -4,7 +4,7 @@ import { BUILDABLE, BUILDINGS, BUILD_RATE, CORE, buildingSpec, canPlace, equip, 
 import { isOwn, onTurn, ownerOf, rectDistance, turnToward } from './common'
 import { Building, Builds, Converting, Health, Owner, Path, Position, Producer, Repair, Site, Unit } from './components'
 import { oreLeft } from './deposits'
-import { addCredits, pay, reward, spend } from './economy'
+import { addCredits, creditsOf, pay, reward, spend } from './economy'
 import { overbuiltPlants } from './income'
 import type { Sim } from './sim'
 import { inCircles, inForeignZone, zoneOf } from './zones'
@@ -306,10 +306,27 @@ function volunteer(sim: Sim) {
   }
 }
 
-/** Сколько работы за этот тик ремонтники вложили в каждую стройку и в каждое повреждённое здание или юнит. */
-function workDone(sim: Sim) {
+/** Ремонтник from работает над to: строит, чинит или, если demolish, разбирает. */
+export interface RepairLink {
+  from: Entity
+  to: Entity
+  /** Сколько работы за тик он вкладывает. */
+  rate: number
+  demolish: boolean
+  /** Откуда и куда тянется работа, в тайлах: центр ремонтника и ближняя к нему точка цели. */
+  fromX: number
+  fromY: number
+  toX: number
+  toY: number
+}
+
+/** На сколько тайлов вглубь основания здания приходится точка, над которой работает ремонтник. */
+const WORK_INSET = 0.4
+
+/** Кто над чем сейчас работает: каждый ремонтник — над всем своим, до чего дотягивается. */
+export function repairLinks(sim: Sim): RepairLink[] {
   const { world } = sim
-  const done = new Map<Entity, number>()
+  const links: RepairLink[] = []
   const repairers: { entity: Entity; player: number; x: number; y: number; radius: number; rate: number; site?: number }[] = []
   for (const [entity, repair, position, owner] of world.query(Repair, Position, Owner)) {
     // На ходу, разворачиваясь и недостроенным не работают.
@@ -318,7 +335,7 @@ function workDone(sim: Sim) {
     const { width, height } = building ? BUILDINGS[building.type] : { width: 0, height: 0 }
     repairers.push({ entity, player: owner.player, x: position.x + width / 2, y: position.y + height / 2, radius: repair.radius, rate: repair.rate, site: world.get(entity, Builds)?.site })
   }
-  if (!repairers.length) return done
+  if (!repairers.length) return links
 
   const targets: Entity[] = []
   for (const [entity] of world.query(Site, Position, Owner)) targets.push(entity)
@@ -330,15 +347,52 @@ function workDone(sim: Sim) {
   for (const target of targets) {
     const work = workAt(sim, target)!
     const player = ownerOf(sim, target)
+    const site = world.get(target, Site)
     // Электростанцию, которой не хватило бы и целой, чинят только посланные к ней: иначе починка зря жгла бы кредиты.
-    const ordered = !world.has(target, Site) && world.has(target, Building) && (overbuilt ??= overbuiltPlants(sim)).has(target)
-    let amount = 0
+    const ordered = !site && world.has(target, Building) && (overbuilt ??= overbuiltPlants(sim)).has(target)
+    const insetX = Math.min(WORK_INSET, work.width / 2)
+    const insetY = Math.min(WORK_INSET, work.height / 2)
     for (const repairer of repairers) {
       if (repairer.player !== player || repairer.entity === target || (ordered && repairer.site !== target)) continue
-      if (distanceTo(work, repairer.x, repairer.y) <= repairer.radius) amount += repairer.rate
+      if (distanceTo(work, repairer.x, repairer.y) > repairer.radius) continue
+      links.push({
+        from: repairer.entity, to: target, rate: repairer.rate, demolish: !!site?.demolish, fromX: repairer.x, fromY: repairer.y,
+        toX: Math.min(work.x + work.width - insetX, Math.max(work.x + insetX, repairer.x)),
+        toY: Math.min(work.y + work.height - insetY, Math.max(work.y + insetY, repairer.y)),
+      })
     }
-    if (amount) done.set(target, amount)
   }
+  return links
+}
+
+/**
+ * Стоит ли работа, хотя ремонтник до неё дотянулся: стройка вне зоны строительства или с юнитами на ещё пустой
+ * площадке, а починка — без кредитов.
+ */
+function isStalled(sim: Sim, entity: Entity) {
+  const { world } = sim
+  const site = world.get(entity, Site)
+  if (!site) return creditsOf(sim, ownerOf(sim, entity)) <= 0
+  if (site.demolish) return false
+  const { x, y } = world.get(entity, Position)!
+  if (buildingSpec(site.type).zone === undefined && !inControl(sim, ownerOf(sim, entity), site.type, x, y)) return true
+  return isSiteBlocked(sim, entity)
+}
+
+/** Работы, которые идут прямо сейчас: их клиент показывает лучом от ремонтника к цели. */
+export function activeRepairs(sim: Sim): RepairLink[] {
+  const stalled = new Map<Entity, boolean>()
+  return repairLinks(sim).filter(({ to }) => {
+    let stands = stalled.get(to)
+    if (stands === undefined) stalled.set(to, (stands = isStalled(sim, to)))
+    return !stands
+  })
+}
+
+/** Сколько работы за этот тик ремонтники вложили в каждую стройку и в каждое повреждённое здание или юнит. */
+function workDone(sim: Sim) {
+  const done = new Map<Entity, number>()
+  for (const { to, rate } of repairLinks(sim)) done.set(to, (done.get(to) ?? 0) + rate)
   return done
 }
 

@@ -5,7 +5,7 @@ import { createLineProgram, createLines } from '../render/lines'
 import { Pixmap } from '../render/pixmap'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites } from '../render/sprites'
-import { Blast, Health, Position, Shot, UNITS, Unit, WEAPONS, flies, type WeaponSpec } from '../sim'
+import { Blast, Health, Position, Shot, UNITS, Unit, WEAPONS, activeRepairs, flies, type RepairLink, type WeaponSpec } from '../sim'
 import type { Scene } from './scene'
 import { drawnPosition } from './units/unitsPass'
 
@@ -47,6 +47,11 @@ const EFFECT_ZOOM = 32
 /** Сколько тиков после выстрела у ствола видна вспышка. */
 const MUZZLE_TICKS = 1
 
+/** Искры там, где ремонтник работает: сколько их разом, как далеко разлетаются в тайлах и сколько раз в секунду вспыхивают заново. */
+const WELD_SPARKS = 4
+const WELD_SPREAD = 0.35
+const WELD_RATE = 12
+
 /** Высота полоски прочности в пикселях экрана и её отступ над юнитом в тайлах. */
 const BAR_HEIGHT = 3
 const BAR_GAP = 0.25
@@ -60,6 +65,9 @@ const SHELL: Color = [0.12, 0.12, 0.14]
 const LASER: Color = [1, 0.15, 0.3]
 const SPARK: Color = [0.3, 0.6, 1]
 const CORE: Color = [1, 1, 1]
+/** Луч стройки и починки и луч разбора. */
+const MEND: Color = [0.3, 1, 0.55]
+const WRECK: Color = [1, 0.22, 0.1]
 const BAR_BACK: Color = [0.03, 0.05, 0.08]
 const BAR_GOOD: Color = [0.45, 0.9, 0.55]
 const BAR_BAD: Color = [1, 0.35, 0.25]
@@ -161,6 +169,25 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
   const alive = new Set<Entity>()
   const spread = (size: number) => (Math.random() - 0.5) * size
 
+  /** Кто над чем работает в этом кадре: считается раз, в проходе света, и рисуется в обоих. */
+  let repairs: RepairLink[] = []
+  /** Концы луча работы в этом кадре: от края ремонтника до цели; движущийся юнит — там, где он нарисован. */
+  const beamOf = (link: RepairLink, alpha: number) => {
+    const { world } = scene.sim
+    let { fromX, fromY, toX, toY } = link
+    const target = world.get(link.to, Unit)
+    const position = world.get(link.to, Position)
+    if (target && position) ({ x: toX, y: toY } = drawnPosition(position, target, alpha))
+    const tool = world.get(link.from, Unit)
+    const length = Math.hypot(toX - fromX, toY - fromY)
+    if (tool && length) {
+      const reach = Math.min(UNITS[tool.type].radius, length) / length
+      fromX += (toX - fromX) * reach
+      fromY += (toY - fromY) * reach
+    }
+    return { fromX, fromY, toX, toY }
+  }
+
   const puff = (x: number, y: number, size: number, life: number, shade: number, level: number, speedX = 0, speedY = 0) => {
     if (puffs.length >= PUFF_LIMIT) puffs.shift()
     puffs.push({
@@ -253,6 +280,13 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
             if (shot.age <= MUZZLE_TICKS) lights.add(shot.fromX, shot.fromY, 14, 6, 1)
             if (weapon.shot === 'rocket') lights.add(position.x, position.y, 10, 4, 0.8)
           }
+        }
+
+        repairs = activeRepairs(scene.sim)
+        for (const link of repairs) {
+          const { toX, toY } = beamOf(link, time.alpha)
+          // Свет сварки мерцает.
+          lights.add(toX, toY, 12, 5, 0.5 + 0.5 * noise(link.from + link.to, Math.floor(time.elapsed * WELD_RATE * 2)))
         }
 
         emitSmoke()
@@ -393,6 +427,29 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
             dot(solid, x, y, 4, SHELL, 0.35)
             dot(solid, x, y - lift, 5 + lift * 2, SHELL)
             dot(solid, x - point, y - lift - point, 2, ROCKET)
+          }
+        }
+
+        // Работа ремонтников: луч от того, кто строит или чинит, к тому, что он строит или чинит; у разбора луч красный.
+        for (const link of repairs) {
+          const { fromX, fromY, toX, toY } = beamOf(link, alpha)
+          if (!visible(fromX, fromY) && !visible(toX, toY)) continue
+          const color = link.demolish ? WRECK : MEND
+          const seed = link.from * 31 + link.to
+          const flicker = 0.55 + 0.45 * noise(seed, Math.floor(time * WELD_RATE * 2))
+          line(glow, fromX, fromY, toX, toY, 4, color, 0.35 * flicker)
+          line(glow, fromX, fromY, toX, toY, 1.5, color, flicker)
+          dot(glow, fromX, fromY, 4, color, 0.8)
+          dot(glow, toX, toY, 7, color, flicker)
+          dot(glow, toX, toY, 3, CORE, flicker)
+          // Искры разлетаются от места работы и гаснут; каждая вспышка — в новые стороны.
+          const beat = time * WELD_RATE
+          const phase = beat - Math.floor(beat)
+          for (let i = 0; i < WELD_SPARKS; i++) {
+            const angle = noise(seed + i * 7, Math.floor(beat)) * Math.PI * 2
+            const reach = WELD_SPREAD * (0.4 + 0.6 * noise(seed + i * 13, Math.floor(beat))) * phase
+            // Искра падает: чем дальше улетела, тем ниже.
+            dot(glow, toX + Math.cos(angle) * reach, toY + Math.sin(angle) * reach + reach * phase * 0.6, 2, i % 2 ? CORE : color, 1 - phase)
           }
         }
 
