@@ -1,7 +1,7 @@
 import type { Entity } from '../ecs'
 import {
   BUILDABLE, BUILDINGS, Building, Converting, PRODUCIBLE, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
-  atLimit, buildTicks, canDeploy, canPack, coreCenters, creditsOf, economyOf, rewardsOf, siteTicks,
+  buildTicks, canDeploy, canPack, coreCenters, creditsOf, economyOf, powerOf, rewardsOf, siteTicks,
   type BuildingType, type Command, type UnitType,
 } from '../sim'
 import type { Scene } from './scene'
@@ -33,8 +33,8 @@ export interface HudState {
     available: boolean
     /** Здание, для которого сейчас выбирается место. */
     placing: BuildingType | null
-    /** limited — лимит на такие здания исчерпан. */
-    options: { building: BuildingType; cost: number; affordable: boolean; limited: boolean }[]
+    /** power — как здание изменит баланс энергии: больше нуля — даст, меньше — попросит. */
+    options: { building: BuildingType; cost: number; affordable: boolean; power: number }[]
   } | null
   /** Превращение выбранного: MCV разворачивается (deploy), главное здание сворачивается (pack). */
   conversion: {
@@ -97,7 +97,7 @@ export function readHud(scene: Scene): HudState {
             building: type,
             cost: BUILDINGS[type].cost,
             affordable: credits >= BUILDINGS[type].cost,
-            limited: atLimit(sim, player, type),
+            power: powerOf(type, economy),
           })),
         }
       : null,

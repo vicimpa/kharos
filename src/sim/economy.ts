@@ -33,7 +33,7 @@ export const REWARDS = {
   /** Произвёл первый юнит. */
   unit: 50,
   generator: 150,
-  starport: 200,
+  matter: 200,
   silo: 50,
 } satisfies Record<string, number>
 

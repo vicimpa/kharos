@@ -85,23 +85,22 @@ export function Hud({ state, send, place }: HudProps) {
           {construction && (
             <>
               <div class="hud__row">
-                {construction.options.map(({ building, cost, affordable, limited }) => (
+                {construction.options.map(({ building, cost, affordable, power }) => (
                   <button
                     key={building}
                     class={construction.placing === building ? 'is-active' : undefined}
-                    disabled={!construction.available || !affordable || limited}
+                    disabled={!construction.available || !affordable}
                     title={
                       !construction.available
                         ? 'Сначала разверни MCV в главное здание'
-                        : limited
-                          ? 'Больше таких зданий на одно главное здание не построить'
-                          : affordable
-                            ? undefined
-                            : 'Не хватает кредитов'
+                        : affordable
+                          ? undefined
+                          : 'Не хватает кредитов'
                     }
                     onClick={() => place(construction.placing === building ? null : building)}
                   >
                     {BUILDING_NAMES[building]} <small>{cost}</small>
+                    {power !== 0 && <small class="hud__power">⚡{power > 0 ? `+${power}` : power}</small>}
                   </button>
                 ))}
               </div>

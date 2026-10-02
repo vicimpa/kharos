@@ -15,8 +15,11 @@ export interface BuildingSpec {
   power?: number
   /** Доход в кредитах в секунду. У потребителя энергии он падает вместе с её нехваткой. */
   income?: number
-  /** Сколько таких зданий можно иметь на каждое своё главное здание. */
-  perCore?: number
+  /**
+   * Таким зданиям тесно в одной зоне: каждое следующее просит на одну норму энергии больше предыдущего.
+   * Поэтому отдача от них падает, и ставить их без счёта невыгодно.
+   */
+  crowding?: boolean
 }
 
 export const BUILDINGS = {
@@ -24,9 +27,10 @@ export const BUILDINGS = {
   command: { width: 3, height: 3, cost: 2000, buildTime: 30, income: 0.2 },
   refinery: { width: 3, height: 2, cost: 600, buildTime: 25 },
   factory: { width: 2, height: 2, cost: 500, buildTime: 20 },
+  // Электростанция.
   generator: { width: 2, height: 2, cost: 300, buildTime: 15, power: 10 },
-  // Базовый доход: торговля за энергию. Позже через него же продаются ресурсы.
-  starport: { width: 2, height: 3, cost: 400, buildTime: 20, power: -5, income: 1, perCore: 3 },
+  // Генератор материи — базовый доход: превращает энергию в кредиты.
+  matter: { width: 2, height: 3, cost: 400, buildTime: 20, power: -5, income: 1, crowding: true },
   radar: { width: 2, height: 2, cost: 400, buildTime: 15 },
   windtrap: { width: 2, height: 2, cost: 300, buildTime: 15 },
   barracks: { width: 2, height: 2, cost: 300, buildTime: 15 },
@@ -39,7 +43,7 @@ export type BuildingType = keyof typeof BUILDINGS
 export const CORE: BuildingType = 'command'
 export const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[]
 /** Что возводят строители. Остальные здания появятся вместе с тем, для чего они нужны. */
-export const BUILDABLE: BuildingType[] = ['generator', 'starport', 'silo']
+export const BUILDABLE: BuildingType[] = ['generator', 'matter', 'silo']
 
 /** Какие тайлы заняты зданиями. Обновляется сам: следит за появлением и исчезновением зданий в мире. */
 export interface Occupancy {

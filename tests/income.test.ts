@@ -3,7 +3,7 @@ import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import {
   BUILDINGS, Building, CORE, Owner, Unit,
-  atLimit, canBuild, canPlace, createSim, creditsOf, economyOf, rewardsOf, spawnStartingUnits, type BuildingType, type Sim,
+  canBuild, canPlace, createSim, creditsOf, economyOf, powerOf, rewardsOf, zoneOf, spawnStartingUnits, type BuildingType, type Sim,
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { REWARDS, STARTING_CREDITS } from '../src/sim/economy'
@@ -14,13 +14,15 @@ const seconds = (sim: Sim, time: number) => {
   for (let i = 0; i < Math.round(time / TICK); i++) sim.advance(TICK)
 }
 const PLATEAU = 14
+/** Скала должна тянуться вправо дальше зоны главного здания: на ней проверяется расширение зоны. */
+const WIDE = 26
 
 /** Симуляция, где игрок 1 развернул главное здание в углу просторной скалы; (x, y) — левый верхний тайл скалы. */
 function start() {
   const sim = createSim(options)
   const rock = (x: number, y: number) => {
     for (let tileY = y; tileY < y + PLATEAU; tileY++) {
-      for (let tileX = x; tileX < x + PLATEAU; tileX++) if (!canPlace(sim, 'turret', tileX, tileY)) return false
+      for (let tileX = x; tileX < x + WIDE; tileX++) if (!canPlace(sim, 'turret', tileX, tileY)) return false
     }
     return true
   }
@@ -52,7 +54,7 @@ test('развёрнутое главное здание приносит наг
   const { sim } = start()
   expect(rewardsOf(sim, 1)).toEqual(['deploy'])
   expect(creditsOf(sim, 1)).toBe(STARTING_CREDITS + REWARDS.deploy)
-  expect(economyOf(sim, 1)).toEqual({ produced: 0, demand: 0, income: BUILDINGS.command.income })
+  expect(economyOf(sim, 1)).toEqual({ produced: 0, demand: 0, income: BUILDINGS.command.income, crowd: 0 })
 
   seconds(sim, 50)
   expect(creditsOf(sim, 1)).toBe(STARTING_CREDITS + REWARDS.deploy + 10)
@@ -73,50 +75,75 @@ test('награда выдаётся один раз: свернуть и ра�
   expect(rewardsOf(sim, 1)).toEqual(['deploy'])
 })
 
-test('космопорт даёт кредиты за энергию, а при её нехватке — меньше', () => {
+test('генератор материи даёт кредиты за энергию, а при её нехватке — меньше', () => {
   const { sim, x, y } = start()
-  put(sim, 'starport', x + 6, y)
-  // Без генератора космопорт стоит.
-  expect(economyOf(sim, 1)).toEqual({ produced: 0, demand: 5, income: 0.2 })
+  put(sim, 'matter', x + 6, y)
+  // Без электростанции генератор материи стоит.
+  expect(economyOf(sim, 1)).toEqual({ produced: 0, demand: 5, income: 0.2, crowd: 1 })
 
   put(sim, 'generator', x + 6, y + 4)
-  expect(economyOf(sim, 1)).toEqual({ produced: 10, demand: 5, income: 1.2 })
+  expect(economyOf(sim, 1)).toEqual({ produced: 10, demand: 5, income: 1.2, crowd: 1 })
   const credits = creditsOf(sim, 1)
   seconds(sim, 10)
   expect(creditsOf(sim, 1)).toBe(credits + 12)
-
-  // Три космопорта просят 15 энергии, а есть 10: все работают на две трети.
-  put(sim, 'starport', x + 9, y)
-  put(sim, 'starport', x + 9, y + 4)
-  const economy = economyOf(sim, 1)
-  expect(economy.demand).toBe(15)
-  expect(economy.income).toBeCloseTo(0.2 + 3 * (10 / 15))
 })
 
-test('здания вне радиуса контроля и без главного здания не работают', () => {
+test('каждый следующий генератор материи в зоне просит больше энергии', () => {
+  const { sim, x, y } = start()
+  put(sim, 'generator', x + 6, y + 4)
+  put(sim, 'matter', x + 6, y)
+  expect(powerOf('matter', economyOf(sim, 1))).toBe(-10)
+  expect(powerOf('generator', economyOf(sim, 1))).toBe(10)
+
+  // Два просят 5 + 10 = 15 энергии, а есть 10: оба работают на две трети.
+  put(sim, 'matter', x + 9, y)
+  expect(economyOf(sim, 1).demand).toBe(15)
+  expect(economyOf(sim, 1).income).toBeCloseTo(0.2 + 2 * (10 / 15))
+
+  // Третий просит ещё 15: без новой электростанции общий доход от него только упадёт.
+  put(sim, 'matter', x + 9, y + 4)
+  expect(economyOf(sim, 1).demand).toBe(30)
+  expect(economyOf(sim, 1).income).toBeCloseTo(0.2 + 3 * (10 / 30))
+})
+
+test('здания вне зоны и без главного здания не работают', () => {
   const { sim, x, y } = start()
   put(sim, 'generator', x + 6, y)
-  put(sim, 'starport', x + 6, y + 3)
-  put(sim, 'starport', x + 60, y)
-  expect(economyOf(sim, 1)).toEqual({ produced: 10, demand: 5, income: 1.2 })
+  put(sim, 'matter', x + 6, y + 3)
+  put(sim, 'matter', x + 60, y)
+  expect(economyOf(sim, 1)).toEqual({ produced: 10, demand: 5, income: 1.2, crowd: 1 })
 
   sim.send(1, { type: 'pack', building: coreOf(sim) })
   seconds(sim, 10.1)
-  expect(economyOf(sim, 1)).toEqual({ produced: 0, demand: 0, income: 0 })
+  expect(economyOf(sim, 1)).toEqual({ produced: 0, demand: 0, income: 0, crowd: 0 })
   const credits = creditsOf(sim, 1)
   seconds(sim, 5)
   expect(creditsOf(sim, 1)).toBe(credits)
 })
 
-test('космопортов не больше трёх на главное здание, считая стройки', () => {
+test('готовые здания расширяют зону строительства по цепочке, стройки — нет', () => {
   const { sim, x, y } = start()
-  put(sim, 'starport', x + 6, y)
-  put(sim, 'starport', x + 9, y)
-  expect(atLimit(sim, 1, 'starport')).toBe(false)
-  expect(canBuild(sim, 1, 'starport', x + 6, y + 4)).toBe(true)
-  sim.send(1, { type: 'build', building: 'starport', x: x + 6, y: y + 4, builders: [] })
+  // Главное здание стоит у (x + 3.5, y + 3.5): радиус 12 кончается около x + 15.
+  const far = x + 17
+  expect(zoneOf(sim, 1).length).toBe(3)
+  expect(canPlace(sim, 'silo', far, y + 3)).toBe(true)
+  expect(canBuild(sim, 1, 'silo', far, y + 3)).toBe(false)
+
+  // Площадка у края зоны её не расширяет, готовое здание — расширяет.
+  sim.send(1, { type: 'build', building: 'silo', x: x + 13, y: y + 3, builders: [] })
   sim.advance(TICK)
-  expect(atLimit(sim, 1, 'starport')).toBe(true)
-  expect(canBuild(sim, 1, 'starport', x + 9, y + 4)).toBe(false)
-  expect(atLimit(sim, 1, 'generator')).toBe(false)
+  expect(canBuild(sim, 1, 'silo', far, y + 3)).toBe(false)
+  put(sim, 'silo', x + 13, y + 5)
+  expect(zoneOf(sim, 1).length).toBe(6)
+  expect(canBuild(sim, 1, 'silo', far, y + 3)).toBe(true)
+
+  // Здание, до которого цепочка не дотягивается, зону не даёт; встанет звено между ними — даст.
+  put(sim, 'silo', x + 22, y + 5)
+  expect(zoneOf(sim, 1).length).toBe(6)
+  put(sim, 'silo', x + 18, y + 5)
+  expect(zoneOf(sim, 1).length).toBe(12)
+
+  sim.send(1, { type: 'pack', building: coreOf(sim) })
+  seconds(sim, 10.1)
+  expect(zoneOf(sim, 1).length).toBe(0)
 })

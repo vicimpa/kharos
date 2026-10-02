@@ -11,8 +11,8 @@ export const BUILDING_NAMES: Record<BuildingType, string> = {
   command: 'Главное здание',
   refinery: 'Переработка',
   factory: 'Завод',
-  generator: 'Генератор',
-  starport: 'Космопорт',
+  generator: 'Электростанция',
+  matter: 'Генератор материи',
   radar: 'Радар',
   windtrap: 'Ветряная ловушка',
   barracks: 'Казармы',
@@ -24,7 +24,7 @@ export const BUILDING_NAMES: Record<BuildingType, string> = {
 export const REWARD_NAMES: Record<Reward, string> = {
   deploy: 'Главное здание развёрнуто',
   unit: 'Первый юнит произведён',
-  generator: 'Первый генератор',
-  starport: 'Первый космопорт',
+  generator: 'Первая электростанция',
+  matter: 'Первый генератор материи',
   silo: 'Первое хранилище',
 }

@@ -161,8 +161,8 @@ const factory: BuildingArt = {
 }
 
 /** Космопорт: посадочная площадка с маяком, диспетчерская и вращающийся радар. */
-const starport: BuildingArt = {
-  ...BUILDINGS.starport,
+const matter: BuildingArt = {
+  ...BUILDINGS.matter,
   draw(g, t, light) {
     slab(g, 0, 0, 32, 48, 3, STEEL)
 
@@ -381,7 +381,7 @@ export const BUILDING_ART = {
   refinery,
   factory,
   generator,
-  starport,
+  matter,
   radar,
   windtrap,
   barracks,

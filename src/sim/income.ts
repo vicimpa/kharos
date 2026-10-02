@@ -1,7 +1,7 @@
-import { BUILDINGS, CORE, type BuildingSpec, type BuildingType } from './buildings'
+import { BUILDINGS, type BuildingSpec, type BuildingType } from './buildings'
 import { Building, Owner, Player, Position, Site } from './components'
-import { CONTROL_RADIUS } from './construction'
 import type { Sim } from './sim'
+import { allZones, inCircles } from './zones'
 
 /** Хозяйство игрока на этот тик. */
 export interface Economy {
@@ -10,46 +10,39 @@ export interface Economy {
   demand: number
   /** Доход в кредитах в секунду с учётом нехватки энергии. */
   income: number
+  /** Сколько в зоне зданий, которым тесно друг с другом (см. BuildingSpec.crowding). */
+  crowd: number
 }
 
-const NOTHING: Economy = { produced: 0, demand: 0, income: 0 }
+const NOTHING: Economy = { produced: 0, demand: 0, income: 0, crowd: 0 }
 
 /**
- * Хозяйства всех игроков. Считаются только готовые здания в радиусе контроля главного здания владельца:
+ * Хозяйства всех игроков. Считаются только готовые здания в зоне строительства владельца:
  * свернул главное здание — встало всё. Если энергии не хватает, потребители работают на ту долю, на которую её хватает.
  */
 export function economies(sim: Sim): Map<number, Economy> {
   const { world } = sim
-  const core = BUILDINGS[CORE]
-  const centers = new Map<number, number[]>()
-  for (const [, position, building, owner] of world.query(Position, Building, Owner)) {
-    if (building.type !== CORE) continue
-    let list = centers.get(owner.player)
-    if (!list) centers.set(owner.player, (list = []))
-    list.push(position.x + core.width / 2, position.y + core.height / 2)
-  }
-
+  const zones = allZones(sim)
   const result = new Map<number, Economy>()
+  if (!zones.size) return result
+
   /** Доход потребителей при полной энергии; после обхода умножается на долю, на которую её хватило. */
   const powered = new Map<number, number>()
   for (const [entity, position, building, owner] of world.query(Position, Building, Owner)) {
-    const list = centers.get(owner.player)
-    if (!list || world.has(entity, Site)) continue
+    const zone = zones.get(owner.player)
+    if (!zone || world.has(entity, Site)) continue
     const spec: BuildingSpec = BUILDINGS[building.type]
     const power = spec.power ?? 0
     const income = spec.income ?? 0
     if (!power && !income) continue
-    let near = false
-    for (let i = 0; i < list.length && !near; i += 2) {
-      near = Math.hypot(position.x + spec.width / 2 - list[i], position.y + spec.height / 2 - list[i + 1]) <= CONTROL_RADIUS
-    }
-    if (!near) continue
+    if (!inCircles(zone, position.x + spec.width / 2, position.y + spec.height / 2)) continue
 
     let economy = result.get(owner.player)
-    if (!economy) result.set(owner.player, (economy = { produced: 0, demand: 0, income: 0 }))
+    if (!economy) result.set(owner.player, (economy = { produced: 0, demand: 0, income: 0, crowd: 0 }))
     if (power > 0) economy.produced += power
     if (power < 0) {
-      economy.demand -= power
+      // Тесное здание просит тем больше, чем их уже в зоне: первое — одну норму, второе — две, третье — три.
+      economy.demand -= power * (spec.crowding ? ++economy.crowd : 1)
       powered.set(owner.player, (powered.get(owner.player) ?? 0) + income)
     } else {
       economy.income += income
@@ -65,15 +58,14 @@ export function economies(sim: Sim): Map<number, Economy> {
 /** Хозяйство одного игрока. */
 export const economyOf = (sim: Sim, player: number): Economy => economies(sim).get(player) ?? NOTHING
 
-/** Сколько зданий этого вида у игрока, считая стройки. */
-export function countOf(sim: Sim, player: number, type: BuildingType) {
-  let count = 0
-  for (const [, building, owner] of sim.world.query(Building, Owner)) if (building.type === type && owner.player === player) count++
-  // Площадка, которую ещё не начали строить, зданием не считается, но место в лимите уже заняла.
-  for (const [entity, site, owner] of sim.world.query(Site, Owner)) {
-    if (site.type === type && owner.player === player && !sim.world.has(entity, Building)) count++
-  }
-  return count
+/**
+ * Как здание этого вида изменит баланс энергии игрока, если его построить в зоне:
+ * больше нуля — добавит выработки, меньше — попросит столько энергии.
+ */
+export function powerOf(type: BuildingType, economy: Economy) {
+  const spec: BuildingSpec = BUILDINGS[type]
+  const power = spec.power ?? 0
+  return power < 0 && spec.crowding ? power * (economy.crowd + 1) : power
 }
 
 /** Раз в тик: начисляет игрокам доход. Доли кредита копятся в earned, на счёт попадают целые. */

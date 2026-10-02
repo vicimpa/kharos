@@ -1,13 +1,11 @@
 import type { Entity } from '../ecs'
-import { BUILDABLE, BUILDINGS, CORE, canPlace, type BuildingSpec, type BuildingType } from './buildings'
+import { BUILDABLE, BUILDINGS, CORE, canPlace, type BuildingType } from './buildings'
 import { Building, Builds, Converting, Owner, Path, Position, Site, Unit } from './components'
 import { addCredits, pay, reward } from './economy'
-import { countOf } from './income'
 import type { Sim } from './sim'
+import { inCircles, zoneOf } from './zones'
 import { UNITS, evictUnits, isWalkable, orderMove, standingUnits, tileKey } from './units'
 
-/** Радиус контроля главного здания в тайлах: строить можно, только если центр основания не дальше от его центра. */
-export const CONTROL_RADIUS = 12
 /** С какого расстояния до основания строитель работает, в тайлах: с соседнего тайла, в том числе углового. */
 const REACH = 1.2
 /** Раз во сколько тиков строитель, не дошедший до площадки, пробует подъехать снова. */
@@ -29,26 +27,15 @@ export function coreCenters(sim: Sim, player: number) {
   return centers
 }
 
-/** Попадает ли здание с левым верхним углом основания в (x, y) в радиус контроля главного здания игрока. */
+/** Попадает ли центр основания здания с левым верхним углом в (x, y) в зону строительства игрока. */
 export function inControl(sim: Sim, player: number, type: BuildingType, x: number, y: number) {
   const { width, height } = BUILDINGS[type]
-  const centers = coreCenters(sim, player)
-  for (let i = 0; i < centers.length; i += 2) {
-    if (Math.hypot(x + width / 2 - centers[i], y + height / 2 - centers[i + 1]) <= CONTROL_RADIUS) return true
-  }
-  return false
+  return inCircles(zoneOf(sim, player), x + width / 2, y + height / 2)
 }
 
-/** Исчерпан ли у игрока лимит на здания этого вида. Без главного здания лимит нулевой. */
-export function atLimit(sim: Sim, player: number, type: BuildingType) {
-  const { perCore } = BUILDINGS[type] as BuildingSpec
-  if (perCore === undefined) return false
-  return countOf(sim, player, type) >= perCore * (coreCenters(sim, player).length / 2)
-}
-
-/** Может ли игрок заложить здесь здание: вид строится строителями, лимит не исчерпан, место годится и лежит в радиусе контроля. */
+/** Может ли игрок заложить здесь здание: вид строится строителями, место годится и лежит в зоне строительства. */
 export function canBuild(sim: Sim, player: number, type: BuildingType, x: number, y: number) {
-  if (!BUILDABLE.includes(type) || atLimit(sim, player, type)) return false
+  if (!BUILDABLE.includes(type)) return false
   return canPlace(sim, type, x, y) && inControl(sim, player, type, x, y)
 }
 

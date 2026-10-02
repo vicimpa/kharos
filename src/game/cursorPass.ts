@@ -1,7 +1,7 @@
 import { setBlend } from '../gl'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites, createWhiteTexture } from '../render/sprites'
-import { BUILDINGS, CONTROL_RADIUS, coreCenters } from '../sim'
+import { BUILDINGS, CONTROL_RADIUS, zoneOf } from '../sim'
 import { placementOf } from './placing'
 import type { Scene } from './scene'
 
@@ -52,13 +52,20 @@ export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass
       rects.clear()
       if (placement) {
         const size = CONTROL_DASH / camera.zoom
-        const centers = coreCenters(scene.sim, scene.player)
-        for (let i = 0; i < centers.length; i += 2) {
-          for (let dash = 0; dash < CONTROL_DASHES; dash++) {
-            const angle = (dash / CONTROL_DASHES) * Math.PI * 2
-            const x = centers[i] + Math.cos(angle) * CONTROL_RADIUS - camera.x
-            const y = centers[i + 1] + Math.sin(angle) * CONTROL_RADIUS - camera.y
-            rect(x - size / 2, y - size / 2, size, size, CONTROL, BORDER_ALPHA)
+        const zone = zoneOf(scene.sim, scene.player)
+        for (let i = 0; i < zone.length; i += 3) {
+          const radius = zone[i + 2]
+          // Точки идут с одним шагом на любом круге, поэтому на малом их меньше.
+          const dashes = Math.round((CONTROL_DASHES * radius) / CONTROL_RADIUS)
+          dashes: for (let dash = 0; dash < dashes; dash++) {
+            const angle = (dash / dashes) * Math.PI * 2
+            const x = zone[i] + Math.cos(angle) * radius
+            const y = zone[i + 1] + Math.sin(angle) * radius
+            // Рисуется только внешняя граница зоны: точка внутри соседнего круга — не граница.
+            for (let other = 0; other < zone.length; other += 3) {
+              if (other !== i && Math.hypot(x - zone[other], y - zone[other + 1]) < zone[other + 2] - 0.01) continue dashes
+            }
+            rect(x - camera.x - size / 2, y - camera.y - size / 2, size, size, CONTROL, BORDER_ALPHA)
           }
         }
         const { width, height } = BUILDINGS[placement.type]
