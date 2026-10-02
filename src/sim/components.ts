@@ -1,6 +1,7 @@
 import { component } from '../ecs'
 import type { BuildingType } from './buildings'
 import type { UnitType } from './units'
+import type { WeaponType } from './weapons'
 
 /** Место на карте в тайлах. У здания — левый верхний тайл основания, у юнита — его центр. */
 export const Position = component('Position', { x: 0, y: 0 })
@@ -17,6 +18,7 @@ export const Owner = component('Owner', { player: 0 })
 /**
  * Юнит. prevX, prevY — где он был тик назад: клиент рисует его между прошлым и нынешним местом.
  * facing — куда смотрит, в радианах от -π до π: 0 — вправо, растёт по часовой стрелке. prevFacing — куда смотрел тик назад.
+ * health — прочность от 1 до 0: в нуле юнит гибнет.
  */
 export const Unit = component('Unit', {
   type: 'infantry' as UnitType,
@@ -24,6 +26,7 @@ export const Unit = component('Unit', {
   prevY: 0,
   facing: Math.PI / 2,
   prevFacing: Math.PI / 2,
+  health: 1,
 })
 
 /**
@@ -80,5 +83,36 @@ export const Hauler = component('Hauler', { ore: 0, mine: -1, base: -1, port: -1
  */
 export const Trade = component('Trade', { wanted: 0, delivered: 0, claimed: 0, left: 0, total: 0 })
 
+/**
+ * Вооружённый юнит. target — кого он атакует, -1 — никого. chase — гнаться ли за целью, когда она вне дальности:
+ * так ведёт себя юнит, которому цель указал игрок или который отвечает на огонь; иначе он бьёт только тех, до кого
+ * достаёт с места. cooldown — сколько тиков до следующего выстрела.
+ */
+export const Armed = component('Armed', { target: -1, chase: false, cooldown: 0 })
+
+/**
+ * Выстрел. Position — где снаряд сейчас, prevX и prevY — где был тик назад. Пуля, ракета и ядро летят из (fromX, fromY)
+ * в (toX, toY); пуля и ракета следят за целью target, ядро падает туда, где цель была при выстреле. Лазер и разряд
+ * бьют сразу, и сущность — только след от них: линия из from в to. age — сколько тиков выстрел живёт, life — сколько
+ * ему отпущено. player и source — чей выстрел и кто стрелял.
+ */
+export const Shot = component('Shot', {
+  weapon: 'rifle' as WeaponType,
+  player: 0,
+  source: -1,
+  target: -1,
+  fromX: 0,
+  fromY: 0,
+  toX: 0,
+  toY: 0,
+  prevX: 0,
+  prevY: 0,
+  age: 0,
+  life: 0,
+})
+
+/** Взрыв: только картинка, урон уже нанесён. size — радиус в тайлах; age и life — как у выстрела. */
+export const Blast = component('Blast', { size: 1, age: 0, life: 0 })
+
 /** Компоненты, которые попадают в сохранение и в сеть. Новый компонент симуляции добавляй сюда. */
-export const SAVED = [Position, Building, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Trade]
+export const SAVED = [Position, Building, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Trade, Armed, Shot, Blast]

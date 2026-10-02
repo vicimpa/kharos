@@ -124,7 +124,7 @@ test('заказ отклоняется без кредитов, у чужого
   const { sim, mcv } = start()
   sim.send(2, { type: 'produce', producer: mcv, unit: 'infantry' })
   sim.send(1, { type: 'produce', producer: mcv, unit: 'mcv' })
-  sim.send(1, { type: 'produce', producer: mcv, unit: 'tank' as never })
+  sim.send(1, { type: 'produce', producer: mcv, unit: 'dragon' as never })
   sim.advance(TICK)
   expect(sim.world.get(mcv, Producer)!.queue).toEqual([])
   expect(creditsOf(sim, 1)).toBe(STARTING_CREDITS)
@@ -190,7 +190,7 @@ test('сохранение посреди превращения и произв
 
 test('MCV не разворачивается, пока под будущим зданием чужой юнит, а своих выгоняет', () => {
   const { sim, mcv, site } = start()
-  const stranger = spawnUnit(sim, 'infantry', 2, site.x, site.y)
+  const stranger = spawnUnit(sim, 'infantry', 0, site.x, site.y)
   const own = spawnUnit(sim, 'builder', 1, site.x + 2, site.y)
   sim.send(1, { type: 'deploy', unit: mcv })
   seconds(sim, 8)
@@ -201,14 +201,14 @@ test('MCV не разворачивается, пока под будущим з
   expect(core(sim)).toBeUndefined()
   expect(sim.world.has(mcv, Converting)).toBe(true)
 
-  sim.send(2, { type: 'move', units: [stranger], x: site.x - 3, y: site.y })
+  sim.send(0, { type: 'move', units: [stranger], x: site.x - 3, y: site.y })
   seconds(sim, 5)
   expect(core(sim)).toBeDefined()
 })
 
 test('разворачивание можно отменить: MCV снова едет', () => {
   const { sim, mcv, site } = start()
-  spawnUnit(sim, 'infantry', 2, site.x, site.y)
+  spawnUnit(sim, 'infantry', 0, site.x, site.y)
   sim.send(1, { type: 'deploy', unit: mcv })
   seconds(sim, 5)
   sim.send(2, { type: 'cancelDeploy', unit: mcv })

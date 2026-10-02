@@ -178,11 +178,11 @@ test('коннектор один: второй грузовик ждёт ряд
   until(sim, () => hauler(idle).docked)
 
   // Чужой юнит на коннекторе главного здания: грузовик не выгружается и никого не гонит.
-  const stranger = spawnUnit(sim, 'infantry', 2, spot.x + 6, spot.y + 3)
+  const stranger = spawnUnit(sim, 'infantry', 0, spot.x + 6, spot.y + 3)
   seconds(sim, 30)
   expect(hauler(busy).ore).toBe(TRUCK_CAPACITY)
   expect(onTile(sim, stranger, spot.x + 6, spot.y + 3)).toBe(true)
-  sim.send(2, { type: 'move', units: [stranger], x: spot.x + 6, y: spot.y + 7 })
+  sim.send(0, { type: 'move', units: [stranger], x: spot.x + 6, y: spot.y + 7 })
   until(sim, () => !hauler(busy).full)
 })
 

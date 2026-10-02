@@ -1,5 +1,6 @@
 import type { Entity } from '../ecs'
 import { BUILDINGS, canPlace, placeBuilding, type BuildingType } from './buildings'
+import { TRAINING_PLAYER, orderAttack, stopAttack } from './combat'
 import { Builds, Owner, Unit } from './components'
 import { assignBuilders, cancelBuild, demolish, orderBuild } from './construction'
 import { DEPLOY_SECONDS, PACK_SECONDS, canDeploy, canPack, cancelDeploy, startConverting } from './conversion'
@@ -36,6 +37,8 @@ export type Command =
   | { type: 'assist'; units: number[]; site: number }
   /** Привязать свои грузовики к своей шахте: они будут возить руду из неё в хранилища. */
   | { type: 'haul'; units: number[]; mine: number }
+  /** Послать своих вооружённых юнитов атаковать чужой юнит или здание: они гонятся за целью, пока она жива. */
+  | { type: 'attack'; units: number[]; target: number }
   /** Заявка на продажу до amount руды: грузовики свезут её в космопорт из хранилищ его зоны, потом придут кредиты. */
   | { type: 'sell'; port: number; amount: number }
   /** Закрыть заявку раньше срока: корабль улетает с тем, что привезли; если ничего — заявка снимается. */
@@ -44,8 +47,8 @@ export type Command =
   | { type: 'cancelBuild'; site: number }
   /** Назначить своё готовое здание под разбор и послать к нему своих строителей. Отменяется через cancelBuild. */
   | { type: 'demolish'; building: number; builders: number[] }
-  /** Отладка: создать юнит в тайле. Уйдёт, когда юнитов начнёт производить главное здание. */
-  | { type: 'spawnUnit'; unit: UnitType; x: number; y: number }
+  /** Отладка: создать юнит в тайле. enemy — отдать его учебному противнику: с ним можно повоевать. */
+  | { type: 'spawnUnit'; unit: UnitType; x: number; y: number; enemy?: boolean }
 
 const isTile = (x: unknown, y: unknown) => Number.isInteger(x) && Number.isInteger(y)
 
@@ -68,10 +71,11 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
         return sim.world.has(entity, Unit) && sim.world.get(entity, Owner)?.player === player
       })
       if (!units.length) return false
-      // Приказ идти снимает строителя со стройки, а грузовик — с маршрута.
+      // Приказ идти снимает строителя со стройки, грузовик — с маршрута, а бойца — с цели.
       for (const entity of units) {
         sim.world.remove(entity, Builds)
         releaseHauler(sim, entity)
+        stopAttack(sim, entity)
       }
       orderGroupMove(sim, units, command.x, command.y)
       return true
@@ -87,6 +91,10 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
     case 'haul': {
       if (!Array.isArray(command.units)) return false
       return assignHaulers(sim, player, command.mine as Entity, command.units as Entity[])
+    }
+    case 'attack': {
+      if (!Array.isArray(command.units)) return false
+      return orderAttack(sim, player, command.units as Entity[], command.target as Entity)
     }
     case 'sell':
       return sellOre(sim, player, command.port as Entity, command.amount)
@@ -119,7 +127,7 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
     case 'spawnUnit': {
       if (!Object.hasOwn(UNITS, command.unit) || !isTile(command.x, command.y)) return false
       if (!isWalkable(sim, command.x, command.y)) return false
-      spawnUnit(sim, command.unit, player, command.x, command.y)
+      spawnUnit(sim, command.unit, command.enemy ? TRAINING_PLAYER : player, command.x, command.y)
       return true
     }
     default:

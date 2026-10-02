@@ -1,7 +1,7 @@
 import type { Entity, Time } from '../ecs'
 import { Owner, Path, Position, Unit } from './components'
 import type { Sim } from './sim'
-import { UNITS, isWalkable, orderMove, stepAside } from './units'
+import { UNITS, canStand, flies, orderMove, stepAside } from './units'
 
 /** Сколько тиков юнит ждёт, не в силах сдвинуться, прежде чем проложить путь заново. */
 const WAIT_TICKS = 20
@@ -34,6 +34,8 @@ interface Body {
   entity: Entity
   position: { x: number; y: number }
   radius: number
+  /** Летающий: с наземными он не сталкивается. */
+  air: boolean
 }
 
 const cellKey = (x: number, y: number) => (Math.floor(y / CELL) + 32768) * 65536 + Math.floor(x / CELL) + 32768
@@ -41,7 +43,7 @@ const cellKey = (x: number, y: number) => (Math.floor(y / CELL) + 32768) * 65536
 /**
  * Раз в тик: двигает юниты по их путям. Юнит поворачивает не мгновенно, а со своей скоростью поворота,
  * и едет туда, куда смотрит, — поэтому на поворотах описывает дугу. Другие юниты для него препятствия:
- * он не входит в них и пробует объехать.
+ * он не входит в них и пробует объехать. Летающие летят по прямой над всем и мешают только друг другу.
  */
 export function moveUnits(sim: Sim, time: Time) {
   const { world } = sim
@@ -53,14 +55,14 @@ export function moveUnits(sim: Sim, time: Time) {
     unit.prevFacing = unit.facing
     // Сетка строится по местам на начало тика: за тик юнит сдвигается куда меньше, чем на ячейку.
     const key = cellKey(position.x, position.y)
-    const body = { entity, position, radius: UNITS[unit.type].radius }
+    const body = { entity, position, radius: UNITS[unit.type].radius, air: flies(unit.type) }
     const cell = cells.get(key)
     if (cell) cell.push(body)
     else cells.set(key, [body])
   }
 
   /** Кого юнит заденет, пройдя по прямой из (fromX, fromY) в (toX, toY). */
-  const collides = (self: Entity, radius: number, fromX: number, fromY: number, toX: number, toY: number) => {
+  const collides = (self: Entity, air: boolean, radius: number, fromX: number, fromY: number, toX: number, toY: number) => {
     const dx = toX - fromX
     const dy = toY - fromY
     const lengthSquared = dx * dx + dy * dy
@@ -71,7 +73,7 @@ export function moveUnits(sim: Sim, time: Time) {
         const cell = cells.get((y + 32768) * 65536 + x + 32768)
         if (!cell) continue
         for (const other of cell) {
-          if (other.entity === self) continue
+          if (other.entity === self || other.air !== air) continue
           const reach = radius + other.radius - OVERLAP
           const offsetX = other.position.x - fromX
           const offsetY = other.position.y - fromY
@@ -102,13 +104,14 @@ export function moveUnits(sim: Sim, time: Time) {
   for (const [entity, position, unit, path] of world.query(Position, Unit, Path)) {
     const { points } = path
     const { speed, turn, radius } = UNITS[unit.type]
+    const air = flies(unit.type)
     const dx = points[0] - position.x
     const dy = points[1] - position.y
     const distance = Math.hypot(dx, dy)
     const wanted = distance ? Math.atan2(dy, dx) : unit.facing
 
     // Юнит, под которым выросло здание, выходит из него: внутри здания тайлы ему не преграда.
-    const inside = !isWalkable(sim, Math.floor(position.x), Math.floor(position.y))
+    const inside = !canStand(sim, air, Math.floor(position.x), Math.floor(position.y))
 
     // Куда ехать: прямо к точке пути, а если там другой юнит — в ближайшую свободную сторону.
     const look = Math.min(distance, LOOK_AHEAD)
@@ -118,8 +121,8 @@ export function moveUnits(sim: Sim, time: Time) {
       const lookX = position.x + Math.cos(angle) * look
       const lookY = position.y + Math.sin(angle) * look
       // Прямой путь проверен, когда прокладывался; в стороне от него может оказаться стена.
-      if (detour && !inside && !isWalkable(sim, Math.floor(lookX), Math.floor(lookY))) continue
-      if (collides(entity, radius, position.x, position.y, lookX, lookY)) continue
+      if (detour && !inside && !canStand(sim, air, Math.floor(lookX), Math.floor(lookY))) continue
+      if (collides(entity, air, radius, position.x, position.y, lookX, lookY)) continue
       heading = wrap(angle)
       break
     }
@@ -143,8 +146,8 @@ export function moveUnits(sim: Sim, time: Time) {
     if (move > 0) {
       const nextX = arrives ? points[0] : position.x + Math.cos(unit.facing) * move
       const nextY = arrives ? points[1] : position.y + Math.sin(unit.facing) * move
-      const open = inside || isWalkable(sim, Math.floor(nextX), Math.floor(nextY))
-      const blocker = open ? collides(entity, radius, position.x, position.y, nextX, nextY) : undefined
+      const open = inside || canStand(sim, air, Math.floor(nextX), Math.floor(nextY))
+      const blocker = open ? collides(entity, air, radius, position.x, position.y, nextX, nextY) : undefined
       if (open && !blocker) {
         position.x = nextX
         position.y = nextY

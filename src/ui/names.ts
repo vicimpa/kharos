@@ -6,6 +6,13 @@ export const UNIT_NAMES: Record<UnitType, string> = {
   builder: 'Строитель',
   infantry: 'Пехотинец',
   truck: 'Грузовик',
+  rocketeer: 'Ракетчик',
+  buggy: 'Багги',
+  lancer: 'Лазерная машина',
+  tank: 'Танк',
+  tesla: 'Разрядник',
+  drone: 'Дрон',
+  gunship: 'Штурмовик',
 }
 
 export const BUILDING_NAMES: Record<BuildingType, string> = {

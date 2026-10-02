@@ -1,9 +1,10 @@
 import type { Entity } from '../ecs'
 import { isPassable, terrainAt } from '../map/terrain'
-import { Converting, Hauler, Owner, Path, Position, Producer, Unit } from './components'
+import { Armed, Converting, Hauler, Owner, Path, Position, Producer, Unit } from './components'
 import { STARTING_CREDITS, addCredits } from './economy'
 import { findPath, smoothPath } from './path'
 import type { Sim } from './sim'
+import type { UnitClass, WeaponType } from './weapons'
 
 /** Что симуляция знает о виде юнита. Как он выглядит, знает клиент: см. game/units/unitArt.ts. */
 export interface UnitSpec {
@@ -16,26 +17,55 @@ export interface UnitSpec {
   /** Цена в кредитах и время производства в секундах. */
   cost: number
   buildTime: number
+  /** Класс: пехота, машина, тяжёлая техника или летающий. Летающим не мешают ни местность, ни здания, ни наземные юниты. */
+  kind: UnitClass
+  /** Прочность: сколько урона юнит выдерживает. */
+  hp: number
+  /** Чем вооружён; без оружия юнит в бою не участвует. См. combat.ts. */
+  weapon?: WeaponType
 }
 
+/** Боевые числа — на глаз: бой ещё не балансировался. */
 export const UNITS = {
-  mcv: { speed: 2.5, turn: 2.2, radius: 0.8, cost: 2000, buildTime: 30 },
-  builder: { speed: 4, turn: 5, radius: 0.45, cost: 150, buildTime: 5 },
-  infantry: { speed: 3, turn: 10, radius: 0.3, cost: 60, buildTime: 3 },
+  mcv: { speed: 2.5, turn: 2.2, radius: 0.8, cost: 2000, buildTime: 30, kind: 'heavy', hp: 800 },
+  builder: { speed: 4, turn: 5, radius: 0.45, cost: 150, buildTime: 5, kind: 'vehicle', hp: 100 },
+  infantry: { speed: 3, turn: 10, radius: 0.3, cost: 60, buildTime: 3, kind: 'infantry', hp: 50, weapon: 'rifle' },
   // Грузовик возит руду из шахты в хранилище: см. hauling.ts.
-  truck: { speed: 3.5, turn: 4, radius: 0.45, cost: 200, buildTime: 8 },
+  truck: { speed: 3.5, turn: 4, radius: 0.45, cost: 200, buildTime: 8, kind: 'vehicle', hp: 150 },
+  // Пехота.
+  rocketeer: { speed: 2.6, turn: 10, radius: 0.3, cost: 120, buildTime: 5, kind: 'infantry', hp: 45, weapon: 'launcher' },
+  // Машинки: быстрые и хрупкие.
+  buggy: { speed: 6, turn: 5, radius: 0.45, cost: 250, buildTime: 7, kind: 'vehicle', hp: 120, weapon: 'machinegun' },
+  lancer: { speed: 4.5, turn: 4.5, radius: 0.45, cost: 350, buildTime: 9, kind: 'vehicle', hp: 140, weapon: 'laser' },
+  // Тяжёлые: медленные, крепкие и дорогие.
+  tank: { speed: 2.2, turn: 2.5, radius: 0.7, cost: 600, buildTime: 14, kind: 'heavy', hp: 450, weapon: 'cannon' },
+  tesla: { speed: 2, turn: 2.5, radius: 0.7, cost: 700, buildTime: 16, kind: 'heavy', hp: 380, weapon: 'arc' },
+  // Летающие.
+  drone: { speed: 7.5, turn: 6, radius: 0.35, cost: 220, buildTime: 6, kind: 'air', hp: 70, weapon: 'machinegun' },
+  gunship: { speed: 5, turn: 3, radius: 0.55, cost: 500, buildTime: 12, kind: 'air', hp: 160, weapon: 'launcher' },
 } satisfies Record<string, UnitSpec>
 
 export type UnitType = keyof typeof UNITS
 export const UNIT_TYPES = Object.keys(UNITS) as UnitType[]
+
+/** Летает ли юнит этого вида. */
+export const flies = (type: UnitType) => (UNITS[type] as UnitSpec).kind === 'air'
+
+/** Лежит ли тайл внутри карты. */
+export function inBounds(sim: Sim, x: number, y: number) {
+  const { bounds } = sim
+  return x >= bounds.left && y >= bounds.top && x < bounds.right && y < bounds.bottom
+}
+
+/** Может ли юнит находиться в тайле: наземному нужен проходимый тайл без здания, летающему — любой внутри карты. */
+export const canStand = (sim: Sim, air: boolean, x: number, y: number) => (air ? inBounds(sim, x, y) : isWalkable(sim, x, y))
 
 /** С чем игрок появляется в мире. */
 const STARTING_UNITS: UnitType[] = ['mcv', 'builder', 'builder', 'infantry', 'infantry', 'infantry']
 
 /** Может ли наземный юнит находиться в тайле: внутри карты, на песке или скале, не в здании. */
 export function isWalkable(sim: Sim, x: number, y: number) {
-  const { bounds } = sim
-  if (x < bounds.left || y < bounds.top || x >= bounds.right || y >= bounds.bottom) return false
+  if (!inBounds(sim, x, y)) return false
   return isPassable(terrainAt(sim.land, x, y)) && sim.occupancy.at(x, y) === undefined
 }
 
@@ -47,12 +77,13 @@ export const tileKey = (x: number, y: number) => (y + 32768) * 65536 + (x + 3276
  * к тому времени, как до них дойдут, они уйдут; с ними юнит расходится на ходу, см. movement.ts.
  * ignore — кого не считать: сам идущий и те, кто трогается вместе с ним. radius — радиус идущего:
  * тайл занят, если, встав в его центр, идущий задел бы стоящего. Так крупная машина не лезет в щель между соседями.
+ * air — считать летающих, а не наземных: друг другу они не мешают.
  */
-export function standingUnits(sim: Sim, ignore: ReadonlySet<Entity>, radius: number) {
+export function standingUnits(sim: Sim, ignore: ReadonlySet<Entity>, radius: number, air = false) {
   const { world } = sim
   const tiles = new Set<number>()
   for (const [entity, position, unit] of world.query(Position, Unit)) {
-    if (ignore.has(entity) || world.has(entity, Path)) continue
+    if (ignore.has(entity) || world.has(entity, Path) || flies(unit.type) !== air) continue
     const reach = UNITS[unit.type].radius + radius
     for (let y = Math.floor(position.y - reach); y <= Math.floor(position.y + reach); y++) {
       for (let x = Math.floor(position.x - reach); x <= Math.floor(position.x + reach); x++) {
@@ -70,8 +101,9 @@ const GROUP_SPACING = 2
  * Проходимые тайлы вокруг точки, от ближних к дальним: места для группы юнитов, через GROUP_SPACING тайлов.
  * Возвращает не больше count тайлов (x, y подряд); если рядом их меньше — сколько нашлось.
  * fromRadius — с какого кольца начинать: 1 пропускает саму точку. blocked — тайлы, которые тоже не годятся.
+ * air — места для летающих: им годится любой тайл карты.
  */
-export function freeTilesNear(sim: Sim, x: number, y: number, count: number, fromRadius = 0, blocked?: ReadonlySet<number>) {
+export function freeTilesNear(sim: Sim, x: number, y: number, count: number, fromRadius = 0, blocked?: ReadonlySet<number>, air = false) {
   const SEARCH_RADIUS = 8
   const tiles: number[] = []
   for (let radius = fromRadius; radius <= SEARCH_RADIUS && tiles.length < count * 2; radius++) {
@@ -82,7 +114,7 @@ export function freeTilesNear(sim: Sim, x: number, y: number, count: number, fro
         const tileX = x + dx * GROUP_SPACING
         const tileY = y + dy * GROUP_SPACING
         if (tiles.length >= count * 2 || blocked?.has(tileKey(tileX, tileY))) continue
-        if (isWalkable(sim, tileX, tileY)) tiles.push(tileX, tileY)
+        if (canStand(sim, air, tileX, tileY)) tiles.push(tileX, tileY)
       }
     }
   }
@@ -96,6 +128,7 @@ export function spawnUnit(sim: Sim, type: UnitType, player: number, x: number, y
   const entity = world.spawn(Position(position), Unit({ type, prevX: position.x, prevY: position.y }), Owner({ player }))
   if (type === 'mcv') world.add(entity, Producer)
   if (type === 'truck') world.add(entity, Hauler)
+  if ((UNITS[type] as UnitSpec).weapon) world.add(entity, Armed)
   return entity
 }
 
@@ -124,12 +157,20 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
   const position = world.get(entity, Position)
   // Юнит, который разворачивается, с места не трогается.
   if (!position || world.has(entity, Converting)) return
-  const taken = standingUnits(sim, ignore ?? new Set([entity]), UNITS[world.get(entity, Unit)!.type].radius)
+  const { type } = world.get(entity, Unit)!
+  const air = flies(type)
+  const taken = standingUnits(sim, ignore ?? new Set([entity]), UNITS[type].radius, air)
   if (taken.has(tileKey(x, y))) {
-    const [freeX, freeY] = freeTilesNear(sim, x, y, 1, 1, taken)
+    const [freeX, freeY] = freeTilesNear(sim, x, y, 1, 1, taken, air)
     if (freeX === undefined) return void world.remove(entity, Path)
     x = freeX
     y = freeY
+  }
+  if (air) {
+    // Летающему преград нет: он летит к цели по прямой.
+    if (!inBounds(sim, x, y)) return void world.remove(entity, Path)
+    world.add(entity, Path({ points: [x + 0.5, y + 0.5], goalX: x, goalY: y, tries }))
+    return
   }
   const fromX = Math.floor(position.x)
   const fromY = Math.floor(position.y)
@@ -150,13 +191,19 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
   else world.remove(entity, Path)
 }
 
-/** Отправляет группу к тайлу (x, y): каждому юниту достаётся свой тайл рядом с целью. */
-export function orderGroupMove(sim: Sim, units: Entity[], x: number, y: number) {
+/**
+ * Отправляет группу к тайлу (x, y): каждому юниту достаётся свой тайл рядом с целью.
+ * Летающие и наземные расходятся по местам порознь: друг другу они не мешают.
+ */
+export function orderGroupMove(sim: Sim, all: Entity[], x: number, y: number) {
+  const air = flies(sim.world.get(all[0], Unit)!.type)
+  const units = all.filter((entity) => flies(sim.world.get(entity, Unit)!.type) === air)
+  if (units.length < all.length) orderGroupMove(sim, all.filter((entity) => !units.includes(entity)), x, y)
   // Друг другу юниты группы не препятствие: они трогаются вместе.
   const group = new Set(units)
   const radius = Math.max(...units.map((entity) => UNITS[sim.world.get(entity, Unit)!.type].radius))
-  const taken = standingUnits(sim, group, radius)
-  const tiles = freeTilesNear(sim, x, y, units.length, 0, taken)
+  const taken = standingUnits(sim, group, radius, air)
+  const tiles = freeTilesNear(sim, x, y, units.length, 0, taken, air)
   if (!tiles.length) return
   units.forEach((entity, i) => {
     // Мест может оказаться меньше, чем юнитов; тогда лишние идут в последнее.
@@ -180,20 +227,22 @@ export function stepAside(sim: Sim, entity: Entity, fromX: number, fromY: number
   const sideX = -Math.sin(heading)
   const sideY = Math.cos(heading)
   const side = (position.x - fromX) * sideX + (position.y - fromY) * sideY >= 0 ? 1 : -1
-  const taken = standingUnits(sim, new Set([entity]), UNITS[unit.type].radius)
+  const air = flies(unit.type)
+  const taken = standingUnits(sim, new Set([entity]), UNITS[unit.type].radius, air)
   for (const sign of [side, -side]) {
     const x = Math.floor(position.x + sideX * sign * room)
     const y = Math.floor(position.y + sideY * sign * room)
-    if (!isWalkable(sim, x, y) || taken.has(tileKey(x, y))) continue
+    if (!canStand(sim, air, x, y) || taken.has(tileKey(x, y))) continue
     orderMove(sim, entity, x, y)
     return
   }
 }
 
-/** Юниты, чей центр лежит внутри прямоугольника в тайлах. */
+/** Наземные юниты, чей центр лежит внутри прямоугольника в тайлах. Летающие не в счёт: земли они не занимают. */
 export function unitsIn(sim: Sim, x: number, y: number, width: number, height: number) {
   const inside: Entity[] = []
-  for (const [entity, position] of sim.world.query(Position, Unit)) {
+  for (const [entity, position, unit] of sim.world.query(Position, Unit)) {
+    if (flies(unit.type)) continue
     if (position.x >= x && position.x < x + width && position.y >= y && position.y < y + height) inside.push(entity)
   }
   return inside

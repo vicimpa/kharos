@@ -1,6 +1,6 @@
 import type { Entity } from '../ecs'
 import {
-  BUILDABLE, BUILDINGS, Building, Converting, Hauler, ORE_PRICE, Owner, PRODUCIBLE, TRUCK_CAPACITY, Trade, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
+  Armed, BUILDABLE, BUILDINGS, Building, Converting, Hauler, ORE_PRICE, Owner, PRODUCIBLE, TRUCK_CAPACITY, Trade, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
   buildTicks, canDemolish, canDeploy, canPack, isDeployBlocked, coreCenters, creditsOf, economyOf, isSiteBlocked, oreLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, zoneEconomies, zonesOf,
   Position, type BuildingSpec, type BuildingType, type Command, type UnitType,
 } from '../sim'
@@ -25,6 +25,8 @@ export interface HudState {
   starved: boolean
   /** Выбранные юниты по видам. */
   units: { type: UnitType; count: number }[]
+  /** Бой: сколько среди выбранных юнитов вооружённых и средняя прочность выбранных юнитов от 0 до 1. */
+  army: { armed: number; health: number } | null
   /** Выбранное здание, если выбрано оно. */
   building: BuildingType | null
   /** Сколько руды осталось под выбранной шахтой. */
@@ -115,9 +117,17 @@ export function readHud(scene: Scene): HudState {
   let starved = false
   const zones = zoneEconomies(sim, player)
   const producers: Entity[] = []
+  let armed = 0
+  let unitHealth = 0
+  let unitCount = 0
   for (const entity of selection) {
     const unit = world.get(entity, Unit)
-    if (unit) counts.set(unit.type, (counts.get(unit.type) ?? 0) + 1)
+    if (unit) {
+      counts.set(unit.type, (counts.get(unit.type) ?? 0) + 1)
+      unitHealth += unit.health
+      unitCount++
+      if (world.has(entity, Armed)) armed++
+    }
     building = world.get(entity, Building)?.type ?? world.get(entity, Site)?.type ?? building
     if (building !== null && (BUILDINGS[building] as BuildingSpec).extract) {
       const position = world.get(entity, Position)!
@@ -176,6 +186,7 @@ export function readHud(scene: Scene): HudState {
     repair,
     starved,
     units: UNIT_TYPES.filter((type) => counts.has(type)).map((type) => ({ type, count: counts.get(type)! })),
+    army: unitCount ? { armed, health: round(unitHealth / unitCount) } : null,
     building,
     ore,
     stock: stock.capacity ? { ore: Math.floor(stock.ore), capacity: stock.capacity } : null,

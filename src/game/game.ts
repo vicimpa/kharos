@@ -8,6 +8,7 @@ import { createLightingPass } from '../weather/lightingPass'
 import { createPrecipitationPass } from '../weather/precipitationPass'
 import { createBoundsPass } from './boundsPass'
 import { createBuildingsPass } from './buildings/buildingsPass'
+import { createCombatPasses } from './combatPass'
 import { Camera } from './camera'
 import { createControls } from './controls'
 import { createCursorPass } from './cursorPass'
@@ -18,7 +19,7 @@ import type { Scene } from './scene'
 import { createPowerPass } from './powerPass'
 import { createSelectionPass } from './selectionPass'
 import { loadCamera, loadSave, storeCamera, storeSave } from './storage'
-import { createUnitsPass } from './units/unitsPass'
+import { createUnitsPasses } from './units/unitsPass'
 
 /** Как часто игра сохраняется в браузер, в секундах. */
 const SAVE_INTERVAL = 10
@@ -89,18 +90,23 @@ export function createGame(
     canvas,
     (gl) => {
       landWindow = createLandWindow(gl)
-      const units = createUnitsPass(gl, scene)
+      const units = createUnitsPasses(gl, scene)
       const buildings = createBuildingsPass(gl, scene)
+      const combat = createCombatPasses(gl, scene)
       // Порядок проходов — порядок отрисовки, снизу вверх.
       return [
         createTerrainPass(gl, scene, landWindow),
         createDepositsPass(gl, scene),
         createBoundsPass(gl, scene),
-        units,
+        units.ground,
         buildings,
+        // Летающие — над зданиями.
+        units.air,
         createPrecipitationPass(gl, scene, landWindow),
-        createLightingPass(gl, scene, [units, buildings]),
+        combat.lights,
+        createLightingPass(gl, scene, [units.ground, buildings]),
         createPowerPass(gl, scene),
+        combat.effects,
         createSelectionPass(gl, scene),
         createCursorPass(gl, scene),
       ]

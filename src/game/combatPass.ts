@@ -1,0 +1,269 @@
+import { setBlend } from '../gl'
+import { createAtlas } from '../render/atlas'
+import { createLineProgram, createLines } from '../render/lines'
+import { Pixmap } from '../render/pixmap'
+import type { Pass } from '../render/renderer'
+import { createSpriteProgram, createSprites } from '../render/sprites'
+import { Blast, Position, Shot, UNITS, Unit, WEAPONS, flies, type WeaponSpec } from '../sim'
+import type { Scene } from './scene'
+import { drawnPosition } from './units/unitsPass'
+
+/** Сторона кадра взрыва в пикселях и число кадров от вспышки до дыма. */
+const BLAST_FRAME = 48
+const BLAST_FRAMES = 8
+/** Во сколько раз картинка взрыва шире его радиуса. */
+const BLAST_SCALE = 2.6
+/** Цвета взрыва по кадрам: от вспышки через огонь к дыму. */
+const BLAST_COLORS = [0xfff6d0, 0xffe07a, 0xffb347, 0xff7a2a, 0xd9481c, 0x8a3a24, 0x55443e, 0x3a3432]
+
+/** Длина следа пули и корпуса ракеты в тайлах. */
+const BULLET_TAIL = 0.45
+const ROCKET_BODY = 0.3
+/** На сколько тайлов за ракетой тянется дым. */
+const ROCKET_SMOKE = 1.6
+/** Как высоко поднимается ядро в верхней точке дуги — доля от дальности выстрела. */
+const SHELL_ARC = 0.3
+/** Излом разряда: через сколько тайлов ломается линия, насколько отклоняется и сколько раз в секунду меняется. */
+const ARC_STEP = 0.45
+const ARC_SWAY = 0.28
+const ARC_RATE = 30
+/** Сколько тиков после выстрела у ствола видна вспышка. */
+const MUZZLE_TICKS = 1
+
+/** Высота полоски прочности в пикселях экрана и её отступ над юнитом в тайлах. */
+const BAR_HEIGHT = 3
+const BAR_GAP = 0.25
+
+type Color = readonly [number, number, number]
+const BULLET: Color = [1, 0.9, 0.55]
+const TRACER: Color = [0.75, 0.4, 0.05]
+const ROCKET: Color = [0.85, 0.87, 0.9]
+const FLAME: Color = [1, 0.6, 0.2]
+const SMOKE: Color = [0.5, 0.5, 0.52]
+const SHELL: Color = [0.12, 0.12, 0.14]
+const LASER: Color = [1, 0.15, 0.3]
+const SPARK: Color = [0.3, 0.6, 1]
+const CORE: Color = [1, 1, 1]
+const BAR_BACK: Color = [0.03, 0.05, 0.08]
+const BAR_GOOD: Color = [0.45, 0.9, 0.55]
+const BAR_BAD: Color = [1, 0.35, 0.25]
+
+/** Простое воспроизводимое случайное число от 0 до 1 по двум целым. */
+function noise(a: number, b: number) {
+  const value = Math.sin(a * 127.1 + b * 311.7) * 43758.5453
+  return value - Math.floor(value)
+}
+
+/** Рисует кадр взрыва: огненный шар из клубов растёт, темнеет и расходится кольцом дыма. */
+function drawBlast(frame: number) {
+  const image = new Pixmap(BLAST_FRAME, BLAST_FRAME)
+  const center = BLAST_FRAME / 2
+  const progress = frame / (BLAST_FRAMES - 1)
+  const radius = (center - 2) * (0.3 + 0.7 * Math.sqrt(progress))
+  const CLOUDS = 7
+  /** Клубы по кругу: чем дальше взрыв, тем дальше от центра и мельче. */
+  const clouds = (share: number, size: number, color: number) => {
+    for (let i = 0; i < CLOUDS; i++) {
+      const angle = (i / CLOUDS) * Math.PI * 2 + noise(i, 3) * 0.8
+      const reach = radius * share * (0.75 + noise(i, 5) * 0.25)
+      image.circle(Math.round(center + Math.cos(angle) * reach), Math.round(center + Math.sin(angle) * reach), radius * size, color)
+    }
+  }
+  if (progress < 0.6) {
+    // Огненный шар: тёмная кайма, огонь, светлая сердцевина.
+    image.circle(center, center, radius * 0.8, BLAST_COLORS[Math.min(frame + 2, BLAST_FRAMES - 1)])
+    clouds(0.6, 0.42, BLAST_COLORS[Math.min(frame + 2, BLAST_FRAMES - 1)])
+    image.circle(center, center, radius * 0.68, BLAST_COLORS[frame + 1])
+    clouds(0.45, 0.32, BLAST_COLORS[frame + 1])
+    image.circle(center, center, radius * 0.45, BLAST_COLORS[frame])
+  } else {
+    // Дым: клубы расходятся, середина пустеет.
+    clouds(0.75, 0.34 * (1.4 - progress), BLAST_COLORS[frame])
+    clouds(0.55, 0.2 * (1.4 - progress), BLAST_COLORS[frame - 1])
+  }
+  return image
+}
+
+/**
+ * Проходы боя. lights ставится до освещения и только добавляет огни: взрывы, лучи и вспышки выстрелов светят
+ * в темноте. effects ставится после освещения, чтобы ночью не темнело: рисует снаряды, лучи, взрывы
+ * и полоски прочности над повреждёнными юнитами.
+ */
+export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { lights: Pass; effects: Pass } {
+  const atlas = createAtlas(gl, Array.from({ length: BLAST_FRAMES }, (_, i) => drawBlast(i)))
+  const spriteProgram = createSpriteProgram(gl)
+  const blasts = createSprites(gl, spriteProgram)
+  const lineProgram = createLineProgram(gl)
+  /** Светящееся складывается с картинкой, тёмное и полоски — ложатся поверх. */
+  const glow = createLines(gl, lineProgram)
+  const solid = createLines(gl, lineProgram)
+
+  /** Доля отпущенного срока, которую выстрел или взрыв уже прожил, с учётом доли тика. */
+  const ageOf = (thing: { age: number; life: number }, alpha: number) => Math.min(1, (thing.age + alpha) / Math.max(1, thing.life))
+
+  return {
+    lights: {
+      draw({ lights }) {
+        const { world, time } = scene.sim
+        for (const [, blast, position] of world.query(Blast, Position)) {
+          const left = 1 - ageOf(blast, time.alpha)
+          const reach = blast.size * 16
+          lights.add(position.x, position.y, reach * 3 * left, reach * 1.5 * left, left)
+        }
+        for (const [, shot, position] of world.query(Shot, Position)) {
+          const weapon: WeaponSpec = WEAPONS[shot.weapon]
+          if (!weapon.speed) {
+            const left = 1 - ageOf(shot, time.alpha)
+            lights.add(shot.fromX, shot.fromY, 14, 6, left)
+            lights.add(shot.toX, shot.toY, 20, 9, left)
+          } else {
+            if (shot.age <= MUZZLE_TICKS) lights.add(shot.fromX, shot.fromY, 14, 6, 1)
+            if (weapon.shot === 'rocket') lights.add(position.x, position.y, 10, 4, 0.8)
+          }
+        }
+      },
+      destroy() {},
+    },
+    effects: {
+      draw({ camera, width, height, time, view }) {
+        const { world } = scene.sim
+        const { alpha } = scene.sim.time
+        const pixel = 1 / camera.zoom
+        const halfWidth = width / 2 / camera.zoom + 3
+        const halfHeight = height / 2 / camera.zoom + 3
+        const visible = (x: number, y: number) => Math.abs(x - camera.x) < halfWidth && Math.abs(y - camera.y) < halfHeight
+        /** Отрезок в тайлах мира; толщина — в пикселях экрана. */
+        const line = (lines: typeof glow, fromX: number, fromY: number, toX: number, toY: number, thickness: number, [r, g, b]: Color, level = 1) =>
+          lines.push(fromX - camera.x, fromY - camera.y, toX - camera.x, toY - camera.y, thickness * pixel, r * level, g * level, b * level, level)
+        /** Квадрат со стороной в пикселях экрана вокруг точки. */
+        const dot = (lines: typeof glow, x: number, y: number, size: number, color: Color, level = 1) =>
+          line(lines, x - (size * pixel) / 2, y, x + (size * pixel) / 2, y, size, color, level)
+
+        blasts.clear()
+        glow.clear()
+        solid.clear()
+
+        for (const [, blast, position] of world.query(Blast, Position)) {
+          if (!visible(position.x, position.y)) continue
+          const age = ageOf(blast, alpha)
+          const frame = atlas.frames[Math.min(BLAST_FRAMES - 1, Math.floor(age * BLAST_FRAMES))]
+          const size = blast.size * BLAST_SCALE
+          // К концу дым тает.
+          const level = Math.min(1, (1 - age) * 3)
+          blasts.push(
+            position.x - camera.x - size / 2, position.y - camera.y - size / 2, size, size,
+            frame.u, frame.v, frame.width, frame.height,
+            level, level, level, level,
+          )
+        }
+
+        for (const [entity, shot, position] of world.query(Shot, Position)) {
+          const weapon: WeaponSpec = WEAPONS[shot.weapon]
+          if (!visible(position.x, position.y) && !visible(shot.toX, shot.toY)) continue
+
+          if (!weapon.speed) {
+            const left = 1 - ageOf(shot, alpha)
+            if (weapon.shot === 'laser') {
+              line(glow, shot.fromX, shot.fromY, shot.toX, shot.toY, 6, LASER, left * 0.7)
+              line(glow, shot.fromX, shot.fromY, shot.toX, shot.toY, 2, CORE, left)
+              dot(glow, shot.toX, shot.toY, 8, LASER, left)
+              continue
+            }
+            // Разряд — ломаная, которая дрожит: изломы меняются много раз в секунду.
+            const dx = shot.toX - shot.fromX
+            const dy = shot.toY - shot.fromY
+            const length = Math.hypot(dx, dy) || 1
+            const joints = Math.max(2, Math.ceil(length / ARC_STEP))
+            const seed = entity * 13 + Math.floor(time * ARC_RATE)
+            let lastX = shot.fromX
+            let lastY = shot.fromY
+            for (let i = 1; i <= joints; i++) {
+              const sway = i === joints ? 0 : (noise(seed, i) - 0.5) * 2 * ARC_SWAY
+              const x = shot.fromX + (dx * i) / joints + (-dy / length) * sway
+              const y = shot.fromY + (dy * i) / joints + (dx / length) * sway
+              line(glow, lastX, lastY, x, y, 5, SPARK, left * 0.8)
+              line(glow, lastX, lastY, x, y, 1.5, CORE, left)
+              lastX = x
+              lastY = y
+            }
+            dot(glow, shot.toX, shot.toY, 9, SPARK, left)
+            continue
+          }
+
+          const x = shot.prevX + (position.x - shot.prevX) * alpha
+          const y = shot.prevY + (position.y - shot.prevY) * alpha
+          if (shot.age <= MUZZLE_TICKS) dot(glow, shot.fromX, shot.fromY, weapon.shot === 'bullet' ? 5 : 9, BULLET)
+
+          // Куда летит: по движению за тик, а пока не сдвинулся — к цели.
+          let headingX = position.x - shot.prevX
+          let headingY = position.y - shot.prevY
+          if (!headingX && !headingY) {
+            headingX = shot.toX - position.x
+            headingY = shot.toY - position.y
+          }
+          const speed = Math.hypot(headingX, headingY) || 1
+          headingX /= speed
+          headingY /= speed
+
+          if (weapon.shot === 'bullet') {
+            // След не длиннее пройденного: у самого ствола пуля ещё короткая.
+            const tail = Math.min(BULLET_TAIL, Math.hypot(x - shot.fromX, y - shot.fromY))
+            // Тёмная подложка: на светлом песке одно свечение не видно.
+            line(solid, x - headingX * tail, y - headingY * tail, x, y, 2, TRACER)
+            line(glow, x - headingX * tail, y - headingY * tail, x, y, 2, BULLET)
+          } else if (weapon.shot === 'rocket') {
+            const smoke = Math.min(ROCKET_SMOKE, Math.hypot(x - shot.fromX, y - shot.fromY))
+            const PUFFS = 6
+            for (let i = 0; i < PUFFS; i++) {
+              const from = ROCKET_BODY + (smoke * i) / PUFFS
+              const to = ROCKET_BODY + (smoke * (i + 1)) / PUFFS
+              line(solid, x - headingX * from, y - headingY * from, x - headingX * to, y - headingY * to, 3 + i * 0.6, SMOKE, 0.5 * (1 - i / PUFFS))
+            }
+            line(glow, x - headingX * (ROCKET_BODY + 0.2), y - headingY * (ROCKET_BODY + 0.2), x - headingX * ROCKET_BODY, y - headingY * ROCKET_BODY, 3, FLAME)
+            line(solid, x - headingX * ROCKET_BODY, y - headingY * ROCKET_BODY, x, y, 3, ROCKET)
+          } else {
+            // Ядро летит по дуге: чем выше, тем крупнее и тем дальше от своей тени на земле.
+            const reach = Math.hypot(shot.toX - shot.fromX, shot.toY - shot.fromY)
+            const lift = Math.sin(Math.PI * ageOf(shot, alpha)) * reach * SHELL_ARC
+            dot(solid, x, y, 4, SHELL, 0.35)
+            dot(solid, x, y - lift, 5 + lift * 2, SHELL)
+            dot(solid, x - pixel, y - lift - pixel, 2, ROCKET)
+          }
+        }
+
+        // Полоски прочности над повреждёнными юнитами — своими и чужими.
+        for (const [, unit, position] of world.query(Unit, Position)) {
+          if (unit.health >= 1 || !visible(position.x, position.y)) continue
+          const { x, y } = drawnPosition(position, unit, alpha)
+          const { radius } = UNITS[unit.type]
+          const half = radius + 0.1
+          // Летающий нарисован над землёй там же, где стоит, поэтому полоска на том же месте.
+          const top = y - radius - BAR_GAP - (flies(unit.type) ? 0.1 : 0)
+          line(solid, x - half - pixel, top, x + half + pixel, top, BAR_HEIGHT + 2, BAR_BACK)
+          line(solid, x - half, top, x - half + half * 2 * Math.max(0, unit.health), top, BAR_HEIGHT, unit.health > 0.5 ? BAR_GOOD : BAR_BAD)
+        }
+
+        if (blasts.count) {
+          setBlend(gl, 'alpha')
+          spriteProgram.use(view, { uTexture: atlas.texture })
+          blasts.draw()
+        }
+        if (solid.count || glow.count) {
+          lineProgram.use(view)
+          setBlend(gl, 'alpha')
+          solid.draw()
+          setBlend(gl, 'add')
+          glow.draw()
+        }
+      },
+      destroy() {
+        blasts.destroy()
+        glow.destroy()
+        solid.destroy()
+        spriteProgram.destroy()
+        lineProgram.destroy()
+        atlas.texture.destroy()
+      },
+    },
+  }
+}

@@ -117,7 +117,7 @@ test('свои юниты уходят с площадки, и только по
 
 test('чужой юнит на площадке держит стройку, пока не уйдёт', () => {
   const { sim, builders, site } = start()
-  const stranger = spawnUnit(sim, 'infantry', 2, site.x, site.y)
+  const stranger = spawnUnit(sim, 'infantry', 0, site.x, site.y)
   sim.send(1, { type: 'build', building: 'generator', x: site.x, y: site.y, builders })
   seconds(sim, 10)
   const entity = siteAt(sim, site.x, site.y)!
@@ -127,7 +127,7 @@ test('чужой юнит на площадке держит стройку, п�
   expect(sim.world.get(entity, Site)!.progress).toBe(0)
   expect(sim.occupancy.at(site.x, site.y)).toBeUndefined()
 
-  sim.send(2, { type: 'move', units: [stranger], x: site.x - 3, y: site.y })
+  sim.send(0, { type: 'move', units: [stranger], x: site.x - 3, y: site.y })
   seconds(sim, 5)
   expect(sim.world.has(entity, Building)).toBe(true)
   expect(sim.world.get(entity, Site)!.progress).toBeGreaterThan(0)

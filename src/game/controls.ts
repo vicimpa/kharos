@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { BUILDING_TYPES, Owner, Position, UNITS, UNIT_TYPES, Unit, canHaul, canPlace, canRepair, isWalkable, siteAt } from '../sim'
+import { Armed, BUILDING_TYPES, Owner, Position, UNITS, UNIT_TYPES, Unit, canAttack, canHaul, canPlace, canRepair, isWalkable, siteAt } from '../sim'
 import { placementOf } from './placing'
 import type { Scene } from './scene'
 
@@ -14,11 +14,12 @@ const RIGHT = 2
 /**
  * Управление с холста и клавиатуры.
  * Левая кнопка — выделение: щелчок по юниту или своему зданию, рамка — по юнитам; с Shift — добавить к выбранным.
- * Правая кнопка — приказ выбранным идти в точку, а строителям по своей стройке — строить её; если её тянуть
- * (или среднюю) — двигается камера.
+ * Правая кнопка — приказ выбранным идти в точку, строителям по своей стройке — строить её, вооружённым по врагу —
+ * атаковать его; если её тянуть (или среднюю) — двигается камера.
  * Пока выбирается место под здание: левая кнопка закладывает его (с Shift — можно сразу следующее), правая и Esc — отмена.
  * Колесо — масштаб, WASD и стрелки — камера.
- * Отладочные клавиши: G — сетка, B — поставить здание под мышью, U — создать юнит под мышью.
+ * Отладочные клавиши: G — сетка, B — поставить здание под мышью, U — создать юнит под мышью, E — создать
+ * под мышью юнит учебного противника.
  */
 export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
   const { camera } = scene
@@ -28,6 +29,9 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
   /** Какое здание и какой юнит создаст следующее нажатие B и U: виды идут по кругу. */
   let nextBuilding = 0
   let nextUnit = 0
+  let nextEnemy = 0
+  /** Кого создаёт E: только вооружённые. */
+  const FIGHTERS = UNIT_TYPES.filter((type) => 'weapon' in UNITS[type])
 
   /** Свои юниты, центр которых попал в прямоугольник в тайлах. */
   const unitsInBox = (left: number, top: number, right: number, bottom: number) => {
@@ -40,14 +44,14 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     return found
   }
 
-  /** Свой юнит под точкой в тайлах: ближайший из тех, в чей круг она попала. */
-  const unitAt = (x: number, y: number) => {
+  /** Юнит под точкой в тайлах: ближайший из тех, в чей круг она попала. own — искать среди своих или среди чужих. */
+  const unitAt = (x: number, y: number, own = true) => {
     const { world } = scene.sim
     const margin = PICK_MARGIN / camera.zoom
     let best: Entity | undefined
     let bestDistance = Infinity
     for (const [entity, position, unit, owner] of world.query(Position, Unit, Owner)) {
-      if (owner.player !== scene.player) continue
+      if ((owner.player === scene.player) !== own) continue
       const distance = Math.hypot(position.x - x, position.y - y)
       if (distance > UNITS[unit.type].radius + margin || distance >= bestDistance) continue
       best = entity
@@ -129,8 +133,13 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
       const builders = units.some((entity) => sim.world.get(entity, Unit)?.type === 'builder')
       // Строители по своей стройке — строят, по повреждённому зданию — чинят; остальные выбранные при этом стоят.
       const trucks = units.some((entity) => sim.world.get(entity, Unit)?.type === 'truck')
+      // Вооружённые по врагу — атакуют: по чужому юниту или зданию под курсором.
+      const enemy = unitAt(point.x, point.y, false) ?? damaged
+      const fighters = units.some((entity) => sim.world.has(entity, Armed))
       // Грузовики по своей шахте — привязываются к ней и возят руду.
-      if (trucks && damaged !== undefined && canHaul(sim, scene.player, damaged)) {
+      if (fighters && enemy !== undefined && canAttack(sim, scene.player, enemy)) {
+        sim.send(scene.player, { type: 'attack', units, target: enemy })
+      } else if (trucks && damaged !== undefined && canHaul(sim, scene.player, damaged)) {
         sim.send(scene.player, { type: 'haul', units, mine: damaged })
       } else if (site !== undefined && builders && sim.world.get(site, Owner)?.player === scene.player) {
         sim.send(scene.player, { type: 'assist', units, site })
@@ -169,6 +178,12 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     scene.sim.send(scene.player, { type: 'spawnUnit', unit: UNIT_TYPES[nextUnit % UNIT_TYPES.length], x: tile.x, y: tile.y })
     nextUnit++
   }
+  const spawnEnemyUnderPointer = () => {
+    const tile = camera.pointerTile
+    if (!tile || !isWalkable(scene.sim, tile.x, tile.y)) return
+    scene.sim.send(scene.player, { type: 'spawnUnit', unit: FIGHTERS[nextEnemy % FIGHTERS.length], x: tile.x, y: tile.y, enemy: true })
+    nextEnemy++
+  }
   const onKeyDown = (event: KeyboardEvent) => {
     // Не трогаем игру, пока пользователь печатает или крутит ползунок в панели.
     if (event.target instanceof HTMLInputElement) return
@@ -176,6 +191,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     if (event.code === 'KeyG') scene.grid = !scene.grid
     if (event.code === 'KeyB') placeUnderPointer()
     if (event.code === 'KeyU') spawnUnderPointer()
+    if (event.code === 'KeyE') spawnEnemyUnderPointer()
     if (event.code === 'Escape') {
       // Сначала отменяется выбор места, и только следующим нажатием — выделение.
       if (scene.placing) scene.placing = null

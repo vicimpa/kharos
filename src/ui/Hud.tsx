@@ -80,6 +80,11 @@ export function Hud({ state, send, place }: HudProps) {
             <div class="hud__hint">Прочность: {percent(state.health)}. Починка стоит {state.repair}: выбери строителей и щёлкни по зданию правой кнопкой</div>
           )}
 
+          {state.army && state.army.health < 1 && <div class="hud__hint">Прочность: {percent(state.army.health)}</div>}
+          {state.army && state.army.armed > 0 && (
+            <div class="hud__hint">Сами стреляют по врагам в пределах выстрела. Правый щелчок по врагу — атаковать</div>
+          )}
+
           {state.stored && (
             <div class="hud__hint">
               Руды в хранилище: {state.stored.ore} из {state.stored.capacity}
@@ -219,7 +224,7 @@ export function Hud({ state, send, place }: HudProps) {
 
           {production && (
             <>
-              <div class="hud__row">
+              <div class="hud__list">
                 {production.options.map(({ unit, cost, affordable }) => (
                   <button
                     key={unit}
@@ -227,7 +232,8 @@ export function Hud({ state, send, place }: HudProps) {
                     title={production.full ? 'Очередь заполнена' : affordable ? undefined : 'Не хватает кредитов'}
                     onClick={() => send({ type: 'produce', producer: production.producer, unit })}
                   >
-                    {UNIT_NAMES[unit]} <small>{cost}</small>
+                    <span>{UNIT_NAMES[unit]}</span>
+                    <small class="hud__cost">{cost}</small>
                   </button>
                 ))}
               </div>
