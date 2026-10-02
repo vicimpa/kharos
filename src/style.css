@@ -1,0 +1,154 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #08111c;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+.game {
+  width: 100%;
+  height: 100%;
+}
+
+.game__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.game {
+  position: relative;
+}
+
+.panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 320px;
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid #3a2c14;
+  border-radius: 6px;
+  background: rgba(20, 14, 6, 0.9);
+  color: #ead9b0;
+  font-size: 12px;
+}
+
+.panel--collapsed {
+  width: auto;
+  cursor: pointer;
+}
+
+.panel button {
+  padding: 4px 8px;
+  border: 1px solid #6b5326;
+  border-radius: 4px;
+  background: #3a2c14;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.panel.panel--collapsed {
+  padding: 6px 10px;
+}
+
+.panel__header,
+.panel__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.panel__group {
+  margin: 10px 0;
+  padding: 6px 8px;
+  border: 1px solid #3a2c14;
+  border-radius: 4px;
+}
+
+.panel__row {
+  display: grid;
+  grid-template-columns: 96px 1fr 48px;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+.panel__row input {
+  min-width: 0;
+  accent-color: #d9a441;
+}
+
+.panel__row input[type='number'] {
+  padding: 3px 6px;
+  border: 1px solid #6b5326;
+  border-radius: 4px;
+  background: #140e06;
+  color: inherit;
+  font: inherit;
+}
+
+.panel__row output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.panel__row:has(input[type='number']) {
+  grid-template-columns: 96px 1fr auto;
+}
+
+.game__error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  background: rgba(8, 17, 28, 0.88);
+  color: #ead9b0;
+  text-align: center;
+}
+
+.game__error pre {
+  max-width: 100%;
+  max-height: 50%;
+  margin: 0;
+  overflow: auto;
+  font-size: 12px;
+  text-align: left;
+  white-space: pre-wrap;
+}
+
+.game__error button {
+  padding: 6px 14px;
+  border: 1px solid #6b5326;
+  border-radius: 4px;
+  background: #3a2c14;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
