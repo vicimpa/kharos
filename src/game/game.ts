@@ -3,7 +3,7 @@ import type { MapSettings } from '../map/settings'
 import { createTerrainPass } from '../map/terrainPass'
 import { createRenderer } from '../render/renderer'
 import type { Session } from '../net/connect'
-import { Owner, Position, Unit, createSim, spawnStartingUnits, type BuildingType, type Command, type SimOptions } from '../sim'
+import { Owner, Position, Unit, createSim, driveBattle, spawnBattle, spawnStartingUnits, type BuildingType, type Command, type SimOptions } from '../sim'
 import { createLightingPass } from '../weather/lightingPass'
 import { createPrecipitationPass } from '../weather/precipitationPass'
 import { createBoundsPass } from './boundsPass'
@@ -45,10 +45,15 @@ const simOptions = (settings: MapSettings): SimOptions => ({ generator: settings
 /** В одиночной игре игрок один. */
 const PLAYER = 1
 
-/** Новая симуляция: стартовый набор игрока у начала мира. */
-function createNewSim(settings: MapSettings) {
+/** Как часто юнитам показательного боя раздаются цели и сколько после его конца ждать нового, в секундах. */
+const BATTLE_ORDERS = 0.5
+const BATTLE_PAUSE = 3
+
+/** Новая симуляция: стартовый набор игрока у начала мира, а в показательном бою — две армии. */
+function createNewSim(settings: MapSettings, battle = false) {
   const sim = createSim(simOptions(settings))
-  spawnStartingUnits(sim, PLAYER, 0, 0)
+  if (battle) spawnBattle(sim, PLAYER, 0, 0)
+  else spawnStartingUnits(sim, PLAYER, 0, 0)
   return sim
 }
 
@@ -57,15 +62,17 @@ function createNewSim(settings: MapSettings) {
  * Если запустить не удалось (нет WebGL 2, не собрался шейдер), бросает ошибку.
  * onError получает ошибки, случившиеся уже во время игры; игра после них остановлена.
  * С session игра идёт на сервере: мир приходит оттуда, а местное сохранение и новый старт отключены.
+ * battle — показательный бой: две армии сходятся снова и снова; сохранение игрока при этом не читается и не пишется.
  */
 export function createGame(
   canvas: HTMLCanvasElement,
   settings: MapSettings,
   onError: (error: unknown) => void,
   session?: Session,
+  battle = false,
 ): Game {
   const camera = new Camera()
-  const save = session ? null : loadSave(simOptions(settings))
+  const save = session || battle ? null : loadSave(simOptions(settings))
   // Камера возвращается туда, где была, только вместе с миром: в новом мире старое место ничего не значит.
   const view = save ? loadCamera() : null
   if (view) {
@@ -74,7 +81,7 @@ export function createGame(
     camera.zoomTo(view.zoom)
   }
   const scene: Scene = {
-    sim: session ? session.sim : save ? createSim(save) : createNewSim(settings),
+    sim: session ? session.sim : save ? createSim(save) : createNewSim(settings, battle),
     player: session ? session.player : PLAYER,
     camera,
     settings,
@@ -116,7 +123,7 @@ export function createGame(
   const controls = createControls(canvas, scene)
 
   const saveNow = () => {
-    if (session) return
+    if (session || battle) return
     storeSave(scene.sim.save())
     storeCamera(camera)
   }
@@ -130,13 +137,29 @@ export function createGame(
     scene.sim.destroy()
     scene.selection.clear()
     scene.placing = null
-    scene.sim = createNewSim(scene.settings)
+    scene.sim = createNewSim(scene.settings, battle)
     // Новый мир — камера снова у стартового набора.
     camera.x = camera.y = 0
     saveNow()
   }
 
+  let sinceOrders = 0
+  let battleOver = 0
+
   const stop = startFrames((seconds) => {
+    if (battle) {
+      sinceOrders += seconds
+      if (battleOver) {
+        battleOver += seconds
+        if (battleOver > BATTLE_PAUSE) {
+          battleOver = 0
+          restart()
+        }
+      } else if (sinceOrders >= BATTLE_ORDERS) {
+        sinceOrders = 0
+        if (!driveBattle(scene.sim, PLAYER)) battleOver = seconds
+      }
+    }
     const { sim } = scene
     sim.advance(seconds)
     controls.update(seconds)

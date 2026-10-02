@@ -24,6 +24,9 @@ function serverAddress() {
 /** Отладочная панель генератора скрыта; открывается параметром ?panel в адресной строке. */
 const SHOW_PANEL = new URLSearchParams(location.search).has('panel')
 
+/** Показательный бой вместо обычной игры: параметр ?battle в адресной строке. Сохранение он не трогает. */
+const BATTLE = new URLSearchParams(location.search).has('battle')
+
 /** Страница игры: холст, на котором живёт сама игра, и интерфейс поверх него. */
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -39,7 +42,7 @@ export function App() {
     const start = async () => {
       const session = server ? await connect(server.url, server.lag) : undefined
       if (closed) return session?.sim.destroy()
-      gameRef.current = createGame(canvasRef.current!, settings, setError, session)
+      gameRef.current = createGame(canvasRef.current!, settings, setError, session, BATTLE)
     }
     start().catch(setError)
     return () => {

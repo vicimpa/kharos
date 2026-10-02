@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { Armed, Blast, Building, Path, Position, Producer, Shot, UNITS, Unit, WEAPONS, buildingHp, canAttack, canPlace, createSim, isWalkable, powerStates, producibleBy, zoneEconomies, type Sim } from '../src/sim'
+import { Armed, Blast, Building, Owner, Path, Position, Producer, Shot, UNITS, Unit, WEAPONS, buildingHp, canAttack, canPlace, createSim, driveBattle, isWalkable, powerStates, producibleBy, spawnBattle, zoneEconomies, type Sim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { addCredits } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
@@ -273,4 +273,22 @@ test('пехоту выпускают казармы, технику — маш�
   sim.advance(TICK)
   expect(producibleBy(sim, factory)).toEqual([])
   expect(sim.world.get(factory, Producer)!.queue).toEqual([])
+})
+
+test('показательный бой: армии сходятся сами, и бой кончается', () => {
+  const sim = createSim(options)
+  spawnBattle(sim, 1, 0, 0)
+  const sides = () => {
+    const players = new Set<number>()
+    for (const [, , owner] of sim.world.query(Unit, Owner)) players.add(owner.player)
+    return players.size
+  }
+  expect(sides()).toBe(2)
+  let time = 0
+  while (driveBattle(sim, 1) && time < 600) {
+    seconds(sim, 0.5)
+    time += 0.5
+  }
+  expect(time).toBeLessThan(600)
+  expect(sides()).toBeLessThan(2)
 })
