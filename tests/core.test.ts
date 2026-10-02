@@ -187,3 +187,37 @@ test('сохранение посреди превращения и произв
   // Награды за главное здание и за первый юнит и кредит, который главное здание успело принести само.
   expect(creditsOf(copy, 1)).toBe(STARTING_CREDITS - UNITS.infantry.cost + REWARDS.deploy + REWARDS.unit + 1)
 })
+
+test('MCV не разворачивается, пока под будущим зданием чужой юнит, а своих выгоняет', () => {
+  const { sim, mcv, site } = start()
+  const stranger = spawnUnit(sim, 'infantry', 2, site.x, site.y)
+  const own = spawnUnit(sim, 'builder', 1, site.x + 2, site.y)
+  sim.send(1, { type: 'deploy', unit: mcv })
+  seconds(sim, 8)
+  // Свой строитель ушёл, чужой пехотинец стоит, MCV ждёт.
+  const position = sim.world.get(own, Position)!
+  expect(position.x >= site.x && position.x < site.x + 3 && position.y >= site.y && position.y < site.y + 3).toBe(false)
+  expect(Math.floor(sim.world.get(stranger, Position)!.x)).toBe(site.x)
+  expect(core(sim)).toBeUndefined()
+  expect(sim.world.has(mcv, Converting)).toBe(true)
+
+  sim.send(2, { type: 'move', units: [stranger], x: site.x - 3, y: site.y })
+  seconds(sim, 5)
+  expect(core(sim)).toBeDefined()
+})
+
+test('разворачивание можно отменить: MCV снова едет', () => {
+  const { sim, mcv, site } = start()
+  spawnUnit(sim, 'infantry', 2, site.x, site.y)
+  sim.send(1, { type: 'deploy', unit: mcv })
+  seconds(sim, 5)
+  sim.send(2, { type: 'cancelDeploy', unit: mcv })
+  sim.send(1, { type: 'cancelDeploy', unit: mcv })
+  sim.advance(TICK)
+  expect(sim.world.has(mcv, Converting)).toBe(false)
+  expect(core(sim)).toBeUndefined()
+  const before = { ...sim.world.get(mcv, Position)! }
+  sim.send(1, { type: 'move', units: [mcv], x: site.x + 6, y: site.y + 1 })
+  seconds(sim, 2)
+  expect(sim.world.get(mcv, Position)!.x).not.toBe(before.x)
+})

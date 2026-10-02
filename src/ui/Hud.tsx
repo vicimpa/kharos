@@ -135,10 +135,19 @@ export function Hud({ state, send, place }: HudProps) {
 
           {conversion &&
             (conversion.progress !== null ? (
-              <div class="hud__progress">
-                <span style={{ width: percent(conversion.progress) }} />
-                <em>{conversion.kind === 'deploy' ? 'Разворачивается' : 'Сворачивается'}</em>
-              </div>
+              <>
+                <div class="hud__progress">
+                  <span style={{ width: percent(conversion.progress) }} />
+                  <em>
+                    {conversion.blocked
+                      ? 'Место занято юнитами'
+                      : conversion.kind === 'deploy'
+                        ? 'Разворачивается'
+                        : 'Сворачивается'}
+                  </em>
+                </div>
+                {conversion.cancel && <button onClick={() => send(conversion.cancel!)}>Отменить</button>}
+              </>
             ) : (
               <button
                 disabled={!conversion.possible}

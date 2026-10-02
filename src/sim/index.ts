@@ -6,7 +6,7 @@ export { Building, Builds, Converting, Deposit, Owner, Path, Player, Position, P
 export { DEMOLISH_REFUND, DEMOLISH_SPEED, canBuild, canDemolish, coreCenters, isSiteBlocked, refundOf, siteTicks } from './construction'
 export { CONTROL_RADIUS, EXPAND_RADIUS, allZones, zoneOf, zonesOf } from './zones'
 export type { Zone } from './zones'
-export { canDeploy, canPack, deploySite } from './conversion'
+export { canDeploy, canPack, deploySite, isDeployBlocked } from './conversion'
 export { DEPOSIT_CELL, DEPOSIT_SIZE, depositAt, depositIn, depositNear, oreLeft } from './deposits'
 export type { DepositSpot } from './deposits'
 export { REWARDS, creditsOf, rewardsOf } from './economy'

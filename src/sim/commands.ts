@@ -2,7 +2,7 @@ import type { Entity } from '../ecs'
 import { BUILDINGS, canPlace, placeBuilding, type BuildingType } from './buildings'
 import { Builds, Owner, Unit } from './components'
 import { assignBuilders, cancelBuild, demolish, orderBuild } from './construction'
-import { DEPLOY_SECONDS, PACK_SECONDS, canDeploy, canPack, startConverting } from './conversion'
+import { DEPLOY_SECONDS, PACK_SECONDS, canDeploy, canPack, cancelDeploy, startConverting } from './conversion'
 import { cancelUnit, orderUnit } from './production'
 import type { Sim } from './sim'
 import { UNITS, isWalkable, orderGroupMove, spawnUnit, type UnitType } from './units'
@@ -21,6 +21,7 @@ export type Command =
   | { type: 'move'; units: number[]; x: number; y: number }
   /** Развернуть свой MCV в главное здание на месте. */
   | { type: 'deploy'; unit: number }
+  | { type: 'cancelDeploy'; unit: number }
   /** Свернуть своё главное здание обратно в MCV. */
   | { type: 'pack'; building: number }
   /** Заказать юнит у своего MCV или главного здания. */
@@ -84,6 +85,8 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
       startConverting(sim, unit, DEPLOY_SECONDS)
       return true
     }
+    case 'cancelDeploy':
+      return cancelDeploy(sim, player, command.unit as Entity)
     case 'pack': {
       const building = command.building as Entity
       if (!canPack(sim, player, building)) return false

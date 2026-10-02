@@ -1,7 +1,7 @@
 import type { Entity } from '../ecs'
 import {
   BUILDABLE, BUILDINGS, Building, Converting, PRODUCIBLE, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
-  buildTicks, canDemolish, canDeploy, canPack, coreCenters, creditsOf, economyOf, isSiteBlocked, oreLeft, powerOf, refundOf, rewardsOf, siteTicks, zoneEconomies,
+  buildTicks, canDemolish, canDeploy, canPack, isDeployBlocked, coreCenters, creditsOf, economyOf, isSiteBlocked, oreLeft, powerOf, refundOf, rewardsOf, siteTicks, zoneEconomies,
   Position, type BuildingSpec, type BuildingType, type Command, type UnitType,
 } from '../sim'
 import type { Scene } from './scene'
@@ -52,6 +52,10 @@ export interface HudState {
     possible: boolean
     /** Доля от 0 до 1, если превращение уже идёт; иначе null. */
     progress: number | null
+    /** MCV готов развернуться, но под будущим зданием стоят юниты. */
+    blocked: boolean
+    /** Команда отмены, если идущее превращение можно отменить. */
+    cancel: Command | null
   } | null
   /** Производство, если среди выбранного ровно один производитель. */
   production: {
@@ -134,6 +138,8 @@ export function readHud(scene: Scene): HudState {
     command: isUnit ? { type: 'deploy', unit: entity } : { type: 'pack', building: entity },
     possible: isUnit ? canDeploy(sim, player, entity) : canPack(sim, player, entity),
     progress: converting ? round(1 - converting.left / converting.total) : null,
+    blocked: isDeployBlocked(sim, entity),
+    cancel: converting && isUnit ? { type: 'cancelDeploy', unit: entity } : null,
   }
 
   const producer = world.get(entity, Producer)!
