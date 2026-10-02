@@ -354,6 +354,21 @@ test('показательный бой: армии сходятся сами, �
   expect(sides()).toBeLessThan(2)
 })
 
+test('показательный бой не перебивает приказ идти, ни стрелку, ни носителю турелей', () => {
+  const { sim, x, y } = field()
+  const units = (['infantry', 'lancer', 'buggy'] as const).map((type, i) => spawnUnit(sim, type, 1, x + 8, y - 2 + i * 2))
+  spawnUnit(sim, 'infantry', 2, x + 12, y)
+  spawnUnit(sim, 'infantry', 2, x + 13, y + 1)
+  seconds(sim, 1)
+  sim.send(1, { type: 'move', units, x, y })
+  sim.advance(TICK)
+  for (let i = 0; i < 8; i++) {
+    driveBattle(sim, 1)
+    seconds(sim, 0.25)
+  }
+  for (const entity of units) expect(sim.world.get(entity, Position)!.x).toBeLessThan(x + 6.5)
+})
+
 test('показательный бой: большая армия строится целиком, стороны не перемешаны, и тик остаётся коротким', () => {
   const sim = createSim(options)
   const army = randomArmy(60000, {}, () => 0.37)

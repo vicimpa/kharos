@@ -1,6 +1,6 @@
 import type { Entity } from '../ecs'
 import { TRAINING_PLAYER, orderAttack, weaponOf } from './combat'
-import { Armed, Carrier, Owner, Path, Position, Unit } from './components'
+import { Armed, Owner, Path, Position, Unit } from './components'
 import { turretsOf } from './turrets'
 import type { Sim } from './sim'
 import { UNITS, UNIT_TYPES, canStand, flies, spawnUnit, isFighter, type UnitType } from './units'
@@ -92,14 +92,12 @@ export function driveBattle(sim: Sim, player: number) {
     units.push(item)
     byEntity.set(entity, item)
   }
+  // Свободен тот, кто стоит, а ни у него, ни у его турелей нет цели. Идущего не трогают: его ведёт приказ игрока.
   const idle: Entity[] = []
-  for (const [entity, armed] of world.query(Armed, Unit)) {
-    if (!world.has(armed.target as Entity, Position)) idle.push(entity)
-  }
-  // Носитель свободен, когда стоит, а у его турелей нет целей.
-  for (const [entity, carrier] of world.query(Carrier, Unit)) {
+  for (const { entity } of units) {
     if (world.has(entity, Path)) continue
-    if (carrier.turrets.every((turret) => !world.has(world.get(turret as Entity, Armed)?.target as Entity, Position))) idle.push(entity)
+    const targets = [entity, ...turretsOf(sim, entity)].flatMap((gunner) => world.get(gunner, Armed)?.target ?? [])
+    if (targets.length && !targets.some((target) => world.has(target as Entity, Position))) idle.push(entity)
   }
   for (const entity of idle) {
     const self = byEntity.get(entity)
