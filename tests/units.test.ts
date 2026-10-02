@@ -280,3 +280,17 @@ test('сохранение посреди пути продолжается та
   }
   expect(copy.save()).toEqual(sim.save())
 })
+
+test('юнит попадает в точку сразу за крутым поворотом, а не кружит вокруг неё', () => {
+  const sim = createSim(options)
+  const { x, y } = field(sim)
+  for (const type of ['mcv', 'builder', 'infantry'] as UnitType[]) {
+    const unit = spawnUnit(sim, type, 1, x + 1, y + 4)
+    // Последняя точка — в тайле вбок от предпоследней: ближе, чем радиус разворота машины на ходу.
+    sim.world.add(unit, Path({ points: [x + 8.5, y + 4.5, x + 8.5, y + 5.5], goalX: x + 8, goalY: y + 5 }))
+    for (let i = 0; i < 20 * 10; i++) sim.advance(TICK)
+    expect(sim.world.has(unit, Path)).toBe(false)
+    expect(sim.world.get(unit, Position)).toEqual({ x: x + 8.5, y: y + 5.5 })
+    sim.world.destroy(unit)
+  }
+})

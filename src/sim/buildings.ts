@@ -1,6 +1,6 @@
 import type { Entity, World } from '../ecs'
 import { isBuildable, terrainAt } from '../map/terrain'
-import { Building, Owner, Position, Producer } from './components'
+import { Building, Owner, Position, Producer, Site } from './components'
 import type { Sim } from './sim'
 
 /** Что симуляция знает о виде здания. Как оно выглядит, знает клиент: см. game/buildings/buildingArt.ts. */
@@ -8,25 +8,30 @@ export interface BuildingSpec {
   /** Сколько тайлов здание занимает на земле. */
   width: number
   height: number
+  /** Цена в кредитах и время стройки в секундах, если строит один строитель. */
+  cost: number
+  buildTime: number
 }
 
 export const BUILDINGS = {
-  command: { width: 3, height: 3 },
-  refinery: { width: 3, height: 2 },
-  factory: { width: 2, height: 2 },
-  generator: { width: 2, height: 2 },
-  starport: { width: 2, height: 3 },
-  radar: { width: 2, height: 2 },
-  windtrap: { width: 2, height: 2 },
-  barracks: { width: 2, height: 2 },
-  silo: { width: 2, height: 1 },
-  turret: { width: 1, height: 1 },
+  command: { width: 3, height: 3, cost: 2000, buildTime: 30 },
+  refinery: { width: 3, height: 2, cost: 600, buildTime: 25 },
+  factory: { width: 2, height: 2, cost: 500, buildTime: 20 },
+  generator: { width: 2, height: 2, cost: 300, buildTime: 15 },
+  starport: { width: 2, height: 3, cost: 800, buildTime: 30 },
+  radar: { width: 2, height: 2, cost: 400, buildTime: 15 },
+  windtrap: { width: 2, height: 2, cost: 300, buildTime: 15 },
+  barracks: { width: 2, height: 2, cost: 300, buildTime: 15 },
+  silo: { width: 2, height: 1, cost: 150, buildTime: 8 },
+  turret: { width: 1, height: 1, cost: 250, buildTime: 10 },
 } satisfies Record<string, BuildingSpec>
 
 export type BuildingType = keyof typeof BUILDINGS
 /** Главное здание — Settlement Core: в него разворачивается MCV. */
 export const CORE: BuildingType = 'command'
 export const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[]
+/** Что возводят строители. Остальные здания появятся вместе с тем, для чего они нужны. */
+export const BUILDABLE: BuildingType[] = ['generator', 'silo']
 
 /** Какие тайлы заняты зданиями. Обновляется сам: следит за появлением и исчезновением зданий в мире. */
 export interface Occupancy {
@@ -54,9 +59,18 @@ export function createOccupancy(world: World): Occupancy {
   }
 }
 
+/** Площадка, основание которой накрывает тайл (x, y), или undefined. Площадок мало, поэтому простой перебор. */
+export function siteAt(sim: Sim, x: number, y: number): Entity | undefined {
+  for (const [entity, position, site] of sim.world.query(Position, Site)) {
+    const { width, height } = BUILDINGS[site.type]
+    if (x >= position.x && x < position.x + width && y >= position.y && y < position.y + height) return entity
+  }
+  return undefined
+}
+
 /**
  * Можно ли поставить здание левым верхним углом основания в тайл (x, y): основание целиком на скале,
- * внутри границ карты и не задевает другие здания. gap — зазор до соседних зданий в тайлах.
+ * внутри границ карты и не задевает другие здания и площадки. gap — зазор до соседних зданий в тайлах.
  */
 export function canPlace(sim: Sim, type: BuildingType, x: number, y: number, gap = 0) {
   if (!Number.isInteger(x) || !Number.isInteger(y)) return false
@@ -71,6 +85,13 @@ export function canPlace(sim: Sim, type: BuildingType, x: number, y: number, gap
   for (let tileY = y - gap; tileY < y + height + gap; tileY++) {
     for (let tileX = x - gap; tileX < x + width + gap; tileX++) {
       if (sim.occupancy.at(tileX, tileY) !== undefined) return false
+    }
+  }
+  // Площадка, которую ещё не начали строить, тайлов не занимает, но место за ней уже закреплено.
+  for (const [, position, site] of sim.world.query(Position, Site)) {
+    const other = BUILDINGS[site.type]
+    if (x - gap < position.x + other.width && x + width + gap > position.x) {
+      if (y - gap < position.y + other.height && y + height + gap > position.y) return false
     }
   }
   return true

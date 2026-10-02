@@ -2,7 +2,7 @@ import type { Entity } from '../ecs'
 import { BUILDINGS, CORE, canPlace, placeBuilding } from './buildings'
 import { Building, Converting, Owner, Path, Position, Producer, Unit } from './components'
 import type { Sim } from './sim'
-import { UNITS, freeTilesNear, orderMove, spawnUnit, standingUnits } from './units'
+import { evictUnits, spawnUnit } from './units'
 
 /** Сколько секунд MCV разворачивается в главное здание и сколько здание сворачивается обратно. */
 export const DEPLOY_SECONDS = 3
@@ -38,22 +38,6 @@ export function startConverting(sim: Sim, entity: Entity, seconds: number) {
   sim.world.add(entity, Converting({ left: ticks, total: ticks }))
 }
 
-/** Отправляет юнитов, оказавшихся внутри основания нового здания, на свободные тайлы рядом. */
-function evict(sim: Sim, x: number, y: number, width: number, height: number) {
-  const inside: Entity[] = []
-  for (const [entity, position] of sim.world.query(Position, Unit)) {
-    if (position.x >= x && position.x < x + width && position.y >= y && position.y < y + height) inside.push(entity)
-  }
-  if (!inside.length) return
-  const group = new Set(inside)
-  const taken = standingUnits(sim, group, UNITS.mcv.radius)
-  const tiles = freeTilesNear(sim, x + Math.floor(width / 2), y + Math.floor(height / 2), inside.length, 1, taken)
-  inside.forEach((entity, i) => {
-    const at = Math.min(i * 2, tiles.length - 2)
-    if (at >= 0) orderMove(sim, entity, tiles[at], tiles[at + 1], group)
-  })
-}
-
 /** Раз в тик: продвигает превращения и завершает те, чьё время вышло. */
 export function convert(sim: Sim) {
   const { world } = sim
@@ -76,7 +60,7 @@ export function convert(sim: Sim) {
       world.destroy(entity)
       const core = placeBuilding(world, CORE, site.x, site.y, player)
       if (production) world.set(core, Producer, production)
-      evict(sim, site.x, site.y, BUILDINGS[CORE].width, BUILDINGS[CORE].height)
+      evictUnits(sim, site.x, site.y, BUILDINGS[CORE].width, BUILDINGS[CORE].height)
     } else {
       const position = world.get(entity, Position)!
       const { width, height } = BUILDINGS[CORE]

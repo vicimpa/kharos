@@ -3,7 +3,7 @@ import { createAtlas, type AtlasFrame } from '../../render/atlas'
 import { Pixmap } from '../../render/pixmap'
 import type { Pass } from '../../render/renderer'
 import { createSpriteProgram, createSprites } from '../../render/sprites'
-import { BUILDING_TYPES, Building, Position, type BuildingType } from '../../sim'
+import { BUILDING_TYPES, Building, Position, Site, siteTicks, type BuildingType } from '../../sim'
 import type { Scene } from '../scene'
 import { ART_FRAMES, ART_TILE, BUILDING_ART, type BuildingArt } from './buildingArt'
 
@@ -18,6 +18,8 @@ const LIGHT_REACH = 16
 const BLOOM_REACH = 3
 /** Запас в тайлах вокруг экрана: здание за краем ещё может дотянуться до него светом. */
 const VISIBLE_MARGIN = 5
+/** Цвет недостроенного: чертёж здания, сквозь который видно землю. Альфа меньше половины — тени от лучей он не даёт. */
+const BLUEPRINT = [0.3, 0.6, 1, 0.4] as const
 
 /** Огонь чертежа: место в пикселях спрайта и яркость в каждом кадре. */
 interface ArtLight {
@@ -59,9 +61,14 @@ interface Visible {
   frame: number
   /** Нижний край основания: по нему здания перекрывают друг друга. */
   bottom: number
+  /** Готовность от 0 до 1: у достроенного — 1, у размеченной площадки — 0. */
+  built: number
 }
 
-/** Проход зданий: тени, сами здания и их огни. Здания — сущности с Position и Building. */
+/**
+ * Проход зданий: тени, сами здания и их огни. Здания — сущности с Position и Building.
+ * Стройка (Site) рисуется чертежом, поверх которого снизу вверх растёт настоящее здание.
+ */
 export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): Pass {
   const sheets = new Map<BuildingType, Sheet>(BUILDING_TYPES.map((type) => [type, drawSheet(BUILDING_ART[type])]))
   const all = [...sheets.values()]
@@ -80,18 +87,23 @@ export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): P
       const halfHeight = height / 2 / camera.zoom + VISIBLE_MARGIN
       const step = Math.floor(time * FRAMES_PER_SECOND)
 
+      const { world, time: simTime } = scene.sim
+      const see = (position: { x: number; y: number }, type: BuildingType, phase: number, built: number) => {
+        const sheet = sheets.get(type)!
+        if (position.x + sheet.art.width < camera.x - halfWidth || position.x > camera.x + halfWidth) return
+        if (position.y + sheet.art.height < camera.y - halfHeight || position.y > camera.y + halfHeight) return
+        const frame = (step + phase) % ART_FRAMES
+        visible.push({ x: position.x, y: position.y, sheet, frame, bottom: position.y + sheet.art.height, built })
+      }
+
       visible.length = 0
-      for (const [, position, building] of scene.sim.world.query(Position, Building)) {
-        const sheet = sheets.get(building.type)!
-        if (position.x + sheet.art.width < camera.x - halfWidth || position.x > camera.x + halfWidth) continue
-        if (position.y + sheet.art.height < camera.y - halfHeight || position.y > camera.y + halfHeight) continue
-        visible.push({
-          x: position.x,
-          y: position.y,
-          sheet,
-          frame: (step + building.phase) % ART_FRAMES,
-          bottom: position.y + sheet.art.height,
-        })
+      for (const [entity, position, building] of world.query(Position, Building)) {
+        const site = world.get(entity, Site)
+        see(position, building.type, building.phase, site ? site.progress / siteTicks(site.type, simTime.step) : 1)
+      }
+      // Площадки, к которым строитель ещё не приступил: здания на них пока нет.
+      for (const [entity, position, site] of world.query(Position, Site)) {
+        if (!world.has(entity, Building)) see(position, site.type, 0, 0)
       }
       if (!visible.length) return
       // Нижние здания рисуются позже и перекрывают верхние.
@@ -101,12 +113,24 @@ export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): P
       sprites.clear()
       const pad = PAD / ART_TILE
       const shift = SHADOW_SHIFT / ART_TILE
-      for (const { x, y, sheet, frame } of visible) {
+      for (const { x, y, sheet, frame, built } of visible) {
         const { u, v, width: frameWidth, height: frameHeight } = sheet.frames[frame]
         const left = x - pad - camera.x
         const top = y - pad - camera.y
         const spriteWidth = sheet.art.width + pad * 2
         const spriteHeight = sheet.art.height + pad * 2
+        if (built < 1) {
+          sprites.push(left, top, spriteWidth, spriteHeight, u, v, frameWidth, frameHeight, ...BLUEPRINT)
+          // Готовая часть — нижние строки спрайта, целое число пикселей.
+          const rows = Math.round(spriteHeight * ART_TILE)
+          const hidden = (rows - Math.floor(rows * built)) / rows
+          sprites.push(
+            left, top + spriteHeight * hidden, spriteWidth, spriteHeight * (1 - hidden),
+            u, v + frameHeight * hidden, frameWidth, frameHeight * (1 - hidden),
+            1, 1, 1, 1,
+          )
+          continue
+        }
         shadows.push(left + shift, top + shift, spriteWidth, spriteHeight, u, v, frameWidth, frameHeight, 0, 0, 0, SHADOW_ALPHA)
         sprites.push(left, top, spriteWidth, spriteHeight, u, v, frameWidth, frameHeight, 1, 1, 1, 1)
         for (const light of sheet.lights) {

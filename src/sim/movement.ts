@@ -15,6 +15,8 @@ const LOOK_AHEAD = 0.6
 const OVERLAP = 0.02
 /** Промежуточная точка пути засчитывается, когда юнит подошёл к ней на столько тайлов. */
 const REACHED = 0.2
+/** Во сколько раз круг разворота считается шире настоящего, когда решается, попадёт ли юнит в точку на ходу. */
+const ORBIT_MARGIN = 1.3
 /**
  * Куда юнит пробует свернуть, если прямо занято: отклонения от нужного направления в радианах, по порядку.
  * Сначала вправо — так двое встречных расходятся в разные стороны, а не зеркалят друг друга.
@@ -105,6 +107,9 @@ export function moveUnits(sim: Sim, time: Time) {
     const distance = Math.hypot(dx, dy)
     const wanted = distance ? Math.atan2(dy, dx) : unit.facing
 
+    // Юнит, под которым выросло здание, выходит из него: внутри здания тайлы ему не преграда.
+    const inside = !isWalkable(sim, Math.floor(position.x), Math.floor(position.y))
+
     // Куда ехать: прямо к точке пути, а если там другой юнит — в ближайшую свободную сторону.
     const look = Math.min(distance, LOOK_AHEAD)
     let heading: number | undefined
@@ -113,7 +118,7 @@ export function moveUnits(sim: Sim, time: Time) {
       const lookX = position.x + Math.cos(angle) * look
       const lookY = position.y + Math.sin(angle) * look
       // Прямой путь проверен, когда прокладывался; в стороне от него может оказаться стена.
-      if (detour && !isWalkable(sim, Math.floor(lookX), Math.floor(lookY))) continue
+      if (detour && !inside && !isWalkable(sim, Math.floor(lookX), Math.floor(lookY))) continue
       if (collides(entity, radius, position.x, position.y, lookX, lookY)) continue
       heading = wrap(angle)
       break
@@ -127,14 +132,18 @@ export function moveUnits(sim: Sim, time: Time) {
     const aligned = unit.facing === heading
 
     // Чем сильнее юнит смотрит в сторону, тем медленнее едет; развернувшись больше чем на четверть оборота, крутится на месте.
-    let move = speed * time.step * Math.max(0, Math.cos(wrap(heading - unit.facing)))
+    const askew = Math.abs(wrap(heading - unit.facing))
+    let move = speed * time.step * Math.max(0, Math.cos(askew))
+    // Точка внутри круга, который юнит описывает на полном ходу: в неё не попасть, сколько ни кружи.
+    // Тогда он доворачивает на месте. Запас — на то, что поворот идёт шагами.
+    if (direct && distance < ((2 * speed) / turn) * Math.sin(Math.min(askew, Math.PI / 2)) * ORBIT_MARGIN) move = 0
     // Глядя точно на точку пути, юнит приходит в неё ровно, без перелёта.
     const arrives = aligned && direct && move >= distance
     if (arrives) move = distance
     if (move > 0) {
       const nextX = arrives ? points[0] : position.x + Math.cos(unit.facing) * move
       const nextY = arrives ? points[1] : position.y + Math.sin(unit.facing) * move
-      const open = isWalkable(sim, Math.floor(nextX), Math.floor(nextY))
+      const open = inside || isWalkable(sim, Math.floor(nextX), Math.floor(nextY))
       const blocker = open ? collides(entity, radius, position.x, position.y, nextX, nextY) : undefined
       if (open && !blocker) {
         position.x = nextX

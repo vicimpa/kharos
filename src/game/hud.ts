@@ -1,7 +1,7 @@
 import type { Entity } from '../ecs'
 import {
-  Building, Converting, PRODUCIBLE, Producer, QUEUE_LIMIT, UNITS, UNIT_TYPES, Unit,
-  buildTicks, canDeploy, canPack, creditsOf,
+  BUILDABLE, BUILDINGS, Building, Converting, PRODUCIBLE, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
+  buildTicks, canDeploy, canPack, coreCenters, creditsOf, siteTicks,
   type BuildingType, type Command, type UnitType,
 } from '../sim'
 import type { Scene } from './scene'
@@ -13,6 +13,22 @@ export interface HudState {
   units: { type: UnitType; count: number }[]
   /** Выбранное здание, если выбрано оно. */
   building: BuildingType | null
+  /** Стройка, если выбранное здание ещё не достроено. */
+  site: {
+    entity: number
+    /** Строитель уже начал работу: до этого площадка только размечена. */
+    started: boolean
+    /** Готовность от 0 до 1. */
+    progress: number
+  } | null
+  /** Что можно построить, если среди выбранного есть строитель. */
+  construction: {
+    /** Есть ли у игрока главное здание: без него строить негде. */
+    available: boolean
+    /** Здание, для которого сейчас выбирается место. */
+    placing: BuildingType | null
+    options: { building: BuildingType; cost: number; affordable: boolean }[]
+  } | null
   /** Превращение выбранного: MCV разворачивается (deploy), главное здание сворачивается (pack). */
   conversion: {
     kind: 'deploy' | 'pack'
@@ -43,11 +59,17 @@ export function readHud(scene: Scene): HudState {
 
   const counts = new Map<UnitType, number>()
   let building: BuildingType | null = null
+  let site: HudState['site'] = null
   const producers: Entity[] = []
   for (const entity of selection) {
     const unit = world.get(entity, Unit)
     if (unit) counts.set(unit.type, (counts.get(unit.type) ?? 0) + 1)
-    building = world.get(entity, Building)?.type ?? building
+    building = world.get(entity, Building)?.type ?? world.get(entity, Site)?.type ?? building
+    const work = world.get(entity, Site)
+    if (work) {
+      const progress = round(Math.min(1, work.progress / siteTicks(work.type, sim.time.step)))
+      site = { entity, started: world.has(entity, Building), progress }
+    }
     if (world.has(entity, Producer)) producers.push(entity)
   }
 
@@ -55,6 +77,14 @@ export function readHud(scene: Scene): HudState {
     credits,
     units: UNIT_TYPES.filter((type) => counts.has(type)).map((type) => ({ type, count: counts.get(type)! })),
     building,
+    site,
+    construction: counts.has('builder')
+      ? {
+          available: coreCenters(sim, player).length > 0,
+          placing: scene.placing,
+          options: BUILDABLE.map((type) => ({ building: type, cost: BUILDINGS[type].cost, affordable: credits >= BUILDINGS[type].cost })),
+        }
+      : null,
     conversion: null,
     production: null,
   }

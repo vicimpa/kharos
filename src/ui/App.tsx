@@ -53,7 +53,13 @@ export function App() {
   return (
     <main class="game">
       <canvas ref={canvasRef} class="game__canvas" />
-      {hud && error === null && <Hud state={hud} send={(command) => gameRef.current?.send(command)} />}
+      {hud && error === null && (
+        <Hud
+          state={hud}
+          send={(command) => gameRef.current?.send(command)}
+          place={(building) => gameRef.current?.place(building)}
+        />
+      )}
       <GeneratorPanel settings={settings} onChange={setSettings} onRestart={() => gameRef.current?.restart()} />
       {error !== null && (
         <div class="game__error" role="alert">

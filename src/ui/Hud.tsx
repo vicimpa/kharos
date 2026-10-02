@@ -1,17 +1,19 @@
 import type { HudState } from '../game/hud'
-import type { Command } from '../sim'
+import type { BuildingType, Command } from '../sim'
 import { BUILDING_NAMES, UNIT_NAMES } from './names'
 
 interface HudProps {
   state: HudState
   send: (command: Command) => void
+  /** Начать выбор места под здание; null — отменить. */
+  place: (building: BuildingType | null) => void
 }
 
 const percent = (value: number) => `${Math.round(value * 100)}%`
 
 /** Интерфейс игрока: счёт и панель выбранного с приказами. Сам ничего не решает — только шлёт команды. */
-export function Hud({ state, send }: HudProps) {
-  const { units, building, conversion, production } = state
+export function Hud({ state, send, place }: HudProps) {
+  const { units, building, site, construction, conversion, production } = state
   const selected = units.length > 0 || building !== null
 
   return (
@@ -25,9 +27,40 @@ export function Hud({ state, send }: HudProps) {
         <section class="hud hud--selection">
           <header class="hud__title">
             {building !== null
-              ? BUILDING_NAMES[building]
+              ? `${site ? 'Стройка: ' : ''}${BUILDING_NAMES[building]}`
               : units.map(({ type, count }) => (count > 1 ? `${UNIT_NAMES[type]} ×${count}` : UNIT_NAMES[type])).join(', ')}
           </header>
+
+          {site && (
+            <>
+              <div class="hud__progress">
+                <span style={{ width: percent(site.progress) }} />
+                <em>{site.started ? `Строится — ${percent(site.progress)}` : 'Ждёт строителя'}</em>
+              </div>
+              <button onClick={() => send({ type: 'cancelBuild', site: site.entity })}>Отменить стройку</button>
+            </>
+          )}
+
+          {construction && (
+            <>
+              <div class="hud__row">
+                {construction.options.map(({ building, cost, affordable }) => (
+                  <button
+                    key={building}
+                    class={construction.placing === building ? 'is-active' : undefined}
+                    disabled={!construction.available || !affordable}
+                    title={
+                      !construction.available ? 'Сначала разверни MCV в главное здание' : affordable ? undefined : 'Не хватает кредитов'
+                    }
+                    onClick={() => place(construction.placing === building ? null : building)}
+                  >
+                    {BUILDING_NAMES[building]} <small>{cost}</small>
+                  </button>
+                ))}
+              </div>
+              {construction.placing && <div class="hud__hint">Левая кнопка — заложить, правая или Esc — отмена</div>}
+            </>
+          )}
 
           {conversion &&
             (conversion.progress !== null ? (

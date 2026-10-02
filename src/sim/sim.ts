@@ -3,6 +3,7 @@ import { createLand, type GeneratorConfig, type Land } from '../map/terrain'
 import { createOccupancy, type Occupancy } from './buildings'
 import { apply, type Command } from './commands'
 import { SAVED } from './components'
+import { construct } from './construction'
 import { convert } from './conversion'
 import { moveUnits } from './movement'
 import { produceUnits } from './production'
@@ -76,6 +77,8 @@ export function createSim(source: SimOptions | SimSave): Sim {
       () => convert(sim),
       (_, time) => produceUnits(sim, time),
       (_, time) => moveUnits(sim, time),
+      // После движения: работающий строитель поворачивается к стройке, и поворот сглаживается, как у идущих.
+      () => construct(sim),
     ],
   })
   const sim: Sim = {

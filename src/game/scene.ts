@@ -1,6 +1,6 @@
 import type { Entity } from '../ecs'
 import type { MapSettings } from '../map/settings'
-import type { Sim } from '../sim'
+import type { BuildingType, Sim } from '../sim'
 import type { Camera } from './camera'
 
 /** Прямоугольник в тайлах, заданный двумя противоположными углами. */
@@ -27,6 +27,8 @@ export interface Scene {
   selection: Set<Entity>
   /** Рамка выделения, пока игрок тянет её мышью. */
   selectionBox: Box | null
+  /** Здание, для которого игрок сейчас выбирает место; null — обычный режим. */
+  placing: BuildingType | null
   /** Показывать ли сетку тайлов. */
   grid: boolean
 }

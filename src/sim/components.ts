@@ -45,5 +45,15 @@ export const Producer = component('Producer', () => ({ queue: [] as UnitType[], 
  */
 export const Converting = component('Converting', { left: 0, total: 0 })
 
+/**
+ * Стройка. Пока строитель не начал работу, это только площадка: у сущности нет компонента Building,
+ * она не занимает тайлы и сквозь неё ходят. С началом работы появляется Building, а Site остаётся до конца стройки.
+ * progress — сколько тиков работы одного строителя уже вложено.
+ */
+export const Site = component('Site', { type: 'generator' as BuildingType, progress: 0 })
+
+/** Строитель занят стройкой: едет к площадке site или работает на ней. */
+export const Builds = component('Builds', { site: 0 })
+
 /** Компоненты, которые попадают в сохранение и в сеть. Новый компонент симуляции добавляй сюда. */
-export const SAVED = [Position, Building, Owner, Unit, Path, Player, Producer, Converting]
+export const SAVED = [Position, Building, Owner, Unit, Path, Player, Producer, Converting, Site, Builds]

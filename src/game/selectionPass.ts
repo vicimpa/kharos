@@ -4,7 +4,7 @@ import { createAtlas } from '../render/atlas'
 import { Pixmap } from '../render/pixmap'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites } from '../render/sprites'
-import { BUILDINGS, Building, Converting, Owner, Position, Producer, UNITS, Unit, buildTicks } from '../sim'
+import { BUILDINGS, Building, Converting, Owner, Position, Producer, Site, UNITS, Unit, buildTicks, siteTicks } from '../sim'
 import type { Scene } from './scene'
 import { drawnPosition } from './units/unitsPass'
 
@@ -24,10 +24,13 @@ const SELECTED: Color = [0.35, 1, 0.45]
 const BAR_BACK: Color = [0.03, 0.05, 0.08]
 const BAR_CONVERTING: Color = [1, 0.8, 0.3]
 const BAR_PRODUCING: Color = [0.35, 0.65, 1]
+const BAR_BUILDING: Color = [0.45, 0.9, 0.55]
+/** Рамка своей площадки, к которой строитель ещё не приступил: ночью чертёж на земле почти не виден. */
+const PLANNED: Color = [0.3, 0.6, 1]
 
 /**
  * Выделение и прогресс: кольца вокруг выбранных юнитов, рамка вокруг выбранного здания, рамка, которую
- * игрок тянет мышью, и полоски превращения и производства над своими сущностями.
+ * игрок тянет мышью, рамки размеченных площадок и полоски превращения, производства и стройки над своими сущностями.
  * Ставить выше освещения, чтобы ночью не темнело.
  */
 export function createSelectionPass(gl: WebGL2RenderingContext, scene: Scene): Pass {
@@ -71,9 +74,9 @@ export function createSelectionPass(gl: WebGL2RenderingContext, scene: Scene): P
           const size = (UNITS[unit.type].radius + RING_MARGIN) * 2
           return { x: x - camera.x - size / 2, y: y - camera.y - size / 2, width: size, height: size, round: true }
         }
-        const building = world.get(entity, Building)
-        if (!building) return null
-        const { width, height } = BUILDINGS[building.type]
+        const type = world.get(entity, Building)?.type ?? world.get(entity, Site)?.type
+        if (!type) return null
+        const { width, height } = BUILDINGS[type]
         return { x: position.x - camera.x, y: position.y - camera.y, width, height, round: false }
       }
 
@@ -106,6 +109,16 @@ export function createSelectionPass(gl: WebGL2RenderingContext, scene: Scene): P
       for (const [entity, producer, owner] of world.query(Producer, Owner)) {
         if (owner.player !== scene.player || !producer.queue.length || world.has(entity, Converting)) continue
         bar(entity, producer.progress / buildTicks(producer.queue[0], time.step), BAR_PRODUCING)
+      }
+
+      for (const [entity, site, owner] of world.query(Site, Owner)) {
+        if (owner.player !== scene.player) continue
+        if (site.progress > 0) {
+          bar(entity, site.progress / siteTicks(site.type, time.step), BAR_BUILDING)
+          continue
+        }
+        const bounds = boundsOf(entity)
+        if (bounds) frame(bounds.x, bounds.y, bounds.width, bounds.height, pixel, PLANNED)
       }
 
       const box = scene.selectionBox

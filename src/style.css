@@ -218,6 +218,16 @@ body {
   background: #1c4368;
 }
 
+.hud button.is-active {
+  border-color: #5aa9ff;
+  background: #1c4368;
+}
+
+.hud__hint {
+  color: #8fa9c2;
+  font-size: 12px;
+}
+
 .hud button:disabled {
   opacity: 0.45;
   cursor: default;

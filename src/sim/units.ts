@@ -183,3 +183,19 @@ export function stepAside(sim: Sim, entity: Entity, fromX: number, fromY: number
     return
   }
 }
+
+/** Отправляет юнитов, оказавшихся внутри основания нового здания, на свободные тайлы рядом. */
+export function evictUnits(sim: Sim, x: number, y: number, width: number, height: number) {
+  const inside: Entity[] = []
+  for (const [entity, position] of sim.world.query(Position, Unit)) {
+    if (position.x >= x && position.x < x + width && position.y >= y && position.y < y + height) inside.push(entity)
+  }
+  if (!inside.length) return
+  const group = new Set(inside)
+  const taken = standingUnits(sim, group, UNITS.mcv.radius)
+  const tiles = freeTilesNear(sim, x + Math.floor(width / 2), y + Math.floor(height / 2), inside.length, 1, taken)
+  inside.forEach((entity, i) => {
+    const at = Math.min(i * 2, tiles.length - 2)
+    if (at >= 0) orderMove(sim, entity, tiles[at], tiles[at + 1], group)
+  })
+}

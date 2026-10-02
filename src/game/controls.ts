@@ -1,5 +1,6 @@
 import type { Entity } from '../ecs'
-import { BUILDING_TYPES, Owner, Position, UNITS, UNIT_TYPES, Unit, canPlace, isWalkable } from '../sim'
+import { BUILDING_TYPES, Owner, Position, UNITS, UNIT_TYPES, Unit, canPlace, isWalkable, siteAt } from '../sim'
+import { placementOf } from './placing'
 import type { Scene } from './scene'
 
 const KEY_SPEED = 900 // пикселей экрана в секунду
@@ -13,7 +14,9 @@ const RIGHT = 2
 /**
  * Управление с холста и клавиатуры.
  * Левая кнопка — выделение: щелчок по юниту или своему зданию, рамка — по юнитам; с Shift — добавить к выбранным.
- * Правая кнопка — приказ выбранным идти в точку; если её тянуть (или среднюю) — двигается камера.
+ * Правая кнопка — приказ выбранным идти в точку, а строителям по своей стройке — строить её; если её тянуть
+ * (или среднюю) — двигается камера.
+ * Пока выбирается место под здание: левая кнопка закладывает его (с Shift — можно сразу следующее), правая и Esc — отмена.
  * Колесо — масштаб, WASD и стрелки — камера.
  * Отладочные клавиши: G — сетка, B — поставить здание под мышью, U — создать юнит под мышью.
  */
@@ -70,7 +73,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     if (!pressed) return
     if (Math.hypot(event.offsetX - pressed.x, event.offsetY - pressed.y) > CLICK_SLOP) pressed.dragged = true
     if (pressed.button === LEFT) {
-      if (!pressed.dragged) return
+      if (!pressed.dragged || scene.placing) return
       const from = camera.screenToTile(pressed.x, pressed.y)
       const to = camera.screenToTile(event.offsetX, event.offsetY)
       scene.selectionBox = { fromX: from.x, fromY: from.y, toX: to.x, toY: to.y }
@@ -84,7 +87,15 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     pressed = null
     const point = camera.screenToTile(event.offsetX, event.offsetY)
 
-    if (button === LEFT) {
+    if (scene.placing) {
+      if (button === RIGHT && !dragged) scene.placing = null
+      const placement = button === LEFT && !dragged ? placementOf(scene) : null
+      if (placement?.allowed) {
+        const { type, x, y } = placement
+        scene.sim.send(scene.player, { type: 'build', building: type, x, y, builders: [...scene.selection] })
+        if (!event.shiftKey) scene.placing = null
+      }
+    } else if (button === LEFT) {
       const box = scene.selectionBox
       scene.selectionBox = null
       if (dragged && box) {
@@ -99,19 +110,27 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
         const unit = unitAt(point.x, point.y)
         if (unit !== undefined) select([unit], event.shiftKey)
         else {
-          // Не юнит — тогда, может быть, своё здание. Здание выбирается только одно и без юнитов.
-          const building = scene.sim.occupancy.at(Math.floor(point.x), Math.floor(point.y))
+          // Не юнит — тогда, может быть, своё здание или площадка. Здание выбирается только одно и без юнитов.
+          const tileX = Math.floor(point.x)
+          const tileY = Math.floor(point.y)
+          const building = scene.sim.occupancy.at(tileX, tileY) ?? siteAt(scene.sim, tileX, tileY)
           const own = building !== undefined && scene.sim.world.get(building, Owner)?.player === scene.player
           select(own ? [building] : [], false)
         }
       }
     } else if (button === RIGHT && !dragged && scene.selection.size) {
-      scene.sim.send(scene.player, {
-        type: 'move',
-        units: [...scene.selection],
-        x: Math.floor(point.x),
-        y: Math.floor(point.y),
-      })
+      const { sim } = scene
+      const x = Math.floor(point.x)
+      const y = Math.floor(point.y)
+      const units = [...scene.selection]
+      const site = siteAt(sim, x, y)
+      const builders = units.some((entity) => sim.world.get(entity, Unit)?.type === 'builder')
+      // Строители по своей стройке — строят; остальные выбранные при этом стоят.
+      if (site !== undefined && builders && sim.world.get(site, Owner)?.player === scene.player) {
+        sim.send(scene.player, { type: 'assist', units, site })
+      } else {
+        sim.send(scene.player, { type: 'move', units, x, y })
+      }
     }
   }
   const onPointerCancel = () => {
@@ -151,7 +170,11 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     if (event.code === 'KeyG') scene.grid = !scene.grid
     if (event.code === 'KeyB') placeUnderPointer()
     if (event.code === 'KeyU') spawnUnderPointer()
-    if (event.code === 'Escape') scene.selection.clear()
+    if (event.code === 'Escape') {
+      // Сначала отменяется выбор места, и только следующим нажатием — выделение.
+      if (scene.placing) scene.placing = null
+      else scene.selection.clear()
+    }
   }
   const onKeyUp = (event: KeyboardEvent) => keys.delete(event.code)
   const onBlur = () => keys.clear()
@@ -176,6 +199,12 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
 
     // Погибшие и исчезнувшие выпадают из выделения.
     for (const entity of scene.selection) if (!scene.sim.world.alive(entity)) scene.selection.delete(entity)
+    // Место под здание выбирают строителями: без них выбор отменяется.
+    if (scene.placing) {
+      let builders = false
+      for (const entity of scene.selection) builders ||= scene.sim.world.get(entity, Unit)?.type === 'builder'
+      if (!builders) scene.placing = null
+    }
   }
 
   return {

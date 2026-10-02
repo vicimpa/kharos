@@ -2,7 +2,7 @@ import { createLandWindow, minZoom, type LandWindow } from '../map/landWindow'
 import type { MapSettings } from '../map/settings'
 import { createTerrainPass } from '../map/terrainPass'
 import { createRenderer } from '../render/renderer'
-import { createSim, spawnStartingUnits, type Command, type SimOptions } from '../sim'
+import { createSim, spawnStartingUnits, type BuildingType, type Command, type SimOptions } from '../sim'
 import { createLightingPass } from '../weather/lightingPass'
 import { createPrecipitationPass } from '../weather/precipitationPass'
 import { createBoundsPass } from './boundsPass'
@@ -30,6 +30,8 @@ export interface Game {
   hud(): HudState
   /** Посылает симуляции команду от имени игрока. */
   send(command: Command): void
+  /** Начинает выбор места под здание; null — отменяет его. */
+  place(building: BuildingType | null): void
   /** Останавливает игру и освобождает ресурсы. */
   destroy(): void
 }
@@ -61,6 +63,7 @@ export function createGame(canvas: HTMLCanvasElement, settings: MapSettings, onE
     settings,
     selection: new Set(),
     selectionBox: null,
+    placing: null,
     grid: false,
   }
 
@@ -94,6 +97,7 @@ export function createGame(canvas: HTMLCanvasElement, settings: MapSettings, onE
   const restart = () => {
     scene.sim.destroy()
     scene.selection.clear()
+    scene.placing = null
     scene.sim = createNewSim(scene.settings)
     saveNow()
   }
@@ -138,6 +142,9 @@ export function createGame(canvas: HTMLCanvasElement, settings: MapSettings, onE
     restart,
     hud: () => readHud(scene),
     send: (command) => scene.sim.send(scene.player, command),
+    place(building) {
+      scene.placing = building
+    },
     destroy() {
       stop()
       window.removeEventListener('pagehide', saveNow)
