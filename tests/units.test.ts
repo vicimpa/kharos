@@ -208,6 +208,25 @@ test('стоящего юнита объезжают, а занятая им ц�
   expect(Math.hypot(tileX - x - 14, tileY - y - 4)).toBeLessThan(4)
 })
 
+test('двое, посланные в одну или соседние точки, не кружат друг вокруг друга, а встают рядом', () => {
+  for (const [a, b, offset] of [['infantry', 'infantry', 0], ['tank', 'tank', 0], ['carrier', 'carrier', 1], ['buggy', 'carrier', 1]] as const) {
+    const sim = createSim(options)
+    const { x, y } = field(sim)
+    const first = spawnUnit(sim, a, 1, x + 2, y + 4)
+    const second = spawnUnit(sim, b, 1, x + 26, y + 4)
+    sim.send(1, { type: 'move', units: [first], x: x + 14, y: y + 4 })
+    sim.send(1, { type: 'move', units: [second], x: x + 14 + offset, y: y + 4 })
+    sim.advance(TICK)
+    // Ехать каждому — секунд пять; кружащие не встали бы и за двадцать.
+    for (let i = 0; i < 8 / TICK; i++) sim.advance(TICK)
+    for (const entity of [first, second]) {
+      expect(sim.world.has(entity, Path)).toBe(false)
+      const [tileX, tileY] = tileOf(sim, entity)
+      expect(Math.hypot(tileX - x - 14, tileY - y - 4)).toBeLessThan(4)
+    }
+  }
+})
+
 test('быстрый юнит обгоняет медленного, а потом уступает ему дорогу', () => {
   const sim = createSim(options)
   const { x, y } = field(sim)

@@ -18,6 +18,11 @@ const LOOK_AHEAD = 0.6
 const OVERLAP = 0.02
 /** Промежуточная точка пути засчитывается, когда юнит подошёл к ней на столько тайлов. */
 const REACHED = 0.2
+/**
+ * Последняя точка пути занята другим юнитом: тогда юнит, подъехав к ней на столько тайлов сверх их радиусов,
+ * считает, что приехал. Иначе двое с одной целью кружили бы друг вокруг друга без конца.
+ */
+const SETTLE = 1
 /** Во сколько раз круг разворота считается шире настоящего, когда решается, попадёт ли юнит в точку на ходу. */
 const ORBIT_MARGIN = 1.3
 /**
@@ -120,15 +125,28 @@ export function moveUnits(sim: Sim, time: Time) {
     // Куда ехать: прямо к точке пути, а если там другой юнит — в ближайшую свободную сторону.
     const look = Math.min(distance, LOOK_AHEAD)
     let heading: number | undefined
+    /** Кто стоит прямо на пути к точке. */
+    let ahead: Body | undefined
     for (const detour of DETOURS) {
       const angle = wanted + detour
       const lookX = position.x + Math.cos(angle) * look
       const lookY = position.y + Math.sin(angle) * look
       // Прямой путь проверен, когда прокладывался; в стороне от него может оказаться стена.
       if (detour && !inside && !canStand(sim, air, Math.floor(lookX), Math.floor(lookY))) continue
-      if (collides(entity, air, radius, position.x, position.y, lookX, lookY)) continue
+      const other = collides(entity, air, radius, position.x, position.y, lookX, lookY)
+      if (!detour) ahead = other
+      if (other) continue
       heading = wrap(angle)
       break
+    }
+    // Последнюю точку занял тот, кто мешает проехать прямо: ближе к ней не подъехать — юнит встаёт, где стоит.
+    if (ahead && points.length === 2) {
+      const reach = radius + ahead.radius
+      const taken = Math.hypot(ahead.position.x - points[0], ahead.position.y - points[1]) < reach
+      if (taken && distance < reach + SETTLE) {
+        stopped.push(entity)
+        continue
+      }
     }
     const direct = heading === wrap(wanted)
     heading ??= wrap(wanted)
