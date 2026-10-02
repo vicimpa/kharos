@@ -16,6 +16,7 @@ export const BUILDING_NAMES: Record<BuildingType, string> = {
   radar: 'Радар',
   windtrap: 'Ветряная ловушка',
   barracks: 'Казармы',
+  mine: 'Шахта',
   silo: 'Хранилище',
   turret: 'Турель',
 }
@@ -26,5 +27,6 @@ export const REWARD_NAMES: Record<Reward, string> = {
   unit: 'Первый юнит произведён',
   generator: 'Первая электростанция',
   matter: 'Первый генератор материи',
+  mine: 'Первая шахта',
   silo: 'Первое хранилище',
 }

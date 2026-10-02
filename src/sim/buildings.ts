@@ -17,6 +17,10 @@ export interface BuildingSpec {
   zone?: number
   /** Энергия: больше нуля — вырабатывает, меньше — потребляет. */
   power?: number
+  /** Сколько руды в секунду здание добывает из месторождения под собой. Ставится только на месторождение. */
+  extract?: number
+  /** Сколько руды в секунду здание принимает от шахт своей зоны. Руда сразу продаётся: см. ORE_PRICE. */
+  handles?: number
   /** Доход в кредитах в секунду. У потребителя энергии он падает вместе с её нехваткой. */
   income?: number
   /**
@@ -25,6 +29,9 @@ export interface BuildingSpec {
    */
   crowding?: boolean
 }
+
+/** Сколько кредитов приносит единица руды, дошедшая до хранилища. */
+export const ORE_PRICE = 1
 
 /** Сколько кредитов цены здания один строитель возводит за секунду: здание за 300 строится 15 секунд. */
 export const BUILD_RATE = 20
@@ -41,7 +48,9 @@ export const BUILDINGS = {
   radar: { width: 2, height: 2, cost: 400 },
   windtrap: { width: 2, height: 2, cost: 300 },
   barracks: { width: 2, height: 2, cost: 300 },
-  silo: { width: 2, height: 1, cost: 150 },
+  // Шахта энергии не просит и начинает свою зону: тянуть к месторождению цепочку зданий не нужно.
+  mine: { width: 2, height: 2, cost: 500, zone: 6, extract: 2 },
+  silo: { width: 2, height: 1, cost: 150, handles: 2 },
   turret: { width: 1, height: 1, cost: 250 },
 } satisfies Record<string, BuildingSpec>
 
@@ -50,7 +59,7 @@ export type BuildingType = keyof typeof BUILDINGS
 export const CORE: BuildingType = 'command'
 export const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[]
 /** Что возводят строители. Остальные здания появятся вместе с тем, для чего они нужны. */
-export const BUILDABLE: BuildingType[] = ['generator', 'matter', 'silo']
+export const BUILDABLE: BuildingType[] = ['generator', 'matter', 'mine', 'silo']
 
 /** Какие тайлы заняты зданиями. Обновляется сам: следит за появлением и исчезновением зданий в мире. */
 export interface Occupancy {

@@ -59,5 +59,8 @@ export const Site = component('Site', { type: 'generator' as BuildingType, progr
 /** Строитель занят стройкой: едет к площадке site или работает на ней. */
 export const Builds = component('Builds', { site: 0 })
 
+/** Месторождение, из которого уже добывали: mined — сколько руды забрано. Место — левый верхний тайл месторождения. */
+export const Deposit = component('Deposit', { mined: 0 })
+
 /** Компоненты, которые попадают в сохранение и в сеть. Новый компонент симуляции добавляй сюда. */
-export const SAVED = [Position, Building, Owner, Unit, Path, Player, Producer, Converting, Site, Builds]
+export const SAVED = [Position, Building, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit]

@@ -1,8 +1,8 @@
 import type { Entity } from '../ecs'
 import {
   BUILDABLE, BUILDINGS, Building, Converting, PRODUCIBLE, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
-  buildTicks, canDemolish, canDeploy, canPack, coreCenters, creditsOf, economyOf, powerOf, refundOf, rewardsOf, siteTicks, zoneEconomies,
-  type BuildingType, type Command, type UnitType,
+  buildTicks, canDemolish, canDeploy, canPack, coreCenters, creditsOf, economyOf, oreLeft, powerOf, refundOf, rewardsOf, siteTicks, zoneEconomies,
+  Position, type BuildingSpec, type BuildingType, type Command, type UnitType,
 } from '../sim'
 import type { Scene } from './scene'
 
@@ -19,6 +19,8 @@ export interface HudState {
   units: { type: UnitType; count: number }[]
   /** Выбранное здание, если выбрано оно. */
   building: BuildingType | null
+  /** Сколько руды осталось под выбранной шахтой. */
+  ore: number | null
   /** Стройка, если выбранное здание ещё не достроено. */
   site: {
     entity: number
@@ -72,11 +74,16 @@ export function readHud(scene: Scene): HudState {
   let building: BuildingType | null = null
   let site: HudState['site'] = null
   let demolish: HudState['demolish'] = null
+  let ore: number | null = null
   const producers: Entity[] = []
   for (const entity of selection) {
     const unit = world.get(entity, Unit)
     if (unit) counts.set(unit.type, (counts.get(unit.type) ?? 0) + 1)
     building = world.get(entity, Building)?.type ?? world.get(entity, Site)?.type ?? building
+    if (building !== null && (BUILDINGS[building] as BuildingSpec).extract) {
+      const position = world.get(entity, Position)!
+      ore = Math.floor(oreLeft(sim, position.x, position.y))
+    }
     const work = world.get(entity, Site)
     if (work) {
       const progress = round(Math.min(1, work.progress / siteTicks(work.type, sim.time.step)))
@@ -96,6 +103,7 @@ export function readHud(scene: Scene): HudState {
     power: zones.map(({ produced, demand }) => ({ produced, demand })).filter(({ produced, demand }) => produced || demand),
     units: UNIT_TYPES.filter((type) => counts.has(type)).map((type) => ({ type, count: counts.get(type)! })),
     building,
+    ore,
     site,
     demolish,
     construction: counts.has('builder')

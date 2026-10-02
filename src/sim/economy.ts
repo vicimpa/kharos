@@ -34,6 +34,7 @@ export const REWARDS = {
   unit: 50,
   generator: 150,
   matter: 200,
+  mine: 200,
   silo: 50,
 } satisfies Record<string, number>
 

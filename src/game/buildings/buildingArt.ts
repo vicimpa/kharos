@@ -363,6 +363,54 @@ const barracks: BuildingArt = {
   },
 }
 
+/** Шахта: ствол под копром с крутящимся шкивом и бункер, куда лента поднимает руду. */
+const mine: BuildingArt = {
+  ...BUILDINGS.mine,
+  draw(g, t, light) {
+    slab(g, 0, 1, 32, 31, 3, STEEL)
+
+    // Ствол шахты и лента от него к бункеру: по ней идёт порция руды.
+    g.rect(4, 12, 14, 14, INK)
+    g.rect(5, 13, 12, 12, DARK)
+    g.rect(5, 13, 12, 1, IRON[1])
+    g.rect(17, 19, 7, 5, INK)
+    g.rect(17, 20, 7, 3, IRON[0])
+    const step = Math.floor(t * ART_FRAMES) % 8
+    if (step < 6) {
+      g.rect(17 + step, 20, 2, 2, RUST[1])
+      g.rect(17 + step, 20, 1, 1, RUST[2])
+    }
+
+    // Бункер с рудой.
+    slab(g, 21, 10, 10, 18, 4, IRON)
+    g.rect(23, 12, 6, 9, DARK)
+    for (const [x, y] of [[23, 17], [26, 16], [24, 19], [27, 19], [25, 13]]) {
+      g.rect(x, y, 2, 2, RUST[1])
+      g.rect(x, y, 1, 1, RUST[2])
+    }
+
+    // Копёр: две ноги сходятся к шкиву над стволом.
+    for (const x of [5, 16]) {
+      g.line(x, 24, 11, -2, 3, INK)
+      g.line(x, 24, 11, -2, 1.2, IRON[3])
+    }
+    g.rect(6, 10, 10, 1, IRON[2])
+    g.circle(11, -2, 5, INK)
+    g.circle(11, -2, 4, IRON[1])
+    // У шкива четыре спицы: четверть оборота замыкает цикл.
+    const angle = t * TURN * 0.25
+    for (const turn of [angle, angle + TURN / 4]) {
+      const dx = Math.cos(turn) * 3.5
+      const dy = Math.sin(turn) * 3.5
+      g.line(11 - dx, -2 - dy, 11 + dx, -2 + dy, 1.2, IRON[4])
+    }
+    // Трос ходит в ствол.
+    g.rect(11, 3, 1, 12, IRON[2])
+    bulb(g, light, 2, 6, pulse(t))
+    bulb(g, light, 27, 7, pulse(t, 0.5))
+  },
+}
+
 /** Хранилище: два бака с перемычкой. */
 const silo: BuildingArt = {
   ...BUILDINGS.silo,
@@ -402,6 +450,7 @@ export const BUILDING_ART = {
   radar,
   windtrap,
   barracks,
+  mine,
   silo,
   turret,
 } satisfies Record<BuildingType, BuildingArt>

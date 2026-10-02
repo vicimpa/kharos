@@ -33,7 +33,7 @@ function useNewRewards(rewards: string[]) {
 
 /** Интерфейс игрока: счёт и панель выбранного с приказами. Сам ничего не решает — только шлёт команды. */
 export function Hud({ state, send, place }: HudProps) {
-  const { units, building, site, demolish, construction, conversion, production } = state
+  const { units, building, ore, site, demolish, construction, conversion, production } = state
   const selected = units.length > 0 || building !== null
   const fresh = useNewRewards(state.rewards)
 
@@ -72,6 +72,8 @@ export function Hud({ state, send, place }: HudProps) {
               ? `${site ? (site.demolish ? 'Разбор: ' : 'Стройка: ') : ''}${BUILDING_NAMES[building]}`
               : units.map(({ type, count }) => (count > 1 ? `${UNIT_NAMES[type]} ×${count}` : UNIT_NAMES[type])).join(', ')}
           </header>
+
+          {ore !== null && <div class="hud__hint">{ore > 0 ? `Руды в месторождении: ${ore}` : 'Месторождение выработано'}</div>}
 
           {site && (
             <>

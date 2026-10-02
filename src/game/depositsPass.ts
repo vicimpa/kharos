@@ -1,0 +1,87 @@
+import { setBlend } from '../gl'
+import { createAtlas } from '../render/atlas'
+import { Pixmap } from '../render/pixmap'
+import type { Pass } from '../render/renderer'
+import { createSpriteProgram, createSprites } from '../render/sprites'
+import { DEPOSIT_CELL, DEPOSIT_SIZE, depositIn, oreLeft } from '../sim'
+import type { Scene } from './scene'
+
+/** Пикселей спрайта на тайл, как у местности. */
+const ART_TILE = 16
+const INK = 0x2a1410
+/** Тона руды от тёмного к блику. */
+const ORE = [0x6b2f1e, 0xb5562e, 0xe58a4a, 0xffd9a0] as const
+/** Выработанное месторождение остаётся на карте бледным следом. */
+const SPENT_ALPHA = 0.3
+
+/** Глыбы породы: левый верхний угол, ширина и высота в пикселях спрайта. */
+const CHUNKS = [
+  [3, 5, 7, 5], [13, 2, 6, 4], [22, 6, 7, 6], [9, 11, 9, 7], [1, 15, 6, 5], [21, 16, 8, 6], [5, 23, 7, 5], [15, 22, 6, 6], [25, 25, 5, 4],
+] as const
+/** Рудная крошка между глыбами: по пикселю-двум. */
+const CRUMBS = [
+  [11, 8], [20, 3], [29, 14], [2, 11], [18, 19], [8, 20], [13, 29], [23, 23], [30, 21], [1, 27], [19, 13], [27, 2],
+] as const
+
+/** Рисует месторождение: угловатые глыбы породы с рудными жилами и крошка вокруг. */
+function drawDeposit() {
+  const image = new Pixmap(DEPOSIT_SIZE * ART_TILE, DEPOSIT_SIZE * ART_TILE)
+  for (const [x, y] of CRUMBS) image.rect(x, y, 2, 1, ORE[1])
+  CHUNKS.forEach(([x, y, w, h], i) => {
+    // Срезанные углы делают глыбу гранёной, а не квадратной.
+    image.rect(x + 1, y, w - 2, h, INK)
+    image.rect(x, y + 1, w, h - 2, INK)
+    image.rect(x + 1, y + 1, w - 2, h - 2, ORE[0])
+    image.rect(x + 1, y + 1, w - 3, h - 3, ORE[1])
+    // Жила: светлая грань сверху слева и блик на каждой второй глыбе.
+    image.rect(x + 1, y + 1, Math.ceil(w / 2), 1, ORE[2])
+    image.rect(x + 1, y + 2, 1, Math.max(1, h - 4), ORE[2])
+    if (i % 2 === 0) image.rect(x + 2, y + 2, 1, 1, ORE[3])
+  })
+  return image
+}
+
+/**
+ * Проход месторождений. Месторождения, как и местность, считаются из сида, поэтому проход не обходит сущности,
+ * а спрашивает клетки мира, попавшие на экран. Ставить сразу над местностью: шахта закрывает месторождение собой.
+ */
+export function createDepositsPass(gl: WebGL2RenderingContext, scene: Scene): Pass {
+  const atlas = createAtlas(gl, [drawDeposit()])
+  const [frame] = atlas.frames
+  const program = createSpriteProgram(gl)
+  const sprites = createSprites(gl, program)
+
+  return {
+    draw({ camera, width, height, view }) {
+      const { sim } = scene
+      const halfWidth = width / 2 / camera.zoom
+      const halfHeight = height / 2 / camera.zoom
+      const left = Math.floor((camera.x - halfWidth - DEPOSIT_SIZE) / DEPOSIT_CELL)
+      const right = Math.floor((camera.x + halfWidth) / DEPOSIT_CELL)
+      const top = Math.floor((camera.y - halfHeight - DEPOSIT_SIZE) / DEPOSIT_CELL)
+      const bottom = Math.floor((camera.y + halfHeight) / DEPOSIT_CELL)
+
+      sprites.clear()
+      for (let cellY = top; cellY <= bottom; cellY++) {
+        for (let cellX = left; cellX <= right; cellX++) {
+          const spot = depositIn(sim, cellX, cellY)
+          if (!spot) continue
+          const alpha = oreLeft(sim, spot.x, spot.y) > 0 ? 1 : SPENT_ALPHA
+          sprites.push(
+            spot.x - camera.x, spot.y - camera.y, DEPOSIT_SIZE, DEPOSIT_SIZE,
+            frame.u, frame.v, frame.width, frame.height,
+            alpha, alpha, alpha, alpha,
+          )
+        }
+      }
+      setBlend(gl, 'alpha')
+      program.use(view, { uTexture: atlas.texture })
+      sprites.draw()
+    },
+    destroy() {
+      sprites.destroy()
+      program.destroy()
+      atlas.texture.destroy()
+    },
+  }
+}

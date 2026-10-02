@@ -111,7 +111,8 @@ export function isPassable(terrain: Terrain): boolean {
   return terrain === Terrain.Sand || terrain === Terrain.Rock
 }
 
-function hash(x: number, y: number, seed: number): number {
+/** Случайное число от 0 до 1, одно и то же для одних и тех же координат и сида. */
+export function hash(x: number, y: number, seed: number): number {
   let h = Math.imul(x, 0x27d4eb2d) ^ Math.imul(y, 0x165667b1) ^ seed
   h = Math.imul(h ^ (h >>> 15), 0x85ebca6b)
   h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35)

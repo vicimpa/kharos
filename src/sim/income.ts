@@ -1,5 +1,6 @@
-import { BUILDINGS, type BuildingSpec, type BuildingType } from './buildings'
-import { Building, Player } from './components'
+import { BUILDINGS, ORE_PRICE, type BuildingSpec, type BuildingType } from './buildings'
+import { Building, Player, Position } from './components'
+import { oreLeft, takeOre } from './deposits'
 import type { Sim } from './sim'
 import { allZones, type Zone } from './zones'
 
@@ -12,11 +13,43 @@ export interface Economy {
   income: number
   /** Сколько в зоне зданий, которым тесно друг с другом (см. BuildingSpec.crowding). */
   crowd: number
+  /** Сколько руды в секунду зона добывает и продаёт. */
+  ore: number
+}
+
+/** Работающая шахта: месторождение под ней и сколько руды в секунду она добывает в полную силу. */
+interface Mining {
+  x: number
+  y: number
+  rate: number
+}
+
+/**
+ * Добыча зоны: шахты, под которыми ещё есть руда, и доля, на которую они работают. Руду принимают хранилища зоны;
+ * если шахты добывают больше, чем те принимают, все шахты замедляются поровну. Без хранилища шахты стоят.
+ */
+function miningOf(sim: Sim, zone: Zone): { mines: Mining[]; share: number } {
+  const mines: Mining[] = []
+  let extracted = 0
+  let handled = 0
+  for (const entity of zone.buildings) {
+    const spec: BuildingSpec = BUILDINGS[sim.world.get(entity, Building)!.type]
+    handled += spec.handles ?? 0
+    if (!spec.extract) continue
+    const { x, y } = sim.world.get(entity, Position)!
+    if (oreLeft(sim, x, y) <= 0) continue
+    mines.push({ x, y, rate: spec.extract })
+    extracted += spec.extract
+  }
+  return { mines, share: extracted ? Math.min(1, handled / extracted) : 0 }
 }
 
 /** Хозяйство зоны. Если энергии не хватает, потребители работают на ту долю, на которую её хватает. */
 function economyOfZone(sim: Sim, zone: Zone): Economy {
-  const economy: Economy = { produced: 0, demand: 0, income: 0, crowd: 0 }
+  const economy: Economy = { produced: 0, demand: 0, income: 0, crowd: 0, ore: 0 }
+  const { mines, share } = miningOf(sim, zone)
+  for (const mine of mines) economy.ore += mine.rate * share
+  economy.income += economy.ore * ORE_PRICE
   /** Доход потребителей при полной энергии. */
   let powered = 0
   for (const entity of zone.buildings) {
@@ -53,12 +86,13 @@ export const zoneEconomies = (sim: Sim, player: number): readonly Economy[] => e
 
 /** Итог по всем зонам игрока. Для дохода это то, что он получает; энергию так складывать можно только для справки. */
 export function economyOf(sim: Sim, player: number): Economy {
-  const total: Economy = { produced: 0, demand: 0, income: 0, crowd: 0 }
+  const total: Economy = { produced: 0, demand: 0, income: 0, crowd: 0, ore: 0 }
   for (const economy of zoneEconomies(sim, player)) {
     total.produced += economy.produced
     total.demand += economy.demand
     total.income += economy.income
     total.crowd += economy.crowd
+    total.ore += economy.ore
   }
   return total
 }
@@ -73,11 +107,21 @@ export function powerOf(type: BuildingType, economy: Economy) {
   return power < 0 && spec.crowding ? power * (economy.crowd + 1) : power
 }
 
-/** Раз в тик: начисляет игрокам доход. Доли кредита копятся в earned, на счёт попадают целые. */
+/**
+ * Раз в тик: начисляет игрокам доход и вынимает из месторождений добытую руду.
+ * Доли кредита копятся в earned, на счёт попадают целые.
+ */
 export function earn(sim: Sim) {
   const { world, time } = sim
+  const zones = allZones(sim)
+  if (!zones.size) return
   const all = economies(sim)
-  if (!all.size) return
+  for (const list of zones.values()) {
+    for (const zone of list) {
+      const { mines, share } = miningOf(sim, zone)
+      for (const mine of mines) takeOre(sim, mine.x, mine.y, mine.rate * share * time.step)
+    }
+  }
   const paid: { entity: number; credits: number; earned: number }[] = []
   for (const [entity, player] of world.query(Player)) {
     const income = all.get(player.id)?.reduce((sum, economy) => sum + economy.income, 0)

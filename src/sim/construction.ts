@@ -1,6 +1,7 @@
 import type { Entity } from '../ecs'
 import { BUILDABLE, BUILDINGS, BUILD_RATE, CORE, canPlace, type BuildingSpec, type BuildingType } from './buildings'
 import { Building, Builds, Converting, Owner, Path, Position, Site, Unit } from './components'
+import { oreLeft } from './deposits'
 import { addCredits, pay, reward } from './economy'
 import type { Sim } from './sim'
 import { inCircles, inForeignZone, zoneOf } from './zones'
@@ -43,6 +44,8 @@ export function canBuild(sim: Sim, player: number, type: BuildingType, x: number
   if (!BUILDABLE.includes(type) || !canPlace(sim, type, x, y)) return false
   const { width, height, zone }: BuildingSpec = BUILDINGS[type]
   if (inForeignZone(sim, player, x, y, width, height)) return false
+  // Шахта встаёт ровно на месторождение, в котором ещё есть руда.
+  if ((BUILDINGS[type] as BuildingSpec).extract && oreLeft(sim, x, y) <= 0) return false
   return zone !== undefined || inControl(sim, player, type, x, y)
 }
 

@@ -11,6 +11,7 @@ import { createBuildingsPass } from './buildings/buildingsPass'
 import { Camera } from './camera'
 import { createControls } from './controls'
 import { createCursorPass } from './cursorPass'
+import { createDepositsPass } from './depositsPass'
 import { startFrames } from './frames'
 import { readHud, type HudState } from './hud'
 import type { Scene } from './scene'
@@ -85,6 +86,7 @@ export function createGame(
       // Порядок проходов — порядок отрисовки, снизу вверх.
       return [
         createTerrainPass(gl, scene, landWindow),
+        createDepositsPass(gl, scene),
         createBoundsPass(gl, scene),
         units,
         buildings,
