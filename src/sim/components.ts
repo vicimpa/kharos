@@ -7,9 +7,9 @@ export const Position = component('Position', { x: 0, y: 0 })
 
 /**
  * Здание. phase — сдвиг анимации в кадрах, чтобы одинаковые здания не мигали в такт.
- * health — прочность от 1 до 0: в нуле здание разрушается.
+ * health — прочность от 1 до 0: в нуле здание разрушается. ore — сколько руды лежит в хранилище.
  */
-export const Building = component('Building', { type: 'command' as BuildingType, phase: 0, health: 1 })
+export const Building = component('Building', { type: 'command' as BuildingType, phase: 0, health: 1, ore: 0 })
 
 /** Чьё это. Игрок 0 — ничей: такими сущностями никто не командует. */
 export const Owner = component('Owner', { player: 0 })
@@ -65,5 +65,11 @@ export const Builds = component('Builds', { site: 0 })
 /** Месторождение, из которого уже добывали: mined — сколько руды забрано. Место — левый верхний тайл месторождения. */
 export const Deposit = component('Deposit', { mined: 0 })
 
+/**
+ * Грузовик. ore — руда в кузове. mine — шахта, к которой он привязан, store — хранилище, куда везёт; -1 — нет.
+ * full — кузов надо везти в хранилище; loading — шахта грузит именно его.
+ */
+export const Hauler = component('Hauler', { ore: 0, mine: -1, store: -1, full: false, loading: false })
+
 /** Компоненты, которые попадают в сохранение и в сеть. Новый компонент симуляции добавляй сюда. */
-export const SAVED = [Position, Building, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit]
+export const SAVED = [Position, Building, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler]

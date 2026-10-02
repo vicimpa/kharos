@@ -1,7 +1,6 @@
 import type { Entity } from '../ecs'
 import { BUILDINGS, ORE_PRICE, type BuildingSpec, type BuildingType } from './buildings'
-import { Building, Player, Position } from './components'
-import { oreLeft, takeOre } from './deposits'
+import { Building, Player } from './components'
 import type { Sim } from './sim'
 import { allZones, type Zone } from './zones'
 
@@ -14,43 +13,13 @@ export interface Economy {
   income: number
   /** Сколько в зоне зданий, которым тесно друг с другом (см. BuildingSpec.crowding). */
   crowd: number
-  /** Сколько руды в секунду зона добывает и продаёт. */
+  /** Сколько руды в секунду продают хранилища зоны. */
   ore: number
-}
-
-/** Работающая шахта: месторождение под ней и сколько руды в секунду она добывает в полную силу. */
-interface Mining {
-  x: number
-  y: number
-  rate: number
-}
-
-/**
- * Добыча зоны: шахты, под которыми ещё есть руда, и доля, на которую они работают. Руду принимают хранилища зоны;
- * если шахты добывают больше, чем те принимают, все шахты замедляются поровну. Без хранилища шахты стоят.
- */
-function miningOf(sim: Sim, zone: Zone): { mines: Mining[]; share: number } {
-  const mines: Mining[] = []
-  let extracted = 0
-  let handled = 0
-  for (const entity of zone.buildings) {
-    const spec: BuildingSpec = BUILDINGS[sim.world.get(entity, Building)!.type]
-    handled += spec.handles ?? 0
-    if (!spec.extract) continue
-    const { x, y } = sim.world.get(entity, Position)!
-    if (oreLeft(sim, x, y) <= 0) continue
-    mines.push({ x, y, rate: spec.extract })
-    extracted += spec.extract
-  }
-  return { mines, share: extracted ? Math.min(1, handled / extracted) : 0 }
 }
 
 /** Хозяйство зоны. Если энергии не хватает, потребители работают на ту долю, на которую её хватает. */
 function economyOfZone(sim: Sim, zone: Zone): Economy {
   const economy: Economy = { produced: 0, demand: 0, income: 0, crowd: 0, ore: 0 }
-  const { mines, share } = miningOf(sim, zone)
-  for (const mine of mines) economy.ore += mine.rate * share
-  economy.income += economy.ore * ORE_PRICE
   /** Доход потребителей при полной энергии. */
   let powered = 0
   for (const entity of zone.buildings) {
@@ -58,6 +27,8 @@ function economyOfZone(sim: Sim, zone: Zone): Economy {
     const spec: BuildingSpec = BUILDINGS[building.type]
     const power = spec.power ?? 0
     const income = spec.income ?? 0
+    // Хранилище продаёт руду из своего запаса; в последний тик — остаток.
+    if (spec.handles) economy.ore += Math.min(spec.handles, building.ore / sim.time.step)
     // Повреждённая электростанция даёт энергии во столько же раз меньше, во сколько упала её прочность.
     if (power > 0) economy.produced += power * building.health
     if (power < 0) {
@@ -69,6 +40,7 @@ function economyOfZone(sim: Sim, zone: Zone): Economy {
     }
   }
   if (powered) economy.income += powered * Math.min(1, economy.produced / economy.demand)
+  economy.income += economy.ore * ORE_PRICE
   return economy
 }
 
@@ -190,7 +162,7 @@ function wear(sim: Sim, zones: Map<number, Zone[]>, all: Map<number, Economy[]>)
 }
 
 /**
- * Раз в тик: начисляет игрокам доход, вынимает из месторождений добытую руду и изнашивает перегруженные электростанции.
+ * Раз в тик: начисляет игрокам доход, списывает из хранилищ проданную руду и изнашивает перегруженные электростанции.
  * Доли кредита копятся в earned, на счёт попадают целые.
  */
 export function earn(sim: Sim) {
@@ -201,8 +173,11 @@ export function earn(sim: Sim) {
   if (!zones.size) return
   for (const list of zones.values()) {
     for (const zone of list) {
-      const { mines, share } = miningOf(sim, zone)
-      for (const mine of mines) takeOre(sim, mine.x, mine.y, mine.rate * share * time.step)
+      for (const entity of zone.buildings) {
+        const building = world.get(entity, Building)!
+        const handles = (BUILDINGS[building.type] as BuildingSpec).handles
+        if (handles && building.ore > 0) building.ore = Math.max(0, building.ore - handles * time.step)
+      }
     }
   }
   const paid: { entity: number; credits: number; earned: number }[] = []

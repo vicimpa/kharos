@@ -1,6 +1,6 @@
 import type { Entity } from '../ecs'
 import { isPassable, terrainAt } from '../map/terrain'
-import { Converting, Owner, Path, Position, Producer, Unit } from './components'
+import { Converting, Hauler, Owner, Path, Position, Producer, Unit } from './components'
 import { STARTING_CREDITS, addCredits } from './economy'
 import { findPath, smoothPath } from './path'
 import type { Sim } from './sim'
@@ -22,6 +22,8 @@ export const UNITS = {
   mcv: { speed: 2.5, turn: 2.2, radius: 0.8, cost: 2000, buildTime: 30 },
   builder: { speed: 4, turn: 5, radius: 0.45, cost: 150, buildTime: 5 },
   infantry: { speed: 3, turn: 10, radius: 0.3, cost: 60, buildTime: 3 },
+  // Грузовик возит руду из шахты в хранилище: см. hauling.ts.
+  truck: { speed: 3.5, turn: 4, radius: 0.45, cost: 200, buildTime: 8 },
 } satisfies Record<string, UnitSpec>
 
 export type UnitType = keyof typeof UNITS
@@ -93,6 +95,7 @@ export function spawnUnit(sim: Sim, type: UnitType, player: number, x: number, y
   const { world } = sim
   const entity = world.spawn(Position(position), Unit({ type, prevX: position.x, prevY: position.y }), Owner({ player }))
   if (type === 'mcv') world.add(entity, Producer)
+  if (type === 'truck') world.add(entity, Hauler)
   return entity
 }
 

@@ -5,6 +5,7 @@ export const UNIT_NAMES: Record<UnitType, string> = {
   mcv: 'MCV',
   builder: 'Строитель',
   infantry: 'Пехотинец',
+  truck: 'Грузовик',
 }
 
 export const BUILDING_NAMES: Record<BuildingType, string> = {

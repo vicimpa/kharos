@@ -5,6 +5,7 @@ import { apply, type Command } from './commands'
 import { SAVED } from './components'
 import { construct } from './construction'
 import { convert } from './conversion'
+import { haul } from './hauling'
 import { earn } from './income'
 import { moveUnits } from './movement'
 import { produceUnits } from './production'
@@ -85,6 +86,7 @@ export function createSim(source: SimOptions | SimSave): Sim {
       (_, time) => moveUnits(sim, time),
       // После движения: работающий строитель поворачивается к стройке, и поворот сглаживается, как у идущих.
       () => construct(sim),
+      () => haul(sim),
       () => earn(sim),
     ],
   })

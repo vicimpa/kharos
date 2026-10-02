@@ -8,12 +8,12 @@ import type { Sim } from './sim'
 import { inCircles, inForeignZone, zoneOf } from './zones'
 import { UNITS, evictUnits, isWalkable, orderMove, standingUnits, tileKey, unitsIn } from './units'
 
-/** С какого расстояния до основания строитель работает, в тайлах: с соседнего тайла, в том числе углового. */
-const REACH = 1.2
+/** С какого расстояния до основания юнит работает со зданием, в тайлах: с соседнего тайла, в том числе углового. */
+export const REACH = 1.2
 /** С какого расстояния до основания свободный строитель сам берётся за стройку или разбор, в тайлах. */
 export const WORK_RADIUS = 10
-/** Раз во сколько тиков строитель, не дошедший до площадки, пробует подъехать снова. */
-const RETRY_TICKS = 20
+/** Раз во сколько тиков юнит, не дошедший до здания, пробует подъехать снова. */
+export const RETRY_TICKS = 20
 
 const TURN = Math.PI * 2
 const wrap = (angle: number) => angle - TURN * Math.round(angle / TURN)
@@ -77,21 +77,21 @@ function workType(sim: Sim, entity: Entity): BuildingType | undefined {
 }
 
 /** Расстояние от точки до основания площадки в тайлах; внутри основания — ноль. */
-function distanceTo(site: { x: number; y: number }, type: BuildingType, x: number, y: number) {
+export function distanceTo(site: { x: number; y: number }, type: BuildingType, x: number, y: number) {
   const { width, height } = BUILDINGS[type]
   return Math.hypot(Math.max(site.x - x, 0, x - site.x - width), Math.max(site.y - y, 0, y - site.y - height))
 }
 
 /**
- * Отправляет строителя на свободный тайл вплотную к основанию площадки — ближайший к нему.
- * claimed — тайлы, уже розданные другим строителям этим же приказом; выбранный добавляется туда.
+ * Отправляет юнит на свободный тайл вплотную к основанию площадки или здания — ближайший к нему.
+ * claimed — тайлы, уже розданные другим юнитам этим же приказом; выбранный добавляется туда.
  */
-function approach(sim: Sim, builder: Entity, site: Entity, claimed: Set<number>) {
+export function approach(sim: Sim, builder: Entity, site: Entity, claimed: Set<number>) {
   const { world } = sim
   const position = world.get(builder, Position)!
   const corner = world.get(site, Position)!
   const { width, height } = BUILDINGS[(world.get(site, Site) ?? world.get(site, Building))!.type]
-  const taken = standingUnits(sim, new Set([builder]), UNITS.builder.radius)
+  const taken = standingUnits(sim, new Set([builder]), UNITS[world.get(builder, Unit)!.type].radius)
   let best: { x: number; y: number } | undefined
   let bestDistance = Infinity
   for (let y = corner.y - 1; y <= corner.y + height; y++) {

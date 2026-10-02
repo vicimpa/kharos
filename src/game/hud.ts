@@ -1,6 +1,6 @@
 import type { Entity } from '../ecs'
 import {
-  BUILDABLE, BUILDINGS, Building, Converting, PRODUCIBLE, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
+  BUILDABLE, BUILDINGS, Building, Converting, Hauler, PRODUCIBLE, TRUCK_CAPACITY, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
   buildTicks, canDemolish, canDeploy, canPack, isDeployBlocked, coreCenters, creditsOf, economyOf, isSiteBlocked, oreLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, zoneEconomies, zonesOf,
   Position, type BuildingSpec, type BuildingType, type Command, type UnitType,
 } from '../sim'
@@ -29,6 +29,10 @@ export interface HudState {
   building: BuildingType | null
   /** Сколько руды осталось под выбранной шахтой. */
   ore: number | null
+  /** Запас выбранного хранилища. */
+  stored: { ore: number; capacity: number } | null
+  /** Груз выбранных грузовиков вместе; bound — сколько из них привязано к шахте. */
+  cargo: { ore: number; capacity: number; bound: number } | null
   /** Стройка, если выбранное здание ещё не достроено. */
   site: {
     entity: number
@@ -89,6 +93,8 @@ export function readHud(scene: Scene): HudState {
   let site: HudState['site'] = null
   let demolish: HudState['demolish'] = null
   let ore: number | null = null
+  let stored: HudState['stored'] = null
+  let cargo: HudState['cargo'] = null
   let power: HudState['power'] = null
   let health: number | null = null
   let repair = 0
@@ -108,7 +114,16 @@ export function readHud(scene: Scene): HudState {
       const zone = zonesOf(sim, player).findIndex((zone) => zone.buildings.includes(entity))
       if (zone >= 0) power = { produced: Math.round(zones[zone].produced * 10) / 10, demand: zones[zone].demand }
     }
+    const hauler = world.get(entity, Hauler)
+    if (hauler) {
+      cargo ??= { ore: 0, capacity: 0, bound: 0 }
+      cargo.ore += Math.floor(hauler.ore)
+      cargo.capacity += TRUCK_CAPACITY
+      if (hauler.mine >= 0) cargo.bound++
+    }
     const built = world.get(entity, Building)
+    const capacity = built && !world.has(entity, Site) ? (BUILDINGS[built.type] as BuildingSpec).stores : undefined
+    if (built && capacity) stored = { ore: Math.floor(built.ore), capacity }
     if (built && built.health < 1) {
       health = round(built.health)
       repair = repairCostOf(built.type, built.health)
@@ -136,6 +151,8 @@ export function readHud(scene: Scene): HudState {
     units: UNIT_TYPES.filter((type) => counts.has(type)).map((type) => ({ type, count: counts.get(type)! })),
     building,
     ore,
+    stored,
+    cargo,
     site,
     demolish,
     construction: counts.has('builder')

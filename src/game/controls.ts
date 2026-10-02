@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { BUILDING_TYPES, Owner, Position, UNITS, UNIT_TYPES, Unit, canPlace, canRepair, isWalkable, siteAt } from '../sim'
+import { BUILDING_TYPES, Owner, Position, UNITS, UNIT_TYPES, Unit, canHaul, canPlace, canRepair, isWalkable, siteAt } from '../sim'
 import { placementOf } from './placing'
 import type { Scene } from './scene'
 
@@ -128,7 +128,11 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
       const site = siteAt(sim, x, y) ?? (damaged !== undefined && canRepair(sim, scene.player, damaged) ? damaged : undefined)
       const builders = units.some((entity) => sim.world.get(entity, Unit)?.type === 'builder')
       // Строители по своей стройке — строят, по повреждённому зданию — чинят; остальные выбранные при этом стоят.
-      if (site !== undefined && builders && sim.world.get(site, Owner)?.player === scene.player) {
+      const trucks = units.some((entity) => sim.world.get(entity, Unit)?.type === 'truck')
+      // Грузовики по своей шахте — привязываются к ней и возят руду.
+      if (trucks && damaged !== undefined && canHaul(sim, scene.player, damaged)) {
+        sim.send(scene.player, { type: 'haul', units, mine: damaged })
+      } else if (site !== undefined && builders && sim.world.get(site, Owner)?.player === scene.player) {
         sim.send(scene.player, { type: 'assist', units, site })
       } else {
         sim.send(scene.player, { type: 'move', units, x, y })

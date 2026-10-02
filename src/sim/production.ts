@@ -6,7 +6,7 @@ import type { Sim } from './sim'
 import { UNITS, freeTilesNear, spawnUnit, type UnitType } from './units'
 
 /** Кого производят MCV и главное здание. */
-export const PRODUCIBLE: UnitType[] = ['builder', 'infantry']
+export const PRODUCIBLE: UnitType[] = ['builder', 'truck', 'infantry']
 /** Сколько заказов помещается в очередь. */
 export const QUEUE_LIMIT = 5
 

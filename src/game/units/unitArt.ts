@@ -91,6 +91,24 @@ const infantry: UnitArt = (g, angle) => {
   p.dot(0.5, 0, 1.2, STEEL[4])
 }
 
+/** Грузовик: кабина спереди и открытый кузов с рудой. */
+const truck: UnitArt = (g, angle) => {
+  const p = pen(g, angle)
+  for (const side of [-4.5, 4.5]) {
+    for (const wheel of [-5, 0, 5]) p.bar(wheel - 1.5, wheel + 1.5, side, 3, INK)
+  }
+  p.bar(-8, 8, 0, 9, INK)
+  // Кузов: борта и руда внутри.
+  p.bar(-7, 2, 0, 7, IRON[2])
+  p.bar(-6, 1, 0, 5, 0x6b2f1e)
+  p.bar(-5, 0, -1, 2, 0xb5562e)
+  p.dot(-2, 1, 1, 0xe58a4a)
+  // Кабина.
+  p.bar(3, 7, 0, 7, HAZARD[1])
+  p.bar(3, 7, -3, 1, HAZARD[2])
+  p.bar(5, 6, 0, 5, TEAM[2])
+}
+
 /**
  * Свет юнита. lamps — ореолы самих ламп: место вперёд (along) и вправо (across) от центра юнита в пикселях спрайта,
  * glow — радиус ореола в пикселях местности. beam — луч вперёд из точки along на оси юнита: длина, полуширина
@@ -112,10 +130,14 @@ export const UNIT_LIGHTS: Record<UnitType, UnitLights> = {
     lamps: [{ along: 6, across: -2, glow: 2 }, { along: 6, across: 2, glow: 2 }],
     beam: { along: 10, length: 52, near: 4, spread: 0.3, level: 1 },
   },
+  truck: {
+    lamps: [{ along: 8, across: -2.5, glow: 2 }, { along: 8, across: 2.5, glow: 2 }],
+    beam: { along: 11, length: 56, near: 4.5, spread: 0.3, level: 1 },
+  },
   infantry: {
     lamps: [{ along: 5, across: 2.5, glow: 1.5 }],
     beam: { along: 7, length: 36, near: 1.5, spread: 0.22, level: 0.9 },
   },
 }
 
-export const UNIT_ART = { mcv, builder, infantry } satisfies Record<UnitType, UnitArt>
+export const UNIT_ART = { mcv, builder, infantry, truck } satisfies Record<UnitType, UnitArt>

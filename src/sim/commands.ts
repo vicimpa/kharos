@@ -3,6 +3,7 @@ import { BUILDINGS, canPlace, placeBuilding, type BuildingType } from './buildin
 import { Builds, Owner, Unit } from './components'
 import { assignBuilders, cancelBuild, demolish, orderBuild } from './construction'
 import { DEPLOY_SECONDS, PACK_SECONDS, canDeploy, canPack, cancelDeploy, startConverting } from './conversion'
+import { assignHaulers, releaseHauler } from './hauling'
 import { cancelUnit, orderUnit } from './production'
 import type { Sim } from './sim'
 import { UNITS, isWalkable, orderGroupMove, spawnUnit, type UnitType } from './units'
@@ -32,6 +33,8 @@ export type Command =
   | { type: 'build'; building: BuildingType; x: number; y: number; builders: number[] }
   /** Послать своих строителей на свою стройку. */
   | { type: 'assist'; units: number[]; site: number }
+  /** Привязать свои грузовики к своей шахте: они будут возить руду из неё в хранилища. */
+  | { type: 'haul'; units: number[]; mine: number }
   /** Отменить свою стройку и вернуть кредиты; для здания под разбор — отменить разбор. */
   | { type: 'cancelBuild'; site: number }
   /** Назначить своё готовое здание под разбор и послать к нему своих строителей. Отменяется через cancelBuild. */
@@ -60,8 +63,11 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
         return sim.world.has(entity, Unit) && sim.world.get(entity, Owner)?.player === player
       })
       if (!units.length) return false
-      // Приказ идти снимает строителя со стройки.
-      for (const entity of units) sim.world.remove(entity, Builds)
+      // Приказ идти снимает строителя со стройки, а грузовик — с маршрута.
+      for (const entity of units) {
+        sim.world.remove(entity, Builds)
+        releaseHauler(sim, entity)
+      }
       orderGroupMove(sim, units, command.x, command.y)
       return true
     }
@@ -72,6 +78,10 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
     case 'assist': {
       if (!Array.isArray(command.units)) return false
       return assignBuilders(sim, player, command.site as Entity, command.units as Entity[])
+    }
+    case 'haul': {
+      if (!Array.isArray(command.units)) return false
+      return assignHaulers(sim, player, command.mine as Entity, command.units as Entity[])
     }
     case 'cancelBuild':
       return cancelBuild(sim, player, command.site as Entity)

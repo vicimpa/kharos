@@ -75,6 +75,19 @@ export function Hud({ state, send, place }: HudProps) {
             <div class="hud__hint">Прочность: {percent(state.health)}. Починка стоит {state.repair}: выбери строителей и щёлкни по зданию правой кнопкой</div>
           )}
 
+          {state.stored && (
+            <div class="hud__hint">
+              Руды в хранилище: {state.stored.ore} из {state.stored.capacity}
+              {state.stored.ore >= state.stored.capacity && ' — полно'}
+            </div>
+          )}
+          {state.cargo && (
+            <div class="hud__hint">
+              Груз: {state.cargo.ore} из {state.cargo.capacity}.{' '}
+              {state.cargo.bound > 0 ? 'Возит руду из шахты' : 'Правый щелчок по шахте — возить из неё руду'}
+            </div>
+          )}
+
           {ore !== null && <div class="hud__hint">{ore > 0 ? `Руды в месторождении: ${ore}` : 'Месторождение выработано'}</div>}
 
           {site && (
