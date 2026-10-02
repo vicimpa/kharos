@@ -196,20 +196,13 @@ const tank: UnitArt = (g, angle, team) => {
   p.dot(-1, 0, 5.6, STEEL[0])
 }
 
-/** Разрядник: тяжёлое шасси с катушкой и двумя электродами. */
+/** Разрядник: тяжёлое шасси с погоном и кожухами питания. Катушка — отдельная турель, её рисует arcTurret поверх. */
 const tesla: UnitArt = (g, angle, team) => {
   const p = pen(g, angle)
   heavyHull(p, team)
-  for (const side of [-3, 3]) {
-    p.bar(3, 11, side, 2.6, INK)
-    p.bar(3, 10, side, 1.2, IRON[3])
-    p.dot(11, side, 1.3, ENERGY[1])
-  }
-  p.dot(0, 0, 6, INK)
-  p.dot(0, 0, 5, IRON[2])
-  p.dot(0, 0, 3.6, INK)
-  p.dot(0, 0, 2.6, ENERGY[0])
-  p.dot(0, 0, 1.2, ENERGY[2])
+  for (const side of [-3.5, 3.5]) p.bar(5, 9, side, 2, ENERGY[0])
+  p.dot(0, 0, 6.6, INK)
+  p.dot(0, 0, 5.8, IRON[1])
 }
 
 /**
@@ -377,4 +370,21 @@ const repairTurret: UnitArt = (g, angle) => {
   p.dot(-1.2, -0.8, 1, HAZARD[2])
 }
 
-export const TURRET_ART = { cannon: cannonTurret, rocket: rocketTurret, repair: repairTurret } satisfies Record<TurretType, UnitArt>
+/** Разрядная башня: катушка на кольце и два электрода вперёд со светящимися концами. */
+const arcTurret: UnitArt = (g, angle, team) => {
+  const p = pen(g, angle)
+  for (const side of [-2.6, 2.6]) {
+    p.bar(2, 11, side, 2.6, INK)
+    p.bar(2, 10, side, 1.2, IRON[3])
+    p.dot(11, side, 1.4, ENERGY[1])
+    p.dot(11, side, 0.6, ENERGY[2])
+  }
+  p.dot(0, 0, 5.4, INK)
+  p.dot(0, 0, 4.6, IRON[2])
+  p.beam(-3.5, -2.5, 2.5, 1.4, team[0])
+  p.dot(0, 0, 3.4, INK)
+  p.dot(0, 0, 2.6, ENERGY[0])
+  p.dot(0, 0, 1.2, ENERGY[2])
+}
+
+export const TURRET_ART = { arc: arcTurret, cannon: cannonTurret, rocket: rocketTurret, repair: repairTurret } satisfies Record<TurretType, UnitArt>

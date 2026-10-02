@@ -49,7 +49,11 @@ export const UNITS = {
     speed: 2.2, turn: 2.5, radius: 0.7, cost: 600, buildTime: 14, kind: 'heavy', hp: 450,
     mounts: [{ turret: 'cannon', along: -0.06, across: 0 }],
   },
-  tesla: { speed: 2, turn: 2.5, radius: 0.7, cost: 700, buildTime: 16, kind: 'heavy', hp: 380, weapon: 'arc' },
+  // Разрядник: тяжёлое шасси с разрядной башней.
+  tesla: {
+    speed: 2, turn: 2.5, radius: 0.7, cost: 700, buildTime: 16, kind: 'heavy', hp: 380,
+    mounts: [{ turret: 'arc', along: 0, across: 0 }],
+  },
   // Носитель: колёсное шасси танка без своего оружия — на нём три ракетные турели и ремонтная.
   carrier: {
     speed: 3, turn: 2.5, radius: 0.8, cost: 1200, buildTime: 20, kind: 'vehicle', hp: 550,

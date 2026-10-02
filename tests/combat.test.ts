@@ -186,9 +186,12 @@ test('турели носителя, попавшего под огонь изд
 
 test('разряд перескакивает на соседей, слабея', () => {
   const { sim, x, y } = field()
-  spawnUnit(sim, 'tesla', 1, x, y)
+  const tesla = spawnUnit(sim, 'tesla', 1, x, y)
+  const facing = sim.world.get(tesla, Unit)!.facing
   const foes = [3, 5, 7, 9].map((dx) => spawnUnit(sim, 'truck', 2, x + dx, y))
   seconds(sim, 1.5)
+  // Наводится катушка-турель, а не корпус.
+  expect(sim.world.get(tesla, Unit)!.facing).toBe(facing)
   const [first, second, third, fourth] = foes.map((entity) => 1 - health(sim, entity)!)
   expect(first).toBeGreaterThan(second)
   expect(second).toBeGreaterThan(third)

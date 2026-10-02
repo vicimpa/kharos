@@ -24,6 +24,8 @@ export interface TurretSpec {
 export const TURRETS = {
   // Танковая башня: тяжёлая, поворачивается медленно, ядро вылетает с конца длинного ствола.
   cannon: { turn: 2, radius: 0.85, weapon: 'cannon' },
+  // Разрядная башня: катушка с двумя электродами, разряд срывается с их концов.
+  arc: { turn: 3, radius: 0.7, weapon: 'arc' },
   rocket: { turn: 4, radius: 0.2, weapon: 'launcher' },
   repair: { turn: 4, radius: 0.2, repair: 5 },
 } satisfies Record<string, TurretSpec>
