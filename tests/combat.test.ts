@@ -486,6 +486,7 @@ test('скорость и цена ремонта берутся из прави
     return sim.world.get(tank, Health)!.value - 0.2
   }
   expect(repaired(4)).toBeCloseTo(repaired(2) * 2, 2)
+  expect(repaired(0)).toBe(0)
 
   const sim = createSim({ ...options, rules: { repairCost: 1 } })
   expect(sim.rules).toEqual({ repairSpeed: 2, repairCost: 1 })

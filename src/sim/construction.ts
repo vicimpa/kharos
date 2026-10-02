@@ -66,6 +66,8 @@ export const repairCostOf = (cost: number, health: number, share = REPAIR_COST) 
  */
 function isRepairable(sim: Sim, entity: Entity) {
   const { world } = sim
+  // Нулевая скорость ремонта — ремонта нет вовсе: строители не едут чинить и не стоят без дела у разбитого.
+  if (sim.rules.repairSpeed <= 0) return false
   const health = world.get(entity, Health)
   return !!health?.repairable && health.value < 1 && !world.has(entity, Site) && !world.has(entity, Converting)
 }

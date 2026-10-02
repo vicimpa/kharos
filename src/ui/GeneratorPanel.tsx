@@ -83,7 +83,7 @@ const RULES_GROUPS: Group<RulesConfig>[] = [
   {
     title: 'Ремонт',
     fields: [
-      { key: 'repairSpeed', label: 'Скорость, раз от стройки', min: 0.1, max: 10, step: 0.1 },
+      { key: 'repairSpeed', label: 'Скорость, раз от стройки', min: 0, max: 10, step: 0.1 },
       { key: 'repairCost', label: 'Цена, доля от цены', min: 0, max: 2, step: 0.05 },
     ],
   },
