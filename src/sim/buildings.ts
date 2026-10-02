@@ -24,7 +24,7 @@ export interface BuildingSpec {
   extract?: number
   /** Сколько руды помещается в здании. Руду привозят грузовики — к коннектору главного здания зоны. */
   stores?: number
-  /** Через это здание продают руду из хранилищ его зоны: см. trade.ts. */
+  /** Через это здание продают руду: грузовики свозят её сюда из хранилищ его зоны, см. trade.ts. */
   trades?: boolean
   /**
    * Коннектор: тайл вплотную к зданию, на который грузовик встаёт задом к нему. x и y — сдвиг тайла от левого
@@ -62,8 +62,8 @@ export const BUILDINGS = {
   // Шахта энергии не просит и начинает свою зону: тянуть к месторождению цепочку зданий не нужно.
   // Месторождения невелики, поэтому добыча медленная, а руда дорогая. Коннектор — под левым нижним тайлом.
   mine: { width: 2, height: 2, cost: 500, zone: 6, extract: 0.5, dock: { x: 0, y: 2, facing: Math.PI / 2 } },
-  silo: { width: 2, height: 1, cost: 150, stores: 200 },
-  spaceport: { width: 3, height: 3, cost: 600, trades: true },
+  silo: { width: 2, height: 1, cost: 150, stores: 200, dock: { x: 0, y: 1, facing: Math.PI / 2 } },
+  spaceport: { width: 3, height: 3, cost: 600, trades: true, dock: { x: 1, y: 3, facing: Math.PI / 2 } },
   turret: { width: 1, height: 1, cost: 250 },
 } satisfies Record<string, BuildingSpec>
 

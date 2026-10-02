@@ -35,9 +35,15 @@ export interface HudState {
   stored: { ore: number; capacity: number } | null
   /**
    * Продажа, если выбран свой готовый космопорт. available — сколько руды в хранилищах его зоны, price — цена единицы.
-   * order — заявка в пути: сколько руды и готовность от 0 до 1.
+   * order — открытая заявка: сколько руды продаётся и сколько уже привезли; flight — готовность полёта от 0 до 1,
+   * null — корабль ещё грузится.
    */
-  trade: { port: number; available: number; price: number; order: { ore: number; progress: number } | null } | null
+  trade: {
+    port: number
+    available: number
+    price: number
+    order: { wanted: number; delivered: number; flight: number | null } | null
+  } | null
   /** Груз выбранных грузовиков вместе; bound — сколько из них привязано к шахте. */
   cargo: { ore: number; capacity: number; bound: number } | null
   /** Стройка, если выбранное здание ещё не достроено. */
@@ -127,7 +133,7 @@ export function readHud(scene: Scene): HudState {
       cargo ??= { ore: 0, capacity: 0, bound: 0 }
       cargo.ore += Math.floor(hauler.ore)
       cargo.capacity += TRUCK_CAPACITY
-      if (hauler.mine >= 0) cargo.bound++
+      if (hauler.mine >= 0 || hauler.port >= 0) cargo.bound++
     }
     const built = world.get(entity, Building)
     const capacity = built && !world.has(entity, Site) ? (BUILDINGS[built.type] as BuildingSpec).stores : undefined
@@ -139,7 +145,9 @@ export function readHud(scene: Scene): HudState {
         port: entity,
         available: zone ? Math.floor(stockOfZone(sim, zone).ore) : 0,
         price: ORE_PRICE,
-        order: order ? { ore: order.ore, progress: round(1 - order.left / order.total) } : null,
+        order: order
+          ? { wanted: Math.round(order.wanted), delivered: Math.floor(order.delivered), flight: order.total ? round(1 - order.left / order.total) : null }
+          : null,
       }
     }
     if (built && built.health < 1) {

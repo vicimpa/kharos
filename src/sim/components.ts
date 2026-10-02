@@ -66,14 +66,19 @@ export const Builds = component('Builds', { site: 0 })
 export const Deposit = component('Deposit', { mined: 0 })
 
 /**
- * Грузовик. ore — руда в кузове. mine — шахта, к которой он привязан, base — главное здание, куда везёт; -1 — нет.
- * full — кузов надо везти на базу; docked — стоит на коннекторе задом к зданию, идёт погрузка или выгрузка;
- * waiting — уже получил приказ ехать к коннектору и ждёт очереди.
+ * Грузовик. ore — руда в кузове. Работ у него две, и занят он одной: возит руду из шахты mine в главное здание base
+ * или из хранилища source в космопорт port; -1 — нет. full — кузов надо везти к получателю; docked — стоит
+ * на коннекторе задом к зданию, идёт погрузка или выгрузка; waiting — уже получил приказ ехать к коннектору
+ * и ждёт очереди.
  */
-export const Hauler = component('Hauler', { ore: 0, mine: -1, base: -1, full: false, docked: false, waiting: false })
+export const Hauler = component('Hauler', { ore: 0, mine: -1, base: -1, port: -1, source: -1, full: false, docked: false, waiting: false })
 
-/** Заявка на продажу руды в пути: есть у космопорта, пока корабль летит. ore — сколько руды, left и total — тики. */
-export const Trade = component('Trade', { ore: 0, left: 0, total: 0 })
+/**
+ * Заявка на продажу руды: есть у космопорта от заявки до денег. wanted — сколько руды продаётся, delivered — сколько
+ * грузовики уже привезли в космопорт, claimed — сколько едет к нему в кузовах. Когда привезено всё, корабль улетает:
+ * left и total — сколько тиков ему лететь; пока руду везут, они нулевые.
+ */
+export const Trade = component('Trade', { wanted: 0, delivered: 0, claimed: 0, left: 0, total: 0 })
 
 /** Компоненты, которые попадают в сохранение и в сеть. Новый компонент симуляции добавляй сюда. */
 export const SAVED = [Position, Building, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Trade]

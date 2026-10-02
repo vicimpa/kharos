@@ -205,10 +205,14 @@ test('хранилище конечно: когда место кончилос�
   expect(stockOf(sim, 1).capacity).toBe(capacity + BUILDINGS.silo.stores)
 })
 
-test('космопорт продаёт руду по заявке: руда уходит сразу, кредиты приходят позже', () => {
-  const { sim, spot, core } = base()
+test('космопорт продаёт руду по заявке: свободные грузовики свозят её из хранилищ, потом приходят кредиты', () => {
+  const { sim, spot, mine, core, truck } = base()
   sim.world.get(core, Building)!.ore = 80
+  const silo = placeBuilding(sim.world, 'silo', spot.x + 9, spot.y + 5, 1)
+  sim.world.get(silo, Building)!.ore = 15
   const credits = creditsOf(sim, 1)
+  const cargo = () => sim.world.get(truck, Hauler)!
+  const stored = () => sim.world.get(core, Building)!.ore + sim.world.get(silo, Building)!.ore
   // Без космопорта руда лежит и денег не приносит.
   seconds(sim, 5)
   expect(creditsOf(sim, 1) - credits).toBeLessThanOrEqual(1)
@@ -217,26 +221,53 @@ test('космопорт продаёт руду по заявке: руда у�
   expect(canSell(sim, 1, port)).toBe(true)
   expect(canSell(sim, 2, port)).toBe(false)
 
+  // Заявка руду не забирает: её должны привезти.
   sim.send(2, { type: 'sell', port, amount: 50 })
   sim.send(1, { type: 'sell', port, amount: 50 })
   sim.advance(TICK)
-  expect(sim.world.get(core, Building)!.ore).toBe(30)
-  // Пока заявка в пути, вторую космопорт не берёт.
+  const order = () => sim.world.get(port, Trade)!
+  expect(order().wanted).toBe(50)
+  expect(stored()).toBe(95)
+  // Пока заявка открыта, вторую космопорт не берёт.
   sim.send(1, { type: 'sell', port, amount: 10 })
   sim.advance(TICK)
-  expect(sim.world.get(core, Building)!.ore).toBe(30)
+  expect(order().wanted).toBe(50)
+
+  // Космопорт сам позвал свободный грузовик; тот грузится у хранилища и везёт к коннектору космопорта.
+  until(sim, () => cargo().port === port)
+  until(sim, () => cargo().docked && cargo().ore > 0)
+  expect(onTile(sim, truck, spot.x + 10, spot.y + 3)).toBe(false)
+  until(sim, () => order().delivered > 0)
+  expect(onTile(sim, truck, spot.x + 10, spot.y + 3)).toBe(true)
+  // Руда нигде не теряется: она в хранилищах, в кузове или в космопорте.
+  expect(stored() + cargo().ore + order().delivered).toBeCloseTo(95)
+
+  // Привезли всё — грузовик свободен, корабль улетел, кредиты приходят после полёта.
+  until(sim, () => order().total > 0)
+  expect(order().delivered).toBeCloseTo(50)
+  expect(stored()).toBeCloseTo(45)
+  until(sim, () => cargo().port === -1, 5)
+  expect(cargo().ore).toBe(0)
   const before = creditsOf(sim, 1)
-  seconds(sim, SELL_SECONDS - 1)
+  seconds(sim, SELL_SECONDS - 2)
   expect(creditsOf(sim, 1) - before).toBeLessThan(10)
-  seconds(sim, 1)
+  expect(sim.world.has(port, Trade)).toBe(true)
+  seconds(sim, 2)
+  expect(sim.world.has(port, Trade)).toBe(false)
   const income = BUILDINGS.command.income * SELL_SECONDS
   expect(Math.abs(creditsOf(sim, 1) - before - 50 * ORE_PRICE - income)).toBeLessThanOrEqual(1)
 
-  // Просить можно больше, чем есть: продастся остаток.
+  // Грузовик, привязанный к шахте, на зов космопорта не идёт; заявку можно закрыть с тем, что привезли.
+  sim.send(1, { type: 'haul', units: [truck], mine })
   sim.send(1, { type: 'sell', port, amount: 1000 })
+  seconds(sim, 5)
+  expect(order().wanted).toBe(45)
+  expect(cargo().port).toBe(-1)
+  expect(order().delivered).toBe(0)
+  sim.send(1, { type: 'closeSale', port })
   sim.advance(TICK)
-  expect(sim.world.get(core, Building)!.ore).toBe(0)
-  expect(sim.world.get(port, Trade)!.ore).toBe(30)
+  expect(sim.world.has(port, Trade)).toBe(false)
+  expect(stored()).toBeCloseTo(45)
 })
 
 test('коннекторы нельзя застраивать, а выработанное месторождение освобождает грузовик', () => {

@@ -176,7 +176,7 @@ export function stepAside(sim: Sim, entity: Entity, fromX: number, fromY: number
   if (!position || !unit || world.has(entity, Path) || world.has(entity, Converting)) return
   // Грузовик у коннектора место не уступает: иначе ждущий очереди сгонял бы того, кто грузится.
   const hauler = world.get(entity, Hauler)
-  if (hauler && hauler.mine !== -1 && !hauler.waiting) return
+  if (hauler && (hauler.mine !== -1 || hauler.port !== -1) && !hauler.waiting) return
   const sideX = -Math.sin(heading)
   const sideY = Math.cos(heading)
   const side = (position.x - fromX) * sideX + (position.y - fromY) * sideY >= 0 ? 1 : -1

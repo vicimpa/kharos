@@ -89,17 +89,31 @@ export function Hud({ state, send, place }: HudProps) {
           {state.cargo && (
             <div class="hud__hint">
               Груз: {state.cargo.ore} из {state.cargo.capacity}.{' '}
-              {state.cargo.bound > 0 ? 'Возит руду из шахты' : 'Правый щелчок по шахте — возить из неё руду'}
+              {state.cargo.bound > 0 ? 'Возит руду' : 'Свободен: возит руду в космопорт по заявке. Правый щелчок по шахте — возить из неё'}
             </div>
           )}
           {state.trade &&
             (state.trade.order ? (
-              <div class="hud__progress">
-                <span style={{ width: percent(state.trade.order.progress) }} />
-                <em>
-                  Заявка в пути: {state.trade.order.ore} руды за {state.trade.order.ore * state.trade.price}
-                </em>
-              </div>
+              <>
+                <div class="hud__progress">
+                  <span
+                    style={{ width: percent(state.trade.order.flight ?? state.trade.order.delivered / state.trade.order.wanted) }}
+                  />
+                  <em>
+                    {state.trade.order.flight !== null
+                      ? `Корабль в пути: ${state.trade.order.wanted} руды за ${state.trade.order.wanted * state.trade.price}`
+                      : `Грузовики везут руду: ${state.trade.order.delivered} из ${state.trade.order.wanted}`}
+                  </em>
+                </div>
+                {state.trade.order.flight === null && (
+                  <>
+                    <div class="hud__hint">Руду возят свободные грузовики — не привязанные к шахте</div>
+                    <button onClick={() => send({ type: 'closeSale', port: state.trade!.port })}>
+                      {state.trade.order.delivered > 0 ? 'Отправить, что привезли' : 'Снять заявку'}
+                    </button>
+                  </>
+                )}
+              </>
             ) : (
               <>
                 <div class="hud__hint">

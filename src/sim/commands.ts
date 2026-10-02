@@ -6,7 +6,7 @@ import { DEPLOY_SECONDS, PACK_SECONDS, canDeploy, canPack, cancelDeploy, startCo
 import { assignHaulers, releaseHauler } from './hauling'
 import { cancelUnit, orderUnit } from './production'
 import type { Sim } from './sim'
-import { sellOre } from './trade'
+import { closeSale, sellOre } from './trade'
 import { UNITS, isWalkable, orderGroupMove, spawnUnit, type UnitType } from './units'
 
 /**
@@ -36,8 +36,10 @@ export type Command =
   | { type: 'assist'; units: number[]; site: number }
   /** Привязать свои грузовики к своей шахте: они будут возить руду из неё в хранилища. */
   | { type: 'haul'; units: number[]; mine: number }
-  /** Заявка на продажу: космопорт забирает до amount руды из хранилищ своей зоны и позже приносит кредиты. */
+  /** Заявка на продажу до amount руды: грузовики свезут её в космопорт из хранилищ его зоны, потом придут кредиты. */
   | { type: 'sell'; port: number; amount: number }
+  /** Закрыть заявку раньше срока: корабль улетает с тем, что привезли; если ничего — заявка снимается. */
+  | { type: 'closeSale'; port: number }
   /** Отменить свою стройку и вернуть кредиты; для здания под разбор — отменить разбор. */
   | { type: 'cancelBuild'; site: number }
   /** Назначить своё готовое здание под разбор и послать к нему своих строителей. Отменяется через cancelBuild. */
@@ -88,6 +90,8 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
     }
     case 'sell':
       return sellOre(sim, player, command.port as Entity, command.amount)
+    case 'closeSale':
+      return closeSale(sim, player, command.port as Entity)
     case 'cancelBuild':
       return cancelBuild(sim, player, command.site as Entity)
     case 'demolish': {

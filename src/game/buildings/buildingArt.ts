@@ -449,6 +449,7 @@ const spaceport: BuildingArt = {
     // Диспетчерская.
     tower(g, 41, 12, 4, 9, STEEL)
     lamp(g, light, 41, 2, 2, pulse(t * 2))
+    connector(g, light, 16, 48, t)
   },
 }
 
@@ -461,6 +462,7 @@ const silo: BuildingArt = {
       tower(g, x, 9, 5, 5, IRON)
       bulb(g, light, x - 1, 3, pulse(t, offset))
     }
+    connector(g, light, 0, 16, t)
   },
 }
 
