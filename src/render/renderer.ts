@@ -29,14 +29,22 @@ export interface Frame {
   lights: Lights
 }
 
-/** Источники света, собранные за кадр: по пять чисел на огонь. */
+/** Источники света, собранные за кадр: по пять чисел на огонь и по восемь на луч. */
 export interface Lights {
   readonly data: number[]
+  readonly beams: number[]
   /**
    * Огонь в точке (x, y) в тайлах. cutRadius — радиус освещённого пятна на земле, bloomRadius — радиус ореола,
    * оба в пикселях местности; нулевой радиус — без пятна или без ореола. level — яркость от 0 до 1.
    */
   add(x: number, y: number, cutRadius: number, bloomRadius: number, level: number): void
+  /**
+   * Луч из точки (x, y) в тайлах под углом angle (радианы, 0 — вправо, растёт по часовой стрелке): фара, фонарь.
+   * length — длина в пикселях местности; near — полуширина у источника, тоже в пикселях; spread — на сколько
+   * пикселей луч расширяется в каждую сторону за пиксель длины. В отличие от огней, луч не проходит сквозь
+   * то, что проходы нарисовали в drawOccluders: за зданием и юнитом остаётся тень.
+   */
+  beam(x: number, y: number, angle: number, length: number, near: number, spread: number, level: number): void
 }
 
 /**
@@ -45,6 +53,11 @@ export interface Lights {
  */
 export interface Pass {
   draw(frame: Frame): void
+  /**
+   * Рисует силуэты того, что не пропускает свет лучей: всё, у чего альфа больше половины, отбрасывает тень.
+   * Вызывается проходом освещения после draw() того же кадра, так что набранные в draw() спрайты годятся.
+   */
+  drawOccluders?(frame: Frame): void
   destroy(): void
 }
 
@@ -75,6 +88,7 @@ export function createRenderer(canvas: HTMLCanvasElement, setup: Setup, onError?
   const gl = createContext(canvas)
   const size = { width: 1, height: 1 }
   const lightData: number[] = []
+  const beamData: number[] = []
   const frame: Frame = {
     gl,
     width: 1,
@@ -85,8 +99,12 @@ export function createRenderer(canvas: HTMLCanvasElement, setup: Setup, onError?
     view: { uScreenSize: new Float32Array(2), uScale: new Float32Array(2), uZoom: 1, uTime: 0 },
     lights: {
       data: lightData,
+      beams: beamData,
       add(x, y, cutRadius, bloomRadius, level) {
         lightData.push(x, y, cutRadius, bloomRadius, level)
+      },
+      beam(x, y, angle, length, near, spread, level) {
+        beamData.push(x, y, length, level, Math.cos(angle), Math.sin(angle), near, spread)
       },
     },
   }
@@ -145,6 +163,7 @@ export function createRenderer(canvas: HTMLCanvasElement, setup: Setup, onError?
       view.uZoom = camera.zoom
       view.uTime = time
       lightData.length = 0
+      beamData.length = 0
 
       bindScreen(gl)
       for (const pass of passes) pass.draw(frame)

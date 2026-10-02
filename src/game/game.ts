@@ -70,14 +70,16 @@ export function createGame(canvas: HTMLCanvasElement, settings: MapSettings, onE
     canvas,
     (gl) => {
       landWindow = createLandWindow(gl)
+      const units = createUnitsPass(gl, scene)
+      const buildings = createBuildingsPass(gl, scene)
       // Порядок проходов — порядок отрисовки, снизу вверх.
       return [
         createTerrainPass(gl, scene, landWindow),
         createBoundsPass(gl, scene),
-        createUnitsPass(gl, scene),
-        createBuildingsPass(gl, scene),
+        units,
+        buildings,
         createPrecipitationPass(gl, scene, landWindow),
-        createLightingPass(gl, scene),
+        createLightingPass(gl, scene, [units, buildings]),
         createSelectionPass(gl, scene),
         createCursorPass(gl, scene),
       ]

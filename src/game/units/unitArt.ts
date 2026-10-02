@@ -92,35 +92,30 @@ const infantry: UnitArt = (g, angle) => {
 }
 
 /**
- * Огонь юнита: фара или фонарь. Место — вперёд (along) и вправо (across) от центра юнита, в пикселях спрайта.
- * spot — радиус пятна на земле, glow — радиус ореола, оба в пикселях местности; ноль — без него.
+ * Свет юнита. lamps — ореолы самих ламп: место вперёд (along) и вправо (across) от центра юнита в пикселях спрайта,
+ * glow — радиус ореола в пикселях местности. beam — луч вперёд из точки along на оси юнита: длина, полуширина
+ * у источника (near) в пикселях и расширение на пиксель длины (spread). Источник луча стоит перед самым носом
+ * юнита: силуэт юнита свет не пропускает, и из-под него луч бы не вышел.
  */
-export interface UnitLight {
-  along: number
-  across: number
-  spot: number
-  glow: number
-  level: number
+export interface UnitLights {
+  lamps: { along: number; across: number; glow: number }[]
+  beam: { along: number; length: number; near: number; spread: number; level: number }
 }
-
-/** Луч: пятна света, уходящие вперёд от точки (along, across) и растущие с расстоянием — вместе дают конус. */
-function beam(along: number, across: number, length: number, width: number, level: number): UnitLight[] {
-  const STEPS = 5
-  return Array.from({ length: STEPS }, (_, i) => {
-    const share = (i + 1) / STEPS
-    // Пятна перекрываются и складываются, поэтому каждое неяркое.
-    return { along: along + length * share, across: across * (1 - share), spot: width * (0.35 + 0.65 * share), glow: 0, level }
-  })
-}
-
-/** Лампа: маленький ореол в самой фаре. */
-const lamp = (along: number, across: number, glow: number): UnitLight => ({ along, across, spot: glow * 2, glow, level: 1 })
 
 /** Машины светят двумя фарами, пехотинец — фонарём у оружия. */
-export const UNIT_LIGHTS: Record<UnitType, UnitLight[]> = {
-  mcv: [lamp(12, -4, 3), lamp(12, 4, 3), ...beam(12, -4, 60, 26, 0.3), ...beam(12, 4, 60, 26, 0.3)],
-  builder: [lamp(6, -2, 2), lamp(6, 2, 2), ...beam(6, -2, 42, 18, 0.3), ...beam(6, 2, 42, 18, 0.3)],
-  infantry: [lamp(5, 2.5, 1.5), ...beam(5, 2.5, 30, 12, 0.45)],
+export const UNIT_LIGHTS: Record<UnitType, UnitLights> = {
+  mcv: {
+    lamps: [{ along: 12, across: -4, glow: 3 }, { along: 12, across: 4, glow: 3 }],
+    beam: { along: 14, length: 72, near: 7, spread: 0.3, level: 1 },
+  },
+  builder: {
+    lamps: [{ along: 6, across: -2, glow: 2 }, { along: 6, across: 2, glow: 2 }],
+    beam: { along: 10, length: 52, near: 4, spread: 0.3, level: 1 },
+  },
+  infantry: {
+    lamps: [{ along: 5, across: 2.5, glow: 1.5 }],
+    beam: { along: 7, length: 36, near: 1.5, spread: 0.22, level: 0.9 },
+  },
 }
 
 export const UNIT_ART = { mcv, builder, infantry } satisfies Record<UnitType, UnitArt>

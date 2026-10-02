@@ -68,12 +68,15 @@ export function createUnitsPass(gl: WebGL2RenderingContext, scene: Scene): Pass 
         const facing = drawnFacing(unit, time.alpha)
         const forwardX = Math.cos(facing) / 16
         const forwardY = Math.sin(facing) / 16
-        for (const light of UNIT_LIGHTS[unit.type]) {
-          // Центр пятна встаёт на узел сетки пиксель-арта, иначе его пиксели не совпадут с пикселями земли.
-          const lightX = Math.round((x + light.along * forwardX - light.across * forwardY) * 16) / 16
-          const lightY = Math.round((y + light.along * forwardY + light.across * forwardX) * 16) / 16
-          lights.add(lightX, lightY, light.spot, light.glow, light.level)
+        // Свет встаёт на узел сетки пиксель-арта, иначе его пиксели не совпадут с пикселями земли.
+        const snap = (value: number) => Math.round(value * 16) / 16
+        const { lamps, beam } = UNIT_LIGHTS[unit.type]
+        for (const lamp of lamps) {
+          const lampX = snap(x + lamp.along * forwardX - lamp.across * forwardY)
+          const lampY = snap(y + lamp.along * forwardY + lamp.across * forwardX)
+          lights.add(lampX, lampY, lamp.glow * 2, lamp.glow, 1)
         }
+        lights.beam(snap(x + beam.along * forwardX), snap(y + beam.along * forwardY), facing, beam.length, beam.near, beam.spread, beam.level)
 
         const direction = ((Math.round((facing / TURN) * UNIT_DIRECTIONS) % UNIT_DIRECTIONS) + UNIT_DIRECTIONS) % UNIT_DIRECTIONS
         const { u, v, width: frameWidth, height: frameHeight } = frames.get(unit.type)![direction]
@@ -85,6 +88,11 @@ export function createUnitsPass(gl: WebGL2RenderingContext, scene: Scene): Pass 
       setBlend(gl, 'alpha')
       program.use(view, { uTexture: atlas.texture })
       shadows.draw()
+      sprites.draw()
+    },
+    drawOccluders({ view }) {
+      setBlend(gl, 'alpha')
+      program.use(view, { uTexture: atlas.texture })
       sprites.draw()
     },
     destroy() {
