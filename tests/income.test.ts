@@ -3,7 +3,7 @@ import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import {
   BUILDINGS, Building, Builds, CORE, Owner, Site, Unit,
-  OVERLOAD_DAMAGE, SELF_REPAIR, canBuild, canDeploy, canPlace, createSim, creditsOf, economyOf, powerOf, powerStates, refundOf, rewardsOf, siteAt, zoneEconomies, zoneOf, zonesOf, spawnStartingUnits, type BuildingType, type Sim,
+  OVERLOAD_DAMAGE, REPAIR_SPEED, canBuild, canDeploy, canPlace, createSim, creditsOf, economyOf, powerOf, powerStates, refundOf, rewardsOf, siteAt, zoneEconomies, zoneOf, zonesOf, spawnStartingUnits, type BuildingType, type Sim,
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { REWARDS, STARTING_CREDITS } from '../src/sim/economy'
@@ -246,8 +246,12 @@ test('в чужой зоне не строят и не разворачиваю�
   expect(mcvs.map((mcv) => canDeploy(sim, 2, mcv))).toEqual([false, true])
 })
 
-test('перегруженная электростанция теряет прочность и разрушается; без перегруза чинится сама', () => {
+test('перегруженная электростанция теряет прочность и разрушается; сама не восстанавливается', () => {
   const { sim, x, y } = start()
+  // Строители починили бы станцию сами; здесь проверяется, что без них она не восстанавливается.
+  const builders: Entity[] = []
+  for (const [entity, unit] of sim.world.query(Unit)) if (unit.type === 'builder') builders.push(entity)
+  for (const builder of builders) sim.world.destroy(builder)
   const plant = put(sim, 'generator', x + 6, y + 4)
   const first = put(sim, 'matter', x + 6, y)
   const health = () => sim.world.get(plant, Building)!.health
@@ -262,11 +266,11 @@ test('перегруженная электростанция теряет пр�
   seconds(sim, 20)
   expect(health()).toBeCloseTo(1 - OVERLOAD_DAMAGE * 0.5 * 20)
 
-  // Перегруз сняли — станция понемногу восстанавливается.
+  // Перегруз сняли — урон прекратился, но сама станция не чинится.
   sim.world.destroy(second)
   const damaged = health()
   seconds(sim, 4)
-  expect(health()).toBeCloseTo(damaged + SELF_REPAIR * 4)
+  expect(health()).toBe(damaged)
   expect(powerStates(sim).size).toBe(0)
 
   // Сильный перегруз доводит станцию до разрушения; дальше потребители стоят без энергии.
@@ -276,4 +280,40 @@ test('перегруженная электростанция теряет пр�
   expect(sim.world.has(plant, Building)).toBe(false)
   expect(economyOf(sim, 1).produced).toBe(0)
   expect(economyOf(sim, 1).income).toBeCloseTo(0.2)
+})
+
+test('строители чинят повреждённое здание — по приказу и сами; перегруженную станцию не чинят', () => {
+  const { sim, x, y } = start()
+  const plant = put(sim, 'generator', x + 6, y + 4)
+  put(sim, 'matter', x + 6, y)
+  const builders: Entity[] = []
+  for (const [entity, unit] of sim.world.query(Unit)) if (unit.type === 'builder') builders.push(entity)
+  const health = () => sim.world.get(plant, Building)!.health
+
+  // Целое здание работой не считается.
+  sim.send(1, { type: 'assist', units: builders, site: plant })
+  sim.advance(TICK)
+  expect(sim.world.has(builders[0], Builds)).toBe(false)
+
+  // Свободные строители рядом сами берутся за починку. Она идёт вдвое быстрее стройки и денег не стоит.
+  sim.world.get(plant, Building)!.health = 0.2
+  const credits = creditsOf(sim, 1)
+  seconds(sim, 5)
+  expect(sim.world.has(builders[0], Builds)).toBe(true)
+  const buildSeconds = BUILDINGS.generator.cost / 20
+  seconds(sim, (0.8 * buildSeconds) / REPAIR_SPEED)
+  expect(health()).toBe(1)
+  expect(creditsOf(sim, 1)).toBeLessThan(credits + 20)
+  sim.advance(TICK)
+  expect(sim.world.has(builders[0], Builds)).toBe(false)
+
+  // Под перегрузом починки нет: станция только теряет прочность.
+  put(sim, 'matter', x + 9, y)
+  seconds(sim, 10)
+  const worn = health()
+  expect(worn).toBeLessThan(1)
+  sim.send(1, { type: 'assist', units: builders, site: plant })
+  seconds(sim, 5)
+  expect(sim.world.has(builders[0], Builds)).toBe(false)
+  expect(health()).toBeLessThan(worn)
 })

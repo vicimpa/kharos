@@ -3,6 +3,7 @@ import { BUILDABLE, BUILDINGS, BUILD_RATE, CORE, canPlace, siteAt, type Building
 import { Building, Builds, Converting, Owner, Path, Position, Site, Unit } from './components'
 import { oreLeft } from './deposits'
 import { addCredits, pay, reward } from './economy'
+import { powerStates, type PowerState } from './income'
 import type { Sim } from './sim'
 import { inCircles, inForeignZone, zoneOf } from './zones'
 import { UNITS, evictUnits, isWalkable, orderMove, standingUnits, tileKey, unitsIn } from './units'
@@ -49,6 +50,34 @@ export function canBuild(sim: Sim, player: number, type: BuildingType, x: number
   return zone !== undefined || inControl(sim, player, type, x, y)
 }
 
+/** Во сколько раз чинить быстрее, чем строить: полностью разбитое здание чинится за половину времени стройки. */
+export const REPAIR_SPEED = 2
+
+/** Кому сейчас не хватает энергии. Считается недёшево, поэтому по требованию и не больше раза на вызов. */
+type States = () => Map<Entity, PowerState>
+
+/**
+ * Можно ли чинить здание: оно готовое и повреждено. Перегруженную электростанцию не чинят — сначала надо
+ * снять перегруз, иначе один строитель рядом отменял бы весь урон.
+ */
+function isRepairable(sim: Sim, building: Entity, states: States = () => powerStates(sim)) {
+  const { world } = sim
+  const health = world.get(building, Building)?.health
+  if (health === undefined || health >= 1 || world.has(building, Site) || world.has(building, Converting)) return false
+  return states().get(building) !== 'overload'
+}
+
+/** Может ли игрок послать строителей чинить это здание. */
+export const canRepair = (sim: Sim, player: number, building: Entity) =>
+  sim.world.get(building, Owner)?.player === player && isRepairable(sim, building)
+
+/** Над чем здесь работают строители: вид строящегося, разбираемого или чинимого здания; undefined — работы нет. */
+function workType(sim: Sim, entity: Entity, states?: States): BuildingType | undefined {
+  const site = sim.world.get(entity, Site)
+  if (site) return site.type
+  return isRepairable(sim, entity, states) ? sim.world.get(entity, Building)!.type : undefined
+}
+
 /** Расстояние от точки до основания площадки в тайлах; внутри основания — ноль. */
 function distanceTo(site: { x: number; y: number }, type: BuildingType, x: number, y: number) {
   const { width, height } = BUILDINGS[type]
@@ -63,7 +92,7 @@ function approach(sim: Sim, builder: Entity, site: Entity, claimed: Set<number>)
   const { world } = sim
   const position = world.get(builder, Position)!
   const corner = world.get(site, Position)!
-  const { width, height } = BUILDINGS[world.get(site, Site)!.type]
+  const { width, height } = BUILDINGS[(world.get(site, Site) ?? world.get(site, Building))!.type]
   const taken = standingUnits(sim, new Set([builder]), UNITS.builder.radius)
   let best: { x: number; y: number } | undefined
   let bestDistance = Infinity
@@ -122,10 +151,13 @@ function clearSite(sim: Sim, site: Entity, evict: boolean) {
 const isOwnSite = (sim: Sim, player: number, site: Entity) =>
   sim.world.has(site, Site) && sim.world.get(site, Owner)?.player === player
 
-/** Посылает строителей игрока на его стройку. Не строители и чужие юниты из списка выбрасываются. */
-export function assignBuilders(sim: Sim, player: number, site: Entity, units: Entity[]) {
+/**
+ * Посылает строителей игрока на его стройку, разбор или к повреждённому зданию — чинить.
+ * Не строители и чужие юниты из списка выбрасываются.
+ */
+export function assignBuilders(sim: Sim, player: number, site: Entity, units: Entity[], states?: States) {
   const { world } = sim
-  if (!isOwnSite(sim, player, site)) return false
+  if (world.get(site, Owner)?.player !== player || workType(sim, site, states) === undefined) return false
   const builders = [...new Set(units)].filter((entity) => {
     return world.get(entity, Unit)?.type === 'builder' && world.get(entity, Owner)?.player === player && !world.has(entity, Converting)
   })
@@ -197,11 +229,11 @@ export function demolish(sim: Sim, player: number, building: Entity, builders: E
 }
 
 /**
- * Свободные строители сами берутся за работу поблизости: каждый идёт на ближайшую свою стройку или разбор
- * не дальше WORK_RADIUS. Стройку вне зоны не берут — она всё равно стоит. Строитель проверяет окрестности
+ * Свободные строители сами берутся за работу поблизости: каждый идёт на ближайшую свою стройку, разбор
+ * или к повреждённому зданию не дальше WORK_RADIUS. Стройку вне зоны не берут — она всё равно стоит. Строитель проверяет окрестности
  * не каждый тик, а раз в RETRY_TICKS, причём каждый в свой тик.
  */
-function volunteer(sim: Sim) {
+function volunteer(sim: Sim, states: States) {
   const { world, time } = sim
   const idle: Entity[] = []
   for (const [entity, unit] of world.query(Unit, Owner)) {
@@ -211,9 +243,14 @@ function volunteer(sim: Sim) {
   }
   if (!idle.length) return
 
-  const sites: { entity: Entity; x: number; y: number; type: BuildingType; player: number; demolish: boolean }[] = []
+  /** free — работе не нужна зона строительства: это разбор или починка. */
+  const sites: { entity: Entity; x: number; y: number; type: BuildingType; player: number; free: boolean }[] = []
   for (const [entity, position, site, owner] of world.query(Position, Site, Owner)) {
-    sites.push({ entity, x: position.x, y: position.y, type: site.type, player: owner.player, demolish: site.demolish })
+    sites.push({ entity, x: position.x, y: position.y, type: site.type, player: owner.player, free: site.demolish })
+  }
+  for (const [entity, position, building, owner] of world.query(Position, Building, Owner)) {
+    if (building.health >= 1 || !isRepairable(sim, entity, states)) continue
+    sites.push({ entity, x: position.x, y: position.y, type: building.type, player: owner.player, free: true })
   }
   /** Зона нужна только стройке; считается раз на игрока и только если до неё дошло дело. */
   const open = new Map<Entity, boolean>()
@@ -228,20 +265,20 @@ function volunteer(sim: Sim) {
       if (distance > bestDistance) continue
       let workable = open.get(site.entity)
       if (workable === undefined) {
-        workable = site.demolish || (BUILDINGS[site.type] as BuildingSpec).zone !== undefined || inControl(sim, player, site.type, site.x, site.y)
+        workable = site.free || (BUILDINGS[site.type] as BuildingSpec).zone !== undefined || inControl(sim, player, site.type, site.x, site.y)
         open.set(site.entity, workable)
       }
       if (!workable) continue
       best = site.entity
       bestDistance = distance
     }
-    if (best !== undefined) assignBuilders(sim, player, best, [builder])
+    if (best !== undefined) assignBuilders(sim, player, best, [builder], states)
   }
 }
 
 /**
  * Раз в тик: строители, стоящие вплотную к своей площадке, вкладывают в неё работу — чем их больше, тем быстрее.
- * Здание под разбор они так же разбирают.
+ * Здание под разбор они так же разбирают, а повреждённое — чинят.
  * С первым тиком работы площадка становится недостроенным зданием и занимает тайлы. Пока на ней стоят юниты,
  * работа не начинается: свои с неё уходят, чужих ждут.
  * Стройка вне радиуса контроля (главное здание свернули) стоит, пока контроль не вернётся.
@@ -252,11 +289,13 @@ export function construct(sim: Sim) {
   // Состав мира меняется после обхода.
   const free: Entity[] = []
   const late: { builder: Entity; site: Entity }[] = []
+  let known: Map<Entity, PowerState> | undefined
+  const states: States = () => (known ??= powerStates(sim))
 
   for (const [entity, position, unit, builds] of world.query(Position, Unit, Builds)) {
     const site = builds.site as Entity
     const corner = world.get(site, Position)
-    const type = world.get(site, Site)?.type
+    const type = workType(sim, site, states)
     if (!corner || !type) {
       free.push(entity)
       continue
@@ -279,10 +318,16 @@ export function construct(sim: Sim) {
 
   for (const entity of free) world.remove(entity, Builds)
   for (const { builder, site } of late) approach(sim, builder, site, new Set())
-  volunteer(sim)
+  volunteer(sim, states)
 
   for (const [entity, count] of workers) {
-    const site = world.get(entity, Site)!
+    const site = world.get(entity, Site)
+    if (!site) {
+      // Починка: денег не стоит, идёт быстрее стройки.
+      const building = world.get(entity, Building)!
+      building.health = Math.min(1, building.health + (count * REPAIR_SPEED) / siteTicks(building.type, time.step))
+      continue
+    }
     const position = world.get(entity, Position)!
     const player = world.get(entity, Owner)?.player ?? 0
     if (site.demolish) {

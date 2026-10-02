@@ -113,8 +113,6 @@ export function powerOf(type: BuildingType, economy: Economy) {
  * При меньшем перегрузе урон меньше во столько же раз, при большем — не растёт.
  */
 export const OVERLOAD_DAMAGE = 0.01
-/** Какую долю прочности в секунду здание восстанавливает само, пока его ничто не разрушает. */
-export const SELF_REPAIR = 0.005
 
 /** Насколько зона перегружена: 0 — энергии хватает, 1 — просят вдвое больше, чем есть, и выше. */
 const overloadOf = (economy: Economy) => (economy.produced > 0 && economy.demand > economy.produced ? Math.min(1, economy.demand / economy.produced - 1) : 0)
@@ -140,8 +138,8 @@ export function powerStates(sim: Sim): Map<Entity, PowerState> {
 }
 
 /**
- * Раз в тик: перегруженные электростанции теряют прочность и в нуле разрушаются, остальные здания
- * понемногу восстанавливаются сами.
+ * Раз в тик: перегруженные электростанции теряют прочность и в нуле разрушаются.
+ * Сами здания не восстанавливаются: их чинят строители.
  */
 function wear(sim: Sim, zones: Map<number, Zone[]>, all: Map<number, Economy[]>) {
   const { world, time } = sim
@@ -158,14 +156,10 @@ function wear(sim: Sim, zones: Map<number, Zone[]>, all: Map<number, Economy[]>)
   }
   // Состав мира меняется после обхода.
   const ruined: Entity[] = []
-  for (const [entity, building] of world.query(Building)) {
-    const lost = damage.get(entity)
-    if (lost !== undefined) {
-      building.health -= lost
-      if (building.health <= 0) ruined.push(entity)
-    } else if (building.health < 1) {
-      building.health = Math.min(1, building.health + SELF_REPAIR * time.step)
-    }
+  for (const [entity, lost] of damage) {
+    const building = world.get(entity, Building)!
+    building.health -= lost
+    if (building.health <= 0) ruined.push(entity)
   }
   for (const entity of ruined) world.destroy(entity)
 }
@@ -179,7 +173,7 @@ export function earn(sim: Sim) {
   const zones = allZones(sim)
   const all = economies(sim)
   // Износ — в самом конце: разрушенное здание исчезает из мира, а зоны этого тика о нём ещё помнят.
-  if (!zones.size) return wear(sim, zones, all)
+  if (!zones.size) return
   for (const list of zones.values()) {
     for (const zone of list) {
       const { mines, share } = miningOf(sim, zone)

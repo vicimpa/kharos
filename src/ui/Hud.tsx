@@ -71,7 +71,9 @@ export function Hud({ state, send, place }: HudProps) {
             </div>
           )}
           {state.starved && <div class="hud__hint hud__power is-short">⚡ Не хватает энергии: здание работает медленнее</div>}
-          {state.health !== null && <div class="hud__hint">Прочность: {percent(state.health)}</div>}
+          {state.health !== null && (
+            <div class="hud__hint">Прочность: {percent(state.health)} — строители чинят: выбери их и щёлкни по зданию правой кнопкой</div>
+          )}
 
           {ore !== null && <div class="hud__hint">{ore > 0 ? `Руды в месторождении: ${ore}` : 'Месторождение выработано'}</div>}
 
