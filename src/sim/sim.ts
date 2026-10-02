@@ -53,11 +53,16 @@ export interface Sim {
   destroy(): void
 }
 
+/** Границы квадратной карты со стороной size и центром в начале координат. */
+export function boundsOf(size: number): Bounds {
+  const half = Math.floor(size / 2)
+  return { left: -half, top: -half, right: size - half, bottom: size - half }
+}
+
 /** Создаёт симуляцию: новую или, если передано сохранение, продолжает его. */
 export function createSim(source: SimOptions | SimSave): Sim {
   const options: SimOptions = { generator: source.generator, size: source.size }
-  const half = Math.floor(options.size / 2)
-  const bounds: Bounds = { left: -half, top: -half, right: options.size - half, bottom: options.size - half }
+  const bounds = boundsOf(options.size)
 
   const world = new World()
   const queue: { player: number; command: Command }[] = []

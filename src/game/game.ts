@@ -2,7 +2,8 @@ import { createLandWindow, minZoom, type LandWindow } from '../map/landWindow'
 import type { MapSettings } from '../map/settings'
 import { createTerrainPass } from '../map/terrainPass'
 import { createRenderer } from '../render/renderer'
-import { createSim, spawnStartingUnits, type BuildingType, type Command, type SimOptions } from '../sim'
+import type { Session } from '../net/connect'
+import { Owner, Position, Unit, createSim, spawnStartingUnits, type BuildingType, type Command, type SimOptions } from '../sim'
 import { createLightingPass } from '../weather/lightingPass'
 import { createPrecipitationPass } from '../weather/precipitationPass'
 import { createBoundsPass } from './boundsPass'
@@ -38,7 +39,7 @@ export interface Game {
 
 const simOptions = (settings: MapSettings): SimOptions => ({ generator: settings.generator, size: settings.world.size })
 
-/** Пока сети нет, игрок один. */
+/** В одиночной игре игрок один. */
 const PLAYER = 1
 
 /** Новая симуляция: стартовый набор игрока у начала мира. */
@@ -52,13 +53,19 @@ function createNewSim(settings: MapSettings) {
  * Собирает игру на холсте: симуляцию, отрисовку, управление — и запускает кадры.
  * Если запустить не удалось (нет WebGL 2, не собрался шейдер), бросает ошибку.
  * onError получает ошибки, случившиеся уже во время игры; игра после них остановлена.
+ * С session игра идёт на сервере: мир приходит оттуда, а местное сохранение и новый старт отключены.
  */
-export function createGame(canvas: HTMLCanvasElement, settings: MapSettings, onError: (error: unknown) => void): Game {
+export function createGame(
+  canvas: HTMLCanvasElement,
+  settings: MapSettings,
+  onError: (error: unknown) => void,
+  session?: Session,
+): Game {
   const camera = new Camera()
-  const save = loadSave(simOptions(settings))
+  const save = session ? null : loadSave(simOptions(settings))
   const scene: Scene = {
-    sim: save ? createSim(save) : createNewSim(settings),
-    player: PLAYER,
+    sim: session ? session.sim : save ? createSim(save) : createNewSim(settings),
+    player: session ? session.player : PLAYER,
     camera,
     settings,
     selection: new Set(),
@@ -91,10 +98,16 @@ export function createGame(canvas: HTMLCanvasElement, settings: MapSettings, onE
   )
   const controls = createControls(canvas, scene)
 
-  const saveNow = () => storeSave(scene.sim.save())
+  const saveNow = () => {
+    if (!session) storeSave(scene.sim.save())
+  }
   let sinceSave = 0
+  // На сервере игрок появляется не в начале мира: камера встаёт на его юнит, как только мир пришёл.
+  let centered = !session
 
   const restart = () => {
+    // Мир сервера один на всех: начать его заново клиент не может.
+    if (session) return
     scene.sim.destroy()
     scene.selection.clear()
     scene.placing = null
@@ -106,6 +119,15 @@ export function createGame(canvas: HTMLCanvasElement, settings: MapSettings, onE
     const { sim } = scene
     sim.advance(seconds)
     controls.update(seconds)
+    if (!centered) {
+      for (const [entity, position] of sim.world.query(Position, Unit)) {
+        if (sim.world.get(entity, Owner)?.player !== scene.player) continue
+        camera.x = position.x
+        camera.y = position.y
+        centered = true
+        break
+      }
+    }
 
     const { width, height } = renderer.resize()
     camera.width = width

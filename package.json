@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && tsc -p tsconfig.sim.json && vite build",
+    "server": "bun server/main.ts",
+    "build": "tsc && tsc -p tsconfig.sim.json && tsc -p tsconfig.server.json && vite build",
     "preview": "vite preview",
     "test": "bun test"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.6",
+    "@types/bun": "^1.4.2",
     "typescript": "^7.0.2",
     "vite": "^8.3.2"
   },

@@ -6,7 +6,7 @@ export { CONTROL_RADIUS, canBuild, coreCenters, siteTicks } from './construction
 export { canDeploy, canPack, deploySite } from './conversion'
 export { creditsOf } from './economy'
 export { PRODUCIBLE, QUEUE_LIMIT, buildTicks } from './production'
-export { SAVE_VERSION, createSim } from './sim'
+export { SAVE_VERSION, boundsOf, createSim } from './sim'
 export type { Bounds, Sim, SimOptions, SimSave } from './sim'
 export { UNITS, UNIT_TYPES, isWalkable, spawnStartingUnits } from './units'
 export type { UnitSpec, UnitType } from './units'
