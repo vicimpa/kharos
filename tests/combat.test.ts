@@ -368,7 +368,9 @@ test('строитель чинит повреждённую технику — 
   expect(sim.world.has(builder, Builds)).toBe(false)
   const from = sim.world.get(builder, Position)!
   const to = sim.world.get(tank, Position)!
-  expect(Math.hypot(from.x - to.x, from.y - to.y)).toBeLessThan(3)
+  // Вплотную строитель не подъезжает: ему достаточно дотянуться.
+  expect(Math.hypot(from.x - to.x, from.y - to.y)).toBeGreaterThan(3)
+  expect(Math.hypot(from.x - to.x, from.y - to.y)).toBeLessThanOrEqual(UNITS.builder.repair + UNITS.tank.radius)
 
   // Сам себя строитель не чинит, не своего — тоже.
   sim.world.get(builder, Health)!.value = 0.5

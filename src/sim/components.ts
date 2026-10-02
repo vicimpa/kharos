@@ -24,7 +24,7 @@ export const Health = component('Health', { value: 1, repairable: true, regen: 0
  * с Health.repairable. radius — на сколько тайлов от его центра до края цели он дотягивается; rate — сколько работы
  * вкладывает за тик в каждую цель: единица — один строитель. На ходу не работает.
  */
-export const Repair = component('Repair', { radius: 1.5, rate: 1 })
+export const Repair = component('Repair', { radius: 5, rate: 1 })
 
 /** Чьё это. Игрок 0 — ничей: такими сущностями никто не командует. */
 export const Owner = component('Owner', { player: 0 })

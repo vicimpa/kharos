@@ -303,9 +303,9 @@ test('строители чинят повреждённое здание — п
   sim.world.get(plant, Health)!.value = 0.2
   const credits = creditsOf(sim, 1)
   const repairTime = 5 + (0.8 * (BUILDINGS.generator.cost / 20)) / REPAIR_SPEED
-  seconds(sim, 5)
+  seconds(sim, 1)
   expect(sim.world.has(builders[0], Builds)).toBe(true)
-  seconds(sim, repairTime - 5)
+  seconds(sim, repairTime - 1)
   expect(health()).toBeCloseTo(1)
   // Починка 80% станции стоила 120. Доход за это время — около 1,2 в секунду: чуть меньше, пока битая станция
   // недодавала энергии, — отсюда допуск.

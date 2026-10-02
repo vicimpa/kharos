@@ -107,40 +107,38 @@ function workAt(sim: Sim, entity: Entity): Work | undefined {
 const distanceTo = (work: Work, x: number, y: number) =>
   Math.max(0, rectDistance(work.x, work.y, work.width, work.height, x, y) - work.radius)
 
+/** На сколько тайлов ближе своего радиуса встаёт ремонтник: с запасом на то, что юнит, которого он чинит, может сдвинуться. */
+const APPROACH_MARGIN = 0.5
+
 /**
- * Отправляет юнит на свободный тайл вплотную к основанию площадки или здания — ближайший к нему.
- * К юниту, который чинят, он просто подъезжает поближе: обступать его по кольцу незачем.
- * claimed — тайлы, уже розданные другим юнитам этим же приказом; выбранный добавляется туда.
+ * Подводит ремонтника к работе ровно настолько, чтобы она попала в его радиус: на ближайший к нему свободный тайл,
+ * откуда он до неё дотягивается. Вплотную ему не нужно. Если уже дотягивается — остаётся где стоит.
+ * claimed — тайлы, уже розданные другим этим же приказом: иначе все поехали бы в один и толкались бы там.
  */
-function approach(sim: Sim, builder: Entity, site: Entity, claimed: Set<number>) {
+function approach(sim: Sim, builder: Entity, site: Entity, claimed = new Set<number>()) {
   const { world } = sim
   const position = world.get(builder, Position)!
+  const repair = world.get(builder, Repair)
   const work = workAt(sim, site)
-  if (!work) return
-  const { radius } = UNITS[world.get(builder, Unit)!.type]
-  if (!work.width) {
-    // Ближе суммы радиусов не встать: тайлы вокруг стоящего юнита заняты им самим.
-    orderMove(sim, builder, Math.floor(work.x), Math.floor(work.y), undefined, 0, work.radius + radius + 0.6)
-    return
-  }
-  const corner = work
-  const { width, height } = work
-  const taken = standingUnits(sim, new Set([builder]), radius)
+  if (!work || !repair || distanceTo(work, position.x, position.y) <= repair.radius) return
+  const reach = Math.max(0, repair.radius - APPROACH_MARGIN)
+  const taken = standingUnits(sim, new Set([builder]), UNITS[world.get(builder, Unit)!.type].radius)
+  const span = Math.ceil(reach + work.radius)
   let best: { x: number; y: number } | undefined
   let bestDistance = Infinity
-  for (let y = corner.y - 1; y <= corner.y + height; y++) {
-    for (let x = corner.x - 1; x <= corner.x + width; x++) {
-      // Только кольцо вокруг основания: само основание займёт здание.
-      if (x >= corner.x && x < corner.x + width && y >= corner.y && y < corner.y + height) continue
+  for (let y = Math.floor(work.y) - span; y <= Math.floor(work.y + work.height) + span; y++) {
+    for (let x = Math.floor(work.x) - span; x <= Math.floor(work.x + work.width) + span; x++) {
+      const distance = Math.hypot(x + 0.5 - position.x, y + 0.5 - position.y)
+      if (distance >= bestDistance) continue
+      // Само основание займёт здание.
+      const edge = distanceTo(work, x + 0.5, y + 0.5)
+      if (edge > reach || (work.width > 0 && edge === 0)) continue
       const key = tileKey(x, y)
       if (claimed.has(key) || taken.has(key) || !isWalkable(sim, x, y)) continue
-      // На соседней площадке не встают: оттуда строителя попросят, как только там начнут строить.
+      // На площадке не встают: оттуда строителя попросят, как только там начнут строить.
       if (siteAt(sim, x, y) !== undefined) continue
-      const distance = Math.hypot(x + 0.5 - position.x, y + 0.5 - position.y)
-      if (distance < bestDistance) {
-        best = { x, y }
-        bestDistance = distance
-      }
+      best = { x, y }
+      bestDistance = distance
     }
   }
   if (!best) return
@@ -165,8 +163,7 @@ function clearSite(sim: Sim, site: Entity, evict: boolean) {
   const { world } = sim
   const { x, y } = world.get(site, Position)!
   const { width, height } = BUILDINGS[world.get(site, Site)!.type]
-  // Строителя этой же площадки на её край ведёт approach.
-  return clearGround(sim, ownerOf(sim, site), x, y, width, height, evict, undefined, (entity) => world.get(entity, Builds)?.site === site)
+  return clearGround(sim, ownerOf(sim, site), x, y, width, height, evict)
 }
 
 /** Своя стройка: площадка или недостроенное здание игрока. */
@@ -419,8 +416,7 @@ export function construct(sim: Sim) {
     }
     if (world.has(entity, Path)) continue
     const distance = distanceTo(work, position.x, position.y)
-    // На самом основании не стоят: там встанет здание.
-    if ((work.width > 0 && distance === 0) || distance > repair.radius) {
+    if (distance > repair.radius) {
       // Не доехал или его оттеснили. Пробует снова не каждый тик: поиск пути недёшев.
       if (onTurn(time, entity, RETRY_TICKS)) late.push({ builder: entity, site })
       continue
@@ -431,7 +427,7 @@ export function construct(sim: Sim) {
   }
 
   for (const entity of free) world.remove(entity, Builds)
-  for (const { builder, site } of late) approach(sim, builder, site, new Set())
+  for (const { builder, site } of late) approach(sim, builder, site)
   volunteer(sim)
 
   const workers = workDone(sim)
