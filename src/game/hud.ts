@@ -1,7 +1,7 @@
 import type { Entity } from '../ecs'
 import {
   BUILDABLE, BUILDINGS, Building, Converting, PRODUCIBLE, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
-  buildTicks, canDemolish, canDeploy, canPack, coreCenters, creditsOf, economyOf, powerOf, refundOf, rewardsOf, siteTicks,
+  buildTicks, canDemolish, canDeploy, canPack, coreCenters, creditsOf, economyOf, powerOf, refundOf, rewardsOf, siteTicks, zoneEconomies,
   type BuildingType, type Command, type UnitType,
 } from '../sim'
 import type { Scene } from './scene'
@@ -13,8 +13,8 @@ export interface HudState {
   rewards: string[]
   /** Доход в кредитах в секунду. */
   income: number
-  /** Энергия: сколько вырабатывается и сколько просят потребители. */
-  power: { produced: number; demand: number }
+  /** Энергия по зонам строительства: сколько вырабатывается и сколько просят потребители. У каждой зоны она своя. */
+  power: { produced: number; demand: number }[]
   /** Выбранные юниты по видам. */
   units: { type: UnitType; count: number }[]
   /** Выбранное здание, если выбрано оно. */
@@ -86,12 +86,14 @@ export function readHud(scene: Scene): HudState {
     if (world.has(entity, Producer)) producers.push(entity)
   }
 
-  const economy = economyOf(sim, player)
+  const zones = zoneEconomies(sim, player)
+  // Кнопки стройки показывают энергию для первой зоны: в какую попадёт здание, до выбора места неизвестно.
+  const economy = zones[0] ?? economyOf(sim, player)
   const state: HudState = {
     credits,
     rewards: [...rewardsOf(sim, player)],
-    income: round(economy.income),
-    power: { produced: economy.produced, demand: economy.demand },
+    income: round(economyOf(sim, player).income),
+    power: zones.map(({ produced, demand }) => ({ produced, demand })).filter(({ produced, demand }) => produced || demand),
     units: UNIT_TYPES.filter((type) => counts.has(type)).map((type) => ({ type, count: counts.get(type)! })),
     building,
     site,

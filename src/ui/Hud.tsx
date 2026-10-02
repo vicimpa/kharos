@@ -43,14 +43,15 @@ export function Hud({ state, send, place }: HudProps) {
         <span class="hud__coin" />
         {state.credits}
         {state.income > 0 && <small>+{state.income}/с</small>}
-        {(state.power.produced > 0 || state.power.demand > 0) && (
+        {state.power.map(({ produced, demand }, zone) => (
           <span
-            class={state.power.demand > state.power.produced ? 'hud__power is-short' : 'hud__power'}
-            title="Энергия: потребление / выработка"
+            key={zone}
+            class={demand > produced ? 'hud__power is-short' : 'hud__power'}
+            title="Энергия зоны строительства: потребление / выработка"
           >
-            ⚡ {state.power.demand}/{state.power.produced}
+            ⚡ {demand}/{produced}
           </span>
-        )}
+        ))}
       </div>
 
       {fresh.length > 0 && (

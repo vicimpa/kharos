@@ -3,7 +3,7 @@ import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import {
   BUILDINGS, Building, Builds, CORE, Owner, Site, Unit,
-  canBuild, canPlace, createSim, creditsOf, economyOf, powerOf, refundOf, rewardsOf, siteAt, zoneOf, spawnStartingUnits, type BuildingType, type Sim,
+  canBuild, canPlace, createSim, creditsOf, economyOf, powerOf, refundOf, rewardsOf, siteAt, zoneEconomies, zoneOf, zonesOf, spawnStartingUnits, type BuildingType, type Sim,
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { REWARDS, STARTING_CREDITS } from '../src/sim/economy'
@@ -202,4 +202,28 @@ test('здание разбирают строители в полтора ра�
   const gained = creditsOf(sim, 1) - credits
   expect(gained).toBeGreaterThanOrEqual(150)
   expect(gained).toBeLessThan(150 + 20)
+})
+
+test('энергия у каждой зоны своя: электростанция одной зоны не питает другую', () => {
+  const { sim, x, y } = start()
+  put(sim, 'generator', x + 6, y)
+  put(sim, 'generator', x + 6, y + 3)
+  put(sim, 'matter', x + 9, y)
+  expect(zoneEconomies(sim, 1)).toEqual([{ produced: 20, demand: 5, income: 1.2, crowd: 1 }])
+
+  // Второе главное здание далеко от первого — вторая зона. Её генератор материи без своей электростанции стоит.
+  const far = x + 300
+  put(sim, 'command', far, y)
+  put(sim, 'matter', far + 4, y)
+  expect(zonesOf(sim, 1).length).toBe(2)
+  expect(zoneEconomies(sim, 1)[1]).toEqual({ produced: 0, demand: 5, income: 0.2, crowd: 1 })
+  // Теснота тоже считается по зонам: в каждой генератор материи первый.
+  expect(economyOf(sim, 1).income).toBeCloseTo(1.4)
+
+  put(sim, 'generator', far + 4, y + 3)
+  expect(zoneEconomies(sim, 1)[1].income).toBeCloseTo(1.2)
+
+  // Главное здание внутри чужой зоны свою не начинает: зона у них общая.
+  put(sim, 'command', x + 10, y + 6)
+  expect(zonesOf(sim, 1).length).toBe(2)
 })
