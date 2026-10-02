@@ -33,6 +33,7 @@ const RUST = [0x5e2f24, 0x9a523a, 0xc47a57] as const
 const TEAM = [0x10358f, 0x1f63d8, 0x5aa9ff, 0xe4f4ff] as const
 
 const TURN = Math.PI * 2
+const DARK = 0x04070b
 
 /** Плавное мигание: 1 при t = offset, 0 через полцикла. */
 const pulse = (t: number, offset = 0) => 0.5 + 0.5 * Math.cos(TURN * (t - offset))
@@ -160,41 +161,65 @@ const factory: BuildingArt = {
   },
 }
 
-/** Космопорт: посадочная площадка с маяком, диспетчерская и вращающийся радар. */
+/** Материя, которую выдаёт генератор: слитки цвета кредитов. */
+const GOLD = [0xc9962b, 0xf0c95a, 0xfff0b0] as const
+
+/**
+ * Генератор материи: камера синтеза с пульсирующим ядром в кольце огней, две катушки по бокам
+ * и лента, по которой готовые слитки уезжают в приёмный люк.
+ */
 const matter: BuildingArt = {
   ...BUILDINGS.matter,
   draw(g, t, light) {
     slab(g, 0, 0, 32, 48, 3, STEEL)
 
-    g.rect(3, 10, 26, 32, STEEL[0])
-    g.rect(4, 11, 25, 31, STEEL[2])
-    g.rect(15, 13, 2, 27, RUST[1])
-    g.rect(6, 25, 20, 2, RUST[1])
-    g.ring(16, 26, 8, 1.5, RUST[2])
-    lamp(g, light, 16, 26, 3, pulse(t))
-    const corners = [[5, 12], [25, 12], [25, 38], [5, 38]]
-    corners.forEach(([x, y], i) => {
-      g.rect(x - 1, y - 1, 4, 4, INK)
-      bulb(g, light, x, y, chase(t * 2, i / corners.length))
-    })
-
-    slab(g, 2, -3, 17, 12, 4, IRON)
-    for (const x of [4, 9, 14]) {
-      g.rect(x, 5, 3, 2, TEAM[1])
-      g.rect(x, 5, 1, 1, TEAM[2])
+    // Лента от камеры к люку у нижнего края; слитки идут с шагом в полленты, поэтому цикл замыкается.
+    g.rect(10, 24, 12, 20, INK)
+    g.rect(11, 25, 10, 18, IRON[0])
+    for (let y = 26; y < 43; y += 2) g.rect(11, y, 10, 1, IRON[1])
+    const shift = Math.floor(t * ART_FRAMES) % 8
+    for (const start of [0, 8]) {
+      const y = 25 + start + shift
+      if (y > 38) continue
+      g.rect(13, y, 6, 3, INK)
+      g.rect(13, y, 6, 2, GOLD[1])
+      g.rect(13, y, 3, 1, GOLD[2])
+      g.rect(13, y + 2, 6, 1, GOLD[0])
+    }
+    g.rect(9, 40, 14, 5, INK)
+    g.rect(10, 41, 12, 3, DARK)
+    g.rect(10, 41, 12, 1, RUST[1])
+    for (const x of [4, 25]) {
+      g.rect(x, 30, 3, 10, INK)
+      g.rect(x + 1, 31, 1, 8, RUST[1])
     }
 
-    tower(g, 25, 6, 4, 6, IRON)
-    // Плечо радара описывает эллипс: площадка видна под наклоном.
-    const tipX = 25 + Math.cos(t * TURN) * 5
-    const tipY = Math.sin(t * TURN) * 3.5
-    g.line(25, 0, tipX, tipY, 3, INK)
-    g.line(25, 0, tipX, tipY, 1.2, IRON[4])
-    g.rect(Math.round(tipX) - 1, Math.round(tipY) - 1, 2, 2, TEAM[3])
+    // Камера синтеза выше двора и выступает над основанием.
+    slab(g, 2, -5, 28, 30, 6, IRON)
+    g.circle(16, 8, 11, INK)
+    g.circle(16, 8, 10, DARK)
+    g.ring(16, 8, 9, 1.5, STEEL[2])
+    // Огни кольца бегут навстречу друг другу к ядру: энергия стекается внутрь.
+    const LIGHTS = 8
+    for (let i = 0; i < LIGHTS; i++) {
+      const angle = (i / LIGHTS) * TURN
+      const x = Math.round(16 + Math.cos(angle) * 9)
+      const y = Math.round(8 + Math.sin(angle) * 9)
+      bulb(g, light, x - 1, y - 1, chase(t * 2, (i % 4) / 4))
+    }
+    // Ядро: золотое, когда материя готова, и гаснет к следующей порции.
+    const glow = pulse(t * 2)
+    lamp(g, light, 16, 8, 5, 0.35 + glow * 0.65)
+    g.circle(16, 8, 2.5, GOLD[glow > 0.5 ? 1 : 0])
+    if (glow > 0.8) g.circle(15, 7, 1, GOLD[2])
+
+    // Катушки по бокам камеры.
+    for (const [x, offset] of [[5, 0], [27, 0.5]]) {
+      tower(g, x, 23, 2, 5, STEEL)
+      bulb(g, light, x - 1, 16, pulse(t * 2, offset))
+    }
   },
 }
-
-const DARK = 0x04070b
 
 /** Труба с обводкой: горизонтальная, длиной w, осью по строке y. */
 function pipe(g: Pixmap, x: number, y: number, w: number) {
