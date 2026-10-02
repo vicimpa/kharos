@@ -41,7 +41,7 @@ export interface SimOptions {
 
 /** Сохранение симуляции. Обычные данные: их можно положить в JSON, на диск или отправить по сети. */
 /** Версия формата сохранения. Меняется, когда старые сохранения перестают подходить: тогда они отбрасываются. */
-export const SAVE_VERSION = 11
+export const SAVE_VERSION = 12
 
 export interface SimSave extends SimOptions {
   version: typeof SAVE_VERSION

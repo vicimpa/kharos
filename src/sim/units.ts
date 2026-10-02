@@ -41,8 +41,9 @@ export const UNITS = {
   mcv: { speed: 2.5, turn: 2.2, radius: 0.8, cost: 2000, buildTime: 30, kind: 'heavy', hp: 800 },
   builder: { speed: 4, turn: 5, radius: 0.45, cost: 150, buildTime: 5, kind: 'vehicle', hp: 100, repair: 5 },
   infantry: { speed: 3, turn: 10, radius: 0.3, cost: 60, buildTime: 3, kind: 'infantry', hp: 50, weapon: 'rifle' },
-  // Грузовик возит руду из шахты в хранилище: см. hauling.ts. Луча у него нет: грузят и разгружают его здания.
-  truck: { speed: 3.5, turn: 4, radius: 0.45, cost: 200, buildTime: 8, kind: 'vehicle', hp: 150, inventory: 20 },
+  // Грузовик возит руду из шахты в хранилище: см. hauling.ts. Своим лучом он и выкачивает её из шахты,
+  // и сгружает в хранилище: зданиям лучи не нужны.
+  truck: { speed: 3.5, turn: 4, radius: 0.45, cost: 200, buildTime: 8, kind: 'vehicle', hp: 150, inventory: 20, beam: { radius: 2, rate: 10, give: true, take: true } },
   // Пехота.
   rocketeer: { speed: 2.6, turn: 10, radius: 0.3, cost: 120, buildTime: 5, kind: 'infantry', hp: 45, weapon: 'launcher' },
   // Машинки: быстрые и хрупкие.

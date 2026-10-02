@@ -121,24 +121,23 @@ test('шахта копит добытое у себя; грузовик заб�
   expect(sim.world.get(stranger, Hauler)!.mine).toBe(-1)
   sim.world.destroy(stranger)
 
-  // Грузовик подъезжает на длину луча шахты — вплотную и задом вставать не нужно — и забирает добытое.
+  // Грузовик подъезжает на длину своего луча — вплотную и задом вставать не нужно — и выкачивает добытое.
   until(sim, () => hauler().loading)
-  const beam = sim.world.get(mine, Beam)!
+  const beam = sim.world.get(truck, Beam)!
   expect(gapBetween(sim, mine, truck)).toBeLessThanOrEqual(beam.radius)
-  expect(beam.target).toBe(truck)
-  expect(beam.pulling).toBe(false)
+  expect(beam.links).toEqual([{ target: mine, pulling: true }])
   until(sim, () => oreIn(sim, mine) < 0.1)
   // Дальше грузится по мере добычи.
   const loaded = cargo()
   seconds(sim, 10)
   expect(cargo()).toBeCloseTo(loaded + BUILDINGS.mine.extract * 10, 0)
 
-  // Полный едет к главному зданию, и его луч забирает руду; сама руда кредитов не даёт.
+  // Полный едет к главному зданию и сгружает руду лучом; сама руда кредитов не даёт.
   until(sim, () => hauler().full)
   expect(cargo()).toBe(TRUCK_CAPACITY)
   until(sim, () => oreIn(sim, core) > 0)
-  expect(gapBetween(sim, core, truck)).toBeLessThanOrEqual(BUILDINGS.command.beam.radius)
-  expect(sim.world.get(core, Beam)!.pulling).toBe(true)
+  expect(gapBetween(sim, core, truck)).toBeLessThanOrEqual(beam.radius)
+  expect(beam.links).toEqual([{ target: core, pulling: false }])
   until(sim, () => !hauler().full)
   expect(oreIn(sim, core)).toBeCloseTo(TRUCK_CAPACITY)
   expect(stockOf(sim, 1)).toEqual({ ore: oreIn(sim, core), capacity: BUILDINGS.command.inventory })
@@ -163,19 +162,19 @@ test('шахта копит добытое у себя; грузовик заб�
   expect(oreIn(copy, mine)).toBe(BUILDINGS.mine.inventory)
 })
 
-test('луч работает с одним грузовиком за тик: второй ждёт рядом, и грузятся они по очереди', () => {
+test('очередей нет: несколько грузовиков выкачивают шахту одновременно', () => {
   const { sim, mine, truck, spot } = base()
   const second = spawnUnit(sim, 'truck', 1, spot.x - 1, spot.y + 1)
   sim.world.get(mine, Inventory)!.items.ore = BUILDINGS.mine.inventory
   sim.send(1, { type: 'haul', units: [truck, second], mine })
-  // Руду грузовикам даёт только шахта: прибавилось у обоих в один тик — луч работал с двумя сразу.
+  // Руду грузовикам даёт только шахта: прибавилось у обоих в один тик — качали одновременно.
   let both = 0
   for (let i = 0; i < 20 / TICK; i++) {
     const before = [oreIn(sim, truck), oreIn(sim, second)]
     sim.advance(TICK)
     if (oreIn(sim, truck) > before[0] && oreIn(sim, second) > before[1]) both++
   }
-  expect(both).toBe(0)
+  expect(both).toBeGreaterThan(0)
   // В шахте было на два кузова: оба довезли полные до главного здания.
   until(sim, () => stockOf(sim, 1).ore >= 2 * TRUCK_CAPACITY - 1e-6)
 })
@@ -229,11 +228,11 @@ test('космопорт продаёт руду по заявке: свобод
   sim.advance(TICK)
   expect(order().wanted).toBe(50)
 
-  // Космопорт сам позвал свободный грузовик; тот грузится у хранилища и везёт к космопорту, луч которого забирает руду.
+  // Космопорт сам позвал свободный грузовик; тот выкачивает руду из хранилища и сгружает её в космопорт.
   until(sim, () => hauler().port === port)
   until(sim, () => hauler().loading && oreIn(sim, truck) > 0)
   until(sim, () => delivered() > 0)
-  expect(gapBetween(sim, port, truck)).toBeLessThanOrEqual(BUILDINGS.spaceport.beam.radius)
+  expect(gapBetween(sim, port, truck)).toBeLessThanOrEqual(sim.world.get(truck, Beam)!.radius)
   // Руда нигде не теряется: она в хранилищах, в кузове или в космопорте.
   expect(stored() + oreIn(sim, truck) + delivered()).toBeCloseTo(95)
 

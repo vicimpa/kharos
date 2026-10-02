@@ -98,10 +98,11 @@ export const Inventory = component('Inventory', () => ({ items: {} as Partial<Re
 
 /**
  * Транспортный луч: переносит ресурсы между своим складом и чужим, если между их краями не больше radius тайлов.
- * give — умеет отдавать, take — забирать; rate — сколько единиц в секунду. За тик луч работает с одним складом:
- * target — с каким, NONE — ни с каким; pulling — забирает он сейчас или отдаёт.
+ * give — умеет отдавать, take — забирать; rate — сколько единиц в секунду на каждый склад. Очереди нет: луч
+ * работает со всеми, кто в радиусе, сразу. links — с кем он работал в этот тик: target — чей склад, pulling —
+ * забирал он с него или отдавал на него.
  */
-export const Beam = component('Beam', { radius: 2, rate: 10, give: true, take: true, target: -1, pulling: false })
+export const Beam = component('Beam', () => ({ radius: 2, rate: 10, give: true, take: true, links: [] as { target: number; pulling: boolean }[] }))
 
 /**
  * Заявка на продажу руды: есть у космопорта от заявки до денег. wanted — сколько руды продаётся, claimed — сколько

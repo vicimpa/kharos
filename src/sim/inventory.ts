@@ -1,7 +1,6 @@
 import type { Entity, World } from '../ecs'
 import { tileKey } from '../map/terrain'
 import { BUILDINGS, siteAt } from './buildings'
-import { NONE } from './common'
 import { Beam, Building, Inventory, Position, Unit } from './components'
 import type { Sim } from './sim'
 import { UNITS, isWalkable, orderMove, standingUnits } from './units'
@@ -91,8 +90,8 @@ export function reaches(sim: Sim, from: Entity, to: Entity) {
 }
 
 /**
- * Переносит лучом до amount ресурса со склада from на склад to, если луч дотягивается и в этот тик ещё не занят
- * другим складом. Возвращает, сколько перенесено. Занятость лучей сбрасывает resetBeams в начале тика.
+ * Переносит лучом до amount ресурса со склада from на склад to, если луч дотягивается. Очереди нет: один луч
+ * за тик может работать с любым числом складов, каждый получает до rate в секунду. Возвращает, сколько перенесено.
  */
 export function transfer(sim: Sim, from: Entity, to: Entity, resource: Resource, amount = Infinity) {
   const { world, time } = sim
@@ -100,20 +99,20 @@ export function transfer(sim: Sim, from: Entity, to: Entity, resource: Resource,
   if (carrier === undefined) return 0
   const beam = world.get(carrier, Beam)!
   const partner = carrier === from ? to : from
-  if ((beam.target !== NONE && beam.target !== partner) || gapBetween(sim, from, to) > beam.radius) return 0
+  if (gapBetween(sim, from, to) > beam.radius) return 0
   const source = world.get(from, Inventory)!
   const target = world.get(to, Inventory)!
   const moved = Math.min(amount, beam.rate * time.step, amountOf(source, resource), roomFor(target, resource))
   if (moved <= 0) return 0
-  beam.target = partner
-  beam.pulling = carrier === to
+  const pulling = carrier === to
+  if (!beam.links.some((link) => link.target === partner && link.pulling === pulling)) beam.links.push({ target: partner, pulling })
   put(target, resource, take(source, resource, moved))
   return moved
 }
 
-/** В начале тика все лучи свободны. */
+/** В начале тика лучи забывают, с кем работали в прошлом: клиент рисует только нынешние. */
 export function resetBeams(sim: Sim) {
-  for (const [, beam] of sim.world.query(Beam)) beam.target = NONE
+  for (const [, beam] of sim.world.query(Beam)) beam.links.length = 0
 }
 
 /** На сколько тайлов ближе радиуса луча встаёт подъезжающий к нему: с запасом на неточную остановку. */

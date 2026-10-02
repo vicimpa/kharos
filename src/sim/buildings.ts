@@ -52,13 +52,10 @@ export const ORE_PRICE = 4
 /** Сколько кредитов цены здания один строитель возводит за секунду: здание за 300 строится 15 секунд. */
 export const BUILD_RATE = 20
 
-/** Луч хранилища: принимает руду из грузовиков и отдаёт её в них. */
-const STORE_BEAM: BeamSpec = { radius: 2, rate: 10, give: true, take: true }
-
 export const BUILDINGS = {
   // Доход главного здания не даёт остаться без кредитов совсем: на генератор он копит долго, но копит.
-  // Немного руды главное здание хранит само и лучом принимает её из грузовиков и отдаёт в них.
-  command: { width: 3, height: 3, cost: 2000, income: 0.2, zone: 12, inventory: 100, stores: true, beam: STORE_BEAM, produces: ['builder', 'truck'] },
+  // Немного руды главное здание хранит само.
+  command: { width: 3, height: 3, cost: 2000, income: 0.2, zone: 12, inventory: 100, stores: true, produces: ['builder', 'truck'] },
   refinery: { width: 3, height: 2, cost: 600 },
   // Машинный завод: машинки и тяжёлая техника.
   factory: { width: 2, height: 2, cost: 500, power: -5, produces: ['buggy', 'lancer', 'tank', 'tesla', 'carrier'] },
@@ -70,13 +67,13 @@ export const BUILDINGS = {
   windtrap: { width: 2, height: 2, cost: 300 },
   barracks: { width: 2, height: 2, cost: 300, power: -2, produces: ['infantry', 'rocketeer'] },
   // Шахта энергии не просит и начинает свою зону: тянуть к месторождению цепочку зданий не нужно.
-  // Месторождения невелики, поэтому добыча медленная, а руда дорогая. Добытое копится в шахте, пока грузовик
-  // не заберёт: забирать сам он не умеет, руду ему отдаёт луч шахты.
-  mine: { width: 2, height: 2, cost: 500, zone: 6, extract: 0.5, inventory: 40, beam: { radius: 2, rate: 10, give: true } },
-  silo: { width: 2, height: 1, cost: 150, inventory: 200, stores: true, beam: STORE_BEAM },
+  // Месторождения невелики, поэтому добыча медленная, а руда дорогая. Добытое копится в шахте, пока его
+  // не выкачают грузовики.
+  mine: { width: 2, height: 2, cost: 500, zone: 6, extract: 0.5, inventory: 40 },
+  silo: { width: 2, height: 1, cost: 150, inventory: 200, stores: true },
   // Космопорт ещё и выпускает летающих. Энергию просит всегда, но от её нехватки замедляется только производство.
-  // Руду на продажу его луч забирает из грузовиков в трюм корабля.
-  spaceport: { width: 3, height: 3, cost: 600, power: -5, trades: true, inventory: 400, beam: { radius: 2, rate: 10, take: true }, produces: ['drone', 'gunship'] },
+  // Руду на продажу грузовики сгружают в трюм корабля.
+  spaceport: { width: 3, height: 3, cost: 600, power: -5, trades: true, inventory: 400, produces: ['drone', 'gunship'] },
   turret: { width: 1, height: 1, cost: 250 },
 } satisfies Record<string, BuildingSpec>
 

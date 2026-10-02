@@ -254,7 +254,6 @@ const command: BuildingArt = {
 
     tower(g, 38, 20, 2, 7, IRON)
     bulb(g, light, 37, 12, chase(t * 2, 0))
-    emitter(g, light, 24, 42, t)
   },
 }
 
@@ -409,22 +408,7 @@ const mine: BuildingArt = {
     g.rect(11, 3, 1, 12, IRON[2])
     bulb(g, light, 2, 6, pulse(t))
     bulb(g, light, 27, 7, pulse(t, 0.5))
-    emitter(g, light, 5, 26, t)
   },
-}
-
-/** Цвета транспортного луча: от погашенной линзы к горящей. */
-const TRACTOR = [0x0f4a44, 0x1f9c8a, 0x5ff2d0, 0xd8fff6] as const
-
-/** Излучатель транспортного луча: линза на тумбе с центром в (cx, cy) в пикселях; мерцает, зовёт грузовики. */
-function emitter(g: Pixmap, light: EmitLight, cx: number, cy: number, t: number) {
-  g.rect(cx - 3, cy, 6, 4, INK)
-  g.rect(cx - 2, cy + 1, 4, 2, IRON[2])
-  g.circle(cx, cy - 1, 3, INK)
-  const level = 0.45 + 0.55 * pulse(t * 2)
-  g.circle(cx, cy - 1, 2, TRACTOR[level > 0.75 ? 2 : 1])
-  g.rect(cx - 1, cy - 2, 1, 1, TRACTOR[3])
-  light(cx, cy - 1, 2, level)
 }
 
 /** Космопорт: посадочная площадка с разметкой и бегущими огнями, сбоку — диспетчерская башня. */
@@ -450,7 +434,6 @@ const spaceport: BuildingArt = {
     // Диспетчерская.
     tower(g, 41, 12, 4, 9, STEEL)
     lamp(g, light, 41, 2, 2, pulse(t * 2))
-    emitter(g, light, 7, 42, t)
   },
 }
 
@@ -464,7 +447,6 @@ const silo: BuildingArt = {
       tower(g, x, 9, 5, 5, IRON)
       bulb(g, light, x - 1, 3, pulse(t, offset))
     }
-    emitter(g, light, 16, 10, t)
   },
 }
 

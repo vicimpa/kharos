@@ -337,9 +337,10 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
         }
 
         for (const [entity, beam] of world.query(Beam)) {
-          if (beam.target < 0) continue
-          const ends = tractorOf(entity, beam.target as Entity, beam.pulling, time.alpha)
-          if (ends) lights.add((ends.fromX + ends.toX) / 2, (ends.fromY + ends.toY) / 2, 10, 4, 0.5)
+          for (const link of beam.links) {
+            const ends = tractorOf(entity, link.target as Entity, link.pulling, time.alpha)
+            if (ends) lights.add((ends.fromX + ends.toX) / 2, (ends.fromY + ends.toY) / 2, 10, 4, 0.5)
+          }
         }
 
         emitSmoke()
@@ -507,13 +508,12 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
         }
 
         // Транспортный луч: бирюзовая полоса, по которой груз бежит от того, кто отдаёт, к тому, кто забирает.
-        for (const [entity, beam] of world.query(Beam)) {
-          if (beam.target < 0) continue
-          const ends = tractorOf(entity, beam.target as Entity, beam.pulling, alpha)
+        for (const [entity, beam] of world.query(Beam)) for (const link of beam.links) {
+          const ends = tractorOf(entity, link.target as Entity, link.pulling, alpha)
           if (!ends) continue
           const { fromX, fromY, toX, toY } = ends
           if (!visible(fromX, fromY) && !visible(toX, toY)) continue
-          const shimmer = 0.75 + 0.25 * Math.sin(time * 9 + entity)
+          const shimmer = 0.75 + 0.25 * Math.sin(time * 9 + entity + link.target)
           line(glow, fromX, fromY, toX, toY, 7, TRACTOR, 0.18 * shimmer)
           line(glow, fromX, fromY, toX, toY, 2, TRACTOR, 0.55 * shimmer)
           dot(glow, fromX, fromY, 6, TRACTOR, 0.7)
