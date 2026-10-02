@@ -1,7 +1,7 @@
 import type { Entity } from '../ecs'
 import {
   BUILDABLE, BUILDINGS, Building, Converting, PRODUCIBLE, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
-  buildTicks, canDeploy, canPack, coreCenters, creditsOf, economyOf, powerOf, rewardsOf, siteTicks,
+  buildTicks, canDemolish, canDeploy, canPack, coreCenters, creditsOf, economyOf, powerOf, refundOf, rewardsOf, siteTicks,
   type BuildingType, type Command, type UnitType,
 } from '../sim'
 import type { Scene } from './scene'
@@ -27,6 +27,8 @@ export interface HudState {
     /** Готовность от 0 до 1. */
     progress: number
   } | null
+  /** Разбор, если выбрано своё готовое здание, которое можно разобрать. refund — сколько кредитов вернётся. */
+  demolish: { building: number; refund: number } | null
   /** Что можно построить, если среди выбранного есть строитель. */
   construction: {
     /** Есть ли у игрока главное здание: без него строить негде. */
@@ -67,6 +69,7 @@ export function readHud(scene: Scene): HudState {
   const counts = new Map<UnitType, number>()
   let building: BuildingType | null = null
   let site: HudState['site'] = null
+  let demolish: HudState['demolish'] = null
   const producers: Entity[] = []
   for (const entity of selection) {
     const unit = world.get(entity, Unit)
@@ -77,6 +80,7 @@ export function readHud(scene: Scene): HudState {
       const progress = round(Math.min(1, work.progress / siteTicks(work.type, sim.time.step)))
       site = { entity, started: world.has(entity, Building), progress }
     }
+    if (canDemolish(sim, player, entity)) demolish = { building: entity, refund: refundOf(world.get(entity, Building)!.type) }
     if (world.has(entity, Producer)) producers.push(entity)
   }
 
@@ -89,6 +93,7 @@ export function readHud(scene: Scene): HudState {
     units: UNIT_TYPES.filter((type) => counts.has(type)).map((type) => ({ type, count: counts.get(type)! })),
     building,
     site,
+    demolish,
     construction: counts.has('builder')
       ? {
           available: coreCenters(sim, player).length > 0,

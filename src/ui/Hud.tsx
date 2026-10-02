@@ -33,9 +33,11 @@ function useNewRewards(rewards: string[]) {
 
 /** Интерфейс игрока: счёт и панель выбранного с приказами. Сам ничего не решает — только шлёт команды. */
 export function Hud({ state, send, place }: HudProps) {
-  const { units, building, site, construction, conversion, production } = state
+  const { units, building, site, demolish, construction, conversion, production } = state
   const selected = units.length > 0 || building !== null
   const fresh = useNewRewards(state.rewards)
+  // Разбор — в два щелчка: здание исчезает сразу, и половина цены теряется. Хранится, какое здание ждёт подтверждения.
+  const [confirming, setConfirming] = useState<number | null>(null)
 
   return (
     <>
@@ -81,6 +83,20 @@ export function Hud({ state, send, place }: HudProps) {
               <button onClick={() => send({ type: 'cancelBuild', site: site.entity })}>Отменить стройку</button>
             </>
           )}
+
+          {demolish &&
+            (confirming === demolish.building ? (
+              <div class="hud__row">
+                <button class="is-danger" onClick={() => send({ type: 'demolish', building: demolish.building })}>
+                  Разобрать <small>+{demolish.refund}</small>
+                </button>
+                <button onClick={() => setConfirming(null)}>Оставить</button>
+              </div>
+            ) : (
+              <button title="Здание исчезнет, вернётся половина цены" onClick={() => setConfirming(demolish.building)}>
+                Разобрать <small>+{demolish.refund}</small>
+              </button>
+            ))}
 
           {construction && (
             <>

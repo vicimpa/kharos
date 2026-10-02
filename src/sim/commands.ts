@@ -1,7 +1,7 @@
 import type { Entity } from '../ecs'
 import { BUILDINGS, canPlace, placeBuilding, type BuildingType } from './buildings'
 import { Builds, Owner, Unit } from './components'
-import { assignBuilders, cancelBuild, orderBuild } from './construction'
+import { assignBuilders, cancelBuild, demolish, orderBuild } from './construction'
 import { DEPLOY_SECONDS, PACK_SECONDS, canDeploy, canPack, startConverting } from './conversion'
 import { cancelUnit, orderUnit } from './production'
 import type { Sim } from './sim'
@@ -33,6 +33,8 @@ export type Command =
   | { type: 'assist'; units: number[]; site: number }
   /** Отменить свою стройку и вернуть кредиты. */
   | { type: 'cancelBuild'; site: number }
+  /** Разобрать своё готовое здание и вернуть часть его цены. */
+  | { type: 'demolish'; building: number }
   /** Отладка: создать юнит в тайле. Уйдёт, когда юнитов начнёт производить главное здание. */
   | { type: 'spawnUnit'; unit: UnitType; x: number; y: number }
 
@@ -72,6 +74,8 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
     }
     case 'cancelBuild':
       return cancelBuild(sim, player, command.site as Entity)
+    case 'demolish':
+      return demolish(sim, player, command.building as Entity)
     case 'deploy': {
       const unit = command.unit as Entity
       if (!canDeploy(sim, player, unit)) return false

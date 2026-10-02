@@ -113,6 +113,31 @@ export function cancelBuild(sim: Sim, player: number, site: Entity) {
   return true
 }
 
+/** Какую долю цены возвращает разбор готового здания. */
+export const DEMOLISH_REFUND = 0.5
+
+/** Сколько кредитов вернёт разбор здания этого вида. */
+export const refundOf = (type: BuildingType) => Math.floor(BUILDINGS[type].cost * DEMOLISH_REFUND)
+
+/** Может ли игрок разобрать здание: оно своё, готовое и не главное — главное сворачивают в MCV. */
+export function canDemolish(sim: Sim, player: number, building: Entity) {
+  const { world } = sim
+  const type = world.get(building, Building)?.type
+  if (type === undefined || type === CORE) return false
+  return world.get(building, Owner)?.player === player && !world.has(building, Site) && !world.has(building, Converting)
+}
+
+/**
+ * Разбирает готовое здание: оно исчезает сразу, игроку возвращается часть цены. Зона строительства
+ * при этом не обязательна — так можно забрать хоть что-то за здание, оставшееся без главного.
+ */
+export function demolish(sim: Sim, player: number, building: Entity) {
+  if (!canDemolish(sim, player, building)) return false
+  addCredits(sim, player, refundOf(sim.world.get(building, Building)!.type))
+  sim.world.destroy(building)
+  return true
+}
+
 /**
  * Раз в тик: строители, стоящие вплотную к своей площадке, вкладывают в неё работу — чем их больше, тем быстрее.
  * С первым тиком работы площадка становится недостроенным зданием и занимает тайлы; юниты с неё уходят.

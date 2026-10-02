@@ -3,7 +3,7 @@ import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import {
   BUILDINGS, Building, CORE, Owner, Unit,
-  canBuild, canPlace, createSim, creditsOf, economyOf, powerOf, rewardsOf, zoneOf, spawnStartingUnits, type BuildingType, type Sim,
+  canBuild, canPlace, createSim, creditsOf, economyOf, powerOf, refundOf, rewardsOf, siteAt, zoneOf, spawnStartingUnits, type BuildingType, type Sim,
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { REWARDS, STARTING_CREDITS } from '../src/sim/economy'
@@ -146,4 +146,34 @@ test('готовые здания расширяют зону строитель
   sim.send(1, { type: 'pack', building: coreOf(sim) })
   seconds(sim, 10.1)
   expect(zoneOf(sim, 1).length).toBe(0)
+})
+
+test('разбор возвращает половину цены, сужает зону и не трогает чужое, главное и недостроенное', () => {
+  const { sim, x, y } = start()
+  const plant = put(sim, 'generator', x + 6, y)
+  const link = put(sim, 'silo', x + 13, y + 5)
+  const core = coreOf(sim)
+  expect(refundOf('generator')).toBe(150)
+  expect(canBuild(sim, 1, 'silo', x + 17, y + 3)).toBe(true)
+
+  sim.send(1, { type: 'build', building: 'silo', x: x + 6, y: y + 6, builders: [] })
+  sim.advance(TICK)
+  const site = siteAt(sim, x + 6, y + 6)!
+  const credits = creditsOf(sim, 1)
+  sim.send(2, { type: 'demolish', building: plant })
+  sim.send(1, { type: 'demolish', building: core })
+  sim.send(1, { type: 'demolish', building: site })
+  sim.advance(TICK)
+  expect(sim.world.alive(plant) && sim.world.alive(core) && sim.world.alive(site)).toBe(true)
+  expect(creditsOf(sim, 1)).toBe(credits)
+
+  sim.send(1, { type: 'demolish', building: plant })
+  sim.send(1, { type: 'demolish', building: link })
+  sim.advance(TICK)
+  expect(sim.world.alive(plant) || sim.world.alive(link)).toBe(false)
+  expect(creditsOf(sim, 1)).toBe(credits + 150 + 75)
+  expect(sim.occupancy.at(x + 6, y)).toBeUndefined()
+  expect(economyOf(sim, 1).produced).toBe(0)
+  // Звено цепочки разобрано — зона сжалась обратно.
+  expect(canBuild(sim, 1, 'silo', x + 17, y + 3)).toBe(false)
 })
