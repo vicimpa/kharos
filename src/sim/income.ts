@@ -54,10 +54,12 @@ function economyOfZone(sim: Sim, zone: Zone): Economy {
   /** Доход потребителей при полной энергии. */
   let powered = 0
   for (const entity of zone.buildings) {
-    const spec: BuildingSpec = BUILDINGS[sim.world.get(entity, Building)!.type]
+    const building = sim.world.get(entity, Building)!
+    const spec: BuildingSpec = BUILDINGS[building.type]
     const power = spec.power ?? 0
     const income = spec.income ?? 0
-    if (power > 0) economy.produced += power
+    // Повреждённая электростанция даёт энергии во столько же раз меньше, во сколько упала её прочность.
+    if (power > 0) economy.produced += power * building.health
     if (power < 0) {
       // Тесное здание просит тем больше, чем их уже в зоне: первое — одну норму, второе — две, третье — три.
       economy.demand -= power * (spec.crowding ? ++economy.crowd : 1)
@@ -135,6 +137,29 @@ export function powerStates(sim: Sim): Map<Entity, PowerState> {
     })
   }
   return states
+}
+
+/**
+ * Электростанции зон, где энергии не хватило бы и целым станциям: потребителей там больше, чем станции тянут.
+ * Чинить такие бесполезно, пока перегруз не снят. Станции, которым не хватает только из-за повреждений, сюда не входят.
+ */
+export function overbuiltPlants(sim: Sim): Set<Entity> {
+  const plants = new Set<Entity>()
+  const all = economies(sim)
+  for (const [player, zones] of allZones(sim)) {
+    zones.forEach((zone, i) => {
+      const found: Entity[] = []
+      let capacity = 0
+      for (const entity of zone.buildings) {
+        const power = (BUILDINGS[sim.world.get(entity, Building)!.type] as BuildingSpec).power ?? 0
+        if (power <= 0) continue
+        capacity += power
+        found.push(entity)
+      }
+      if (all.get(player)![i].demand > capacity) for (const entity of found) plants.add(entity)
+    })
+  }
+  return plants
 }
 
 /**

@@ -106,7 +106,7 @@ export function readHud(scene: Scene): HudState {
     if (building !== null && ((BUILDINGS[building] as BuildingSpec).power ?? 0) > 0) {
       // Недостроенная и отрезанная от зоны электростанция ни в какую зону не входит — показывать нечего.
       const zone = zonesOf(sim, player).findIndex((zone) => zone.buildings.includes(entity))
-      if (zone >= 0) power = { produced: zones[zone].produced, demand: zones[zone].demand }
+      if (zone >= 0) power = { produced: Math.round(zones[zone].produced * 10) / 10, demand: zones[zone].demand }
     }
     const built = world.get(entity, Building)
     if (built && built.health < 1) {

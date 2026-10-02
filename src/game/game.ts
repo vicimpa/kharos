@@ -17,7 +17,7 @@ import { readHud, type HudState } from './hud'
 import type { Scene } from './scene'
 import { createPowerPass } from './powerPass'
 import { createSelectionPass } from './selectionPass'
-import { loadSave, storeSave } from './storage'
+import { loadCamera, loadSave, storeCamera, storeSave } from './storage'
 import { createUnitsPass } from './units/unitsPass'
 
 /** Как часто игра сохраняется в браузер, в секундах. */
@@ -65,6 +65,13 @@ export function createGame(
 ): Game {
   const camera = new Camera()
   const save = session ? null : loadSave(simOptions(settings))
+  // Камера возвращается туда, где была, только вместе с миром: в новом мире старое место ничего не значит.
+  const view = save ? loadCamera() : null
+  if (view) {
+    camera.x = view.x
+    camera.y = view.y
+    camera.zoomTo(view.zoom)
+  }
   const scene: Scene = {
     sim: session ? session.sim : save ? createSim(save) : createNewSim(settings),
     player: session ? session.player : PLAYER,
@@ -103,7 +110,9 @@ export function createGame(
   const controls = createControls(canvas, scene)
 
   const saveNow = () => {
-    if (!session) storeSave(scene.sim.save())
+    if (session) return
+    storeSave(scene.sim.save())
+    storeCamera(camera)
   }
   let sinceSave = 0
   // На сервере игрок появляется не в начале мира: камера встаёт на его юнит, как только мир пришёл.
@@ -116,6 +125,8 @@ export function createGame(
     scene.selection.clear()
     scene.placing = null
     scene.sim = createNewSim(scene.settings)
+    // Новый мир — камера снова у стартового набора.
+    camera.x = camera.y = 0
     saveNow()
   }
 

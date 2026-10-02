@@ -263,8 +263,12 @@ test('перегруженная электростанция теряет пр�
   // Просят 15 при 10: перегруз наполовину, станция под ударом, потребители замедлены.
   const second = put(sim, 'matter', x + 9, y)
   expect(powerStates(sim)).toEqual(new Map([[plant, 'overload'], [first, 'starved'], [second, 'starved']]))
+  sim.advance(TICK)
+  expect(health()).toBeCloseTo(1 - OVERLOAD_DAMAGE * 0.5 * TICK)
+  // Повреждённая станция даёт меньше энергии, поэтому перегруз растёт сам и урон ускоряется.
   seconds(sim, 20)
-  expect(health()).toBeCloseTo(1 - OVERLOAD_DAMAGE * 0.5 * 20)
+  expect(health()).toBeLessThan(1 - OVERLOAD_DAMAGE * 0.5 * 20)
+  expect(economyOf(sim, 1).produced).toBeCloseTo(10 * health())
 
   // Перегруз сняли — урон прекратился, но сама станция не чинится.
   sim.world.destroy(second)
@@ -282,7 +286,7 @@ test('перегруженная электростанция теряет пр�
   expect(economyOf(sim, 1).income).toBeCloseTo(0.2)
 })
 
-test('строители чинят повреждённое здание — по приказу и сами; перегруженную станцию не чинят', () => {
+test('строители чинят повреждённое здание — по приказу и сами; перегруженную станцию — только по приказу', () => {
   const { sim, x, y } = start()
   const plant = put(sim, 'generator', x + 6, y + 4)
   put(sim, 'matter', x + 6, y)
@@ -303,9 +307,10 @@ test('строители чинят повреждённое здание — п
   expect(sim.world.has(builders[0], Builds)).toBe(true)
   seconds(sim, repairTime - 5)
   expect(health()).toBeCloseTo(1)
-  // За это время набежал доход 1,2 в секунду; починка 80% станции стоила 120.
+  // Починка 80% станции стоила 120. Доход за это время — около 1,2 в секунду: чуть меньше, пока битая станция
+  // недодавала энергии, — отсюда допуск.
   const paid = credits + 1.2 * repairTime - creditsOf(sim, 1)
-  expect(Math.abs(paid - 0.8 * BUILDINGS.generator.cost * REPAIR_COST)).toBeLessThan(2)
+  expect(Math.abs(paid - 0.8 * BUILDINGS.generator.cost * REPAIR_COST)).toBeLessThan(15)
 
   // Без кредитов починка стоит.
   sim.world.get(plant, Building)!.health = 0.5
@@ -317,13 +322,16 @@ test('строители чинят повреждённое здание — п
   sim.advance(TICK)
   expect(sim.world.has(builders[0], Builds)).toBe(false)
 
-  // Под перегрузом починки нет: станция только теряет прочность.
+  // Перегруженную станцию строители сами не чинят: она только теряет прочность.
+  for (const [entity, player] of sim.world.query(Player)) if (player.id === 1) sim.world.set(entity, Player, { credits: 500 })
   put(sim, 'matter', x + 9, y)
   seconds(sim, 10)
   const worn = health()
   expect(worn).toBeLessThan(1)
+  expect(sim.world.has(builders[0], Builds)).toBe(false)
+  // По приказу — чинят, и починка обгоняет урон.
   sim.send(1, { type: 'assist', units: builders, site: plant })
   seconds(sim, 5)
-  expect(sim.world.has(builders[0], Builds)).toBe(false)
-  expect(health()).toBeLessThan(worn)
+  expect(sim.world.has(builders[0], Builds)).toBe(true)
+  expect(health()).toBeGreaterThan(worn)
 })
