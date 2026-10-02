@@ -44,7 +44,8 @@ export const Player = component('Player', () => ({ id: 0, credits: 0, earned: 0,
 
 /**
  * Производство юнитов: есть у MCV и у главного здания.
- * queue — очередь заказов, первый строится сейчас; progress — сколько тиков он уже строится.
+ * queue — очередь заказов, первый строится сейчас; progress — сколько тиков он уже строится;
+ * при нехватке энергии растёт медленнее, поэтому бывает дробным.
  */
 export const Producer = component('Producer', () => ({ queue: [] as UnitType[], progress: 0 }))
 

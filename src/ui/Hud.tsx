@@ -75,7 +75,7 @@ export function Hud({ state, send, place }: HudProps) {
               {state.power.demand > state.power.produced && ' — перегруз, станции разрушаются'}
             </div>
           )}
-          {state.starved && <div class="hud__hint hud__power is-short">⚡ Не хватает энергии: здание работает медленнее</div>}
+          {state.starved && <div class="hud__hint hud__power is-short">⚡ Не хватает энергии: здание работает медленнее или стоит</div>}
           {state.health !== null && (
             <div class="hud__hint">Прочность: {percent(state.health)}. Починка стоит {state.repair}: выбери строителей и щёлкни по зданию правой кнопкой</div>
           )}

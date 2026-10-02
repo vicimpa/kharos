@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { Armed, Blast, Building, Path, Position, Producer, Shot, UNITS, Unit, WEAPONS, buildingHp, canAttack, canPlace, createSim, isWalkable, producibleBy, type Sim } from '../src/sim'
+import { Armed, Blast, Building, Path, Position, Producer, Shot, UNITS, Unit, WEAPONS, buildingHp, canAttack, canPlace, createSim, isWalkable, powerStates, producibleBy, zoneEconomies, type Sim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { addCredits } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
@@ -222,19 +222,20 @@ test('бой переживает сохранение', () => {
   expect(UNITS.tank.hp).toBeGreaterThan(WEAPONS.cannon.damage * 2)
 })
 
-test('пехоту выпускают казармы, технику — машинный завод, летающих — космопорт', () => {
+test('пехоту выпускают казармы, технику — машинный завод, летающих — космопорт; всем им нужна энергия', () => {
   const sim = createSim(options)
   addCredits(sim, 1, 10000)
+  const layout = [['command', 0], ['barracks', 4], ['factory', 7], ['spaceport', 10], ['generator', 14], ['generator', 17]] as const
   let spot: { x: number; y: number } | undefined
-  for (let y = -60; y < 60 && !spot; y++) {
-    for (let x = -60; x < 60 && !spot; x++) if (canPlace(sim, 'command', x, y) && canPlace(sim, 'command', x + 4, y) && canPlace(sim, 'command', x + 8, y)) spot = { x, y }
+  for (let y = -80; y < 80 && !spot; y++) {
+    for (let x = -80; x < 80 && !spot; x++) if (layout.every(([type, dx]) => canPlace(sim, type, x + dx, y))) spot = { x, y }
   }
-  const barracks = placeBuilding(sim.world, 'barracks', spot!.x, spot!.y, 1)
-  const factory = placeBuilding(sim.world, 'factory', spot!.x + 4, spot!.y, 1)
-  const port = placeBuilding(sim.world, 'spaceport', spot!.x + 8, spot!.y, 1)
+  const [, barracks, factory, port, plant, spare] = layout.map(([type, dx]) => placeBuilding(sim.world, type, spot!.x + dx, spot!.y, 1))
   expect(producibleBy(sim, barracks)).toEqual(['infantry', 'rocketeer'])
   expect(producibleBy(sim, factory)).toEqual(['buggy', 'lancer', 'tank', 'tesla'])
   expect(producibleBy(sim, port)).toEqual(['drone', 'gunship'])
+  // Потребляют 2 + 5 + 5 из 20.
+  expect(zoneEconomies(sim, 1)[0]).toMatchObject({ produced: 20, demand: 12 })
 
   sim.send(1, { type: 'produce', producer: barracks, unit: 'tank' })
   sim.send(1, { type: 'produce', producer: barracks, unit: 'rocketeer' })
@@ -250,11 +251,26 @@ test('пехоту выпускают казармы, технику — маш�
   for (const [, unit] of sim.world.query(Unit)) made.push(unit.type)
   expect(made.sort()).toEqual(['drone', 'rocketeer', 'tank'])
 
-  // Здание под разбором не производит.
-  sim.send(1, { type: 'demolish', building: barracks, builders: [] })
+  // Энергии не хватает: 10 из 12 — производство идёт на 5/6 скорости, над зданием значок нехватки.
+  sim.world.destroy(spare)
   sim.send(1, { type: 'produce', producer: barracks, unit: 'infantry' })
-  sim.advance(TICK)
-  sim.advance(TICK)
-  expect(producibleBy(sim, barracks)).toEqual([])
+  seconds(sim, UNITS.infantry.buildTime + 0.1)
+  expect(powerStates(sim).get(barracks)).toBe('starved')
+  expect(sim.world.get(barracks, Producer)!.queue).toEqual(['infantry'])
+  seconds(sim, UNITS.infantry.buildTime * 0.2 + 0.1)
   expect(sim.world.get(barracks, Producer)!.queue).toEqual([])
+
+  // Без энергии совсем производство стоит.
+  sim.world.destroy(plant)
+  sim.send(1, { type: 'produce', producer: barracks, unit: 'infantry' })
+  seconds(sim, 10)
+  expect(sim.world.get(barracks, Producer)).toMatchObject({ queue: ['infantry'], progress: 0 })
+
+  // Здание под разбором не производит.
+  sim.send(1, { type: 'demolish', building: factory, builders: [] })
+  sim.send(1, { type: 'produce', producer: factory, unit: 'buggy' })
+  sim.advance(TICK)
+  sim.advance(TICK)
+  expect(producibleBy(sim, factory)).toEqual([])
+  expect(sim.world.get(factory, Producer)!.queue).toEqual([])
 })

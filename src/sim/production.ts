@@ -2,6 +2,7 @@ import type { Entity, Time } from '../ecs'
 import { BUILDINGS, CORE, type BuildingSpec } from './buildings'
 import { Building, Converting, Owner, Position, Producer, Site, Unit } from './components'
 import { addCredits, pay, reward } from './economy'
+import { powerSupply } from './income'
 import type { Sim } from './sim'
 import { UNITS, freeTilesNear, spawnUnit, type UnitType } from './units'
 
@@ -71,11 +72,24 @@ function emptyTileNear(sim: Sim, x: number, y: number) {
 export function produceUnits(sim: Sim, time: Time) {
   const { world } = sim
   const ready: Entity[] = []
+  // Считается недёшево, поэтому только когда производит здание-потребитель, и один раз за тик.
+  let supply: Map<Entity, number> | undefined
+  const working: Entity[] = []
+  for (const [entity, producer] of world.query(Producer)) {
+    if (producer.queue.length) working.push(entity)
+  }
+  /** Скорость производства: потребителю энергии при её нехватке — доля, вне зоны строительства — ноль. */
+  const speedOf = (entity: Entity) => {
+    const type = world.get(entity, Building)?.type
+    if (!type || ((BUILDINGS[type] as BuildingSpec).power ?? 0) >= 0) return 1
+    return (supply ??= powerSupply(sim)).get(entity) ?? 0
+  }
+  const speeds = new Map(working.map((entity) => [entity, speedOf(entity)]))
   for (const [entity, producer] of world.query(Producer)) {
     // Пока здание сворачивается, разбирается или машина разворачивается, производство стоит.
     if (!producer.queue.length || world.has(entity, Converting) || world.has(entity, Site)) continue
     const needed = buildTicks(producer.queue[0], time.step)
-    if (producer.progress < needed) producer.progress++
+    if (producer.progress < needed) producer.progress += speeds.get(entity) ?? 1
     if (producer.progress >= needed) ready.push(entity)
   }
 

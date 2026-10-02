@@ -32,7 +32,7 @@ export interface BuildingSpec {
    * верхнего тайла основания, facing — куда при этом смотрит грузовик. Тайл должен оставаться проходимым.
    */
   dock?: { x: number; y: number; facing: number }
-  /** Каких юнитов здание производит, когда достроено. */
+  /** Каких юнитов здание производит, когда достроено. Потребитель энергии при её нехватке производит медленнее. */
   produces?: UnitType[]
   /** Доход в кредитах в секунду. У потребителя энергии он падает вместе с её нехваткой. */
   income?: number
@@ -55,20 +55,20 @@ export const BUILDINGS = {
   command: { width: 3, height: 3, cost: 2000, income: 0.2, zone: 12, stores: 100, produces: ['builder', 'truck'], dock: { x: 1, y: 3, facing: Math.PI / 2 } },
   refinery: { width: 3, height: 2, cost: 600 },
   // Машинный завод: машинки и тяжёлая техника.
-  factory: { width: 2, height: 2, cost: 500, produces: ['buggy', 'lancer', 'tank', 'tesla'] },
+  factory: { width: 2, height: 2, cost: 500, power: -5, produces: ['buggy', 'lancer', 'tank', 'tesla'] },
   // Электростанция.
   generator: { width: 2, height: 2, cost: 300, power: 10 },
   // Генератор материи — базовый доход: превращает энергию в кредиты.
   matter: { width: 2, height: 2, cost: 400, power: -5, income: 1, crowding: true },
   radar: { width: 2, height: 2, cost: 400 },
   windtrap: { width: 2, height: 2, cost: 300 },
-  barracks: { width: 2, height: 2, cost: 300, produces: ['infantry', 'rocketeer'] },
+  barracks: { width: 2, height: 2, cost: 300, power: -2, produces: ['infantry', 'rocketeer'] },
   // Шахта энергии не просит и начинает свою зону: тянуть к месторождению цепочку зданий не нужно.
   // Месторождения невелики, поэтому добыча медленная, а руда дорогая. Коннектор — под левым нижним тайлом.
   mine: { width: 2, height: 2, cost: 500, zone: 6, extract: 0.5, dock: { x: 0, y: 2, facing: Math.PI / 2 } },
   silo: { width: 2, height: 1, cost: 150, stores: 200, dock: { x: 0, y: 1, facing: Math.PI / 2 } },
-  // Космопорт ещё и выпускает летающих.
-  spaceport: { width: 3, height: 3, cost: 600, trades: true, produces: ['drone', 'gunship'], dock: { x: 1, y: 3, facing: Math.PI / 2 } },
+  // Космопорт ещё и выпускает летающих. Энергию просит всегда, но от её нехватки замедляется только производство.
+  spaceport: { width: 3, height: 3, cost: 600, power: -5, trades: true, produces: ['drone', 'gunship'], dock: { x: 1, y: 3, facing: Math.PI / 2 } },
   turret: { width: 1, height: 1, cost: 250 },
 } satisfies Record<string, BuildingSpec>
 

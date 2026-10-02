@@ -106,6 +106,25 @@ export function powerStates(sim: Sim): Map<Entity, PowerState> {
 }
 
 /**
+ * На какую долю от полной скорости работает каждый потребитель энергии: 1 — энергии хватает. Потребителя,
+ * который не входит ни в одну зону строительства, здесь нет — он не работает вовсе.
+ */
+export function powerSupply(sim: Sim): Map<Entity, number> {
+  const supply = new Map<Entity, number>()
+  const all = economies(sim)
+  for (const [player, zones] of allZones(sim)) {
+    zones.forEach((zone, i) => {
+      const { produced, demand } = all.get(player)![i]
+      const share = demand > 0 ? Math.min(1, produced / demand) : 1
+      for (const entity of zone.buildings) {
+        if (((BUILDINGS[sim.world.get(entity, Building)!.type] as BuildingSpec).power ?? 0) < 0) supply.set(entity, share)
+      }
+    })
+  }
+  return supply
+}
+
+/**
  * Электростанции зон, где энергии не хватило бы и целым станциям: потребителей там больше, чем станции тянут.
  * Чинить такие бесполезно, пока перегруз не снят. Станции, которым не хватает только из-за повреждений, сюда не входят.
  */
