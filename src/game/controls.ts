@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { Armed, BUILDING_TYPES, Owner, Position, UNITS, UNIT_TYPES, Unit, canAttack, canHaul, canPlace, canRepair, isWalkable, siteAt } from '../sim'
+import { Armed, BUILDING_TYPES, Owner, Position, isOwn, UNITS, UNIT_TYPES, Unit, canAttack, canHaul, canPlace, canRepair, isWalkable, siteAt } from '../sim'
 import { placementOf } from './placing'
 import type { Scene } from './scene'
 
@@ -118,7 +118,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
           const tileX = Math.floor(point.x)
           const tileY = Math.floor(point.y)
           const building = scene.sim.occupancy.at(tileX, tileY) ?? siteAt(scene.sim, tileX, tileY)
-          const own = building !== undefined && scene.sim.world.get(building, Owner)?.player === scene.player
+          const own = building !== undefined && isOwn(scene.sim, scene.player, building)
           select(own ? [building] : [], false)
         }
       }
@@ -141,7 +141,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
         sim.send(scene.player, { type: 'attack', units, target: enemy })
       } else if (trucks && damaged !== undefined && canHaul(sim, scene.player, damaged)) {
         sim.send(scene.player, { type: 'haul', units, mine: damaged })
-      } else if (site !== undefined && builders && sim.world.get(site, Owner)?.player === scene.player) {
+      } else if (site !== undefined && builders && isOwn(sim, scene.player, site)) {
         sim.send(scene.player, { type: 'assist', units, site })
       } else {
         sim.send(scene.player, { type: 'move', units, x, y })

@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { BUILDINGS, type BuildingSpec, type BuildingType } from './buildings'
+import { BUILDINGS, buildingSpec, type BuildingSpec, type BuildingType } from './buildings'
 import { Building, Player } from './components'
 import type { Sim } from './sim'
 import { allZones, type Zone } from './zones'
@@ -39,20 +39,31 @@ function economyOfZone(sim: Sim, zone: Zone): Economy {
   return economy
 }
 
+/** Зона строительства вместе с её хозяйством. */
+interface Book {
+  player: number
+  zone: Zone
+  economy: Economy
+}
+
 /**
- * Хозяйства зон всех игроков, в порядке зон. Считаются только готовые здания в зонах:
+ * Зоны всех игроков с их хозяйствами, у каждого игрока — в порядке зон. Считаются только готовые здания в зонах:
  * свернул главное здание — встало всё.
  */
-export function economies(sim: Sim): Map<number, Economy[]> {
-  const result = new Map<number, Economy[]>()
-  for (const [player, zones] of allZones(sim)) result.set(player, zones.map((zone) => economyOfZone(sim, zone)))
+function books(sim: Sim): Book[] {
+  const result: Book[] = []
+  for (const [player, zones] of allZones(sim)) {
+    for (const zone of zones) result.push({ player, zone, economy: economyOfZone(sim, zone) })
+  }
   return result
 }
 
-const NONE: Economy[] = []
+/** Сколько энергии даёт или просит здание: больше нуля — вырабатывает, меньше — потребляет. */
+const powerAt = (sim: Sim, building: Entity) => buildingSpec(sim.world.get(building, Building)!.type).power ?? 0
 
 /** Хозяйства зон одного игрока. */
-export const zoneEconomies = (sim: Sim, player: number): readonly Economy[] => economies(sim).get(player) ?? NONE
+export const zoneEconomies = (sim: Sim, player: number): readonly Economy[] =>
+  books(sim).filter((book) => book.player === player).map((book) => book.economy)
 
 /** Итог по всем зонам игрока. Для дохода это то, что он получает; энергию так складывать можно только для справки. */
 export function economyOf(sim: Sim, player: number): Economy {
@@ -91,16 +102,12 @@ export type PowerState = 'overload' | 'starved'
 /** Здания всех игроков, которым сейчас не хватает энергии. Тех, у кого всё в порядке, здесь нет. */
 export function powerStates(sim: Sim): Map<Entity, PowerState> {
   const states = new Map<Entity, PowerState>()
-  const all = economies(sim)
-  for (const [player, zones] of allZones(sim)) {
-    zones.forEach((zone, i) => {
-      const economy = all.get(player)![i]
-      if (economy.demand <= economy.produced) return
-      for (const entity of zone.buildings) {
-        const power = (BUILDINGS[sim.world.get(entity, Building)!.type] as BuildingSpec).power ?? 0
-        if (power) states.set(entity, power > 0 ? 'overload' : 'starved')
-      }
-    })
+  for (const { zone, economy } of books(sim)) {
+    if (economy.demand <= economy.produced) continue
+    for (const entity of zone.buildings) {
+      const power = powerAt(sim, entity)
+      if (power) states.set(entity, power > 0 ? 'overload' : 'starved')
+    }
   }
   return states
 }
@@ -111,15 +118,9 @@ export function powerStates(sim: Sim): Map<Entity, PowerState> {
  */
 export function powerSupply(sim: Sim): Map<Entity, number> {
   const supply = new Map<Entity, number>()
-  const all = economies(sim)
-  for (const [player, zones] of allZones(sim)) {
-    zones.forEach((zone, i) => {
-      const { produced, demand } = all.get(player)![i]
-      const share = demand > 0 ? Math.min(1, produced / demand) : 1
-      for (const entity of zone.buildings) {
-        if (((BUILDINGS[sim.world.get(entity, Building)!.type] as BuildingSpec).power ?? 0) < 0) supply.set(entity, share)
-      }
-    })
+  for (const { zone, economy } of books(sim)) {
+    const share = economy.demand > 0 ? Math.min(1, economy.produced / economy.demand) : 1
+    for (const entity of zone.buildings) if (powerAt(sim, entity) < 0) supply.set(entity, share)
   }
   return supply
 }
@@ -130,19 +131,10 @@ export function powerSupply(sim: Sim): Map<Entity, number> {
  */
 export function overbuiltPlants(sim: Sim): Set<Entity> {
   const plants = new Set<Entity>()
-  const all = economies(sim)
-  for (const [player, zones] of allZones(sim)) {
-    zones.forEach((zone, i) => {
-      const found: Entity[] = []
-      let capacity = 0
-      for (const entity of zone.buildings) {
-        const power = (BUILDINGS[sim.world.get(entity, Building)!.type] as BuildingSpec).power ?? 0
-        if (power <= 0) continue
-        capacity += power
-        found.push(entity)
-      }
-      if (all.get(player)![i].demand > capacity) for (const entity of found) plants.add(entity)
-    })
+  for (const { zone, economy } of books(sim)) {
+    const found = zone.buildings.filter((entity) => powerAt(sim, entity) > 0)
+    const capacity = found.reduce((sum, entity) => sum + powerAt(sim, entity), 0)
+    if (economy.demand > capacity) for (const entity of found) plants.add(entity)
   }
   return plants
 }
@@ -151,25 +143,19 @@ export function overbuiltPlants(sim: Sim): Set<Entity> {
  * Раз в тик: перегруженные электростанции теряют прочность и в нуле разрушаются.
  * Сами здания не восстанавливаются: их чинят строители.
  */
-function wear(sim: Sim, zones: Map<number, Zone[]>, all: Map<number, Economy[]>) {
+function wear(sim: Sim, all: Book[]) {
   const { world, time } = sim
-  const damage = new Map<Entity, number>()
-  for (const [player, list] of zones) {
-    list.forEach((zone, i) => {
-      const overload = overloadOf(all.get(player)![i])
-      if (!overload) return
-      for (const entity of zone.buildings) {
-        const power = (BUILDINGS[world.get(entity, Building)!.type] as BuildingSpec).power ?? 0
-        if (power > 0) damage.set(entity, OVERLOAD_DAMAGE * overload * time.step)
-      }
-    })
-  }
   // Состав мира меняется после обхода.
   const ruined: Entity[] = []
-  for (const [entity, lost] of damage) {
-    const building = world.get(entity, Building)!
-    building.health -= lost
-    if (building.health <= 0) ruined.push(entity)
+  for (const { zone, economy } of all) {
+    const overload = overloadOf(economy)
+    if (!overload) continue
+    for (const entity of zone.buildings) {
+      if (powerAt(sim, entity) <= 0) continue
+      const building = world.get(entity, Building)!
+      building.health -= OVERLOAD_DAMAGE * overload * time.step
+      if (building.health <= 0) ruined.push(entity)
+    }
   }
   for (const entity of ruined) world.destroy(entity)
 }
@@ -180,18 +166,19 @@ function wear(sim: Sim, zones: Map<number, Zone[]>, all: Map<number, Economy[]>)
  */
 export function earn(sim: Sim) {
   const { world, time } = sim
-  const zones = allZones(sim)
-  const all = economies(sim)
-  // Износ — в самом конце: разрушенное здание исчезает из мира, а зоны этого тика о нём ещё помнят.
-  if (!zones.size) return
-  const paid: { entity: number; credits: number; earned: number }[] = []
+  const all = books(sim)
+  if (!all.length) return
+  const incomes = new Map<number, number>()
+  for (const { player, economy } of all) incomes.set(player, (incomes.get(player) ?? 0) + economy.income)
+  const paid: { entity: Entity; credits: number; earned: number }[] = []
   for (const [entity, player] of world.query(Player)) {
-    const income = all.get(player.id)?.reduce((sum, economy) => sum + economy.income, 0)
+    const income = incomes.get(player.id)
     if (!income) continue
     const earned = player.earned + income * time.step
     const whole = Math.floor(earned)
     paid.push({ entity, credits: player.credits + whole, earned: earned - whole })
   }
-  for (const { entity, credits, earned } of paid) world.set(entity as never, Player, { credits, earned })
-  wear(sim, zones, all)
+  for (const { entity, credits, earned } of paid) world.set(entity, Player, { credits, earned })
+  // Износ — в самом конце: разрушенное здание исчезает из мира, а зоны этого тика о нём ещё помнят.
+  wear(sim, all)
 }

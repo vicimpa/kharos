@@ -1,10 +1,11 @@
 import type { Entity } from '../ecs'
-import { BUILDINGS } from './buildings'
+import { BUILDINGS, type BuildingType } from './buildings'
+import { NONE, isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './common'
 import { Armed, Blast, Building, Converting, Owner, Path, Position, Shot, Unit } from './components'
 import { releaseHauler } from './hauling'
 import { searchedTiles } from './path'
 import type { Sim } from './sim'
-import { UNITS, flies, orderMove, type UnitSpec } from './units'
+import { UNITS, flies, orderMove, unitSpec, type UnitSpec, type UnitType } from './units'
 import { WEAPONS, type Armor, type WeaponSpec, type WeaponType } from './weapons'
 
 /** Сколько единиц прочности у здания на кредит его цены. */
@@ -32,15 +33,11 @@ const CHAIN_DECAY = 0.6
 const OVERFLY = 1.5
 /** У края взрыва достаётся такая доля урона. */
 const SPLASH_EDGE = 0.5
-const NONE = -1
 /** Учебный противник: игрок, за которого никто не играет. Его юнитов создаёт отладочная команда spawnUnit. */
 export const TRAINING_PLAYER = 9999
 
-const TURN = Math.PI * 2
-const wrap = (angle: number) => angle - TURN * Math.round(angle / TURN)
-
 /** Сколько урона выдерживает здание этого вида. */
-export const buildingHp = (type: keyof typeof BUILDINGS) => BUILDINGS[type].cost * BUILDING_HP
+export const buildingHp = (type: BuildingType) => BUILDINGS[type].cost * BUILDING_HP
 
 /** Враги ли игроки. Игрок 0 — ничей: он ни с кем не воюет. */
 export const hostile = (a: number, b: number) => a !== b && a !== 0 && b !== 0
@@ -68,9 +65,7 @@ interface Mark {
 
 /** Расстояние от точки до края цели в тайлах. */
 function distanceTo(mark: Mark, x: number, y: number) {
-  const dx = Math.max(mark.left - x, 0, x - mark.left - mark.width)
-  const dy = Math.max(mark.top - y, 0, y - mark.top - mark.height)
-  return Math.max(0, Math.hypot(dx, dy) - mark.radius)
+  return Math.max(0, rectDistance(mark.left, mark.top, mark.width, mark.height, x, y) - mark.radius)
 }
 
 function collectMarks(sim: Sim) {
@@ -95,14 +90,14 @@ function collectMarks(sim: Sim) {
 /** Оружие юнита или undefined, если он безоружен. */
 const weaponOf = (sim: Sim, entity: Entity): WeaponType | undefined => {
   const type = sim.world.get(entity, Unit)?.type
-  return type && (UNITS[type] as UnitSpec).weapon
+  return type && unitSpec(type).weapon
 }
 
 /** Может ли игрок приказать своим юнитам атаковать это: чужой юнит или чужое здание. */
 export function canAttack(sim: Sim, player: number, target: Entity) {
   const { world } = sim
   if (!world.has(target, Position) || (!world.has(target, Unit) && !world.has(target, Building))) return false
-  return hostile(player, world.get(target, Owner)?.player ?? 0)
+  return hostile(player, ownerOf(sim, target))
 }
 
 /**
@@ -118,7 +113,7 @@ export function orderAttack(sim: Sim, player: number, units: Entity[], target: E
   for (const entity of new Set(units)) {
     const armed = world.get(entity, Armed)
     const weapon = weaponOf(sim, entity)
-    if (!armed || !weapon || world.get(entity, Owner)?.player !== player) continue
+    if (!armed || !weapon || !isOwn(sim, player, entity)) continue
     if (air && !WEAPONS[weapon].air) continue
     armed.target = target
     armed.chase = true
@@ -234,7 +229,7 @@ export function fight(sim: Sim) {
   for (const entity of gone) world.destroy(entity)
 
   // Стрелки. Список собирается заранее: дальше мир и обходится заново, и меняется.
-  const shooters: { entity: Entity; armed: { target: number; chase: boolean; cooldown: number; stuck: number }; unit: { type: keyof typeof UNITS; facing: number } }[] = []
+  const shooters: { entity: Entity; armed: { target: number; chase: boolean; cooldown: number; stuck: number }; unit: { type: UnitType; facing: number } }[] = []
   for (const [entity, armed, unit] of world.query(Armed, Unit)) shooters.push({ entity, armed, unit })
 
   let searches = 0
@@ -256,7 +251,7 @@ export function fight(sim: Sim) {
       armed.target = NONE
       armed.chase = false
       // Свободный юнит высматривает врага в пределах выстрела: сперва юнитов, потом здания.
-      if (moving || (time.tick + entity) % SCAN_TICKS !== 0) continue
+      if (moving || !onTurn(time, entity, SCAN_TICKS)) continue
       let best = Infinity
       for (const mark of marks.values()) {
         if (!canHit(weapon, self.player, mark)) continue
@@ -274,7 +269,7 @@ export function fight(sim: Sim) {
     if (distanceTo(target, self.x, self.y) > weapon.range) {
       if (!armed.chase) armed.target = NONE
       // Вставший трогается снова не каждый тик, а не нашедший пути — всё реже: искать его без конца слишком дорого.
-      else if ((time.tick + entity) % (moving ? CHASE_TICKS : SCAN_TICKS << Math.min(armed.stuck, STUCK_LIMIT)) === 0) {
+      else if (onTurn(time, entity, moving ? CHASE_TICKS : SCAN_TICKS << Math.min(armed.stuck, STUCK_LIMIT))) {
         const goalX = Math.floor(target.x)
         const goalY = Math.floor(target.y)
         // Цель с места не сошла — прежний путь годится.
@@ -293,9 +288,7 @@ export function fight(sim: Sim) {
     if (moving) world.remove(entity, Path)
 
     const wanted = Math.atan2(target.y - self.y, target.x - self.x)
-    const off = wrap(wanted - unit.facing)
-    const maxTurn = spec.turn * time.step
-    unit.facing = Math.abs(off) <= maxTurn ? wanted : wrap(unit.facing + Math.sign(off) * maxTurn)
+    unit.facing = turnToward(unit.facing, wanted, spec.turn * time.step)
     if (armed.cooldown > 0 || Math.abs(wrap(wanted - unit.facing)) > AIM) continue
     armed.cooldown = Math.max(1, Math.round(weapon.reload / time.step))
 

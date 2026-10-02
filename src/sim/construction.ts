@@ -1,12 +1,14 @@
 import type { Entity } from '../ecs'
-import { BUILDABLE, BUILDINGS, BUILD_RATE, CORE, canPlace, docksClear, siteAt, type BuildingSpec, type BuildingType } from './buildings'
+import { tileKey } from '../map/terrain'
+import { BUILDABLE, BUILDINGS, BUILD_RATE, CORE, buildingSpec, canPlace, docksClear, newBuilding, siteAt, type BuildingSpec, type BuildingType } from './buildings'
+import { isOwn, onTurn, ownerOf, rectDistance, turnToward } from './common'
 import { Building, Builds, Converting, Owner, Path, Position, Producer, Site, Unit } from './components'
 import { oreLeft } from './deposits'
 import { addCredits, pay, reward, spend } from './economy'
 import { overbuiltPlants } from './income'
 import type { Sim } from './sim'
 import { inCircles, inForeignZone, zoneOf } from './zones'
-import { UNITS, evictUnits, isWalkable, orderMove, standingUnits, tileKey, unitsIn } from './units'
+import { UNITS, clearGround, isWalkable, orderMove, standingUnits, unitsIn } from './units'
 
 /** С какого расстояния до основания юнит работает со зданием, в тайлах: с соседнего тайла, в том числе углового. */
 export const REACH = 1.2
@@ -14,9 +16,6 @@ export const REACH = 1.2
 export const WORK_RADIUS = 10
 /** Раз во сколько тиков юнит, не дошедший до здания, пробует подъехать снова. */
 export const RETRY_TICKS = 20
-
-const TURN = Math.PI * 2
-const wrap = (angle: number) => angle - TURN * Math.round(angle / TURN)
 
 /** Сколько тиков работы одного строителя нужно на здание. */
 export const siteTicks = (type: BuildingType, step: number) => Math.round(BUILDINGS[type].cost / BUILD_RATE / step)
@@ -47,7 +46,7 @@ export function canBuild(sim: Sim, player: number, type: BuildingType, x: number
   const { width, height, zone }: BuildingSpec = BUILDINGS[type]
   if (inForeignZone(sim, player, x, y, width, height)) return false
   // Шахта встаёт ровно на месторождение, в котором ещё есть руда.
-  if ((BUILDINGS[type] as BuildingSpec).extract && oreLeft(sim, x, y) <= 0) return false
+  if (buildingSpec(type).extract && oreLeft(sim, x, y) <= 0) return false
   return zone !== undefined || inControl(sim, player, type, x, y)
 }
 
@@ -68,7 +67,7 @@ function isRepairable(sim: Sim, building: Entity) {
 
 /** Может ли игрок послать строителей чинить это здание. */
 export const canRepair = (sim: Sim, player: number, building: Entity) =>
-  sim.world.get(building, Owner)?.player === player && isRepairable(sim, building)
+  isOwn(sim, player, building) && isRepairable(sim, building)
 
 /** Над чем здесь работают строители: вид строящегося, разбираемого или чинимого здания; undefined — работы нет. */
 function workType(sim: Sim, entity: Entity): BuildingType | undefined {
@@ -80,7 +79,7 @@ function workType(sim: Sim, entity: Entity): BuildingType | undefined {
 /** Расстояние от точки до основания площадки в тайлах; внутри основания — ноль. */
 export function distanceTo(site: { x: number; y: number }, type: BuildingType, x: number, y: number) {
   const { width, height } = BUILDINGS[type]
-  return Math.hypot(Math.max(site.x - x, 0, x - site.x - width), Math.max(site.y - y, 0, y - site.y - height))
+  return rectDistance(site.x, site.y, width, height, x, y)
 }
 
 /**
@@ -132,23 +131,13 @@ function clearSite(sim: Sim, site: Entity, evict: boolean) {
   const { world } = sim
   const { x, y } = world.get(site, Position)!
   const { width, height } = BUILDINGS[world.get(site, Site)!.type]
-  const player = world.get(site, Owner)?.player
-  const inside = unitsIn(sim, x, y, width, height)
-  if (!inside.length) return true
-  if (evict) {
-    const own = inside.filter((entity) => {
-      if (world.get(entity, Owner)?.player !== player || world.has(entity, Path)) return false
-      // Строителя этой же площадки на её край ведёт approach.
-      return world.get(entity, Builds)?.site !== site
-    })
-    evictUnits(sim, x, y, width, height, own)
-  }
-  return false
+  // Строителя этой же площадки на её край ведёт approach.
+  return clearGround(sim, ownerOf(sim, site), x, y, width, height, evict, undefined, (entity) => world.get(entity, Builds)?.site === site)
 }
 
 /** Своя стройка: площадка или недостроенное здание игрока. */
 const isOwnSite = (sim: Sim, player: number, site: Entity) =>
-  sim.world.has(site, Site) && sim.world.get(site, Owner)?.player === player
+  sim.world.has(site, Site) && isOwn(sim, player, site)
 
 /**
  * Посылает строителей игрока на его стройку, разбор или к повреждённому зданию — чинить.
@@ -156,9 +145,9 @@ const isOwnSite = (sim: Sim, player: number, site: Entity) =>
  */
 export function assignBuilders(sim: Sim, player: number, site: Entity, units: Entity[]) {
   const { world } = sim
-  if (world.get(site, Owner)?.player !== player || workType(sim, site) === undefined) return false
+  if (!isOwn(sim, player, site) || workType(sim, site) === undefined) return false
   const builders = [...new Set(units)].filter((entity) => {
-    return world.get(entity, Unit)?.type === 'builder' && world.get(entity, Owner)?.player === player && !world.has(entity, Converting)
+    return world.get(entity, Unit)?.type === 'builder' && isOwn(sim, player, entity) && !world.has(entity, Converting)
   })
   const claimed = new Set<number>()
   for (const builder of builders) {
@@ -210,7 +199,7 @@ export function canDemolish(sim: Sim, player: number, building: Entity) {
   const { world } = sim
   const type = world.get(building, Building)?.type
   if (type === undefined || type === CORE) return false
-  return world.get(building, Owner)?.player === player && !world.has(building, Site) && !world.has(building, Converting)
+  return isOwn(sim, player, building) && !world.has(building, Site) && !world.has(building, Converting)
 }
 
 /**
@@ -237,7 +226,7 @@ function volunteer(sim: Sim) {
   const { world, time } = sim
   const idle: Entity[] = []
   for (const [entity, unit] of world.query(Unit, Owner)) {
-    if (unit.type !== 'builder' || (time.tick + entity) % RETRY_TICKS !== 0) continue
+    if (unit.type !== 'builder' || !onTurn(time, entity, RETRY_TICKS)) continue
     if (world.has(entity, Builds) || world.has(entity, Path) || world.has(entity, Converting)) continue
     idle.push(entity)
   }
@@ -256,14 +245,13 @@ function volunteer(sim: Sim) {
     if (!isRepairable(sim, entity) || (overbuilt ??= overbuiltPlants(sim)).has(entity)) continue
     const position = world.get(entity, Position)!
     const building = world.get(entity, Building)!
-    const owner = world.get(entity, Owner)!
-    sites.push({ entity, x: position.x, y: position.y, type: building.type, player: owner.player, free: true })
+    sites.push({ entity, x: position.x, y: position.y, type: building.type, player: ownerOf(sim, entity), free: true })
   }
   /** Зона нужна только стройке; считается раз на игрока и только если до неё дошло дело. */
   const open = new Map<Entity, boolean>()
   for (const builder of idle) {
     const position = world.get(builder, Position)!
-    const player = world.get(builder, Owner)!.player
+    const player = ownerOf(sim, builder)
     let best: Entity | undefined
     let bestDistance = WORK_RADIUS
     for (const site of sites) {
@@ -272,7 +260,7 @@ function volunteer(sim: Sim) {
       if (distance > bestDistance) continue
       let workable = open.get(site.entity)
       if (workable === undefined) {
-        workable = site.free || (BUILDINGS[site.type] as BuildingSpec).zone !== undefined || inControl(sim, player, site.type, site.x, site.y)
+        workable = site.free || buildingSpec(site.type).zone !== undefined || inControl(sim, player, site.type, site.x, site.y)
         open.set(site.entity, workable)
       }
       if (!workable) continue
@@ -309,16 +297,14 @@ export function construct(sim: Sim) {
     const distance = distanceTo(corner, type, position.x, position.y)
     if (distance === 0 || distance > REACH) {
       // Не доехал или его оттеснили. Пробует снова не каждый тик: поиск пути недёшев.
-      if ((time.tick + entity) % RETRY_TICKS === 0) late.push({ builder: entity, site })
+      if (onTurn(time, entity, RETRY_TICKS)) late.push({ builder: entity, site })
       continue
     }
     workers.set(site, (workers.get(site) ?? 0) + 1)
     // За работой строитель поворачивается к зданию — и светит на него фарами.
     const { width, height } = BUILDINGS[type]
     const wanted = Math.atan2(corner.y + height / 2 - position.y, corner.x + width / 2 - position.x)
-    const off = wrap(wanted - unit.facing)
-    const maxTurn = UNITS[unit.type].turn * time.step
-    unit.facing = Math.abs(off) <= maxTurn ? wanted : wrap(unit.facing + Math.sign(off) * maxTurn)
+    unit.facing = turnToward(unit.facing, wanted, UNITS[unit.type].turn * time.step)
   }
 
   for (const entity of free) world.remove(entity, Builds)
@@ -331,12 +317,12 @@ export function construct(sim: Sim) {
       // Починка идёт быстрее стройки и оплачивается по мере работы; кончились кредиты — стоит.
       const building = world.get(entity, Building)!
       const gain = Math.min(1 - building.health, (count * REPAIR_SPEED) / siteTicks(building.type, time.step))
-      const owner = world.get(entity, Owner)?.player ?? 0
+      const owner = ownerOf(sim, entity)
       if (spend(sim, owner, gain * BUILDINGS[building.type].cost * REPAIR_COST)) building.health += gain
       continue
     }
     const position = world.get(entity, Position)!
-    const player = world.get(entity, Owner)?.player ?? 0
+    const player = ownerOf(sim, entity)
     if (site.demolish) {
       site.progress -= count * DEMOLISH_SPEED
       if (site.progress > 0) continue
@@ -344,16 +330,16 @@ export function construct(sim: Sim) {
       world.destroy(entity)
       continue
     }
-    if ((BUILDINGS[site.type] as BuildingSpec).zone === undefined && !inControl(sim, player, site.type, position.x, position.y)) continue
+    if (buildingSpec(site.type).zone === undefined && !inControl(sim, player, site.type, position.x, position.y)) continue
     if (!world.has(entity, Building)) {
       // Выгонять пробуют не каждый тик: поиск пути недёшев.
-      if (!clearSite(sim, entity, (time.tick + entity) % RETRY_TICKS === 0)) continue
-      world.add(entity, Building({ type: site.type, phase: world.count(Building) * 5 }))
+      if (!clearSite(sim, entity, onTurn(time, entity, RETRY_TICKS))) continue
+      world.add(entity, newBuilding(world, site.type))
     }
     site.progress += count
     if (site.progress < siteTicks(site.type, time.step)) continue
     world.remove(entity, Site)
-    if ((BUILDINGS[site.type] as BuildingSpec).produces) world.add(entity, Producer)
+    if (buildingSpec(site.type).produces) world.add(entity, Producer)
     reward(sim, player, site.type)
   }
 }

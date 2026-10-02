@@ -1,5 +1,6 @@
 import type { Entity } from '../ecs'
-import { isPassable, terrainAt } from '../map/terrain'
+import { isPassable, terrainAt, tileKey } from '../map/terrain'
+import { holdsDock, isOwn } from './common'
 import { Armed, Converting, Hauler, Owner, Path, Position, Producer, Unit } from './components'
 import { STARTING_CREDITS, addCredits } from './economy'
 import { findPath, smoothPath } from './path'
@@ -47,9 +48,11 @@ export const UNITS = {
 
 export type UnitType = keyof typeof UNITS
 export const UNIT_TYPES = Object.keys(UNITS) as UnitType[]
+/** Описание вида юнита со всеми необязательными полями. */
+export const unitSpec = (type: UnitType): UnitSpec => UNITS[type]
 
 /** Летает ли юнит этого вида. */
-export const flies = (type: UnitType) => (UNITS[type] as UnitSpec).kind === 'air'
+export const flies = (type: UnitType) => unitSpec(type).kind === 'air'
 
 /** Лежит ли тайл внутри карты. */
 export function inBounds(sim: Sim, x: number, y: number) {
@@ -68,9 +71,6 @@ export function isWalkable(sim: Sim, x: number, y: number) {
   if (!inBounds(sim, x, y)) return false
   return isPassable(terrainAt(sim.land, x, y)) && sim.occupancy.at(x, y) === undefined
 }
-
-/** Номер тайла одним числом: ключ для множеств тайлов. */
-export const tileKey = (x: number, y: number) => (y + 32768) * 65536 + (x + 32768)
 
 /** Набор тайлов, про который можно только спросить, входит ли в него тайл; ключ — tileKey. */
 export interface TileSet {
@@ -140,7 +140,7 @@ export function spawnUnit(sim: Sim, type: UnitType, player: number, x: number, y
   const entity = world.spawn(Position(position), Unit({ type, prevX: position.x, prevY: position.y }), Owner({ player }))
   if (type === 'mcv') world.add(entity, Producer)
   if (type === 'truck') world.add(entity, Hauler)
-  if ((UNITS[type] as UnitSpec).weapon) world.add(entity, Armed)
+  if (unitSpec(type).weapon) world.add(entity, Armed)
   return entity
 }
 
@@ -220,6 +220,11 @@ export function orderGroupMove(sim: Sim, all: Entity[], x: number, y: number) {
   const radius = Math.max(...units.map((entity) => UNITS[sim.world.get(entity, Unit)!.type].radius))
   const taken = standingUnits(sim, group, radius, air)
   const tiles = freeTilesNear(sim, x, y, units.length, 0, taken, air)
+  sendToTiles(sim, units, tiles, group)
+}
+
+/** Рассылает юнитов по тайлам (x, y подряд), каждого в свой. Друг другу юниты group не препятствие. */
+function sendToTiles(sim: Sim, units: Entity[], tiles: number[], group: ReadonlySet<Entity>) {
   if (!tiles.length) return
   units.forEach((entity, i) => {
     // Мест может оказаться меньше, чем юнитов; тогда лишние идут в последнее.
@@ -239,7 +244,7 @@ export function stepAside(sim: Sim, entity: Entity, fromX: number, fromY: number
   if (!position || !unit || world.has(entity, Path) || world.has(entity, Converting)) return
   // Грузовик у коннектора место не уступает: иначе ждущий очереди сгонял бы того, кто грузится.
   const hauler = world.get(entity, Hauler)
-  if (hauler && (hauler.mine !== -1 || hauler.port !== -1) && !hauler.waiting) return
+  if (hauler && holdsDock(hauler)) return
   const sideX = -Math.sin(heading)
   const sideY = Math.cos(heading)
   const side = (position.x - fromX) * sideX + (position.y - fromY) * sideY >= 0 ? 1 : -1
@@ -272,9 +277,23 @@ export function evictUnits(sim: Sim, x: number, y: number, width: number, height
   if (!inside.length) return
   const group = new Set(inside)
   const taken = standingUnits(sim, group, UNITS.mcv.radius)
-  const tiles = freeTilesNear(sim, x + Math.floor(width / 2), y + Math.floor(height / 2), inside.length, 1, taken)
-  inside.forEach((entity, i) => {
-    const at = Math.min(i * 2, tiles.length - 2)
-    if (at >= 0) orderMove(sim, entity, tiles[at], tiles[at + 1], group)
-  })
+  sendToTiles(sim, inside, freeTilesNear(sim, x + Math.floor(width / 2), y + Math.floor(height / 2), inside.length, 1, taken), group)
+}
+
+/**
+ * Освобождает прямоугольник в тайлах под здание игрока player и говорит, свободен ли он. Свои стоящие юниты
+ * с evict уходят сами; тех, кто едет, не трогают: проедут. Чужих остаётся только ждать.
+ * ignore — кто не в счёт вовсе; stays — кого не выгонять, хотя место он занимает.
+ */
+export function clearGround(
+  sim: Sim, player: number, x: number, y: number, width: number, height: number,
+  evict: boolean, ignore?: Entity, stays?: (entity: Entity) => boolean,
+) {
+  const inside = unitsIn(sim, x, y, width, height).filter((entity) => entity !== ignore)
+  if (!inside.length) return true
+  if (evict) {
+    const own = inside.filter((entity) => isOwn(sim, player, entity) && !sim.world.has(entity, Path) && !stays?.(entity))
+    evictUnits(sim, x, y, width, height, own)
+  }
+  return false
 }

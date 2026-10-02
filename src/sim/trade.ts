@@ -1,6 +1,7 @@
 import type { Entity } from '../ecs'
-import { BUILDINGS, ORE_PRICE, type BuildingSpec } from './buildings'
-import { Building, Converting, Hauler, Owner, Path, Position, Site, Trade } from './components'
+import { ORE_PRICE, buildingSpec, isReady } from './buildings'
+import { NONE, nearest, onTurn } from './common'
+import { Building, Converting, Hauler, Owner, Path, Position, Trade } from './components'
 import { addCredits } from './economy'
 import type { Sim } from './sim'
 import { zonesOf, type Zone } from './zones'
@@ -20,7 +21,7 @@ export function stockOfZone(sim: Sim, zone: Zone) {
   let capacity = 0
   for (const entity of zone.buildings) {
     const building = sim.world.get(entity, Building)!
-    const stores = (BUILDINGS[building.type] as BuildingSpec).stores
+    const stores = buildingSpec(building.type).stores
     if (!stores) continue
     ore += building.ore
     capacity += stores
@@ -45,7 +46,7 @@ export function storeOre(sim: Sim, zone: Zone, amount: number) {
   for (const entity of zone.buildings) {
     if (left <= 0) break
     const building = sim.world.get(entity, Building)!
-    const stores = (BUILDINGS[building.type] as BuildingSpec).stores
+    const stores = buildingSpec(building.type).stores
     if (!stores) continue
     const put = Math.min(left, stores - building.ore)
     building.ore += put
@@ -56,10 +57,8 @@ export function storeOre(sim: Sim, zone: Zone, amount: number) {
 
 /** Свой готовый космопорт игрока. */
 function isPort(sim: Sim, player: number, port: Entity) {
-  const { world } = sim
-  const type = world.get(port, Building)?.type
-  if (type === undefined || !(BUILDINGS[type] as BuildingSpec).trades) return false
-  return world.get(port, Owner)?.player === player && !world.has(port, Site)
+  const type = sim.world.get(port, Building)?.type
+  return type !== undefined && !!buildingSpec(type).trades && isReady(sim, player, port)
 }
 
 /** Может ли игрок продавать через это здание: это его готовый космопорт, и он не занят прошлой заявкой. */
@@ -111,7 +110,7 @@ export function trade(sim: Sim) {
       if (--order.left <= 0) done.push({ port: entity, player: owner.player, ore: order.delivered })
     } else if (order.delivered >= order.wanted - 1e-9) {
       order.left = order.total = Math.round(SELL_SECONDS / time.step)
-    } else if ((time.tick + entity) % CALL_TICKS === 0 && neededBy(order) > 1e-9) {
+    } else if (onTurn(time, entity, CALL_TICKS) && neededBy(order) > 1e-9) {
       calling.push({ port: entity, player: owner.player, x: position.x, y: position.y })
     }
   }
@@ -125,23 +124,15 @@ export function trade(sim: Sim) {
   // Свободный грузовик: ни к чему не привязан, пуст и стоит.
   const free: { truck: Entity; player: number; x: number; y: number }[] = []
   for (const [entity, hauler, position, owner] of world.query(Hauler, Position, Owner)) {
-    if (hauler.mine !== -1 || hauler.port !== -1 || hauler.ore > 0) continue
+    if (hauler.mine !== NONE || hauler.port !== NONE || hauler.ore > 0) continue
     if (world.has(entity, Path) || world.has(entity, Converting)) continue
     free.push({ truck: entity, player: owner.player, x: position.x, y: position.y })
   }
   for (const { port, player, x, y } of calling) {
     // За один зов — ближайший свободный грузовик: следующему, если руды осталось, достанется следующий зов.
-    let best = -1
-    let bestDistance = Infinity
-    free.forEach((truck, i) => {
-      const distance = Math.hypot(truck.x - x, truck.y - y)
-      if (truck.player === player && distance < bestDistance) {
-        best = i
-        bestDistance = distance
-      }
-    })
-    if (best < 0) continue
-    world.get(free[best].truck, Hauler)!.port = port
-    free.splice(best, 1)
+    const best = nearest(free, (truck) => (truck.player === player ? Math.hypot(truck.x - x, truck.y - y) : Infinity))
+    if (!best) continue
+    world.get(best.truck, Hauler)!.port = port
+    free.splice(free.indexOf(best), 1)
   }
 }

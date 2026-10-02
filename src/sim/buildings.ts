@@ -1,5 +1,6 @@
 import type { Entity, World } from '../ecs'
-import { isBuildable, isPassable, terrainAt } from '../map/terrain'
+import { isBuildable, isPassable, terrainAt, tileKey } from '../map/terrain'
+import { isOwn } from './common'
 import { Building, Owner, Position, Producer, Site } from './components'
 import type { Sim } from './sim'
 import type { UnitType } from './units'
@@ -73,6 +74,8 @@ export const BUILDINGS = {
 } satisfies Record<string, BuildingSpec>
 
 export type BuildingType = keyof typeof BUILDINGS
+/** Описание вида здания со всеми необязательными полями. */
+export const buildingSpec = (type: BuildingType): BuildingSpec => BUILDINGS[type]
 /** Главное здание — Settlement Core: в него разворачивается MCV. */
 export const CORE: BuildingType = 'command'
 export const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[]
@@ -87,13 +90,12 @@ export interface Occupancy {
 }
 
 export function createOccupancy(world: World): Occupancy {
-  const key = (x: number, y: number) => (y + 32768) * 65536 + x + 32768
   const tiles = new Map<number, Entity>()
   const stop = world.observe([Position, Building], (entity, position, building) => {
     const { width, height } = BUILDINGS[building.type]
     const keys: number[] = []
     for (let y = position.y; y < position.y + height; y++) {
-      for (let x = position.x; x < position.x + width; x++) keys.push(key(x, y))
+      for (let x = position.x; x < position.x + width; x++) keys.push(tileKey(x, y))
     }
     for (const key of keys) tiles.set(key, entity)
     return () => {
@@ -101,10 +103,14 @@ export function createOccupancy(world: World): Occupancy {
     }
   })
   return {
-    at: (x, y) => (tiles.size ? tiles.get(key(x, y)) : undefined),
+    at: (x, y) => (tiles.size ? tiles.get(tileKey(x, y)) : undefined),
     destroy: stop,
   }
 }
+
+/** Готовое здание игрока: не площадка, не недострой и не под разбором. */
+export const isReady = (sim: Sim, player: number, building: Entity) =>
+  sim.world.has(building, Building) && !sim.world.has(building, Site) && isOwn(sim, player, building)
 
 /** Площадка, основание которой накрывает тайл (x, y), или undefined. Площадок мало, поэтому простой перебор. */
 export function siteAt(sim: Sim, x: number, y: number): Entity | undefined {
@@ -153,7 +159,7 @@ export interface Dock {
 
 /** Коннектор здания этого вида с левым верхним углом основания в (x, y); undefined — у вида его нет. */
 export function dockOf(type: BuildingType, x: number, y: number): Dock | undefined {
-  const dock = (BUILDINGS[type] as BuildingSpec).dock
+  const dock = buildingSpec(type).dock
   return dock && { x: x + dock.x, y: y + dock.y, facing: dock.facing }
 }
 
@@ -176,9 +182,12 @@ export function docksClear(sim: Sim, type: BuildingType, x: number, y: number) {
   return siteAt(sim, own.x, own.y) === undefined
 }
 
+/** Заготовка компонента нового здания: сдвиг анимации у каждого свой. */
+export const newBuilding = (world: World, type: BuildingType) => Building({ type, phase: world.count(Building) * 5 })
+
 /** Ставит здание без проверок. player — владелец; 0 — ничьё. */
 export function placeBuilding(world: World, type: BuildingType, x: number, y: number, player = 0) {
-  const entity = world.spawn(Position({ x, y }), Building({ type, phase: world.count(Building) * 5 }), Owner({ player }))
-  if ((BUILDINGS[type] as BuildingSpec).produces && player) world.add(entity, Producer)
+  const entity = world.spawn(Position({ x, y }), newBuilding(world, type), Owner({ player }))
+  if (buildingSpec(type).produces && player) world.add(entity, Producer)
   return entity
 }

@@ -1,10 +1,12 @@
 import type { Entity, Time } from '../ecs'
-import { BUILDINGS, CORE, type BuildingSpec } from './buildings'
-import { Building, Converting, Owner, Position, Producer, Site, Unit } from './components'
+import { tileKey } from '../map/terrain'
+import { BUILDINGS, CORE, buildingSpec } from './buildings'
+import { isOwn, ownerOf } from './common'
+import { Building, Converting, Position, Producer, Site, Unit } from './components'
 import { addCredits, pay, reward } from './economy'
 import { powerSupply } from './income'
 import type { Sim } from './sim'
-import { UNITS, freeTilesNear, spawnUnit, tileKey, type UnitType } from './units'
+import { UNITS, freeTilesNear, spawnUnit, type UnitType } from './units'
 
 const NOTHING: UnitType[] = []
 
@@ -16,7 +18,7 @@ export function producibleBy(sim: Sim, entity: Entity): UnitType[] {
   const { world } = sim
   if (!world.has(entity, Producer) || world.has(entity, Site)) return NOTHING
   const type = world.get(entity, Building)?.type ?? (world.get(entity, Unit)?.type === 'mcv' ? CORE : undefined)
-  return (type && (BUILDINGS[type] as BuildingSpec).produces) || NOTHING
+  return (type && buildingSpec(type).produces) || NOTHING
 }
 /** Сколько заказов помещается в очередь. */
 export const QUEUE_LIMIT = 5
@@ -30,7 +32,7 @@ export const buildTicks = (unit: UnitType, step: number) => Math.round(UNITS[uni
 /** Заказывает юнит. Кредиты списываются сразу. Возвращает, принят ли заказ. */
 export function orderUnit(sim: Sim, player: number, entity: Entity, unit: UnitType) {
   const producer = sim.world.get(entity, Producer)
-  if (!producer || sim.world.get(entity, Owner)?.player !== player) return false
+  if (!producer || !isOwn(sim, player, entity)) return false
   if (!producibleBy(sim, entity).includes(unit) || producer.queue.length >= QUEUE_LIMIT) return false
   if (!pay(sim, player, UNITS[unit].cost)) return false
   producer.queue.push(unit)
@@ -40,7 +42,7 @@ export function orderUnit(sim: Sim, player: number, entity: Entity, unit: UnitTy
 /** Отменяет последний заказ в очереди и возвращает за него кредиты. */
 export function cancelUnit(sim: Sim, player: number, entity: Entity) {
   const producer = sim.world.get(entity, Producer)
-  if (!producer || sim.world.get(entity, Owner)?.player !== player) return false
+  if (!producer || !isOwn(sim, player, entity)) return false
   const unit = producer.queue.pop()
   if (!unit) return false
   if (!producer.queue.length) producer.progress = 0
@@ -81,7 +83,7 @@ export function produceUnits(sim: Sim, time: Time) {
   /** Скорость производства: потребителю энергии при её нехватке — доля, вне зоны строительства — ноль. */
   const speedOf = (entity: Entity) => {
     const type = world.get(entity, Building)?.type
-    if (!type || ((BUILDINGS[type] as BuildingSpec).power ?? 0) >= 0) return 1
+    if (!type || (buildingSpec(type).power ?? 0) >= 0) return 1
     return (supply ??= powerSupply(sim)).get(entity) ?? 0
   }
   const speeds = new Map(working.map((entity) => [entity, speedOf(entity)]))
@@ -100,7 +102,7 @@ export function produceUnits(sim: Sim, time: Time) {
     const tile = emptyTileNear(sim, exit.x, exit.y)
     // Выйти некуда — готовый юнит ждёт внутри, очередь стоит.
     if (!tile) continue
-    const { player } = world.get(entity, Owner)!
+    const player = ownerOf(sim, entity)
     spawnUnit(sim, producer.queue.shift()!, player, tile.x, tile.y)
     reward(sim, player, 'unit')
     producer.progress = 0

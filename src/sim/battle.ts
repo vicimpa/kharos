@@ -2,7 +2,7 @@ import type { Entity } from '../ecs'
 import { TRAINING_PLAYER, orderAttack } from './combat'
 import { Armed, Owner, Position, Unit } from './components'
 import type { Sim } from './sim'
-import { UNITS, UNIT_TYPES, canStand, flies, spawnUnit, type UnitSpec, type UnitType } from './units'
+import { UNITS, UNIT_TYPES, canStand, flies, spawnUnit, unitSpec, type UnitType } from './units'
 import { WEAPONS } from './weapons'
 
 /** Сколько кредитов стоит армия одной стороны показательного боя. */
@@ -18,7 +18,7 @@ const BATTLE_GAP = 6
  */
 export function randomArmy(budget = ARMY_BUDGET, weights: Partial<Record<UnitType, number>> = {}, random: () => number = Math.random) {
   const weightOf = (type: UnitType) => Math.max(0, weights[type] ?? 1)
-  let armed = UNIT_TYPES.filter((type) => (UNITS[type] as UnitSpec).weapon)
+  let armed = UNIT_TYPES.filter((type) => unitSpec(type).weapon)
   if (armed.some((type) => weightOf(type) > 0)) armed = armed.filter((type) => weightOf(type) > 0)
   else weights = {}
   const army: UnitType[] = []
@@ -97,7 +97,7 @@ export function driveBattle(sim: Sim, player: number) {
   }
   for (const entity of idle) {
     const self = byEntity.get(entity)
-    const weapon = (UNITS[world.get(entity, Unit)!.type] as UnitSpec).weapon
+    const weapon = unitSpec(world.get(entity, Unit)!.type).weapon
     if (!self || !weapon) continue
     const hitsAir = WEAPONS[weapon].air
     let nearest: Entity | null = null

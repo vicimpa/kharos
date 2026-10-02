@@ -3,7 +3,7 @@ import type { MapSettings } from '../map/settings'
 import { createTerrainPass } from '../map/terrainPass'
 import { createRenderer } from '../render/renderer'
 import type { Session } from '../net/connect'
-import { Owner, Position, Unit, createSim, driveBattle, randomArmy, spawnBattle, spawnStartingUnits, type BuildingType, type Command, type SimOptions } from '../sim'
+import { Position, Unit, createSim, isOwn, driveBattle, randomArmy, spawnBattle, spawnStartingUnits, type BuildingType, type Command, type SimOptions } from '../sim'
 import { createLightingPass } from '../weather/lightingPass'
 import { createPrecipitationPass } from '../weather/precipitationPass'
 import { createBoundsPass } from './boundsPass'
@@ -173,7 +173,7 @@ export function createGame(
     controls.update(seconds)
     if (!centered) {
       for (const [entity, position] of sim.world.query(Position, Unit)) {
-        if (sim.world.get(entity, Owner)?.player !== scene.player) continue
+        if (!isOwn(sim, scene.player, entity)) continue
         camera.x = position.x
         camera.y = position.y
         centered = true

@@ -3,7 +3,7 @@ import { createAtlas, type AtlasFrame } from '../../render/atlas'
 import { Pixmap } from '../../render/pixmap'
 import type { Pass } from '../../render/renderer'
 import { createSpriteProgram, createSprites } from '../../render/sprites'
-import { Owner, Position, UNIT_TYPES, Unit, flies, type UnitType } from '../../sim'
+import { Owner, Position, TURN, UNIT_TYPES, Unit, flies, wrap, type UnitType } from '../../sim'
 import type { Scene } from '../scene'
 import { TEAMS, UNIT_ART, UNIT_DIRECTIONS, UNIT_FRAME, UNIT_LIGHTS, type Team } from './unitArt'
 
@@ -15,7 +15,6 @@ const SHADOW_SHIFT = 2 / 16
 /** Летающий высоко: его тень бледнее и лежит дальше. */
 const AIR_SHADOW_ALPHA = 0.25
 const AIR_SHADOW_SHIFT = 10 / 16
-const TURN = Math.PI * 2
 /** На сколько тайлов за край экрана юнит ещё рисуется: его самого не видно, но луч фар дотягивается. */
 const LIGHT_REACH = 7
 
@@ -29,8 +28,7 @@ export function drawnPosition(position: { x: number; y: number }, unit: { prevX:
 
 /** Куда юнит смотрит в этом кадре: между прошлым и нынешним углом по короткой дуге. */
 export function drawnFacing(unit: { facing: number; prevFacing: number }, alpha: number) {
-  const turned = unit.facing - unit.prevFacing
-  return unit.prevFacing + (turned - TURN * Math.round(turned / TURN)) * alpha
+  return unit.prevFacing + wrap(unit.facing - unit.prevFacing) * alpha
 }
 
 const TEAM_NAMES = Object.keys(TEAMS) as Team[]

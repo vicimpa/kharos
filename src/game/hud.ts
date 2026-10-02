@@ -1,8 +1,8 @@
 import type { Entity } from '../ecs'
 import {
-  Armed, BUILDABLE, BUILDINGS, Building, Converting, Hauler, ORE_PRICE, CORE, Owner, producibleBy, TRUCK_CAPACITY, Trade, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
+  Armed, BUILDABLE, BUILDINGS, Building, Converting, Hauler, ORE_PRICE, CORE, buildingSpec, isOwn, producibleBy, TRUCK_CAPACITY, Trade, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit,
   buildTicks, canDemolish, canDeploy, canPack, isDeployBlocked, coreCenters, creditsOf, economyOf, isSiteBlocked, oreLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, zoneEconomies, zonesOf,
-  Position, type BuildingSpec, type BuildingType, type Command, type UnitType,
+  Position, type BuildingType, type Command, type UnitType,
 } from '../sim'
 import type { Scene } from './scene'
 
@@ -129,11 +129,11 @@ export function readHud(scene: Scene): HudState {
       if (world.has(entity, Armed)) armed++
     }
     building = world.get(entity, Building)?.type ?? world.get(entity, Site)?.type ?? building
-    if (building !== null && (BUILDINGS[building] as BuildingSpec).extract) {
+    if (building !== null && buildingSpec(building).extract) {
       const position = world.get(entity, Position)!
       ore = Math.floor(oreLeft(sim, position.x, position.y))
     }
-    if (building !== null && ((BUILDINGS[building] as BuildingSpec).power ?? 0) > 0) {
+    if (building !== null && (buildingSpec(building).power ?? 0) > 0) {
       // Недостроенная и отрезанная от зоны электростанция ни в какую зону не входит — показывать нечего.
       const zone = zonesOf(sim, player).findIndex((zone) => zone.buildings.includes(entity))
       if (zone >= 0) power = { produced: Math.round(zones[zone].produced * 10) / 10, demand: zones[zone].demand }
@@ -146,9 +146,9 @@ export function readHud(scene: Scene): HudState {
       if (hauler.mine >= 0 || hauler.port >= 0) cargo.bound++
     }
     const built = world.get(entity, Building)
-    const capacity = built && !world.has(entity, Site) ? (BUILDINGS[built.type] as BuildingSpec).stores : undefined
+    const capacity = built && !world.has(entity, Site) ? buildingSpec(built.type).stores : undefined
     if (built && capacity) stored = { ore: Math.floor(built.ore), capacity }
-    if (built && (BUILDINGS[built.type] as BuildingSpec).trades && !world.has(entity, Site) && world.get(entity, Owner)?.player === player) {
+    if (built && buildingSpec(built.type).trades && !world.has(entity, Site) && isOwn(sim, player, entity)) {
       const zone = zoneWith(sim, player, entity)
       const order = world.get(entity, Trade)
       trade = {

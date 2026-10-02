@@ -1,4 +1,5 @@
-export { BUILDABLE, BUILDINGS, BUILDING_TYPES, CORE, canPlace, siteAt } from './buildings'
+export { BUILDABLE, BUILDINGS, BUILDING_TYPES, CORE, buildingSpec, canPlace, siteAt } from './buildings'
+export { TURN, isOwn, wrap } from './common'
 export { BUILD_RATE, ORE_PRICE } from './buildings'
 export type { BuildingSpec, BuildingType, Occupancy } from './buildings'
 export type { Command } from './commands'

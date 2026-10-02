@@ -96,14 +96,15 @@ export const PEAK_RADIUS_LIMIT = 2
 /** Местность: параметры генератора и уже посчитанные чанки. Не путать с миром ECS, где живут сущности. */
 export interface Land {
   config: GeneratorConfig
-  /** Ключ — координаты чанка одним числом, см. chunkKey. */
+  /** Ключ — координаты чанка одним числом, см. tileKey. */
   chunks: Map<number, Uint8Array>
   /** Чанк, к которому обращались последним: соседние тайлы спрашивают подряд. */
   last: Uint8Array | null
   lastKey: number
 }
 
-const chunkKey = (chunkX: number, chunkY: number) => (chunkY + 32768) * 65536 + chunkX + 32768
+/** Пара целых координат одним числом: ключ для словарей и множеств тайлов, чанков, ячеек. */
+export const tileKey = (x: number, y: number) => (y + 32768) * 65536 + x + 32768
 
 export function createLand(config: GeneratorConfig): Land {
   return { config, chunks: new Map(), last: null, lastKey: 0 }
@@ -336,7 +337,7 @@ function generateChunk(config: GeneratorConfig, chunkX: number, chunkY: number):
 
 /** Возвращает чанк по его координатам (в чанках), генерируя при первом обращении. */
 export function getChunk(land: Land, chunkX: number, chunkY: number): Uint8Array {
-  const key = chunkKey(chunkX, chunkY)
+  const key = tileKey(chunkX, chunkY)
   if (land.last && land.lastKey === key) return land.last
   let chunk = land.chunks.get(key)
   if (!chunk) {

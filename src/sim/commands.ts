@@ -1,7 +1,8 @@
 import type { Entity } from '../ecs'
 import { BUILDINGS, canPlace, placeBuilding, type BuildingType } from './buildings'
 import { TRAINING_PLAYER, orderAttack, stopAttack } from './combat'
-import { Builds, Owner, Unit } from './components'
+import { isOwn } from './common'
+import { Builds, Unit } from './components'
 import { assignBuilders, cancelBuild, demolish, orderBuild } from './construction'
 import { DEPLOY_SECONDS, PACK_SECONDS, canDeploy, canPack, cancelDeploy, startConverting } from './conversion'
 import { assignHaulers, releaseHauler } from './hauling'
@@ -68,7 +69,7 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
       if (!isTile(command.x, command.y) || !Array.isArray(command.units)) return false
       // Чужие, мёртвые и повторяющиеся юниты из списка выбрасываются.
       const units = [...new Set(command.units as Entity[])].filter((entity) => {
-        return sim.world.has(entity, Unit) && sim.world.get(entity, Owner)?.player === player
+        return sim.world.has(entity, Unit) && isOwn(sim, player, entity)
       })
       if (!units.length) return false
       // Приказ идти снимает строителя со стройки, грузовик — с маршрута, а бойца — с цели.

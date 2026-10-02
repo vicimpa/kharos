@@ -1,5 +1,7 @@
 import type { Entity, Time } from '../ecs'
-import { Owner, Path, Position, Unit } from './components'
+import { tileKey } from '../map/terrain'
+import { ownerOf, turnToward, wrap } from './common'
+import { Path, Position, Unit } from './components'
 import type { Sim } from './sim'
 import { UNITS, canStand, flies, orderMove, stepAside } from './units'
 
@@ -28,11 +30,6 @@ const YIELD_SEARCHES = 8
 /** Сторона ячейки сетки, по которой ищутся соседи, в тайлах. Больше любого расстояния, на котором юниты мешают друг другу. */
 const CELL = 4
 
-const TURN = Math.PI * 2
-
-/** Угол, приведённый к промежутку от -π до π. */
-const wrap = (angle: number) => angle - TURN * Math.round(angle / TURN)
-
 interface Body {
   entity: Entity
   position: { x: number; y: number }
@@ -40,8 +37,6 @@ interface Body {
   /** Летающий: с наземными он не сталкивается. */
   air: boolean
 }
-
-const cellKey = (x: number, y: number) => (Math.floor(y / CELL) + 32768) * 65536 + Math.floor(x / CELL) + 32768
 
 /**
  * Раз в тик: двигает юниты по их путям. Юнит поворачивает не мгновенно, а со своей скоростью поворота,
@@ -57,7 +52,7 @@ export function moveUnits(sim: Sim, time: Time) {
     unit.prevY = position.y
     unit.prevFacing = unit.facing
     // Сетка строится по местам на начало тика: за тик юнит сдвигается куда меньше, чем на ячейку.
-    const key = cellKey(position.x, position.y)
+    const key = tileKey(Math.floor(position.x / CELL), Math.floor(position.y / CELL))
     const body = { entity, position, radius: UNITS[unit.type].radius, air: flies(unit.type) }
     const cell = cells.get(key)
     if (cell) cell.push(body)
@@ -73,7 +68,7 @@ export function moveUnits(sim: Sim, time: Time) {
     const cellY = Math.floor(fromY / CELL)
     for (let y = cellY - 1; y <= cellY + 1; y++) {
       for (let x = cellX - 1; x <= cellX + 1; x++) {
-        const cell = cells.get((y + 32768) * 65536 + x + 32768)
+        const cell = cells.get(tileKey(x, y))
         if (!cell) continue
         for (const other of cell) {
           if (other.entity === self || other.air !== air) continue
@@ -135,9 +130,7 @@ export function moveUnits(sim: Sim, time: Time) {
     const direct = heading === wrap(wanted)
     heading ??= wrap(wanted)
 
-    const off = wrap(heading - unit.facing)
-    const maxTurn = turn * time.step
-    unit.facing = Math.abs(off) <= maxTurn ? heading : wrap(unit.facing + Math.sign(off) * maxTurn)
+    unit.facing = turnToward(unit.facing, heading, turn * time.step)
     const aligned = unit.facing === heading
 
     // Чем сильнее юнит смотрит в сторону, тем медленнее едет; развернувшись больше чем на четверть оборота, крутится на месте.
@@ -187,6 +180,6 @@ export function moveUnits(sim: Sim, time: Time) {
   for (const { entity, x, y, tries, near } of lost) orderMove(sim, entity, x, y, undefined, tries, near)
   // Дорогу уступают только своим: чужой юнит стоит, где стоял.
   for (const { entity, by, x, y, heading, room } of asked) {
-    if (world.get(entity, Owner)?.player === world.get(by, Owner)?.player) stepAside(sim, entity, x, y, heading, room)
+    if (ownerOf(sim, entity) === ownerOf(sim, by)) stepAside(sim, entity, x, y, heading, room)
   }
 }

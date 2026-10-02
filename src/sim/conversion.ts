@@ -1,9 +1,10 @@
 import type { Entity } from '../ecs'
 import { BUILDINGS, CORE, canPlace, docksClear, placeBuilding } from './buildings'
-import { Building, Converting, Owner, Path, Position, Producer, Unit } from './components'
+import { isOwn, onTurn, ownerOf } from './common'
+import { Building, Converting, Path, Position, Producer, Unit } from './components'
 import { reward } from './economy'
 import type { Sim } from './sim'
-import { evictUnits, spawnUnit, unitsIn } from './units'
+import { clearGround, spawnUnit } from './units'
 import { inForeignZone } from './zones'
 
 /** Сколько секунд MCV разворачивается в главное здание и сколько здание сворачивается обратно. */
@@ -20,7 +21,7 @@ export function deploySite(sim: Sim, entity: Entity) {
 /** Может ли игрок развернуть этот юнит прямо сейчас: это его MCV, он не занят, под ним свободная скала и не чужая зона. */
 export function canDeploy(sim: Sim, player: number, entity: Entity) {
   const { world } = sim
-  if (world.get(entity, Unit)?.type !== 'mcv' || world.get(entity, Owner)?.player !== player) return false
+  if (world.get(entity, Unit)?.type !== 'mcv' || !isOwn(sim, player, entity)) return false
   if (world.has(entity, Converting)) return false
   const site = deploySite(sim, entity)
   if (!canPlace(sim, CORE, site.x, site.y) || !docksClear(sim, CORE, site.x, site.y)) return false
@@ -30,7 +31,7 @@ export function canDeploy(sim: Sim, player: number, entity: Entity) {
 /** Может ли игрок свернуть это здание: это его главное здание, и оно не сворачивается уже. */
 export function canPack(sim: Sim, player: number, entity: Entity) {
   const { world } = sim
-  if (world.get(entity, Building)?.type !== CORE || world.get(entity, Owner)?.player !== player) return false
+  if (world.get(entity, Building)?.type !== CORE || !isOwn(sim, player, entity)) return false
   return !world.has(entity, Converting)
 }
 
@@ -40,7 +41,7 @@ const EVICT_TICKS = 20
 /** Отменяет разворачивание: MCV остаётся машиной и снова слушается приказов. */
 export function cancelDeploy(sim: Sim, player: number, entity: Entity) {
   const { world } = sim
-  if (!world.has(entity, Unit) || !world.has(entity, Converting) || world.get(entity, Owner)?.player !== player) return false
+  if (!world.has(entity, Unit) || !world.has(entity, Converting) || !isOwn(sim, player, entity)) return false
   world.remove(entity, Converting)
   return true
 }
@@ -56,17 +57,9 @@ export function isDeployBlocked(sim: Sim, entity: Entity) {
  * Свои стоящие юниты с evict уходят сами; тех, кто едет, не трогают; чужих остаётся только ждать.
  */
 function clearDeploySite(sim: Sim, mcv: Entity, evict: boolean) {
-  const { world } = sim
   const site = deploySite(sim, mcv)
   const { width, height } = BUILDINGS[CORE]
-  const inside = unitsIn(sim, site.x, site.y, width, height).filter((entity) => entity !== mcv)
-  if (!inside.length) return true
-  if (evict) {
-    const player = world.get(mcv, Owner)?.player
-    const own = inside.filter((entity) => world.get(entity, Owner)?.player === player && !world.has(entity, Path))
-    evictUnits(sim, site.x, site.y, width, height, own)
-  }
-  return false
+  return clearGround(sim, ownerOf(sim, mcv), site.x, site.y, width, height, evict, mcv)
 }
 
 /** Начинает превращение: оно закончится через seconds. */
@@ -92,14 +85,14 @@ export function convert(sim: Sim) {
   // Состав мира и приказы меняются после обхода. Выгонять пробуют не каждый тик: поиск пути недёшев.
   const blocked = new Set<Entity>()
   for (const entity of deploying) {
-    if (!clearDeploySite(sim, entity, (time.tick + entity) % EVICT_TICKS === 0)) blocked.add(entity)
+    if (!clearDeploySite(sim, entity, onTurn(time, entity, EVICT_TICKS))) blocked.add(entity)
   }
   const done = ready.filter((entity) => !blocked.has(entity))
 
   // Сущности заменяются после обхода: во время него состав мира менять нельзя.
   for (const entity of done) {
     world.remove(entity, Converting)
-    const player = world.get(entity, Owner)?.player ?? 0
+    const player = ownerOf(sim, entity)
     // Очередь производства переезжает вместе с игроком: заказы не теряются.
     const production = world.get(entity, Producer)
 
