@@ -173,6 +173,19 @@ body {
   transform: translateX(-50%);
 }
 
+.hud--sound {
+  top: 12px;
+  right: 12px;
+  left: auto;
+  padding: 6px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.hud--sound:hover {
+  background: #14304b;
+}
+
 .hud--rewards {
   top: 52px;
   padding: 6px 10px;

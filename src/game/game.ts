@@ -1,3 +1,4 @@
+import { createAudio } from '../audio/audio'
 import { createLandWindow, minZoom, type LandWindow } from '../map/landWindow'
 import type { MapSettings } from '../map/settings'
 import { createTerrainPass } from '../map/terrainPass'
@@ -13,6 +14,8 @@ import { Camera } from './camera'
 import { createControls } from './controls'
 import { createCursorPass } from './cursorPass'
 import { createDecalsPass } from './decalsPass'
+import { createShake } from './shake'
+import { createSoundscape } from './soundscape'
 import { createDepositsPass } from './depositsPass'
 import { startFrames } from './frames'
 import { readHud, type HudState } from './hud'
@@ -37,6 +40,8 @@ export interface Game {
   send(command: Command): void
   /** Начинает выбор места под здание; null — отменяет его. */
   place(building: BuildingType | null): void
+  /** Выключен ли звук; выбор хранится в браузере. */
+  muted: boolean
   /** Останавливает игру и освобождает ресурсы. */
   destroy(): void
 }
@@ -144,6 +149,9 @@ export function createGame(
     onError,
   )
   const controls = createControls(canvas, scene)
+  const audio = createAudio()
+  const shake = createShake()
+  const soundscape = createSoundscape(scene, audio, shake)
 
   const saveNow = () => {
     if (session || mode !== 'play') return
@@ -207,6 +215,9 @@ export function createGame(
     camera.x = Math.min(sim.bounds.right, Math.max(sim.bounds.left, camera.x))
     camera.y = Math.min(sim.bounds.bottom, Math.max(sim.bounds.top, camera.y))
 
+    soundscape.update(seconds)
+    shake.update(seconds)
+
     sinceSave += seconds
     if (sinceSave >= SAVE_INTERVAL) {
       sinceSave = 0
@@ -217,7 +228,13 @@ export function createGame(
     if (renderer.lost) return
     landWindow.update(sim.land, camera, width, height)
     const { time } = sim
+    // Тряска уводит только картинку: управление и сохранение видят камеру на месте.
+    const { x: shakeX, y: shakeY } = shake.offset()
+    camera.x += shakeX / camera.zoom
+    camera.y += shakeY / camera.zoom
     renderer.draw(camera, time.elapsed + time.alpha * time.step, seconds)
+    camera.x -= shakeX / camera.zoom
+    camera.y -= shakeY / camera.zoom
   }, onError)
 
   // Последний шанс сохраниться: вкладку закрывают или уводят в фон.
@@ -238,11 +255,18 @@ export function createGame(
     place(building) {
       scene.placing = building
     },
+    get muted() {
+      return audio.muted
+    },
+    set muted(value) {
+      audio.muted = value
+    },
     destroy() {
       stop()
       window.removeEventListener('pagehide', saveNow)
       saveNow()
       controls.destroy()
+      audio.destroy()
       scene.sim.destroy()
       renderer.destroy()
       landWindow.destroy()

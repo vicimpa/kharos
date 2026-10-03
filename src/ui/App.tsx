@@ -46,6 +46,7 @@ export function App() {
   const [settings, setSettings] = useState(loadSettings)
   const [error, setError] = useState<unknown>(null)
   const [hud, setHud] = useState<HudState | null>(null)
+  const [muted, setMuted] = useState(false)
 
   // Игра создаётся один раз; дальше она получает только новые настройки.
   useEffect(() => {
@@ -55,6 +56,7 @@ export function App() {
       const session = server ? await connect(server.url, server.lag) : undefined
       if (closed) return session?.sim.destroy()
       gameRef.current = createGame(canvasRef.current!, settings, setError, session, MODE)
+      setMuted(gameRef.current.muted)
     }
     start().catch(setError)
     return () => {
@@ -109,6 +111,20 @@ export function App() {
             </>
           )}
         </div>
+      )}
+      {hud && error === null && (
+        <button
+          class="hud hud--sound"
+          title={muted ? 'Включить звук' : 'Выключить звук'}
+          onClick={() => {
+            const game = gameRef.current
+            if (!game) return
+            game.muted = !muted
+            setMuted(game.muted)
+          }}
+        >
+          {muted ? 'Звук выкл' : 'Звук вкл'}
+        </button>
       )}
       {SHOW_PANEL && (
         <GeneratorPanel settings={settings} onChange={setSettings} onRestart={() => gameRef.current?.restart()} />
