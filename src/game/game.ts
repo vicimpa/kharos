@@ -19,6 +19,7 @@ import type { Scene } from './scene'
 import { createPowerPass } from './powerPass'
 import { createSelectionPass } from './selectionPass'
 import { loadCamera, loadSave, storeCamera, storeSave } from './storage'
+import { createTracksPass } from './tracksPass'
 import { createUnitsPasses } from './units/unitsPass'
 
 /** Как часто игра сохраняется в браузер, в секундах. */
@@ -122,6 +123,8 @@ export function createGame(
       return [
         createTerrainPass(gl, scene, landWindow),
         createDepositsPass(gl, scene),
+        // Следы — на земле, под юнитами.
+        createTracksPass(gl, scene),
         createBoundsPass(gl, scene),
         units.ground,
         buildings,

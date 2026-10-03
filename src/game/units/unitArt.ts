@@ -48,6 +48,23 @@ export const GAIT_PHASES = 4
  */
 export const GAIT_STEP: Record<Gait, number> = { tracks: 1 / 16, wheels: 1 / 16, legs: 0.2, air: Infinity }
 
+/**
+ * Следы юнита на земле: колеи от колёс и гусениц или отпечатки ног. sides — где они лежат, в пикселях спрайта вправо
+ * от оси юнита; width — их ширина в пикселях. Совпадают с колёсами, гусеницами и ступнями на чертеже.
+ */
+export const UNIT_TRACES: Partial<Record<UnitType, { sides: number[]; width: number }>> = {
+  mcv: { sides: [-8, 8], width: 5 },
+  builder: { sides: [-4, 4], width: 3 },
+  infantry: { sides: [-1.5, 1.5], width: 1.4 },
+  truck: { sides: [-4.5, 4.5], width: 3 },
+  rocketeer: { sides: [-1.5, 1.5], width: 1.4 },
+  buggy: { sides: [-4.5, 4.5], width: 3 },
+  lancer: { sides: [-4.5, 4.5], width: 3 },
+  tank: { sides: [-7.5, 7.5], width: 4 },
+  tesla: { sides: [-7.5, 7.5], width: 4 },
+  carrier: { sides: [-9, 9], width: 3.2 },
+}
+
 const INK = 0x0b111b
 const STEEL = [0x1c2b3e, 0x2d4560, 0x41617f, 0x6184a3, 0x9bb9d1] as const
 const IRON = [0x1e2024, 0x3a3d43, 0x5b5f66, 0x8b9097, 0xc3c7cc] as const
