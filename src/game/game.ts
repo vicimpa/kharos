@@ -12,6 +12,7 @@ import { createCombatPasses } from './combatPass'
 import { Camera } from './camera'
 import { createControls } from './controls'
 import { createCursorPass } from './cursorPass'
+import { createDecalsPass } from './decalsPass'
 import { createDepositsPass } from './depositsPass'
 import { startFrames } from './frames'
 import { readHud, type HudState } from './hud'
@@ -19,7 +20,6 @@ import type { Scene } from './scene'
 import { createPowerPass } from './powerPass'
 import { createSelectionPass } from './selectionPass'
 import { loadCamera, loadSave, storeCamera, storeSave } from './storage'
-import { createTracksPass } from './tracksPass'
 import { createUnitsPasses } from './units/unitsPass'
 
 /** Как часто игра сохраняется в браузер, в секундах. */
@@ -123,8 +123,8 @@ export function createGame(
       return [
         createTerrainPass(gl, scene, landWindow),
         createDepositsPass(gl, scene),
-        // Следы — на земле, под юнитами.
-        createTracksPass(gl, scene),
+        // Следы, гарь и остовы — на земле, под юнитами.
+        createDecalsPass(gl, scene),
         createBoundsPass(gl, scene),
         units.ground,
         buildings,
