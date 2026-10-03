@@ -16,6 +16,8 @@ const BLAST_FRAME = 48
 const BLAST_FRAMES = 8
 /** Во сколько раз картинка взрыва шире его радиуса. */
 const BLAST_SCALE = 2.6
+/** Во сколько раз пятно света взрыва шире его радиуса; ореол — вдвое уже. */
+const BLAST_LIGHT = 5
 /** Цвета взрыва по кадрам: от вспышки через огонь к дыму. */
 const BLAST_COLORS = [0xfff6d0, 0xffe07a, 0xffb347, 0xff7a2a, 0xd9481c, 0x8a3a24, 0x55443e, 0x3a3432]
 
@@ -426,7 +428,7 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
         for (const [, blast, position] of world.query(Blast, Position)) {
           const left = 1 - ageOf(blast, time.alpha)
           const reach = blast.size * 16
-          lights.add(position.x, position.y, reach * 3 * left, reach * 1.5 * left, left)
+          lights.add(position.x, position.y, reach * BLAST_LIGHT * left, reach * (BLAST_LIGHT / 2) * left, left)
         }
         for (const [, shot, position] of world.query(Shot, Position)) {
           const weapon: WeaponSpec = WEAPONS[shot.weapon]
