@@ -227,7 +227,7 @@ export function createGame(
     // Пока контекст потерян, рисовать некуда; игра при этом продолжает идти.
     if (renderer.lost) return
     // Тряска уводит только картинку, вместе с землёй: управление и сохранение видят камеру на месте.
-    const { x: shakeX, y: shakeY } = shake.offset()
+    const { x: shakeX, y: shakeY } = shake.offset(camera.zoom)
     camera.x += shakeX
     camera.y += shakeY
     landWindow.update(sim.land, camera, width, height)
