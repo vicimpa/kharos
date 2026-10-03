@@ -2,8 +2,8 @@ import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import {
-  BUILDINGS, Crafter, DEPOSIT_TYPES, Inventory, Producer, RESOURCE_SPECS, SELL_SECONDS, Site, UNITS, Unit, amountOf, awaitsMaterials, canPlace, createSim, creditsOf,
-  depositIn, materialShare, requestsOf, siteTicks, stockOf, type BuildingType, type Sim,
+  BUILDINGS, DEPOSIT_TYPES, Inventory, Producer, RESOURCE_SPECS, SELL_SECONDS, Site, UNITS, Unit, amountOf, awaitsMaterials, canPlace, createSim, creditsOf,
+  depositIn, materialShare, siteTicks, type BuildingType, type Sim,
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { addCredits } from '../src/sim/economy'
@@ -57,24 +57,6 @@ test('месторождения бывают разных видов: что г
   expect([...kinds].sort()).toEqual([...DEPOSIT_TYPES].sort())
 })
 
-test('плавильня заказывает руду у зоны, свободный грузовик привозит её из хранилища, металл увозят в хранилище', () => {
-  const { sim, x, y, core, buildings } = base(['smelter'])
-  const [smelter] = buildings
-  sim.world.get(core, Inventory)!.items.ore = 40
-  // Сырья нет — плавильня заказывает его у зоны.
-  sim.advance(TICK)
-  expect(requestsOf(sim, 1).map(({ to, resource }) => ({ to, resource }))).toEqual([{ to: smelter, resource: 'ore' }])
-  const truck = spawnUnit(sim, 'truck', 1, x, y + 4)
-  until(sim, () => oreIn(sim, smelter, 'metal') > 0)
-  // Металл сам доехал до хранилища.
-  until(sim, () => (stockOf(sim, 1).items.metal ?? 0) >= 5)
-  // Руда не терялась: две руды на слиток, а начатый цикл уже забрал свои две.
-  const metal = (stockOf(sim, 1).items.metal ?? 0) + oreIn(sim, smelter, 'metal') + oreIn(sim, truck, 'metal')
-  const ore = (stockOf(sim, 1).items.ore ?? 0) + oreIn(sim, smelter, 'ore') + oreIn(sim, truck, 'ore')
-  const cycle = sim.world.get(smelter, Crafter)!.progress > 0 ? 2 : 0
-  expect(ore + metal * 2 + cycle).toBeCloseTo(40)
-})
-
 test('стройка ждёт материалов: без металла она не идёт дальше привезённого, грузовик привозит его из хранилища', () => {
   const { sim, x, y, core } = base([])
   const builder = spawnUnit(sim, 'builder', 1, x + 5, y + 4)
@@ -103,13 +85,13 @@ test('производство ждёт материалов первого за
   seconds(sim, UNITS.tank.buildTime + 2)
   expect(sim.world.get(factory, Producer)).toMatchObject({ queue: ['tank'], progress: 0 })
 
-  sim.world.get(core, Inventory)!.items = { metal: 40, components: 5 }
+  sim.world.get(core, Inventory)!.items = { metal: 40, silicon: 10 }
   spawnUnit(sim, 'truck', 1, x + 5, y + 4)
   const tanks = () => [...sim.world.query(Unit)].filter(([, unit]) => unit.type === 'tank').length
   until(sim, () => tanks() > 0)
   // Привезли ровно на танк, и танк их забрал.
   expect(oreIn(sim, core, 'metal') + oreIn(sim, factory, 'metal')).toBeCloseTo(40 - UNITS.tank.materials.metal)
-  expect(oreIn(sim, factory, 'components')).toBeCloseTo(0)
+  expect(oreIn(sim, core, 'silicon') + oreIn(sim, factory, 'silicon')).toBeCloseTo(10 - UNITS.tank.materials.silicon)
 })
 
 test('космопорт продаёт любой ресурс по его цене', () => {

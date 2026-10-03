@@ -1,9 +1,9 @@
 import type { Entity, World } from '../ecs'
 import { isBuildable, terrainAt, tileKey } from '../map/terrain'
 import { isOwn } from './common'
-import { Building, Crafter, Health, Repair, Owner, Position, Producer, Site } from './components'
+import { Building, Health, Repair, Owner, Position, Producer, Site } from './components'
 import { equipStorage, type BeamSpec } from './inventory'
-import { entriesOf, totalOf, type Amounts } from './resources'
+import type { Amounts } from './resources'
 import type { Sim } from './sim'
 import type { UnitType } from './units'
 
@@ -26,16 +26,11 @@ export interface BuildingSpec {
    * месторождение, см. DEPOSIT_KINDS. Ставится только на месторождение.
    */
   extract?: boolean
-  /**
-   * Переработка: за seconds секунд из inputs получается outputs. Сырьё ему привозят грузовики, готовое увозят
-   * в хранилища; см. crafting.ts и logistics.ts. Без входов — делает из ничего, как ветряная ловушка воду из воздуха.
-   */
-  recipe?: Recipe
   /** Материалы на стройку вдобавок к кредитам: их привозят на площадку грузовики из хранилищ зоны. */
   materials?: Amounts
   /** Склад: сколько ресурсов помещается в здании. См. inventory.ts. */
   inventory?: number
-  /** Склад здания — хранилище: в него свозят добытое и переработанное, из него берут на нужды зоны и на продажу. */
+  /** Склад здания — хранилище: в него свозят добытое, из него берут на нужды зоны и на продажу. */
   stores?: boolean
   /** Транспортный луч: им здание отдаёт ресурсы со своего склада или забирает на него. См. inventory.ts. */
   beam?: BeamSpec
@@ -54,15 +49,6 @@ export interface BuildingSpec {
   repair?: number
 }
 
-/** Рецепт переработки: см. BuildingSpec.recipe. */
-export interface Recipe {
-  inputs: Amounts
-  outputs: Amounts
-  seconds: number
-}
-
-/** На сколько циклов переработки здание держит сырья и готового. */
-const RECIPE_BUFFER = 5
 /** Сколько ресурсов помещается в производящем юнитов здании: материалы на очередной заказ. */
 const PRODUCER_HOLD = 100
 
@@ -71,16 +57,9 @@ export const BUILD_RATE = 20
 
 export const BUILDINGS = {
   // Доход главного здания не даёт остаться без кредитов совсем: на генератор он копит долго, но копит.
-  // Немного руды главное здание хранит само.
+  // Немного ресурсов главное здание хранит само.
   command: { width: 3, height: 3, cost: 2000, income: 0.2, zone: 12, inventory: 100, stores: true, produces: ['builder', 'truck'] },
-  // Нефтезавод: топливо из нефти и воды.
-  refinery: { width: 3, height: 2, cost: 500, power: -4, materials: { metal: 15 }, recipe: { inputs: { oil: 2, water: 1 }, outputs: { fuel: 1 }, seconds: 4 } },
-  // Плавильня: металл из руды. Первая ступень переработки, поэтому стоит только кредитов.
-  smelter: { width: 2, height: 2, cost: 400, power: -4, recipe: { inputs: { ore: 2 }, outputs: { metal: 1 }, seconds: 3 } },
-  // Кремниевый завод: кремний из кремнезёма и воды.
-  kiln: { width: 2, height: 2, cost: 400, power: -4, materials: { metal: 10 }, recipe: { inputs: { silica: 2, water: 1 }, outputs: { silicon: 1 }, seconds: 4 } },
-  // Сборочный цех: компоненты из металла и кремния.
-  assembly: { width: 3, height: 2, cost: 600, power: -6, materials: { metal: 25 }, recipe: { inputs: { metal: 2, silicon: 1 }, outputs: { components: 1 }, seconds: 6 } },
+  refinery: { width: 3, height: 2, cost: 600 },
   // Машинный завод: машинки и тяжёлая техника.
   factory: { width: 2, height: 2, cost: 500, power: -5, materials: { metal: 30 }, produces: ['buggy', 'lancer', 'tank', 'tesla', 'carrier'] },
   // Электростанция.
@@ -88,11 +67,10 @@ export const BUILDINGS = {
   // Генератор материи — базовый доход: превращает энергию в кредиты.
   matter: { width: 2, height: 2, cost: 400, power: -5, income: 1, crowding: true },
   radar: { width: 2, height: 2, cost: 400 },
-  // Ветряная ловушка: вода из воздуха.
-  windtrap: { width: 2, height: 2, cost: 250, power: -2, recipe: { inputs: {}, outputs: { water: 1 }, seconds: 2 } },
+  windtrap: { width: 2, height: 2, cost: 300 },
   barracks: { width: 2, height: 2, cost: 300, power: -2, produces: ['infantry', 'rocketeer'] },
   // Шахта энергии не просит и начинает свою зону: тянуть к месторождению цепочку зданий не нужно.
-  // Месторождения невелики, поэтому добыча медленная, а руда дорогая. Добытое копится в шахте, пока его
+  // Месторождения невелики, поэтому добыча медленная. Добытое копится в шахте, пока его
   // не выкачают грузовики.
   mine: { width: 2, height: 2, cost: 500, zone: 6, extract: true, inventory: 40 },
   silo: { width: 2, height: 1, cost: 150, inventory: 200, stores: true },
@@ -109,7 +87,7 @@ export const buildingSpec = (type: BuildingType): BuildingSpec => BUILDINGS[type
 export const CORE: BuildingType = 'command'
 export const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[]
 /** Что возводят строители. Остальные здания появятся вместе с тем, для чего они нужны. */
-export const BUILDABLE: BuildingType[] = ['generator', 'matter', 'mine', 'silo', 'windtrap', 'smelter', 'kiln', 'refinery', 'assembly', 'spaceport', 'barracks', 'factory']
+export const BUILDABLE: BuildingType[] = ['generator', 'matter', 'mine', 'silo', 'spaceport', 'barracks', 'factory']
 
 /** Какие тайлы заняты зданиями. Обновляется сам: следит за появлением и исчезновением зданий в мире. */
 export interface Occupancy {
@@ -186,13 +164,7 @@ export const newBuilding = (world: World, type: BuildingType) => Building({ type
 export function equip(world: World, entity: Entity, type: BuildingType) {
   const spec = buildingSpec(type)
   if (spec.repair) world.add(entity, Repair({ radius: spec.repair }))
-  if (spec.recipe) {
-    // Сырья и готового — по запасу на несколько циклов, и одно не вытесняет другое.
-    const limits: Amounts = {}
-    for (const [resource, amount] of [...entriesOf(spec.recipe.inputs), ...entriesOf(spec.recipe.outputs)]) limits[resource] = amount * RECIPE_BUFFER
-    equipStorage(world, entity, { inventory: totalOf(limits), accepts: Object.keys(limits) as (keyof Amounts)[], limits })
-    world.add(entity, Crafter)
-  } else if (spec.produces && !spec.inventory) {
+  if (spec.produces && !spec.inventory) {
     equipStorage(world, entity, { inventory: PRODUCER_HOLD })
   }
   equipStorage(world, entity, spec)

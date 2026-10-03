@@ -18,10 +18,7 @@ export const UNIT_NAMES: Record<UnitType, string> = {
 
 export const BUILDING_NAMES: Record<BuildingType, string> = {
   command: 'Главное здание',
-  refinery: 'Нефтезавод',
-  smelter: 'Плавильня',
-  kiln: 'Кремниевый завод',
-  assembly: 'Сборочный цех',
+  refinery: 'Переработка',
   factory: 'Машинный завод',
   generator: 'Электростанция',
   matter: 'Генератор материи',
@@ -45,13 +42,8 @@ export const REWARD_NAMES: Record<Reward, string> = {
 }
 
 export const RESOURCE_NAMES: Record<Resource, string> = {
-  ore: 'Руда',
-  silica: 'Кремнезём',
-  oil: 'Нефть',
-  kharite: 'Харит',
-  water: 'Вода',
   metal: 'Металл',
   silicon: 'Кремний',
   fuel: 'Топливо',
-  components: 'Компоненты',
+  kharite: 'Харит',
 }

@@ -11,8 +11,8 @@ import { freeTilesNear, isWalkable, spawnUnit, type UnitType } from './units'
 
 /** Сколько кредитов у игрока на тестовой карте: хватает, чтобы сразу строить и заказывать юнитов. */
 const SANDBOX_CREDITS = 10000
-/** Что уже лежит в хранилищах: цепочкам есть с чего начать, и сразу есть что продать. */
-const SANDBOX_STOCK: Amounts = { ore: 80, silica: 60, oil: 60, kharite: 12, metal: 80, silicon: 20, fuel: 16, components: 6 }
+/** Что уже лежит в хранилищах: хватает на первые заказы, и сразу есть что продать. */
+const SANDBOX_STOCK: Amounts = { metal: 120, silicon: 40, fuel: 30, kharite: 12 }
 /** Насколько далеко от начала мира ищется месторождение под базу, в клетках месторождений. */
 const SEARCH_CELLS = 6
 /** Сколько тайлов вокруг шахты оставлено свободными: там встают грузовики. */
@@ -20,8 +20,7 @@ const MINE_ROOM = 2
 
 /** Что стоит на тестовой карте, кроме шахты и главного здания: по порядку, от главного здания наружу. */
 const SANDBOX_BUILDINGS: BuildingType[] = [
-  'generator', 'generator', 'generator', 'generator', 'silo', 'silo', 'smelter', 'windtrap', 'kiln', 'refinery', 'assembly',
-  'spaceport', 'factory', 'barracks', 'matter',
+  'generator', 'generator', 'silo', 'silo', 'spaceport', 'factory', 'barracks', 'matter',
 ]
 /** С какими юнитами игрок начинает на тестовой карте, кроме грузовиков. */
 const SANDBOX_UNITS: UnitType[] = ['builder', 'builder', 'infantry', 'infantry', 'rocketeer', 'buggy', 'tank', 'tesla', 'carrier']
@@ -46,8 +45,8 @@ function findBaseSpot(sim: Sim) {
   cells.sort((a, b) => a.x ** 2 + a.y ** 2 - b.x ** 2 - b.y ** 2)
   for (const cell of cells) {
     const spot = depositIn(sim, cell.x, cell.y)
-    // Шахта тестовой карты — рудная: с руды начинается цепочка металла.
-    if (!spot || spot.kind !== 'ore' || !canPlace(sim, 'mine', spot.x, spot.y)) continue
+    // Шахта тестовой карты — металлическая: металл нужен почти всему.
+    if (!spot || spot.kind !== 'metal' || !canPlace(sim, 'mine', spot.x, spot.y)) continue
     const { width, height } = BUILDINGS.mine
     let open = true
     for (let y = spot.y - 1; y <= spot.y + height && open; y++) {
@@ -79,9 +78,9 @@ function placeNear(sim: Sim, spot: DepositSpot, type: BuildingType, x: number, y
 }
 
 /**
- * Тестовая карта: готовая база игрока у ближайшего к началу мира рудного месторождения. Шахта, главное здание,
- * хранилища с запасом всех ресурсов, все перерабатывающие здания, космопорт, электростанции и заводы уже стоят;
- * один грузовик возит руду из шахты, остальные работают на заявки зон. Есть строители, немного войск и кредитов.
+ * Тестовая карта: готовая база игрока у ближайшего к началу мира месторождения металла. Шахта, главное здание,
+ * хранилища с запасом всех ресурсов, космопорт, электростанции и заводы уже стоят;
+ * один грузовик возит металл из шахты, остальные работают на заявки зон. Есть строители, немного войск и кредитов.
  * Возвращает, где база: туда смотрит камера. undefined — подходящего месторождения рядом нет.
  */
 export function spawnSandbox(sim: Sim, player: number) {

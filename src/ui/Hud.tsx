@@ -1,7 +1,7 @@
 import type { HudState, Stack } from '../game/hud'
 import { cssColor } from '../game/resourceColors'
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { REWARDS, type BuildingType, type Command, type CraftState, type Resource, type Reward } from '../sim'
+import { REWARDS, type BuildingType, type Command, type Resource, type Reward } from '../sim'
 import { BUILDING_NAMES, RESOURCE_NAMES, REWARD_NAMES, UNIT_NAMES } from './names'
 
 interface HudProps {
@@ -31,14 +31,6 @@ const Stacks = ({ items }: { items: Stack[] }) => (
     ))}
   </>
 )
-
-/** Что сейчас с перерабатывающим зданием — словами. */
-const CRAFT_STATES: Record<CraftState, string> = {
-  working: 'Работает',
-  input: 'Ждёт сырья: грузовики привезут из хранилищ зоны',
-  full: 'Склад готового полон: грузовики увезут в хранилища',
-  power: 'Стоит без энергии',
-}
 
 /** Сколько секунд сообщение о награде висит на экране. */
 const TOAST_SECONDS = 5
@@ -119,18 +111,6 @@ export function Hud({ state, send, place }: HudProps) {
               {state.stored.store ? 'Хранилище' : 'Склад'}: <Stacks items={state.stored.items} />
               {state.stored.items.length === 0 && 'пусто'} — вмещает {state.stored.capacity}
             </div>
-          )}
-          {state.craft && (
-            <>
-              <div class="hud__hint">
-                <Stacks items={state.craft.inputs} />
-                {state.craft.inputs.length === 0 && 'из воздуха'} → <Stacks items={state.craft.outputs} /> за {state.craft.seconds} с
-              </div>
-              <div class="hud__progress">
-                <span style={{ width: percent(state.craft.progress) }} />
-                <em>{CRAFT_STATES[state.craft.state]}</em>
-              </div>
-            </>
           )}
           {state.materials && (
             <div class={state.materials.waiting ? 'hud__hint is-short' : 'hud__hint'}>

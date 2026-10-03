@@ -92,7 +92,7 @@ export const Hauler = component('Hauler', {
   mine: -1,
   from: -1,
   to: -1,
-  resource: 'ore' as Resource,
+  resource: 'metal' as Resource,
   amount: 0,
   full: false,
   loading: false,
@@ -102,7 +102,7 @@ export const Hauler = component('Hauler', {
 /**
  * Склад: ресурсы, которые лежат в здании или едут в юните. items — сколько какого ресурса; capacity — сколько
  * помещается всего, всех ресурсов вместе; accepts — какие ресурсы сюда кладут, пусто — любые; limits — сколько
- * каждого ресурса помещается самое большее: так у перерабатывающего здания сырьё не вытесняет готовое.
+ * каждого ресурса помещается самое большее: так стройка принимает ровно свои материалы.
  * Между складами ресурсы переносит транспортный луч: см. Beam и inventory.ts.
  */
 export const Inventory = component('Inventory', () => ({ items: {} as Amounts, capacity: 0, accepts: [] as Resource[], limits: {} as Amounts }))
@@ -120,7 +120,7 @@ export const Beam = component('Beam', () => ({ radius: 2, rate: 10, give: true, 
  * привезённое лежит в складе космопорта. Когда привезено всё, корабль улетает: left и total — сколько тиков
  * ему лететь; пока товар везут, они нулевые.
  */
-export const Trade = component('Trade', { resource: 'ore' as Resource, wanted: 0, left: 0, total: 0 })
+export const Trade = component('Trade', { resource: 'metal' as Resource, wanted: 0, left: 0, total: 0 })
 
 /**
  * Вооружённый юнит. target — кого он атакует, -1 — никого. chase — гнаться ли за целью, когда она вне дальности:
@@ -161,9 +161,6 @@ export const Blast = component('Blast', { size: 1, age: 0, life: 0 })
  */
 export const Turret = component('Turret', { type: 'rocket' as TurretType, angle: 0, prevAngle: 0, prevX: 0, prevY: 0 })
 
-/** Перерабатывающее здание: progress — сколько тиков идёт нынешний цикл; ноль — цикл не начат. См. crafting.ts. */
-export const Crafter = component('Crafter', { progress: 0 })
-
 /** Прикреплён к сущности parent: стоит на ней в along тайлов вперёд и across вправо от её центра. */
 export const Attached = component('Attached', { parent: -1, along: 0, across: 0 })
 
@@ -171,4 +168,4 @@ export const Attached = component('Attached', { parent: -1, along: 0, across: 0 
 export const Carrier = component('Carrier', () => ({ turrets: [] as number[] }))
 
 /** Компоненты, которые попадают в сохранение и в сеть. Новый компонент симуляции добавляй сюда. */
-export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Inventory, Beam, Crafter, Trade, Armed, Shot, Blast]
+export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Inventory, Beam, Trade, Armed, Shot, Blast]

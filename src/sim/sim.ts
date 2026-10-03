@@ -6,7 +6,6 @@ import { apply, type Command } from './commands'
 import { SAVED } from './components'
 import { REPAIR_COST, REPAIR_SPEED, construct } from './construction'
 import { convert } from './conversion'
-import { craft } from './crafting'
 import { haul } from './hauling'
 import { earn } from './income'
 import { trade } from './trade'
@@ -42,7 +41,7 @@ export interface SimOptions {
 
 /** Сохранение симуляции. Обычные данные: их можно положить в JSON, на диск или отправить по сети. */
 /** Версия формата сохранения. Меняется, когда старые сохранения перестают подходить: тогда они отбрасываются. */
-export const SAVE_VERSION = 13
+export const SAVE_VERSION = 14
 
 export interface SimSave extends SimOptions {
   version: typeof SAVE_VERSION
@@ -109,7 +108,6 @@ export function createSim(source: SimOptions | SimSave): Sim {
       // После движения: работающий строитель поворачивается к стройке, и поворот сглаживается, как у идущих.
       () => construct(sim),
       () => haul(sim),
-      () => craft(sim),
       () => trade(sim),
       // После движения и работ: стреляющий юнит поворачивается к цели, и погибшие в этот тик уже ничего не делают.
       () => fight(sim),

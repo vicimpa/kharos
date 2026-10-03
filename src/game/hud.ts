@@ -1,8 +1,8 @@
 import type { Entity } from '../ecs'
 import {
   BUILDABLE, BUILDINGS, Building, Converting, Hauler, Health, CORE, RESOURCES, RESOURCE_SPECS, buildingSpec, isOwn, producibleBy, Trade, Inventory, amountOf, deliveredTo, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit, unitSpec,
-  awaitsMaterials, buildTicks, canDemolish, canFight, canDeploy, canPack, craftStateOf, depositAt, entriesOf, isDeployBlocked, coreCenters, creditsOf, economyOf, isSiteBlocked, materialsFor, reserveLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, spareOf, zoneEconomies, zonesOf,
-  Position, type Amounts, type BuildingType, type CraftState, type Command, type DepositKind, type Resource, type UnitType,
+  awaitsMaterials, buildTicks, canDemolish, canFight, canDeploy, canPack, depositAt, entriesOf, isDeployBlocked, coreCenters, creditsOf, economyOf, isSiteBlocked, materialsFor, reserveLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, spareOf, zoneEconomies, zonesOf,
+  Position, type Amounts, type BuildingType, type Command, type DepositKind, type Resource, type UnitType,
 } from '../sim'
 import type { Scene } from './scene'
 
@@ -35,8 +35,6 @@ export interface HudState {
   stock: { items: Stack[]; capacity: number } | null
   /** Склад выбранного здания: что в нём, сколько помещается всего; store — это хранилище. */
   stored: { items: Stack[]; capacity: number; store: boolean } | null
-  /** Переработка выбранного здания: рецепт, что с ним сейчас и готовность цикла от 0 до 1. */
-  craft: { inputs: Stack[]; outputs: Stack[]; seconds: number; state: CraftState; progress: number } | null
   /**
    * Материалы, которых ждёт выбранная стройка или первый заказ выбранного производителя: сколько нужно и сколько
    * уже на месте. waiting — работа стоит, пока их не привезут.
@@ -111,7 +109,7 @@ export interface Stack {
 const stacksOf = (amounts: Amounts): Stack[] =>
   RESOURCES.filter((resource) => (amounts[resource] ?? 0) >= 1).map((resource) => ({ resource, amount: Math.floor(amounts[resource]!) }))
 
-/** То же для рецептов и цен: без округления. */
+/** То же для цен в материалах: без округления. */
 const exactOf = (amounts: Amounts): Stack[] => entriesOf(amounts).map(([resource, amount]) => ({ resource, amount }))
 
 const round = (value: number) => Math.round(value * 100) / 100
@@ -128,7 +126,6 @@ export function readHud(scene: Scene): HudState {
   let demolish: HudState['demolish'] = null
   let deposit: HudState['deposit'] = null
   let stored: HudState['stored'] = null
-  let craft: HudState['craft'] = null
   let materials: HudState['materials'] = null
   let cargo: HudState['cargo'] = null
   let trade: HudState['trade'] = null
@@ -176,9 +173,6 @@ export function readHud(scene: Scene): HudState {
     if (ready && inventory) {
       stored = { items: stacksOf(inventory.items), capacity: inventory.capacity, store: !!buildingSpec(built!.type).stores }
     }
-    const recipe = built && buildingSpec(built.type).recipe
-    const crafting = craftStateOf(sim, entity)
-    if (recipe && crafting) craft = { inputs: exactOf(recipe.inputs), outputs: exactOf(recipe.outputs), seconds: recipe.seconds, state: crafting.state, progress: round(crafting.progress) }
     const wanted = materialsFor(sim, entity)
     if (wanted && isOwn(sim, player, entity)) {
       const site = world.has(entity, Site)
@@ -237,7 +231,6 @@ export function readHud(scene: Scene): HudState {
     deposit,
     stock: stock.capacity ? { items: stacksOf(stock.items), capacity: stock.capacity } : null,
     stored,
-    craft,
     materials,
     trade,
     cargo,

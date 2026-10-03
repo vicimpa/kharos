@@ -137,7 +137,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
       // Вооружённые по врагу — атакуют: по чужому юниту или зданию под курсором.
       const enemy = unitAt(point.x, point.y, false) ?? damaged
       const fighters = units.some((entity) => canFight(sim, entity))
-      // Грузовики по своей шахте — привязываются к ней и возят руду.
+      // Грузовики по своей шахте — привязываются к ней и возят добытое.
       if (fighters && enemy !== undefined && canAttack(sim, scene.player, enemy)) {
         sim.send(scene.player, { type: 'attack', units, target: enemy })
       } else if (trucks && damaged !== undefined && canHaul(sim, scene.player, damaged)) {

@@ -16,9 +16,9 @@ const DEPOSIT_CHANCE = 0.6
  * Харит редок и дорог: запас мал, а добыча медленная.
  */
 export const DEPOSIT_KINDS = {
-  ore: { min: 4000, max: 8000, rate: 0.5 },
-  silica: { min: 4000, max: 8000, rate: 0.6 },
-  oil: { min: 3000, max: 6000, rate: 0.4 },
+  metal: { min: 4000, max: 8000, rate: 0.5 },
+  silicon: { min: 4000, max: 8000, rate: 0.5 },
+  fuel: { min: 3000, max: 6000, rate: 0.4 },
   kharite: { min: 600, max: 1200, rate: 0.15 },
 } satisfies Partial<Record<Resource, { min: number; max: number; rate: number }>>
 
@@ -27,13 +27,13 @@ export const DEPOSIT_TYPES = Object.keys(DEPOSIT_KINDS) as DepositKind[]
 
 /**
  * Что чаще лежит в каком биоме: доли видов месторождений. География решает, чего игроку не хватает: в красных
- * пустошах много руды и харита, в эрге и солончаках — кремнезёма, нефть — в топях.
+ * пустошах много металла и харита, в эрге и солончаках — кремния, топливо — в топях.
  */
 const BIOME_KINDS: Record<Biome, Record<DepositKind, number>> = {
-  [Biome.Erg]: { ore: 0.35, silica: 0.4, oil: 0.15, kharite: 0.1 },
-  [Biome.SaltFlats]: { ore: 0.3, silica: 0.45, oil: 0.15, kharite: 0.1 },
-  [Biome.RedWastes]: { ore: 0.6, silica: 0.1, oil: 0.1, kharite: 0.2 },
-  [Biome.Marsh]: { ore: 0.25, silica: 0.1, oil: 0.6, kharite: 0.05 },
+  [Biome.Erg]: { metal: 0.35, silicon: 0.4, fuel: 0.15, kharite: 0.1 },
+  [Biome.SaltFlats]: { metal: 0.3, silicon: 0.45, fuel: 0.15, kharite: 0.1 },
+  [Biome.RedWastes]: { metal: 0.6, silicon: 0.1, fuel: 0.1, kharite: 0.2 },
+  [Biome.Marsh]: { metal: 0.25, silicon: 0.1, fuel: 0.6, kharite: 0.05 },
 }
 
 /** Вид месторождения по биому и случайному числу от 0 до 1. */
@@ -43,7 +43,7 @@ function kindIn(biome: Biome, pick: number): DepositKind {
     pick -= shares[kind]
     if (pick < 0) return kind
   }
-  return 'ore'
+  return 'metal'
 }
 /** Сколько мест в клетке пробуется, прежде чем решить, что скалы под месторождение в ней нет. */
 const ATTEMPTS = 6

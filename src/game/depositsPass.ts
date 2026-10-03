@@ -11,9 +11,9 @@ const ART_TILE = 16
 const INK = 0x2a1410
 /** Тона породы каждого вида месторождения от тёмного к блику. */
 const TONES: Record<DepositKind, readonly [number, number, number, number]> = {
-  ore: [0x6b2f1e, 0xb5562e, 0xe58a4a, 0xffd9a0],
-  silica: [0x6e6856, 0xa9a184, 0xe0d9bc, 0xffffff],
-  oil: [0x0d0b10, 0x221d29, 0x3a3340, 0x8f86a8],
+  metal: [0x6b2f1e, 0xb5562e, 0xe58a4a, 0xffd9a0],
+  silicon: [0x6e6856, 0xa9a184, 0xe0d9bc, 0xffffff],
+  fuel: [0x0d0b10, 0x221d29, 0x3a3340, 0x8f86a8],
   kharite: [0x2e1247, 0x6a2fa8, 0xc06bff, 0xf3dcff],
 }
 /** Выработанное месторождение остаётся на карте бледным следом. */
@@ -28,10 +28,10 @@ const CRUMBS = [
   [11, 8], [20, 3], [29, 14], [2, 11], [18, 19], [8, 20], [13, 29], [23, 23], [30, 21], [1, 27], [19, 13], [27, 2],
 ] as const
 
-/** Нефть: тёмная лужа с радужным бликом и брызгами вокруг. */
+/** Топливо: тёмная лужа с радужным бликом и брызгами вокруг. */
 function drawOil() {
   const image = new Pixmap(DEPOSIT_SIZE * ART_TILE, DEPOSIT_SIZE * ART_TILE)
-  const tones = TONES.oil
+  const tones = TONES.fuel
   for (const [x, y] of CRUMBS) image.rect(x, y, 2, 1, tones[1])
   image.circle(15, 16, 11, INK)
   image.circle(15, 16, 10, tones[0])
@@ -43,9 +43,9 @@ function drawOil() {
   return image
 }
 
-/** Рисует месторождение: угловатые глыбы породы с жилами и крошка вокруг; нефть — лужей. */
+/** Рисует месторождение: угловатые глыбы породы с жилами и крошка вокруг; топливо — лужей. */
 function drawDeposit(kind: DepositKind) {
-  if (kind === 'oil') return drawOil()
+  if (kind === 'fuel') return drawOil()
   const ORE = TONES[kind]
   const image = new Pixmap(DEPOSIT_SIZE * ART_TILE, DEPOSIT_SIZE * ART_TILE)
   for (const [x, y] of CRUMBS) image.rect(x, y, 2, 1, ORE[1])

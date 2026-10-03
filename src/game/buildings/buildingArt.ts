@@ -257,7 +257,7 @@ const command: BuildingArt = {
   },
 }
 
-/** Нефтезавод: баки, крекинг-колонна и приёмный лоток с лентой. */
+/** Перерабатывающий завод: баки, печь с трубой и приёмный лоток с лентой. */
 const refinery: BuildingArt = {
   ...BUILDINGS.refinery,
   draw(g, t, light) {
@@ -284,87 +284,6 @@ const refinery: BuildingArt = {
     windows(g, [18, 28], 14)
     tower(g, 24, 6, 4, 6, STEEL)
     lamp(g, light, 24, 0, 2, pulse(t * 2))
-  },
-}
-
-/** Жёлтое на манипуляторе. */
-const HAZARD_ARM = 0xf0c95a
-/** Раскалённое: от тёмно-красного к белому. */
-const MELT = [0x7a1e0c, 0xd4471a, 0xff9a3c, 0xfff1b8] as const
-
-/** Плавильня: печь с раскалённым зевом, труба и стопка слитков. */
-const smelter: BuildingArt = {
-  ...BUILDINGS.smelter,
-  draw(g, t, light) {
-    slab(g, 0, 2, 32, 30, 3, STEEL)
-    // Слитки у правого края.
-    for (const [x, y] of [[21, 20], [25, 20], [23, 17]]) {
-      g.rect(x, y, 5, 3, INK)
-      g.rect(x + 1, y, 3, 2, IRON[3])
-      g.rect(x + 1, y, 3, 1, IRON[4])
-    }
-    // Печь: кирпичный корпус, в зеве колышется расплав.
-    slab(g, 3, 4, 17, 20, 5, IRON)
-    g.rect(7, 13, 9, 6, INK)
-    const heat = pulse(t * 2)
-    g.rect(8, 14, 7, 5, MELT[heat > 0.5 ? 1 : 0])
-    g.rect(9, 16, 5, 3, MELT[heat > 0.5 ? 2 : 1])
-    if (heat > 0.75) g.rect(10, 17, 3, 1, MELT[3])
-    light(11, 16, 4, 0.4 + heat * 0.6)
-    // Труба с отсветом сверху.
-    tower(g, 26, 12, 3, 12, IRON)
-    bulb(g, light, 25, -2, pulse(t, 0.5))
-  },
-}
-
-/** Кремниевый завод: купол печи с синим окном и кристаллы на стеллаже. */
-const kiln: BuildingArt = {
-  ...BUILDINGS.kiln,
-  draw(g, t, light) {
-    slab(g, 0, 2, 32, 30, 3, STEEL)
-    tower(g, 12, 20, 9, 6, STEEL)
-    g.rect(8, 14, 9, 5, INK)
-    const glow = pulse(t * 2)
-    g.rect(9, 15, 7, 3, glow > 0.5 ? 0x7f9cff : 0x3d4fb0)
-    if (glow > 0.8) g.rect(11, 16, 3, 1, 0xd8e2ff)
-    light(12, 16, 3, 0.3 + glow * 0.7)
-    // Стеллаж с кристаллами кремния.
-    g.rect(23, 9, 7, 16, INK)
-    g.rect(24, 10, 5, 14, IRON[1])
-    for (const y of [12, 17, 22]) {
-      g.rect(24, y, 5, 1, IRON[3])
-      g.rect(25, y - 2, 1, 2, 0x7f9cff)
-      g.rect(27, y - 2, 1, 2, 0xb8c8ff)
-    }
-    bulb(g, light, 3, 5, chase(t, 0))
-  },
-}
-
-/** Сборочный цех: длинный корпус, лента с компонентами и манипулятор над ней. */
-const assembly: BuildingArt = {
-  ...BUILDINGS.assembly,
-  draw(g, t, light) {
-    slab(g, 0, 2, 48, 30, 3, STEEL)
-    slab(g, 2, -2, 22, 24, 6, IRON)
-    windows(g, [5, 10, 15], 10)
-    tower(g, 19, 4, 3, 4, STEEL)
-    lamp(g, light, 19, 1, 1, pulse(t * 2))
-    // Лента: компоненты ползут вправо.
-    g.rect(24, 18, 22, 5, INK)
-    g.rect(24, 19, 22, 3, IRON[0])
-    const step = Math.floor(t * ART_FRAMES) % 8
-    for (let k = 0; k < 3; k++) {
-      const x = 25 + ((k * 8 + step) % 20)
-      g.rect(x, 19, 2, 2, 0x6ee08a)
-      g.rect(x, 19, 1, 1, 0xc8ffd6)
-    }
-    // Манипулятор качается над лентой.
-    const swing = Math.sin(t * TURN) * 4
-    g.line(36, 6, 36 + swing, 14, 3, INK)
-    g.line(36, 6, 36 + swing, 14, 1.2, IRON[3])
-    g.rect(Math.round(35 + swing), 14, 3, 2, HAZARD_ARM)
-    tower(g, 36, 8, 3, 3, IRON)
-    bulb(g, light, 44, 6, chase(t, 0.5))
   },
 }
 
@@ -551,9 +470,6 @@ const turret: BuildingArt = {
 export const BUILDING_ART = {
   command,
   refinery,
-  smelter,
-  kiln,
-  assembly,
   factory,
   generator,
   matter,
