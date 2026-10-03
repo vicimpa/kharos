@@ -1,5 +1,6 @@
 import type { Entity } from '../ecs'
 import { setBlend } from '../gl'
+import { Biome, Terrain, biomeAt, terrainAt } from '../map/terrain'
 import { createAtlas } from '../render/atlas'
 import { createLineProgram, createLines } from '../render/lines'
 import { Pixmap } from '../render/pixmap'
@@ -59,6 +60,26 @@ const CARGO_SPEED = 2.5
 /** На сколько тайлов вглубь основания здания уходит транспортный луч. */
 const BEAM_INSET = 0.4
 
+/**
+ * Пыль под летающими: сколько клубов в секунду на тайл радиуса юнита, с какого расстояния от его середины
+ * (в радиусах) они поднимаются и с какой скоростью разлетаются, в тайлах в секунду. Пыли разом не больше DUST_LIMIT.
+ */
+const DUST_RATE = 30
+const DUST_RING = 0.7
+const DUST_SPEED = 1.6
+const DUST_LIMIT = 500
+/** Какую долю скорости ветра набирает пыль; вверх она не всплывает, а стелется. */
+const DUST_WIND = 0.2
+/** Цвет пыли — цвет земли под юнитом; над болотом вместо пыли водяная взвесь, она бледнее. */
+const SAND_DUST: Record<Biome, number> = {
+  [Biome.Erg]: 0xd9b57c,
+  [Biome.SaltFlats]: 0xe6dfcf,
+  [Biome.RedWastes]: 0xc98660,
+  [Biome.Marsh]: 0xb3a679,
+}
+const ROCK_DUST = 0xaa9d89
+const SPRAY = 0xc4d6cf
+
 /** Высота полоски прочности в пикселях экрана и её отступ над юнитом в тайлах. */
 const BAR_HEIGHT = 3
 const BAR_GAP = 0.25
@@ -78,7 +99,8 @@ const WRECK: Color = [1, 0.22, 0.1]
 /** Транспортный луч и груз на нём. */
 const TRACTOR: Color = [0.25, 0.95, 0.85]
 /** Цвет груза на луче — цвет ресурса. */
-const cargoColor = (color: number): Color => [((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255]
+const rgb = (color: number): Color => [((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255]
+const cargoColor = rgb
 const BAR_BACK: Color = [0.03, 0.05, 0.08]
 const BAR_GOOD: Color = [0.45, 0.9, 0.55]
 const BAR_BAD: Color = [1, 0.35, 0.25]
@@ -138,6 +160,7 @@ function drawPuff(kind: number) {
 /**
  * Клуб дыма. Живёт только на экране, в симуляции его нет: x, y и скорость — в тайлах, age и life — в секундах,
  * size — начальный поперечник в тайлах, grow — во сколько раз он вырастет к концу, shade — яркость, level — плотность.
+ * Пыль хранит свой цвет в color, у дыма он серый.
  */
 interface Puff {
   x: number
@@ -151,14 +174,16 @@ interface Puff {
   shade: number
   level: number
   kind: number
+  color?: Color
 }
 
 /**
  * Проходы боя. lights ставится до освещения: добавляет огни — взрывы, лучи и вспышки выстрелов светят
  * в темноте — и двигает дым. effects ставится после освещения, чтобы ночью не темнело: рисует дым, снаряды, лучи,
  * взрывы и полоски прочности над повреждёнными юнитами. Дым темнеет к ночи сам, но не дочерна: иначе его не видно.
+ * dust ставится под летающими: рисует пыль, которую их винты поднимают с земли.
  */
-export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { lights: Pass; effects: Pass } {
+export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { dust: Pass; lights: Pass; effects: Pass } {
   const atlas = createAtlas(gl, [
     ...Array.from({ length: BLAST_FRAMES }, (_, i) => drawBlast(i)),
     ...Array.from({ length: PUFF_KINDS }, (_, i) => drawPuff(i)),
@@ -166,6 +191,7 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
   const spriteProgram = createSpriteProgram(gl)
   const blasts = createSprites(gl, spriteProgram)
   const smoke = createSprites(gl, spriteProgram)
+  const dustSprites = createSprites(gl, spriteProgram)
   const lineProgram = createLineProgram(gl)
   /** Светящееся складывается с картинкой, тёмное и полоски — ложатся поверх. */
   const glow = createLines(gl, lineProgram)
@@ -175,6 +201,10 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
   const ageOf = (thing: { age: number; life: number }, alpha: number) => Math.min(1, (thing.age + alpha) / Math.max(1, thing.life))
 
   const puffs: Puff[] = []
+  const dust: Puff[] = []
+  /** Где был каждый летающий в прошлом кадре: пыль от быстрого юнита ложится вдоль пути, а не кучками. */
+  const flyers = new Map<Entity, { x: number; y: number; seen: number }>()
+  let dustFrame = 0
   /** Где снаряд оставил последний клуб дыма; по этому же списку видно, какие выстрелы и взрывы уже дымили. */
   const trails = new Map<Entity, { x: number; y: number }>()
   const alive = new Set<Entity>()
@@ -310,7 +340,86 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
   const shellLift = (shot: { age: number; life: number; fromX: number; fromY: number; toX: number; toY: number }, alpha: number) =>
     Math.sin(Math.PI * ageOf(shot, alpha)) * Math.hypot(shot.toX - shot.fromX, shot.toY - shot.fromY) * SHELL_ARC
 
+  /** Цвет пыли над тайлом. */
+  const dustColor = (x: number, y: number): { color: Color; level: number } => {
+    const { land } = scene.sim
+    const terrain = terrainAt(land, Math.floor(x), Math.floor(y))
+    if (terrain === Terrain.Swamp) return { color: rgb(SPRAY), level: 0.3 }
+    if (terrain === Terrain.Sand) return { color: rgb(SAND_DUST[biomeAt(land, Math.floor(x), Math.floor(y))]), level: 0.5 }
+    return { color: rgb(ROCK_DUST), level: 0.4 }
+  }
+
+  /** Новая пыль под летающими: клубы поднимаются кольцом вокруг юнита и разлетаются от него. */
+  const emitDust = (delta: number, camera: { x: number; y: number }, halfWidth: number, halfHeight: number) => {
+    const { world, time } = scene.sim
+    dustFrame++
+    for (const [entity, position, unit] of world.query(Position, Unit)) {
+      if (!flies(unit.type)) continue
+      const { x, y } = drawnPosition(position, unit, time.alpha)
+      if (Math.abs(x - camera.x) > halfWidth || Math.abs(y - camera.y) > halfHeight) continue
+      const last = flyers.get(entity)
+      flyers.set(entity, { x, y, seen: dustFrame })
+      const { radius } = UNITS[unit.type]
+      const expected = DUST_RATE * radius * delta
+      const count = Math.floor(expected) + (Math.random() < expected % 1 ? 1 : 0)
+      for (let i = 0; i < count; i++) {
+        // Клуб — в случайной точке пути за кадр, чтобы след быстрого юнита был сплошным.
+        const share = last && Math.hypot(x - last.x, y - last.y) < 1 ? Math.random() : 1
+        const atX = last ? last.x + (x - last.x) * share : x
+        const atY = last ? last.y + (y - last.y) * share : y
+        const angle = Math.random() * Math.PI * 2
+        const reach = radius * DUST_RING * (0.7 + Math.random() * 0.6)
+        const groundX = atX + Math.cos(angle) * reach
+        const groundY = atY + Math.sin(angle) * reach
+        const { color, level } = dustColor(groundX, groundY)
+        const speed = DUST_SPEED * (0.6 + Math.random() * 0.8)
+        if (dust.length >= DUST_LIMIT) dust.shift()
+        dust.push({
+          x: groundX, y: groundY, speedX: Math.cos(angle) * speed, speedY: Math.sin(angle) * speed, age: 0, life: 0.6 + Math.random() * 0.5,
+          size: radius * (0.6 + Math.random() * 0.4), grow: 1.8 + Math.random(), shade: 1, level, kind: Math.floor(Math.random() * PUFF_KINDS), color,
+        })
+      }
+    }
+    if (dustFrame % 120 === 0) for (const [entity, flyer] of flyers) if (dustFrame - flyer.seen > 120) flyers.delete(entity)
+  }
+
   return {
+    dust: {
+      draw({ camera, width, height, delta, view }) {
+        const halfWidth = width / 2 / camera.zoom + 2
+        const halfHeight = height / 2 / camera.zoom + 2
+        emitDust(delta, camera, halfWidth, halfHeight)
+        // Пыль быстро тормозит, сносится ветром и тает. Её освещает проход освещения, как землю под ней.
+        const { windX, windY } = scene.settings.weather
+        const drag = Math.exp(-delta * 3.5)
+        dustSprites.clear()
+        let kept = 0
+        for (const item of dust) {
+          item.age += delta
+          if (item.age >= item.life) continue
+          dust[kept++] = item
+          item.speedX = windX * DUST_WIND + (item.speedX - windX * DUST_WIND) * drag
+          item.speedY = windY * DUST_WIND + (item.speedY - windY * DUST_WIND) * drag
+          item.x += item.speedX * delta
+          item.y += item.speedY * delta
+          if (Math.abs(item.x - camera.x) > halfWidth || Math.abs(item.y - camera.y) > halfHeight) continue
+          const age = item.age / item.life
+          const size = item.size * (1 + (item.grow - 1) * age)
+          const level = item.level * Math.min(1, age * 6) * (1 - age)
+          const frame = atlas.frames[BLAST_FRAMES + item.kind]
+          const [r, g, b] = item.color!
+          dustSprites.push(item.x - camera.x - size / 2, item.y - camera.y - size / 2, size, size, frame.u, frame.v, frame.width, frame.height, r * level, g * level, b * level, level)
+        }
+        dust.length = kept
+        if (!dustSprites.count) return
+        setBlend(gl, 'alpha')
+        spriteProgram.use(view, { uTexture: atlas.texture })
+        dustSprites.draw()
+      },
+      destroy() {
+        dustSprites.destroy()
+      },
+    },
     lights: {
       draw({ lights, camera, width, height, delta }) {
         const { world, time } = scene.sim

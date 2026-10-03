@@ -125,6 +125,8 @@ export function createGame(
         createBoundsPass(gl, scene),
         units.ground,
         buildings,
+        // Пыль от винтов — на земле и на крышах, под летающими.
+        combat.dust,
         // Летающие — над зданиями.
         units.air,
         createPrecipitationPass(gl, scene, landWindow),

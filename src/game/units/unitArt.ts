@@ -26,9 +26,27 @@ export type Team = keyof typeof TEAMS
 
 /**
  * Чертёж: рисует юнит, смотрящий под углом angle (радианы, 0 — вправо, растёт по часовой стрелке),
- * в цветах игрока team.
+ * в цветах игрока team. phase — кадр анимации хода, от 0 до GAIT_PHASES - 1: на нём колёса, гусеницы и ноги
+ * сдвинуты по-своему.
  */
-export type UnitArt = (g: Pixmap, angle: number, team: TeamColors) => void
+export type UnitArt = (g: Pixmap, angle: number, team: TeamColors, phase: number) => void
+
+/** Чем юнит ходит: от этого зависит анимация хода. */
+export type Gait = 'tracks' | 'wheels' | 'legs' | 'air'
+export const UNIT_GAITS: Record<UnitType, Gait> = {
+  mcv: 'tracks', builder: 'wheels', infantry: 'legs', truck: 'wheels', rocketeer: 'legs', buggy: 'wheels',
+  lancer: 'wheels', tank: 'tracks', tesla: 'tracks', carrier: 'wheels', drone: 'air', gunship: 'air',
+}
+/**
+ * Кадров анимации хода у наземного юнита; у летающего кадр один. Протектор и звенья гусениц повторяются
+ * через столько пикселей, и за кадр сдвигаются на пиксель.
+ */
+export const GAIT_PHASES = 4
+/**
+ * Сколько тайлов пути проходит юнит за кадр анимации. Колёса и гусеницы сдвигаются на пиксель за пиксель пути:
+ * верх гусеницы бежит относительно корпуса с той же скоростью, с какой корпус — по земле. Ноги шагают реже.
+ */
+export const GAIT_STEP: Record<Gait, number> = { tracks: 1 / 16, wheels: 1 / 16, legs: 0.2, air: Infinity }
 
 const INK = 0x0b111b
 const STEEL = [0x1c2b3e, 0x2d4560, 0x41617f, 0x6184a3, 0x9bb9d1] as const
@@ -64,13 +82,42 @@ function pen(g: Pixmap, angle: number) {
   }
 }
 
+type Pen = ReturnType<typeof pen>
+
+/**
+ * Поперечные полоски, повторяющиеся через GAIT_PHASES пикселей, на отрезке от from до to вдоль хода: звенья гусеницы
+ * или протектор шины. На кадре phase они сдвинуты вперёд на phase пикселей.
+ */
+function treads(p: Pen, from: number, to: number, across: number, half: number, phase: number, color: number) {
+  let along = from + phase
+  while (along - GAIT_PHASES >= from) along -= GAIT_PHASES
+  for (; along <= to; along += GAIT_PHASES) p.beam(along, across - half, across + half, 1, color)
+}
+
+/** Шина: чёрный брусок длиной 2·half вдоль хода, по которому бежит протектор. */
+function tire(p: Pen, along: number, across: number, half: number, width: number, phase: number) {
+  p.bar(along - half, along + half, across, width, INK)
+  treads(p, along - half + 0.5, along + half - 0.5, across, width / 2 - 0.5, phase, IRON[2])
+}
+
+/** Ноги пехотинца: на кадрах 1 и 3 одна ступня впереди, другая сзади; на 0 и 2 обе под плечами. */
+function legs(p: Pen, phase: number) {
+  const stride = phase === 1 ? 2.6 : phase === 3 ? -2.6 : 0
+  if (!stride) return
+  for (const across of [-1.5, 1.5]) {
+    const along = across < 0 ? stride : -stride
+    p.dot(along, across, 1.3, INK)
+    p.dot(along, across, 0.7, IRON[2])
+  }
+}
+
 /** MCV: широкая гусеничная машина с кабиной спереди и куполом будущего ядра. */
-const mcv: UnitArt = (g, angle, team) => {
+const mcv: UnitArt = (g, angle, team, phase) => {
   const p = pen(g, angle)
   for (const side of [-8, 8]) {
     p.bar(-13, 13, side, 7, INK)
     p.bar(-12, 12, side, 5, IRON[1])
-    for (let link = -10; link <= 10; link += 4) p.beam(link, side - 2.5, side + 2.5, 1, IRON[0])
+    treads(p, -12, 12, side, 2.5, phase, IRON[0])
   }
   p.bar(-11, 12, 0, 14, INK)
   p.bar(-10, 11, 0, 12, STEEL[1])
@@ -83,10 +130,10 @@ const mcv: UnitArt = (g, angle, team) => {
 }
 
 /** Строитель: небольшая колёсная машина со стрелой. */
-const builder: UnitArt = (g, angle, team) => {
+const builder: UnitArt = (g, angle, team, phase) => {
   const p = pen(g, angle)
   for (const side of [-4, 4]) {
-    for (const wheel of [-3.5, 3.5]) p.bar(wheel - 2, wheel + 2, side, 3, INK)
+    for (const wheel of [-3.5, 3.5]) tire(p, wheel, side, 2, 3, phase)
   }
   p.bar(-6, 6, 0, 8, INK)
   p.bar(-5, 5, 0, 6, HAZARD[1])
@@ -98,8 +145,9 @@ const builder: UnitArt = (g, angle, team) => {
 }
 
 /** Пехотинец: плечи, голова и оружие. */
-const infantry: UnitArt = (g, angle, team) => {
+const infantry: UnitArt = (g, angle, team, phase) => {
   const p = pen(g, angle)
+  legs(p, phase)
   p.beam(0, -3.5, 3.5, 5, INK)
   p.beam(0, -2.5, 2.5, 3, team[0])
   p.bar(0, 5, 2.5, 1.2, INK)
@@ -108,10 +156,10 @@ const infantry: UnitArt = (g, angle, team) => {
 }
 
 /** Грузовик: кабина спереди и открытый кузов с рудой. */
-const truck: UnitArt = (g, angle, team) => {
+const truck: UnitArt = (g, angle, team, phase) => {
   const p = pen(g, angle)
   for (const side of [-4.5, 4.5]) {
-    for (const wheel of [-5, 0, 5]) p.bar(wheel - 1.5, wheel + 1.5, side, 3, INK)
+    for (const wheel of [-5, 0, 5]) tire(p, wheel, side, 1.5, 3, phase)
   }
   p.bar(-8, 8, 0, 9, INK)
   // Кузов: борта и руда внутри.
@@ -130,8 +178,9 @@ const truck: UnitArt = (g, angle, team) => {
 }
 
 /** Ракетчик: пехотинец с трубой на плече. */
-const rocketeer: UnitArt = (g, angle, team) => {
+const rocketeer: UnitArt = (g, angle, team, phase) => {
   const p = pen(g, angle)
+  legs(p, phase)
   p.beam(0, -3.5, 3.5, 5, INK)
   p.beam(0, -2.5, 2.5, 3, team[0])
   p.bar(-4, 6, -2.5, 3.2, INK)
@@ -142,16 +191,16 @@ const rocketeer: UnitArt = (g, angle, team) => {
 }
 
 /** Колёса лёгкой машины: по два с каждого борта. */
-function wheels(p: ReturnType<typeof pen>, side: number, spread: number) {
+function wheels(p: Pen, side: number, spread: number, phase: number) {
   for (const across of [-side, side]) {
-    for (const wheel of [-spread, spread]) p.bar(wheel - 2, wheel + 2, across, 3, INK)
+    for (const wheel of [-spread, spread]) tire(p, wheel, across, 2, 3, phase)
   }
 }
 
 /** Багги: узкая быстрая машина с дугой безопасности. Пассажира с миниганом рисует gunnerTurret поверх. */
-const buggy: UnitArt = (g, angle, team) => {
+const buggy: UnitArt = (g, angle, team, phase) => {
   const p = pen(g, angle)
-  wheels(p, 4.5, 4)
+  wheels(p, 4.5, 4, phase)
   p.bar(-6, 7, 0, 7, INK)
   p.bar(-5, 6, 0, 5, IRON[2])
   p.bar(-5, 6, -2, 1, IRON[3])
@@ -164,9 +213,9 @@ const buggy: UnitArt = (g, angle, team) => {
 }
 
 /** Лазерная машина: излучатель на шасси. */
-const lancer: UnitArt = (g, angle, team) => {
+const lancer: UnitArt = (g, angle, team, phase) => {
   const p = pen(g, angle)
-  wheels(p, 4.5, 4.5)
+  wheels(p, 4.5, 4.5, phase)
   p.bar(-7, 6, 0, 8, INK)
   p.bar(-6, 5, 0, 6, STEEL[1])
   p.bar(-6, 5, -2.5, 1, STEEL[3])
@@ -179,11 +228,11 @@ const lancer: UnitArt = (g, angle, team) => {
 }
 
 /** Гусеницы и корпус тяжёлой машины. */
-function heavyHull(p: ReturnType<typeof pen>, team: TeamColors) {
+function heavyHull(p: Pen, team: TeamColors, phase: number) {
   for (const side of [-7.5, 7.5]) {
     p.bar(-11, 11, side, 6, INK)
     p.bar(-10, 10, side, 4, IRON[1])
-    for (let link = -8; link <= 8; link += 4) p.beam(link, side - 2, side + 2, 1, IRON[0])
+    treads(p, -10, 10, side, 2, phase, IRON[0])
   }
   p.bar(-9, 10, 0, 12, INK)
   p.bar(-8, 9, 0, 10, STEEL[1])
@@ -192,9 +241,9 @@ function heavyHull(p: ReturnType<typeof pen>, team: TeamColors) {
 }
 
 /** Танк: гусеницы, корпус и погон под башню. Башня — отдельная турель, её рисует cannonTurret поверх. */
-const tank: UnitArt = (g, angle, team) => {
+const tank: UnitArt = (g, angle, team, phase) => {
   const p = pen(g, angle)
-  heavyHull(p, team)
+  heavyHull(p, team, phase)
   p.bar(6, 9, 0, 8, STEEL[2])
   p.beam(7.5, -3, 3, 1, STEEL[0])
   p.dot(-1, 0, 6.4, INK)
@@ -202,9 +251,9 @@ const tank: UnitArt = (g, angle, team) => {
 }
 
 /** Разрядник: тяжёлое шасси с погоном и кожухами питания. Катушка — отдельная турель, её рисует arcTurret поверх. */
-const tesla: UnitArt = (g, angle, team) => {
+const tesla: UnitArt = (g, angle, team, phase) => {
   const p = pen(g, angle)
-  heavyHull(p, team)
+  heavyHull(p, team, phase)
   for (const side of [-3.5, 3.5]) p.bar(5, 9, side, 2, ENERGY[0])
   p.dot(0, 0, 6.6, INK)
   p.dot(0, 0, 5.8, IRON[1])
@@ -214,13 +263,13 @@ const tesla: UnitArt = (g, angle, team) => {
  * Носитель: колёсное шасси танка — по три колеса с борта и плоская палуба с четырьмя гнёздами под турели.
  * Сами турели — отдельные сущности, их рисует turretArt.ts поверх.
  */
-const carrier: UnitArt = (g, angle, team) => {
+const carrier: UnitArt = (g, angle, team, phase) => {
   const p = pen(g, angle)
   for (const side of [-9, 9]) {
     for (const wheel of [-8, 0, 8]) {
       p.bar(wheel - 3, wheel + 3, side, 4.6, INK)
       p.bar(wheel - 2.3, wheel + 2.3, side, 3.2, IRON[1])
-      p.beam(wheel, side - 1.6, side + 1.6, 1, IRON[3])
+      treads(p, wheel - 2.3, wheel + 2.3, side, 1.6, phase, IRON[3])
     }
   }
   p.bar(-12, 12, 0, 15, INK)
