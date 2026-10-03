@@ -9,12 +9,12 @@ const seconds = (sim: Sim, time: number) => {
   for (let i = 0; i < Math.round(time / TICK); i++) sim.advance(TICK)
 }
 
-test('тестовая карта: готовая база с энергией, грузовики сами возят руду в хранилища', () => {
+test('тестовая карта: готовая база с энергией, все цепочки переработки работают сами', () => {
   const sim = createSim(options)
   expect(spawnSandbox(sim, 1)).toBeDefined()
   const types: string[] = []
   for (const [, building] of sim.world.query(Building, Owner)) types.push(building.type)
-  for (const type of ['mine', 'command', 'silo', 'spaceport', 'factory', 'barracks', 'generator', 'matter'] as const) expect(types).toContain(type)
+  for (const type of ['mine', 'command', 'silo', 'spaceport', 'factory', 'barracks', 'generator', 'matter', 'smelter', 'windtrap', 'kiln', 'refinery', 'assembly'] as const) expect(types).toContain(type)
   // Всё стоит в одной зоне, и энергии хватает всем.
   expect(zonesOf(sim, 1).length).toBeGreaterThan(0)
   expect([...powerStates(sim).values()].every((state) => state !== 'starved')).toBe(true)
@@ -22,11 +22,15 @@ test('тестовая карта: готовая база с энергией, 
   const units: Entity[] = []
   for (const [entity] of sim.world.query(Unit, Owner)) units.push(entity)
   const trucks = units.filter((entity) => sim.world.has(entity, Hauler))
-  expect(trucks.length).toBe(3)
-  expect(trucks.every((entity) => sim.world.get(entity, Hauler)!.mine >= 0)).toBe(true)
+  expect(trucks.length).toBe(4)
+  expect(trucks.filter((entity) => sim.world.get(entity, Hauler)!.mine >= 0).length).toBe(1)
   expect(units.length).toBeGreaterThan(trucks.length + 5)
 
-  const before = stockOf(sim, 1).ore
-  seconds(sim, 120)
-  expect(stockOf(sim, 1).ore).toBeGreaterThan(before + BUILDINGS.mine.extract * 30)
+  // Цепочки работают: сырьё уходит в переработку, компонентов и топлива становится больше.
+  const before = stockOf(sim, 1).items
+  seconds(sim, 240)
+  const after = stockOf(sim, 1).items
+  expect(after.components ?? 0).toBeGreaterThan((before.components ?? 0) + 5)
+  expect(after.fuel ?? 0).toBeGreaterThan((before.fuel ?? 0) + 5)
+  expect(after.silica ?? 0).toBeLessThan(before.silica ?? 0)
 })

@@ -6,6 +6,7 @@ import { Pixmap } from '../render/pixmap'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites } from '../render/sprites'
 import { BUILDINGS, Beam, Blast, Building, Health, Position, Shot, UNITS, Unit, WEAPONS, activeRepairs, flies, type RepairLink, type WeaponSpec } from '../sim'
+import { RESOURCE_COLORS } from './resourceColors'
 import type { Scene } from './scene'
 import { drawnPosition } from './units/unitsPass'
 
@@ -76,7 +77,8 @@ const MEND: Color = [0.3, 1, 0.55]
 const WRECK: Color = [1, 0.22, 0.1]
 /** Транспортный луч и груз на нём. */
 const TRACTOR: Color = [0.25, 0.95, 0.85]
-const CARGO: Color = [1, 0.62, 0.35]
+/** Цвет груза на луче — цвет ресурса. */
+const cargoColor = (color: number): Color => [((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255]
 const BAR_BACK: Color = [0.03, 0.05, 0.08]
 const BAR_GOOD: Color = [0.45, 0.9, 0.55]
 const BAR_BAD: Color = [1, 0.35, 0.25]
@@ -519,6 +521,7 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
           dot(glow, fromX, fromY, 6, TRACTOR, 0.7)
           dot(glow, toX, toY, 6, TRACTOR, 0.7)
           const length = Math.hypot(toX - fromX, toY - fromY)
+          const CARGO = cargoColor(RESOURCE_COLORS[link.resource])
           const count = Math.floor(length / CARGO_STEP)
           const shift = ((time * CARGO_SPEED) / CARGO_STEP) % 1
           for (let i = 0; i < count; i++) {

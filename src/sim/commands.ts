@@ -7,8 +7,9 @@ import { assignBuilders, cancelBuild, demolish, orderBuild } from './constructio
 import { DEPLOY_SECONDS, PACK_SECONDS, canDeploy, canPack, cancelDeploy, startConverting } from './conversion'
 import { assignHaulers, releaseHauler } from './hauling'
 import { cancelUnit, orderUnit } from './production'
+import type { Resource } from './resources'
 import type { Sim } from './sim'
-import { closeSale, sellOre } from './trade'
+import { closeSale, sell } from './trade'
 import { UNITS, isWalkable, orderGroupMove, spawnUnit, type UnitType } from './units'
 
 /**
@@ -36,12 +37,12 @@ export type Command =
   | { type: 'build'; building: BuildingType; x: number; y: number; builders: number[] }
   /** Послать своих строителей на свою стройку. */
   | { type: 'assist'; units: number[]; site: number }
-  /** Привязать свои грузовики к своей шахте: они будут возить руду из неё в хранилища. */
+  /** Привязать свои грузовики к своей шахте: они будут возить добытое из неё в хранилища, а не работать на заявки зон. */
   | { type: 'haul'; units: number[]; mine: number }
   /** Послать своих вооружённых юнитов атаковать чужой юнит или здание: они гонятся за целью, пока она жива. */
   | { type: 'attack'; units: number[]; target: number }
-  /** Заявка на продажу до amount руды: грузовики свезут её в космопорт из хранилищ его зоны, потом придут кредиты. */
-  | { type: 'sell'; port: number; amount: number }
+  /** Заявка на продажу до amount единиц ресурса: грузовики свезут его в космопорт из хранилищ его зоны, потом придут кредиты. */
+  | { type: 'sell'; port: number; resource: Resource; amount: number }
   /** Закрыть заявку раньше срока: корабль улетает с тем, что привезли; если ничего — заявка снимается. */
   | { type: 'closeSale'; port: number }
   /** Отменить свою стройку и вернуть кредиты; для здания под разбор — отменить разбор. */
@@ -98,7 +99,7 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
       return orderAttack(sim, player, command.units as Entity[], command.target as Entity)
     }
     case 'sell':
-      return sellOre(sim, player, command.port as Entity, command.amount)
+      return sell(sim, player, command.port as Entity, command.resource, command.amount)
     case 'closeSale':
       return closeSale(sim, player, command.port as Entity)
     case 'cancelBuild':

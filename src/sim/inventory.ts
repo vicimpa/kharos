@@ -2,12 +2,9 @@ import type { Entity, World } from '../ecs'
 import { tileKey } from '../map/terrain'
 import { BUILDINGS, siteAt } from './buildings'
 import { Beam, Building, Inventory, Position, Unit } from './components'
+import { RESOURCES, type Amounts, type Resource } from './resources'
 import type { Sim } from './sim'
 import { UNITS, isWalkable, orderMove, standingUnits } from './units'
-
-/** Ресурсы, которые лежат на складах и переносятся лучами. */
-export const RESOURCES = ['ore'] as const
-export type Resource = (typeof RESOURCES)[number]
 
 /** Транспортный луч вида здания или юнита: см. компонент Beam. */
 export interface BeamSpec {
@@ -17,7 +14,7 @@ export interface BeamSpec {
   take?: boolean
 }
 
-type Stock = { items: Partial<Record<Resource, number>>; capacity: number; accepts: readonly Resource[] }
+type Stock = { items: Amounts; capacity: number; accepts: readonly Resource[]; limits: Amounts }
 
 /** Сколько этого ресурса лежит на складе. */
 export const amountOf = (inventory: Stock, resource: Resource) => inventory.items[resource] ?? 0
@@ -25,9 +22,13 @@ export const amountOf = (inventory: Stock, resource: Resource) => inventory.item
 /** Сколько лежит на складе всего, всех ресурсов вместе. */
 export const loadOf = (inventory: Stock) => RESOURCES.reduce((sum, resource) => sum + amountOf(inventory, resource), 0)
 
-/** Сколько этого ресурса ещё поместится на склад; ноль — склад полон или такое сюда не кладут. */
-export const roomFor = (inventory: Stock, resource: Resource) =>
-  inventory.accepts.length && !inventory.accepts.includes(resource) ? 0 : Math.max(0, inventory.capacity - loadOf(inventory))
+/** Сколько этого ресурса ещё поместится на склад; ноль — склад полон, такое сюда не кладут или его предел набран. */
+export function roomFor(inventory: Stock, resource: Resource) {
+  if (inventory.accepts.length && !inventory.accepts.includes(resource)) return 0
+  const limit = inventory.limits[resource]
+  const left = limit === undefined ? Infinity : limit - amountOf(inventory, resource)
+  return Math.max(0, Math.min(left, inventory.capacity - loadOf(inventory)))
+}
 
 /** Кладёт на склад до amount ресурса, сколько поместится. Возвращает, сколько положено. */
 export function put(inventory: Stock, resource: Resource, amount: number) {
@@ -43,9 +44,17 @@ export function take(inventory: Stock, resource: Resource, amount: number) {
   return moved
 }
 
+/** Склад и луч вида здания или юнита: capacity — объём, accepts и limits — что и сколько каждого сюда кладут. */
+export interface StorageSpec {
+  inventory?: number
+  accepts?: Resource[]
+  limits?: Amounts
+  beam?: BeamSpec
+}
+
 /** Даёт сущности склад и луч, положенные её виду. */
-export function equipStorage(world: World, entity: Entity, spec: { inventory?: number; beam?: BeamSpec }) {
-  if (spec.inventory) world.add(entity, Inventory({ capacity: spec.inventory }))
+export function equipStorage(world: World, entity: Entity, spec: StorageSpec) {
+  if (spec.inventory) world.add(entity, Inventory({ capacity: spec.inventory, accepts: spec.accepts ?? [], limits: spec.limits ?? {} }))
   if (spec.beam) world.add(entity, Beam({ radius: spec.beam.radius, rate: spec.beam.rate, give: !!spec.beam.give, take: !!spec.beam.take }))
 }
 
@@ -105,7 +114,7 @@ export function transfer(sim: Sim, from: Entity, to: Entity, resource: Resource,
   const moved = Math.min(amount, beam.rate * time.step, amountOf(source, resource), roomFor(target, resource))
   if (moved <= 0) return 0
   const pulling = carrier === to
-  if (!beam.links.some((link) => link.target === partner && link.pulling === pulling)) beam.links.push({ target: partner, pulling })
+  if (!beam.links.some((link) => link.target === partner && link.pulling === pulling)) beam.links.push({ target: partner, pulling, resource })
   put(target, resource, take(source, resource, moved))
   return moved
 }

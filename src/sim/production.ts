@@ -2,11 +2,14 @@ import type { Entity, Time } from '../ecs'
 import { tileKey } from '../map/terrain'
 import { BUILDINGS, CORE, buildingSpec } from './buildings'
 import { isOwn, ownerOf } from './common'
-import { Building, Converting, Position, Producer, Site, Unit } from './components'
+import { Building, Converting, Inventory, Position, Producer, Site, Unit } from './components'
 import { addCredits, pay, reward } from './economy'
 import { powerSupply } from './income'
+import { put, take } from './inventory'
+import { missingFor } from './logistics'
+import { entriesOf } from './resources'
 import type { Sim } from './sim'
-import { UNITS, freeTilesNear, spawnUnit, type UnitType } from './units'
+import { UNITS, freeTilesNear, spawnUnit, unitSpec, type UnitType } from './units'
 
 const NOTHING: UnitType[] = []
 
@@ -29,7 +32,10 @@ const EXIT_CANDIDATES = 24
 /** Сколько тиков строится юнит. */
 export const buildTicks = (unit: UnitType, step: number) => Math.round(UNITS[unit].buildTime / step)
 
-/** Заказывает юнит. Кредиты списываются сразу. Возвращает, принят ли заказ. */
+/**
+ * Заказывает юнит. Кредиты списываются сразу; материалы (UnitSpec.materials) производитель заказывает у своей
+ * зоны, когда заказ дойдёт до начала очереди, и тратит их в начале работы. Возвращает, принят ли заказ.
+ */
 export function orderUnit(sim: Sim, player: number, entity: Entity, unit: UnitType) {
   const producer = sim.world.get(entity, Producer)
   if (!producer || !isOwn(sim, player, entity)) return false
@@ -43,10 +49,14 @@ export function orderUnit(sim: Sim, player: number, entity: Entity, unit: UnitTy
 export function cancelUnit(sim: Sim, player: number, entity: Entity) {
   const producer = sim.world.get(entity, Producer)
   if (!producer || !isOwn(sim, player, entity)) return false
+  const started = producer.queue.length === 1 && producer.progress > 0
   const unit = producer.queue.pop()
   if (!unit) return false
   if (!producer.queue.length) producer.progress = 0
   addCredits(sim, player, UNITS[unit].cost)
+  // Начатый заказ уже забрал материалы: они возвращаются на склад производителя.
+  const inventory = sim.world.get(entity, Inventory)
+  if (started && inventory) for (const [resource, amount] of entriesOf(unitSpec(unit).materials ?? {})) put(inventory, resource, amount)
   return true
 }
 
@@ -91,6 +101,15 @@ export function produceUnits(sim: Sim, time: Time) {
     // Пока здание сворачивается, разбирается или машина разворачивается, производство стоит.
     if (!producer.queue.length || world.has(entity, Converting) || world.has(entity, Site)) continue
     const needed = buildTicks(producer.queue[0], time.step)
+    if (producer.progress <= 0) {
+      // Заказ начинается, когда его материалы на месте, и сразу их тратит.
+      if (Object.keys(missingFor(sim, entity)).length) continue
+      const materials = entriesOf(unitSpec(producer.queue[0]).materials ?? {})
+      const inventory = world.get(entity, Inventory)
+      if (inventory) for (const [resource, amount] of materials) take(inventory, resource, amount)
+      // Материалы потрачены — заказ начат, даже если энергии сейчас нет.
+      if (materials.length) producer.progress = 1e-9
+    }
     if (producer.progress < needed) producer.progress += speeds.get(entity) ?? 1
     if (producer.progress >= needed) ready.push(entity)
   }

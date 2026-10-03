@@ -205,9 +205,31 @@ body {
   color: #8fd0ff;
 }
 
-.hud__ore {
+.hud__stock {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
   margin-left: 6px;
-  color: #e58a4a;
+}
+
+/* Значок ресурса: ромбик его цвета и количество. */
+.hud__res {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.hud__res i {
+  width: 7px;
+  height: 7px;
+  transform: rotate(45deg);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+}
+
+.hud__hint.is-short {
+  color: #ffb48a;
 }
 
 .hud__power.is-short {

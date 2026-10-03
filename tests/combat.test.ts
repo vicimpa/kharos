@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { Armed, Blast, Building, Builds, Carrier, activeRepairs, Health, INFANTRY_REGEN, isFighter, Repair, wrap, Turret, Owner, Path, Position, Producer, Shot, UNITS, Unit, WEAPONS, buildingHp, canAttack, canPlace, createSim, driveBattle, isWalkable, powerStates, producibleBy, randomArmy, spawnBattle, zoneEconomies, type Sim } from '../src/sim'
+import { Armed, Blast, Building, Builds, Carrier, activeRepairs, Health, Inventory, INFANTRY_REGEN, isFighter, Repair, wrap, Turret, Owner, Path, Position, Producer, Shot, UNITS, Unit, WEAPONS, buildingHp, canAttack, canPlace, createSim, driveBattle, isWalkable, powerStates, producibleBy, randomArmy, spawnBattle, zoneEconomies, type Sim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { addCredits } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
@@ -290,6 +290,9 @@ test('пехоту выпускают казармы, технику — маш�
   expect(producibleBy(sim, port)).toEqual(['drone', 'gunship'])
   // Потребляют 2 + 5 + 5 из 20.
   expect(zoneEconomies(sim, 1)[0]).toMatchObject({ produced: 20, demand: 12 })
+  // Материалы на заказы уже на месте: подвоз проверяется в economy.test.ts.
+  sim.world.get(factory, Inventory)!.items = { ...UNITS.tank.materials }
+  sim.world.get(port, Inventory)!.items = { ...UNITS.drone.materials }
 
   sim.send(1, { type: 'produce', producer: barracks, unit: 'tank' })
   sim.send(1, { type: 'produce', producer: barracks, unit: 'rocketeer' })

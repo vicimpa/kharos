@@ -2,8 +2,10 @@ import type { Entity } from '../ecs'
 import { tileKey } from '../map/terrain'
 import { BUILDABLE, BUILDINGS, BUILD_RATE, CORE, buildingSpec, canPlace, equip, newBuilding, siteAt, type BuildingSpec, type BuildingType } from './buildings'
 import { NONE, isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './common'
-import { Building, Builds, Converting, Health, Owner, Path, Position, Producer, Repair, Site, Unit } from './components'
-import { oreLeft } from './deposits'
+import { Building, Builds, Converting, Health, Inventory, Owner, Path, Position, Producer, Repair, Site, Unit } from './components'
+import { reserveLeft } from './deposits'
+import { amountOf } from './inventory'
+import { entriesOf, totalOf } from './resources'
 import { addCredits, creditsOf, pay, reward, spend } from './economy'
 import { overbuiltPlants } from './income'
 import type { Sim } from './sim'
@@ -46,8 +48,8 @@ export function canBuild(sim: Sim, player: number, type: BuildingType, x: number
   if (!BUILDABLE.includes(type) || !canPlace(sim, type, x, y)) return false
   const { width, height, zone }: BuildingSpec = BUILDINGS[type]
   if (inForeignZone(sim, player, x, y, width, height)) return false
-  // Шахта встаёт ровно на месторождение, в котором ещё есть руда.
-  if (buildingSpec(type).extract && oreLeft(sim, x, y) <= 0) return false
+  // Шахта встаёт ровно на месторождение, в котором ещё что-то есть.
+  if (buildingSpec(type).extract && reserveLeft(sim, x, y) <= 0) return false
   return zone !== undefined || inControl(sim, player, type, x, y)
 }
 
@@ -197,6 +199,11 @@ export function assignBuilders(sim: Sim, player: number, site: Entity, units: En
 export function orderBuild(sim: Sim, player: number, type: BuildingType, x: number, y: number, builders: Entity[]) {
   if (!canBuild(sim, player, type, x, y) || !pay(sim, player, BUILDINGS[type].cost)) return undefined
   const site = sim.world.spawn(Position({ x, y }), Site({ type }), Owner({ player }))
+  // Материалы привезут грузовики: площадка заказывает их у своей зоны, см. logistics.ts.
+  const materials = buildingSpec(type).materials
+  if (materials) {
+    sim.world.add(site, Inventory({ capacity: totalOf(materials), accepts: entriesOf(materials).map(([resource]) => resource), limits: { ...materials } }))
+  }
   // Свои юниты уходят с площадки сразу, не дожидаясь строителя.
   clearSite(sim, site, true)
   assignBuilders(sim, player, site, builders)
@@ -407,8 +414,28 @@ export function repairLinks(sim: Sim): RepairLink[] {
 }
 
 /**
- * Стоит ли работа, хотя ремонтник до неё дотянулся: стройка вне зоны строительства или с юнитами на ещё пустой
- * площадке, а починка — без кредитов.
+ * Какую долю стройки позволяют привезённые материалы, от 0 до 1: строить дальше привезённого нельзя.
+ * Здание без материалов строится целиком.
+ */
+export function materialShare(sim: Sim, site: Entity) {
+  const { world } = sim
+  const type = world.get(site, Site)?.type
+  const materials = type === undefined ? undefined : buildingSpec(type).materials
+  const inventory = world.get(site, Inventory)
+  if (!materials || !inventory) return 1
+  return Math.min(1, ...entriesOf(materials).map(([resource, amount]) => amountOf(inventory, resource) / amount))
+}
+
+/** Стройка дошла до того, что позволяют привезённые материалы, и ждёт подвоза. */
+export function awaitsMaterials(sim: Sim, site: Entity) {
+  const work = sim.world.get(site, Site)
+  if (!work || work.demolish) return false
+  return work.progress >= siteTicks(work.type, sim.time.step) * materialShare(sim, site) - 1e-9
+}
+
+/**
+ * Стоит ли работа, хотя ремонтник до неё дотянулся: стройка вне зоны строительства, с юнитами на ещё пустой
+ * площадке или без материалов, а починка — без кредитов.
  */
 function isStalled(sim: Sim, entity: Entity) {
   const { world } = sim
@@ -418,7 +445,7 @@ function isStalled(sim: Sim, entity: Entity) {
   if (site.demolish) return false
   const { x, y } = world.get(entity, Position)!
   if (buildingSpec(site.type).zone === undefined && !inControl(sim, ownerOf(sim, entity), site.type, x, y)) return true
-  return isSiteBlocked(sim, entity)
+  return isSiteBlocked(sim, entity) || awaitsMaterials(sim, entity)
 }
 
 /** Работы, которые идут прямо сейчас: их клиент показывает лучом от ремонтника к цели. */
@@ -506,9 +533,12 @@ export function construct(sim: Sim) {
       world.add(entity, newBuilding(world, site.type))
       world.add(entity, Health)
     }
-    site.progress += count
+    // Дальше привезённых материалов стройка не идёт.
+    site.progress = Math.max(site.progress, Math.min(site.progress + count, siteTicks(site.type, time.step) * materialShare(sim, entity)))
     if (site.progress < siteTicks(site.type, time.step)) continue
     world.remove(entity, Site)
+    // Материалы ушли в здание; склад у готового здания свой.
+    world.remove(entity, Inventory)
     if (buildingSpec(site.type).produces) world.add(entity, Producer)
     equip(world, entity, site.type)
     reward(sim, player, site.type)

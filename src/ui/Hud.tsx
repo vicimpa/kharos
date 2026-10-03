@@ -1,7 +1,8 @@
-import type { HudState } from '../game/hud'
+import type { HudState, Stack } from '../game/hud'
+import { cssColor } from '../game/resourceColors'
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { REWARDS, type BuildingType, type Command, type Reward } from '../sim'
-import { BUILDING_NAMES, REWARD_NAMES, UNIT_NAMES } from './names'
+import { REWARDS, type BuildingType, type Command, type CraftState, type Resource, type Reward } from '../sim'
+import { BUILDING_NAMES, RESOURCE_NAMES, REWARD_NAMES, UNIT_NAMES } from './names'
 
 interface HudProps {
   state: HudState
@@ -11,6 +12,33 @@ interface HudProps {
 }
 
 const percent = (value: number) => `${Math.round(value * 100)}%`
+
+/** Значок ресурса цвета ресурса и количество; название — во всплывающей подсказке. */
+function Res({ resource, amount, of }: { resource: Resource; amount?: number; of?: number }) {
+  return (
+    <span class="hud__res" title={RESOURCE_NAMES[resource]}>
+      <i style={{ background: cssColor(resource) }} />
+      {amount !== undefined && (of !== undefined ? `${amount}/${of}` : amount)}
+    </span>
+  )
+}
+
+/** Ресурсы в строку. */
+const Stacks = ({ items }: { items: Stack[] }) => (
+  <>
+    {items.map(({ resource, amount }) => (
+      <Res key={resource} resource={resource} amount={amount} />
+    ))}
+  </>
+)
+
+/** Что сейчас с перерабатывающим зданием — словами. */
+const CRAFT_STATES: Record<CraftState, string> = {
+  working: 'Работает',
+  input: 'Ждёт сырья: грузовики привезут из хранилищ зоны',
+  full: 'Склад готового полон: грузовики увезут в хранилища',
+  power: 'Стоит без энергии',
+}
 
 /** Сколько секунд сообщение о награде висит на экране. */
 const TOAST_SECONDS = 5
@@ -33,7 +61,7 @@ function useNewRewards(rewards: string[]) {
 
 /** Интерфейс игрока: счёт и панель выбранного с приказами. Сам ничего не решает — только шлёт команды. */
 export function Hud({ state, send, place }: HudProps) {
-  const { units, building, ore, site, demolish, construction, conversion, production } = state
+  const { units, building, deposit, site, demolish, construction, conversion, production } = state
   const selected = units.length > 0 || building !== null
   const fresh = useNewRewards(state.rewards)
 
@@ -44,8 +72,9 @@ export function Hud({ state, send, place }: HudProps) {
         {state.credits}
         {state.income > 0 && <small>+{state.income}/с</small>}
         {state.stock && (
-          <span class="hud__ore" title="Руда в хранилищах">
-            ◆ {state.stock.ore}/{state.stock.capacity}
+          <span class="hud__stock" title={`Запас в хранилищах; всего помещается ${state.stock.capacity}`}>
+            <Stacks items={state.stock.items} />
+            {state.stock.items.length === 0 && <span class="hud__res">хранилища пусты</span>}
           </span>
         )}
       </div>
@@ -87,14 +116,40 @@ export function Hud({ state, send, place }: HudProps) {
 
           {state.stored && (
             <div class="hud__hint">
-              Руды в хранилище: {state.stored.ore} из {state.stored.capacity}
-              {state.stored.ore >= state.stored.capacity && ' — полно'}
+              {state.stored.store ? 'Хранилище' : 'Склад'}: <Stacks items={state.stored.items} />
+              {state.stored.items.length === 0 && 'пусто'} — вмещает {state.stored.capacity}
+            </div>
+          )}
+          {state.craft && (
+            <>
+              <div class="hud__hint">
+                <Stacks items={state.craft.inputs} />
+                {state.craft.inputs.length === 0 && 'из воздуха'} → <Stacks items={state.craft.outputs} /> за {state.craft.seconds} с
+              </div>
+              <div class="hud__progress">
+                <span style={{ width: percent(state.craft.progress) }} />
+                <em>{CRAFT_STATES[state.craft.state]}</em>
+              </div>
+            </>
+          )}
+          {state.materials && (
+            <div class={state.materials.waiting ? 'hud__hint is-short' : 'hud__hint'}>
+              Материалы:{' '}
+              {state.materials.items.map(({ resource, have, need }) => (
+                <Res key={resource} resource={resource} amount={have} of={need} />
+              ))}
+              {state.materials.waiting && ' — ждёт подвоза из хранилищ зоны'}
             </div>
           )}
           {state.cargo && (
             <div class="hud__hint">
-              Груз: {state.cargo.ore} из {state.cargo.capacity}.{' '}
-              {state.cargo.bound > 0 ? 'Возит руду' : 'Свободен: возит руду в космопорт по заявке. Правый щелчок по шахте — возить из неё'}
+              Груз: <Stacks items={state.cargo.items} />
+              {state.cargo.items.length === 0 && 'пусто'} из {state.cargo.capacity}.{' '}
+              {state.cargo.bound > 0
+                ? 'Возит из шахты в хранилища'
+                : state.cargo.busy > 0
+                  ? 'Везёт по заявке зоны'
+                  : 'Свободен: сам берёт заявки зон. Правый щелчок по шахте — возить только из неё'}
             </div>
           )}
           {state.trade &&
@@ -106,13 +161,13 @@ export function Hud({ state, send, place }: HudProps) {
                   />
                   <em>
                     {state.trade.order.flight !== null
-                      ? `Корабль в пути: ${state.trade.order.wanted} руды за ${state.trade.order.wanted * state.trade.price}`
-                      : `Грузовики везут руду: ${state.trade.order.delivered} из ${state.trade.order.wanted}`}
+                      ? `Корабль в пути: ${RESOURCE_NAMES[state.trade.order.resource].toLowerCase()} ×${state.trade.order.wanted} за ${state.trade.order.wanted * state.trade.order.price}`
+                      : `Грузовики везут ${RESOURCE_NAMES[state.trade.order.resource].toLowerCase()}: ${state.trade.order.delivered} из ${state.trade.order.wanted}`}
                   </em>
                 </div>
                 {state.trade.order.flight === null && (
                   <>
-                    <div class="hud__hint">Руду возят свободные грузовики — не привязанные к шахте</div>
+                    <div class="hud__hint">Товар возят свободные грузовики — не привязанные к шахте</div>
                     <button onClick={() => send({ type: 'closeSale', port: state.trade!.port })}>
                       {state.trade.order.delivered > 0 ? 'Отправить, что привезли' : 'Снять заявку'}
                     </button>
@@ -121,23 +176,31 @@ export function Hud({ state, send, place }: HudProps) {
               </>
             ) : (
               <>
-                <div class="hud__hint">
-                  Руды в хранилищах зоны: {state.trade.available}. Цена: {state.trade.price} за единицу
-                </div>
-                <div class="hud__row">
-                  {[50, state.trade.available]
-                    .filter((amount, i, all) => amount > 0 && amount <= state.trade!.available && all.indexOf(amount) === i)
-                    .map((amount) => (
-                      <button key={amount} onClick={() => send({ type: 'sell', port: state.trade!.port, amount })}>
-                        Продать {amount} <small>+{amount * state.trade!.price}</small>
-                      </button>
-                    ))}
-                  {state.trade.available < 1 && <button disabled>Продавать нечего</button>}
-                </div>
+                <div class="hud__hint">Продажа из хранилищ зоны, цена за единицу:</div>
+                {state.trade.offers.map(({ resource, available, price }) => (
+                  <div key={resource} class="hud__row">
+                    <Res resource={resource} amount={available} />
+                    <small>
+                      {RESOURCE_NAMES[resource]}, по {price}
+                    </small>
+                    {[50, available]
+                      .filter((amount, i, all) => amount > 0 && amount <= available && all.indexOf(amount) === i)
+                      .map((amount) => (
+                        <button key={amount} onClick={() => send({ type: 'sell', port: state.trade!.port, resource, amount })}>
+                          {amount === available ? 'Всё' : amount} <small>+{amount * price}</small>
+                        </button>
+                      ))}
+                  </div>
+                ))}
+                {state.trade.offers.length === 0 && <button disabled>Продавать нечего</button>}
               </>
             ))}
 
-          {ore !== null && <div class="hud__hint">{ore > 0 ? `Руды в месторождении: ${ore}` : 'Месторождение выработано'}</div>}
+          {deposit && (
+            <div class="hud__hint">
+              <Res resource={deposit.kind} /> {RESOURCE_NAMES[deposit.kind]}: {deposit.left > 0 ? `осталось ${deposit.left}` : 'месторождение выработано'}
+            </div>
+          )}
 
           {site && (
             <>
@@ -173,7 +236,7 @@ export function Hud({ state, send, place }: HudProps) {
           {construction && (
             <>
               <div class="hud__list">
-                {construction.options.map(({ building, cost, affordable, power }) => (
+                {construction.options.map(({ building, cost, affordable, power, materials }) => (
                   <button
                     key={building}
                     class={construction.placing === building ? 'is-active' : undefined}
@@ -189,6 +252,7 @@ export function Hud({ state, send, place }: HudProps) {
                   >
                     <span>{BUILDING_NAMES[building]}</span>
                     {power !== 0 && <small class="hud__power">⚡{power > 0 ? `+${power}` : power}</small>}
+                    {materials.length > 0 && <small><Stacks items={materials} /></small>}
                     <small class="hud__cost">{cost}</small>
                   </button>
                 ))}
@@ -225,7 +289,7 @@ export function Hud({ state, send, place }: HudProps) {
           {production && (
             <>
               <div class="hud__list">
-                {production.options.map(({ unit, cost, affordable }) => (
+                {production.options.map(({ unit, cost, affordable, materials }) => (
                   <button
                     key={unit}
                     disabled={!affordable || production.full}
@@ -233,6 +297,7 @@ export function Hud({ state, send, place }: HudProps) {
                     onClick={() => send({ type: 'produce', producer: production.producer, unit })}
                   >
                     <span>{UNIT_NAMES[unit]}</span>
+                    {materials.length > 0 && <small><Stacks items={materials} /></small>}
                     <small class="hud__cost">{cost}</small>
                   </button>
                 ))}

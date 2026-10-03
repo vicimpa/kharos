@@ -3,14 +3,19 @@ import { createAtlas } from '../render/atlas'
 import { Pixmap } from '../render/pixmap'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites } from '../render/sprites'
-import { DEPOSIT_CELL, DEPOSIT_SIZE, depositIn, oreLeft } from '../sim'
+import { DEPOSIT_CELL, DEPOSIT_SIZE, DEPOSIT_TYPES, depositIn, reserveLeft, type DepositKind } from '../sim'
 import type { Scene } from './scene'
 
 /** Пикселей спрайта на тайл, как у местности. */
 const ART_TILE = 16
 const INK = 0x2a1410
-/** Тона руды от тёмного к блику. */
-const ORE = [0x6b2f1e, 0xb5562e, 0xe58a4a, 0xffd9a0] as const
+/** Тона породы каждого вида месторождения от тёмного к блику. */
+const TONES: Record<DepositKind, readonly [number, number, number, number]> = {
+  ore: [0x6b2f1e, 0xb5562e, 0xe58a4a, 0xffd9a0],
+  silica: [0x6e6856, 0xa9a184, 0xe0d9bc, 0xffffff],
+  oil: [0x0d0b10, 0x221d29, 0x3a3340, 0x8f86a8],
+  kharite: [0x2e1247, 0x6a2fa8, 0xc06bff, 0xf3dcff],
+}
 /** Выработанное месторождение остаётся на карте бледным следом. */
 const SPENT_ALPHA = 0.3
 
@@ -23,8 +28,25 @@ const CRUMBS = [
   [11, 8], [20, 3], [29, 14], [2, 11], [18, 19], [8, 20], [13, 29], [23, 23], [30, 21], [1, 27], [19, 13], [27, 2],
 ] as const
 
-/** Рисует месторождение: угловатые глыбы породы с рудными жилами и крошка вокруг. */
-function drawDeposit() {
+/** Нефть: тёмная лужа с радужным бликом и брызгами вокруг. */
+function drawOil() {
+  const image = new Pixmap(DEPOSIT_SIZE * ART_TILE, DEPOSIT_SIZE * ART_TILE)
+  const tones = TONES.oil
+  for (const [x, y] of CRUMBS) image.rect(x, y, 2, 1, tones[1])
+  image.circle(15, 16, 11, INK)
+  image.circle(15, 16, 10, tones[0])
+  image.circle(20, 21, 6, tones[0])
+  image.circle(13, 14, 7, tones[1])
+  image.rect(9, 11, 6, 1, tones[2])
+  image.rect(10, 12, 3, 1, tones[3])
+  image.rect(19, 19, 3, 1, 0x4a6a8a)
+  return image
+}
+
+/** Рисует месторождение: угловатые глыбы породы с жилами и крошка вокруг; нефть — лужей. */
+function drawDeposit(kind: DepositKind) {
+  if (kind === 'oil') return drawOil()
+  const ORE = TONES[kind]
   const image = new Pixmap(DEPOSIT_SIZE * ART_TILE, DEPOSIT_SIZE * ART_TILE)
   for (const [x, y] of CRUMBS) image.rect(x, y, 2, 1, ORE[1])
   CHUNKS.forEach(([x, y, w, h], i) => {
@@ -46,8 +68,8 @@ function drawDeposit() {
  * а спрашивает клетки мира, попавшие на экран. Ставить сразу над местностью: шахта закрывает месторождение собой.
  */
 export function createDepositsPass(gl: WebGL2RenderingContext, scene: Scene): Pass {
-  const atlas = createAtlas(gl, [drawDeposit()])
-  const [frame] = atlas.frames
+  const atlas = createAtlas(gl, DEPOSIT_TYPES.map(drawDeposit))
+  const frames = new Map(DEPOSIT_TYPES.map((kind, i) => [kind, atlas.frames[i]]))
   const program = createSpriteProgram(gl)
   const sprites = createSprites(gl, program)
 
@@ -66,7 +88,8 @@ export function createDepositsPass(gl: WebGL2RenderingContext, scene: Scene): Pa
         for (let cellX = left; cellX <= right; cellX++) {
           const spot = depositIn(sim, cellX, cellY)
           if (!spot) continue
-          const alpha = oreLeft(sim, spot.x, spot.y) > 0 ? 1 : SPENT_ALPHA
+          const alpha = reserveLeft(sim, spot.x, spot.y) > 0 ? 1 : SPENT_ALPHA
+          const frame = frames.get(spot.kind)!
           sprites.push(
             spot.x - camera.x, spot.y - camera.y, DEPOSIT_SIZE, DEPOSIT_SIZE,
             frame.u, frame.v, frame.width, frame.height,

@@ -1,6 +1,6 @@
 import { component } from '../ecs'
 import type { BuildingType } from './buildings'
-import type { Resource } from './inventory'
+import type { Amounts, Resource } from './resources'
 import type { TurretType } from './turrets'
 import type { UnitType } from './units'
 import type { WeaponType } from './weapons'
@@ -79,37 +79,48 @@ export const Site = component('Site', { type: 'generator' as BuildingType, progr
 /** Ремонтник едет к работе site — стройке, разбору или тому, что надо починить, — чтобы она оказалась в его радиусе. */
 export const Builds = component('Builds', { site: 0 })
 
-/** Месторождение, из которого уже добывали: mined — сколько руды забрано. Место — левый верхний тайл месторождения. */
+/** Месторождение, из которого уже добывали: mined — сколько из него забрано. Место — левый верхний тайл месторождения. */
 export const Deposit = component('Deposit', { mined: 0 })
 
 /**
- * Грузовик. Груз лежит в его складе (Inventory). Работ у него две, и занят он одной: возит руду из шахты mine
- * в хранилище base или из хранилища source в космопорт port; -1 — нет. full — груз надо везти получателю;
- * loading — в этот тик идёт погрузка или выгрузка; waiting — уже получил приказ подъехать к лучу.
+ * Грузовик. Груз лежит в его складе (Inventory). mine — шахта, к которой его привязал игрок; -1 — свободен:
+ * тогда работу ему даёт диспетчер зон (см. logistics.ts). Работа — перевезти до amount ресурса resource со склада
+ * from на склад to; from = -1 — работы нет, to = -1 — куда везти, решится, когда наберёт груз. full — груз набран
+ * и едет к to; loading — в этот тик идёт погрузка или выгрузка; waiting — уже получил приказ подъехать к лучу.
  */
-export const Hauler = component('Hauler', { mine: -1, base: -1, port: -1, source: -1, full: false, loading: false, waiting: false })
+export const Hauler = component('Hauler', {
+  mine: -1,
+  from: -1,
+  to: -1,
+  resource: 'ore' as Resource,
+  amount: 0,
+  full: false,
+  loading: false,
+  waiting: false,
+})
 
 /**
  * Склад: ресурсы, которые лежат в здании или едут в юните. items — сколько какого ресурса; capacity — сколько
- * помещается всего, всех ресурсов вместе; accepts — какие ресурсы сюда кладут, пусто — любые.
+ * помещается всего, всех ресурсов вместе; accepts — какие ресурсы сюда кладут, пусто — любые; limits — сколько
+ * каждого ресурса помещается самое большее: так у перерабатывающего здания сырьё не вытесняет готовое.
  * Между складами ресурсы переносит транспортный луч: см. Beam и inventory.ts.
  */
-export const Inventory = component('Inventory', () => ({ items: {} as Partial<Record<Resource, number>>, capacity: 0, accepts: [] as Resource[] }))
+export const Inventory = component('Inventory', () => ({ items: {} as Amounts, capacity: 0, accepts: [] as Resource[], limits: {} as Amounts }))
 
 /**
  * Транспортный луч: переносит ресурсы между своим складом и чужим, если между их краями не больше radius тайлов.
  * give — умеет отдавать, take — забирать; rate — сколько единиц в секунду на каждый склад. Очереди нет: луч
  * работает со всеми, кто в радиусе, сразу. links — с кем он работал в этот тик: target — чей склад, pulling —
- * забирал он с него или отдавал на него.
+ * забирал он с него или отдавал на него, resource — что переносил.
  */
-export const Beam = component('Beam', () => ({ radius: 2, rate: 10, give: true, take: true, links: [] as { target: number; pulling: boolean }[] }))
+export const Beam = component('Beam', () => ({ radius: 2, rate: 10, give: true, take: true, links: [] as { target: number; pulling: boolean; resource: Resource }[] }))
 
 /**
- * Заявка на продажу руды: есть у космопорта от заявки до денег. wanted — сколько руды продаётся, claimed — сколько
- * едет к нему в кузовах; привезённое лежит в складе космопорта. Когда привезено всё, корабль улетает:
- * left и total — сколько тиков ему лететь; пока руду везут, они нулевые.
+ * Заявка на продажу: есть у космопорта от заявки до денег. resource — что продаётся, wanted — сколько;
+ * привезённое лежит в складе космопорта. Когда привезено всё, корабль улетает: left и total — сколько тиков
+ * ему лететь; пока товар везут, они нулевые.
  */
-export const Trade = component('Trade', { wanted: 0, claimed: 0, left: 0, total: 0 })
+export const Trade = component('Trade', { resource: 'ore' as Resource, wanted: 0, left: 0, total: 0 })
 
 /**
  * Вооружённый юнит. target — кого он атакует, -1 — никого. chase — гнаться ли за целью, когда она вне дальности:
@@ -150,6 +161,9 @@ export const Blast = component('Blast', { size: 1, age: 0, life: 0 })
  */
 export const Turret = component('Turret', { type: 'rocket' as TurretType, angle: 0, prevAngle: 0, prevX: 0, prevY: 0 })
 
+/** Перерабатывающее здание: progress — сколько тиков идёт нынешний цикл; ноль — цикл не начат. См. crafting.ts. */
+export const Crafter = component('Crafter', { progress: 0 })
+
 /** Прикреплён к сущности parent: стоит на ней в along тайлов вперёд и across вправо от её центра. */
 export const Attached = component('Attached', { parent: -1, along: 0, across: 0 })
 
@@ -157,4 +171,4 @@ export const Attached = component('Attached', { parent: -1, along: 0, across: 0 
 export const Carrier = component('Carrier', () => ({ turrets: [] as number[] }))
 
 /** Компоненты, которые попадают в сохранение и в сеть. Новый компонент симуляции добавляй сюда. */
-export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Inventory, Beam, Trade, Armed, Shot, Blast]
+export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Inventory, Beam, Crafter, Trade, Armed, Shot, Blast]

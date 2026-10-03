@@ -1,4 +1,4 @@
-import type { BuildingType, Reward, UnitType } from '../sim'
+import type { BuildingType, Resource, Reward, UnitType } from '../sim'
 
 /** Названия для интерфейса. Симуляция знает только ключи. */
 export const UNIT_NAMES: Record<UnitType, string> = {
@@ -18,7 +18,10 @@ export const UNIT_NAMES: Record<UnitType, string> = {
 
 export const BUILDING_NAMES: Record<BuildingType, string> = {
   command: 'Главное здание',
-  refinery: 'Переработка',
+  refinery: 'Нефтезавод',
+  smelter: 'Плавильня',
+  kiln: 'Кремниевый завод',
+  assembly: 'Сборочный цех',
   factory: 'Машинный завод',
   generator: 'Электростанция',
   matter: 'Генератор материи',
@@ -39,4 +42,16 @@ export const REWARD_NAMES: Record<Reward, string> = {
   matter: 'Первый генератор материи',
   mine: 'Первая шахта',
   silo: 'Первое хранилище',
+}
+
+export const RESOURCE_NAMES: Record<Resource, string> = {
+  ore: 'Руда',
+  silica: 'Кремнезём',
+  oil: 'Нефть',
+  kharite: 'Харит',
+  water: 'Вода',
+  metal: 'Металл',
+  silicon: 'Кремний',
+  fuel: 'Топливо',
+  components: 'Компоненты',
 }

@@ -4,6 +4,7 @@ import { isOwn } from './common'
 import { Armed, Converting, Hauler, Health, Owner, Repair, Path, Position, Producer, Unit } from './components'
 import { STARTING_CREDITS, addCredits } from './economy'
 import { equipStorage, type BeamSpec } from './inventory'
+import type { Amounts } from './resources'
 import { findPath, smoothPath } from './path'
 import type { Sim } from './sim'
 import { mountTurrets, turretSpec, type MountSpec } from './turrets'
@@ -30,6 +31,11 @@ export interface UnitSpec {
   repair?: number
   /** Турели на юните: каждая — своя сущность, см. turrets.ts. */
   mounts?: MountSpec[]
+  /**
+   * Материалы на производство вдобавок к кредитам: их привозят производителю грузовики из хранилищ его зоны,
+   * и пока их нет, заказ не начинается. Без них — только кредиты.
+   */
+  materials?: Amounts
   /** Склад: сколько ресурсов юнит везёт. См. inventory.ts. */
   inventory?: number
   /** Транспортный луч: им юнит отдаёт ресурсы со своего склада или забирает на него. */
@@ -49,24 +55,25 @@ export const UNITS = {
   // Машинки: быстрые и хрупкие.
   // Багги: за водителем сидит пассажир с миниганом и стреляет во все стороны.
   buggy: {
-    speed: 6, turn: 5, radius: 0.45, cost: 250, buildTime: 7, kind: 'vehicle', hp: 120,
+    speed: 6, turn: 5, radius: 0.45, cost: 250, buildTime: 7, kind: 'vehicle', hp: 120, materials: { metal: 6 },
     mounts: [{ turret: 'gunner', along: -0.16, across: 0 }],
   },
-  lancer: { speed: 4.5, turn: 4.5, radius: 0.45, cost: 350, buildTime: 9, kind: 'vehicle', hp: 140, weapon: 'laser' },
+  // Лазеру нужен кремний.
+  lancer: { speed: 4.5, turn: 4.5, radius: 0.45, cost: 350, buildTime: 9, kind: 'vehicle', hp: 140, weapon: 'laser', materials: { metal: 8, silicon: 4 } },
   // Тяжёлые: медленные, крепкие и дорогие.
   // Танк бьёт ядрами из башни: она поворачивается сама, и стрелять можно на ходу.
   tank: {
-    speed: 2.2, turn: 2.5, radius: 0.7, cost: 600, buildTime: 14, kind: 'heavy', hp: 450,
+    speed: 2.2, turn: 2.5, radius: 0.7, cost: 600, buildTime: 14, kind: 'heavy', hp: 450, materials: { metal: 20, components: 2 },
     mounts: [{ turret: 'cannon', along: -0.06, across: 0 }],
   },
-  // Разрядник: тяжёлое шасси с разрядной башней.
+  // Разрядник: тяжёлое шасси с разрядной башней. Катушке нужен харит.
   tesla: {
-    speed: 2, turn: 2.5, radius: 0.7, cost: 700, buildTime: 16, kind: 'heavy', hp: 380,
+    speed: 2, turn: 2.5, radius: 0.7, cost: 700, buildTime: 16, kind: 'heavy', hp: 380, materials: { metal: 15, components: 4, kharite: 4 },
     mounts: [{ turret: 'arc', along: 0, across: 0 }],
   },
   // Носитель: колёсное шасси танка без своего оружия — на нём три ракетные турели и ремонтная.
   carrier: {
-    speed: 3, turn: 2.5, radius: 0.8, cost: 1200, buildTime: 20, kind: 'vehicle', hp: 550,
+    speed: 3, turn: 2.5, radius: 0.8, cost: 1200, buildTime: 20, kind: 'vehicle', hp: 550, materials: { metal: 25, components: 6 },
     mounts: [
       { turret: 'rocket', along: 0.36, across: -0.27 },
       { turret: 'rocket', along: 0.36, across: 0.27 },
@@ -74,9 +81,9 @@ export const UNITS = {
       { turret: 'repair', along: -0.28, across: 0.27 },
     ],
   },
-  // Летающие.
-  drone: { speed: 7.5, turn: 6, radius: 0.35, cost: 220, buildTime: 6, kind: 'air', hp: 70, weapon: 'machinegun' },
-  gunship: { speed: 5, turn: 3, radius: 0.55, cost: 500, buildTime: 12, kind: 'air', hp: 160, weapon: 'launcher' },
+  // Летающие: им нужно топливо.
+  drone: { speed: 7.5, turn: 6, radius: 0.35, cost: 220, buildTime: 6, kind: 'air', hp: 70, weapon: 'machinegun', materials: { silicon: 3, fuel: 4 } },
+  gunship: { speed: 5, turn: 3, radius: 0.55, cost: 500, buildTime: 12, kind: 'air', hp: 160, weapon: 'launcher', materials: { metal: 12, components: 3, fuel: 8 } },
 } satisfies Record<string, UnitSpec>
 
 export type UnitType = keyof typeof UNITS
