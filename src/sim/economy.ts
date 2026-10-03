@@ -2,8 +2,8 @@ import type { Entity } from '../ecs'
 import { Player } from './components'
 import type { Sim } from './sim'
 
-/** С какой суммой игрок появляется в мире. */
-export const STARTING_CREDITS = 1000
+/** С какой суммой игрок появляется в мире: хватает на первый набор (электростанция, генератор материи, шахта, грузовик). */
+export const STARTING_CREDITS = 1200
 
 function playerEntity(sim: Sim, player: number): Entity | undefined {
   for (const [entity, data] of sim.world.query(Player)) if (data.id === player) return entity

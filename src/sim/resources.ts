@@ -9,14 +9,14 @@ export interface ResourceSpec {
 
 /**
  * Ресурсы добываются сразу в готовом виде: шахта на месторождении даёт металл, кремний, топливо или харит —
- * смотря что в нём лежит. Переработки пока нет.
+ * смотря что в нём лежит. Переработки пока нет. Продажа — основной источник кредитов, поэтому сырьё стоит дорого.
  */
 export const RESOURCE_SPECS = {
-  metal: { price: 4 },
-  silicon: { price: 4 },
-  fuel: { price: 5 },
+  metal: { price: 5 },
+  silicon: { price: 5 },
+  fuel: { price: 6 },
   // Харит редок и дорог: месторождения его малы, а добыча медленная.
-  kharite: { price: 30 },
+  kharite: { price: 40 },
 } satisfies Record<string, ResourceSpec>
 
 export type Resource = keyof typeof RESOURCE_SPECS

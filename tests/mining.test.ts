@@ -287,8 +287,7 @@ test('здания можно ставить вплотную к шахте, а 
   for (const [, deposit] of sim.world.query(Deposit)) deposit.mined = spot.reserve - 1
   until(sim, () => reserveLeft(sim, spot.x, spot.y) === 0)
   // Довёз остаток и освободился.
-  until(sim, () => hauler().mine === -1)
-  expect(oreIn(sim, truck)).toBe(0)
+  until(sim, () => hauler().mine === -1 && oreIn(sim, truck) === 0)
   expect((stockOf(sim, 1).items.metal ?? 0)).toBeGreaterThan(1)
   expect(canBuild(sim, 1, 'mine', spot.x, spot.y)).toBe(false)
 })

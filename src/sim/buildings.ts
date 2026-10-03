@@ -61,22 +61,22 @@ export const BUILDINGS = {
   command: { width: 3, height: 3, cost: 2000, income: 0.2, zone: 12, inventory: 100, stores: true, produces: ['builder', 'truck'] },
   refinery: { width: 3, height: 2, cost: 600 },
   // Машинный завод: машинки и тяжёлая техника.
-  factory: { width: 2, height: 2, cost: 500, power: -5, materials: { metal: 30 }, produces: ['buggy', 'lancer', 'tank', 'tesla', 'carrier'] },
+  factory: { width: 2, height: 2, cost: 450, power: -5, materials: { metal: 20 }, produces: ['buggy', 'lancer', 'tank', 'tesla', 'carrier'] },
   // Электростанция.
   generator: { width: 2, height: 2, cost: 300, power: 10 },
-  // Генератор материи — базовый доход: превращает энергию в кредиты.
-  matter: { width: 2, height: 2, cost: 400, power: -5, income: 1, crowding: true },
+  // Генератор материи — базовый доход: превращает энергию в кредиты. Первая электростанция окупает его быстро,
+  // дальше теснота делает каждый следующий всё дороже.
+  matter: { width: 2, height: 2, cost: 250, power: -5, income: 1, crowding: true },
   radar: { width: 2, height: 2, cost: 400 },
   windtrap: { width: 2, height: 2, cost: 300 },
-  barracks: { width: 2, height: 2, cost: 300, power: -2, produces: ['infantry', 'rocketeer'] },
+  barracks: { width: 2, height: 2, cost: 250, power: -2, produces: ['infantry', 'rocketeer'] },
   // Шахта энергии не просит и начинает свою зону: тянуть к месторождению цепочку зданий не нужно.
-  // Месторождения невелики, поэтому добыча медленная. Добытое копится в шахте, пока его
-  // не выкачают грузовики.
-  mine: { width: 2, height: 2, cost: 500, zone: 6, extract: true, inventory: 40 },
-  silo: { width: 2, height: 1, cost: 150, inventory: 200, stores: true },
+  // Добытое копится в шахте, пока его не выкачают грузовики.
+  mine: { width: 2, height: 2, cost: 300, zone: 7, extract: true, inventory: 60 },
+  silo: { width: 2, height: 1, cost: 100, inventory: 200, stores: true },
   // Космопорт ещё и выпускает летающих. Энергию просит всегда, но от её нехватки замедляется только производство.
   // Товар на продажу грузовики сгружают в трюм корабля.
-  spaceport: { width: 3, height: 3, cost: 600, power: -5, materials: { metal: 30 }, trades: true, inventory: 400, produces: ['drone', 'gunship'] },
+  spaceport: { width: 3, height: 3, cost: 450, power: -5, materials: { metal: 20 }, trades: true, inventory: 400, produces: ['drone', 'gunship'] },
   turret: { width: 1, height: 1, cost: 250 },
 } satisfies Record<string, BuildingSpec>
 

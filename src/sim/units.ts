@@ -42,24 +42,27 @@ export interface UnitSpec {
   beam?: BeamSpec
 }
 
-/** Боевые числа — на глаз: бой ещё не балансировался. */
+/**
+ * Боевые числа подобраны под боевой треугольник: у каждого юнита есть контр-юниты, ни один не бьёт всех.
+ * Как это выглядит на деле — видно прогоном `bun run balance`: он считает урон в секунду и проводит бои.
+ */
 export const UNITS = {
   mcv: { speed: 2.5, turn: 2.2, radius: 0.8, cost: 2000, buildTime: 30, kind: 'heavy', hp: 800 },
-  builder: { speed: 4, turn: 5, radius: 0.45, cost: 150, buildTime: 5, kind: 'vehicle', hp: 100, repair: 5 },
+  builder: { speed: 4, turn: 5, radius: 0.45, cost: 120, buildTime: 5, kind: 'vehicle', hp: 100, repair: 5 },
   infantry: { speed: 3, turn: 10, radius: 0.3, cost: 60, buildTime: 3, kind: 'infantry', hp: 50, weapon: 'rifle' },
   // Грузовик возит добытое из шахты в хранилище и заказанное по зонам: см. hauling.ts. Своим лучом он и забирает груз,
   // и сгружает его: зданиям лучи не нужны.
-  truck: { speed: 3.5, turn: 4, radius: 0.45, cost: 200, buildTime: 8, kind: 'vehicle', hp: 150, inventory: 20, beam: { radius: 2, rate: 10, give: true, take: true } },
+  truck: { speed: 3.5, turn: 4, radius: 0.45, cost: 150, buildTime: 8, kind: 'vehicle', hp: 150, inventory: 25, beam: { radius: 2, rate: 10, give: true, take: true } },
   // Пехота.
-  rocketeer: { speed: 2.6, turn: 10, radius: 0.3, cost: 120, buildTime: 5, kind: 'infantry', hp: 45, weapon: 'launcher' },
+  rocketeer: { speed: 2.6, turn: 10, radius: 0.3, cost: 120, buildTime: 5, kind: 'infantry', hp: 40, weapon: 'launcher' },
   // Машинки: быстрые и хрупкие.
   // Багги: за водителем сидит пассажир с миниганом и стреляет во все стороны.
   buggy: {
-    speed: 6, turn: 5, radius: 0.45, cost: 250, buildTime: 7, kind: 'vehicle', hp: 120, materials: { metal: 6 },
+    speed: 6, turn: 5, radius: 0.45, cost: 250, buildTime: 7, kind: 'vehicle', hp: 150, materials: { metal: 6 },
     mounts: [{ turret: 'gunner', along: -0.16, across: 0 }],
   },
   // Лазеру нужен кремний.
-  lancer: { speed: 4.5, turn: 4.5, radius: 0.45, cost: 350, buildTime: 9, kind: 'vehicle', hp: 140, weapon: 'laser', materials: { metal: 8, silicon: 4 } },
+  lancer: { speed: 4.5, turn: 4.5, radius: 0.45, cost: 350, buildTime: 9, kind: 'vehicle', hp: 180, weapon: 'laser', materials: { metal: 8, silicon: 4 } },
   // Тяжёлые: медленные, крепкие и дорогие.
   // Танк бьёт ядрами из башни: она поворачивается сама, и стрелять можно на ходу.
   tank: {
@@ -68,12 +71,12 @@ export const UNITS = {
   },
   // Разрядник: тяжёлое шасси с разрядной башней. Катушке нужен харит.
   tesla: {
-    speed: 2, turn: 2.5, radius: 0.7, cost: 700, buildTime: 16, kind: 'heavy', hp: 380, materials: { metal: 15, silicon: 6, kharite: 4 },
+    speed: 2, turn: 2.5, radius: 0.7, cost: 700, buildTime: 16, kind: 'heavy', hp: 500, materials: { metal: 15, silicon: 6, kharite: 4 },
     mounts: [{ turret: 'arc', along: 0, across: 0 }],
   },
   // Носитель: колёсное шасси танка без своего оружия — на нём три ракетные турели и ремонтная.
   carrier: {
-    speed: 3, turn: 2.5, radius: 0.8, cost: 1200, buildTime: 20, kind: 'vehicle', hp: 550, materials: { metal: 25, silicon: 8 },
+    speed: 3, turn: 2.5, radius: 0.8, cost: 1200, buildTime: 20, kind: 'vehicle', hp: 700, materials: { metal: 25, silicon: 8 },
     mounts: [
       { turret: 'rocket', along: 0.36, across: -0.27 },
       { turret: 'rocket', along: 0.36, across: 0.27 },
@@ -83,7 +86,7 @@ export const UNITS = {
   },
   // Летающие: им нужно топливо.
   drone: { speed: 7.5, turn: 6, radius: 0.35, cost: 220, buildTime: 6, kind: 'air', hp: 70, weapon: 'machinegun', materials: { silicon: 3, fuel: 4 } },
-  gunship: { speed: 5, turn: 3, radius: 0.55, cost: 500, buildTime: 12, kind: 'air', hp: 160, weapon: 'launcher', materials: { metal: 12, silicon: 4, fuel: 8 } },
+  gunship: { speed: 5, turn: 3, radius: 0.55, cost: 500, buildTime: 12, kind: 'air', hp: 200, weapon: 'launcher', materials: { metal: 12, silicon: 4, fuel: 8 } },
 } satisfies Record<string, UnitSpec>
 
 export type UnitType = keyof typeof UNITS
