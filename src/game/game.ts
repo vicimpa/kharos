@@ -226,15 +226,15 @@ export function createGame(
 
     // Пока контекст потерян, рисовать некуда; игра при этом продолжает идти.
     if (renderer.lost) return
+    // Тряска уводит только картинку, вместе с землёй: управление и сохранение видят камеру на месте.
+    const { x: shakeX, y: shakeY } = shake.offset()
+    camera.x += shakeX
+    camera.y += shakeY
     landWindow.update(sim.land, camera, width, height)
     const { time } = sim
-    // Тряска уводит только картинку: управление и сохранение видят камеру на месте.
-    const { x: shakeX, y: shakeY } = shake.offset()
-    camera.x += shakeX / camera.zoom
-    camera.y += shakeY / camera.zoom
     renderer.draw(camera, time.elapsed + time.alpha * time.step, seconds)
-    camera.x -= shakeX / camera.zoom
-    camera.y -= shakeY / camera.zoom
+    camera.x -= shakeX
+    camera.y -= shakeY
   }, onError)
 
   // Последний шанс сохраниться: вкладку закрывают или уводят в фон.
