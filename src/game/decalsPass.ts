@@ -16,13 +16,13 @@ const STEP_LENGTH = 0.3
 const FOOTPRINT = 0.1
 
 /**
- * Сколько секунд живут колеи, отметины от попаданий и взрывов и остовы техники. Вторую половину срока они
- * растворяются: пиксель за пикселем, в порядке матрицы дизеринга.
+ * Сколько секунд живут колеи, отметины от попаданий и взрывов и остовы техники. С доли срока FADE_FROM они
+ * растворяются: пиксель за пикселем, каждый в свой случайный момент.
  */
 const TRACE_LIFE = 90
 const MARK_LIFE = 240
 const WRECK_LIFE = 600
-const FADE_FROM = 0.5
+const FADE_FROM = 0.25
 /** Больше разом не бывает: самые старые уступают место новым. */
 const TRACE_LIMIT = 12000
 const MARK_LIMIT = 3000
@@ -145,15 +145,15 @@ in vec4 aLine;
 in float aWidth;
 in vec4 aFrame;
 in vec4 aTint;
-in vec2 aFade;
+in vec3 aFade;
 uniform vec2 uScale;
 uniform vec2 uOffset;
-uniform vec2 uPhase;
+uniform vec2 uCameraPixels;
 out vec2 vLocal;
 out vec2 vWorld;
 out vec4 vFrame;
 out vec4 vTint;
-out vec2 vFade;
+out vec3 vFade;
 
 void main() {
   vec2 span = aLine.zw - aLine.xy;
@@ -165,7 +165,7 @@ void main() {
   vec2 local = vec2(mix(-pad / size, 1.0 + pad / size, aCorner.x), mix(-pad / aWidth, 1.0 + pad / aWidth, aCorner.y));
   vec2 tile = aLine.xy + span * local.x + across * (local.y - 0.5) * aWidth;
   vLocal = local;
-  vWorld = tile * 16.0 + uPhase;
+  vWorld = tile * 16.0 + uCameraPixels;
   vFrame = aFrame;
   vTint = aTint;
   vFade = aFade;
@@ -180,11 +180,16 @@ in vec2 vLocal;
 in vec2 vWorld;
 in vec4 vFrame;
 in vec4 vTint;
-in vec2 vFade;
+in vec3 vFade;
 uniform sampler2D uTexture;
 out vec4 finalColor;
 
-const float BAYER[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+/** Случайное число от 0 до 1 для пикселя мира и зерна: у каждого следа пиксели гаснут в свой черёд. */
+float grain(vec2 cell, float seed) {
+  vec3 p = fract(vec3(cell.xyx + seed) * vec3(0.1031, 0.1030, 0.0973));
+  p += dot(p, p.yzx + 33.33);
+  return fract((p.x + p.y) * p.z);
+}
 
 void main() {
   // Всё решается для пикселя мира целиком, по его центру: и повёрнутая колея остаётся пиксель-артом.
@@ -194,9 +199,9 @@ void main() {
   if (any(lessThan(local, vec2(0.0))) || any(greaterThan(local, vec2(1.0)))) discard;
   vec4 texel = texture(uTexture, vFrame.xy + local * vFrame.zw);
   if (texel.a < 0.5) discard;
-  // Дизеринг: доля закрашенных пикселей — плотность, умноженная на то, сколько осталось до исчезновения.
-  ivec2 bayer = ivec2(mod(cell, 4.0));
-  if (vFade.x * vFade.y <= (BAYER[bayer.y * 4 + bayer.x] + 0.5) / 16.0) discard;
+  // Дизеринг шумом: доля закрашенных пикселей — плотность, умноженная на то, сколько осталось до исчезновения.
+  // Ступеней у него нет, и узор неправильный, как зерно песка.
+  if (vFade.x * vFade.y <= grain(cell, vFade.z)) discard;
   finalColor = vec4(texel.rgb * vTint.rgb, 1.0) * vTint.a;
 }
 `
@@ -215,6 +220,8 @@ interface Decal {
   color: readonly [number, number, number]
   opacity: number
   density: number
+  /** Зерно шума, по которому растворяется след. */
+  seed: number
   age: number
   life: number
 }
@@ -242,16 +249,16 @@ export function createDecalsPass(gl: WebGL2RenderingContext, scene: Scene): Pass
     atlas.frames[1 + scorches.length + pocks.length + UNIT_TYPES.indexOf(type) * WRECK_DIRECTIONS + direction]
 
   const program = createProgram(gl, VERTEX, FRAGMENT)
-  const quads = createQuads(gl, program, { aLine: 4, aWidth: 1, aFrame: 4, aTint: 4, aFade: 2 })
-  const phase = new Float32Array(2)
+  const quads = createQuads(gl, program, { aLine: 4, aWidth: 1, aFrame: 4, aTint: 4, aFade: 3 })
+  const cameraPixels = new Float32Array(2)
 
   const traces: Decal[] = []
   const marks: Decal[] = []
   const remains: Decal[] = []
-  const add = (list: Decal[], limit: number, decal: Omit<Decal, 'age'>) => {
+  const add = (list: Decal[], limit: number, decal: Omit<Decal, 'age' | 'seed'>) => {
     if (decal.opacity <= 0) return
     if (list.length >= limit) list.shift()
-    list.push({ ...decal, age: 0 })
+    list.push({ ...decal, age: 0, seed: Math.random() * 1000 })
   }
   /** Картинка size × size пикселей с серединой в (x, y), ровно по сетке пикселей мира. */
   const stamp = (list: Decal[], limit: number, x: number, y: number, size: number, frame: AtlasFrame, opacity: number, life: number) => {
@@ -410,17 +417,17 @@ export function createDecalsPass(gl: WebGL2RenderingContext, scene: Scene): Pass
           const [r, g, b] = decal.color
           quads.push(
             decal.fromX - camera.x, decal.fromY - camera.y, decal.toX - camera.x, decal.toY - camera.y, decal.width,
-            u, v, frameWidth, frameHeight, r, g, b, decal.opacity, left, decal.density,
+            u, v, frameWidth, frameHeight, r, g, b, decal.opacity, left, decal.density, decal.seed,
           )
         }
         list.length = kept
       }
       if (!quads.count) return
-      // Сетка дизеринга привязана к миру, а не к экрану: при прокрутке она не плывёт.
-      phase[0] = (((camera.x * 16) % 16) + 16) % 16
-      phase[1] = (((camera.y * 16) % 16) + 16) % 16
+      // Шум дизеринга привязан к пикселям мира, а не экрана: при прокрутке он не плывёт.
+      cameraPixels[0] = camera.x * 16
+      cameraPixels[1] = camera.y * 16
       setBlend(gl, 'alpha')
-      program.use(view, { uTexture: atlas.texture, uPhase: phase })
+      program.use(view, { uTexture: atlas.texture, uCameraPixels: cameraPixels })
       quads.draw()
     },
     destroy() {
