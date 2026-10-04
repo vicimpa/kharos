@@ -9,6 +9,7 @@ import { createSpriteProgram, createSprites } from '../render/sprites'
 import { BUILDINGS, Beam, Blast, Building, Health, Position, Shot, UNITS, Unit, WEAPONS, activeRepairs, flies, type RepairLink, type WeaponSpec } from '../sim'
 import { RESOURCE_COLORS } from './resourceColors'
 import type { Scene } from './scene'
+import type { TeamColors } from './units/unitArt'
 import { drawnPosition } from './units/unitsPass'
 
 /** Сторона кадра взрыва в пикселях и число кадров от вспышки до дыма. */
@@ -61,6 +62,21 @@ const CARGO_STEP = 0.3
 const CARGO_SPEED = 2.5
 /** На сколько тайлов вглубь основания здания уходит транспортный луч. */
 const BEAM_INSET = 0.4
+
+/**
+ * Грузовой корабль космопорта: пока только чертёж — полётов в игре нет, и корабль не рисуется.
+ * Механика полётов вернётся: по кораблям, летящим к космопорту и обратно, игрок должен находить чужую базу.
+ * Тогдашнему художнику понадобятся кадры поворота — их пекут из этого чертежа по углам, как у юнитов.
+ */
+/** Сторона кадра корабля в пикселях: с двигательными блоками и носом корабль длиннее юнита, и в кадр 32
+ * пикселей он на косых румбах не влезает углами. */
+const SHIP_FRAME = 44
+/** Тона корабля: те же, что у построек и юнитов; бортовые огни — красный слева, зелёный справа. */
+const SHIP_INK = 0x0b111b
+const SHIP_HULL = [0x1c2b3e, 0x2d4560, 0x41617f, 0x6184a3] as const
+const SHIP_IRON = [0x1e2024, 0x3a3d43, 0x5b5f66, 0x8b9097] as const
+const SHIP_PORT = 0xd23a2a
+const SHIP_STARBOARD = 0x3ada6a
 
 /**
  * Пыль под летающими: сколько клубов в секунду на тайл радиуса юнита, с какого расстояния от его середины
@@ -155,6 +171,62 @@ function drawPuff(kind: number) {
       const reach = 2.2 + noise(i, kind + 7) * 1.4
       image.circle(Math.round(center + Math.cos(angle) * reach), Math.round(center + Math.sin(angle) * reach) + shift, 2 + noise(i, kind + 13) * 1.2, color)
     }
+  }
+  return image
+}
+
+/**
+ * Грузовой корабль: вид сверху, носом под углом angle (радианы, 0 — вправо, растёт по часовой стрелке).
+ * Чертёж описан так, будто корабль смотрит вправо: along — вперёд, across — вправо от носа.
+ * Приметы грузовика — коробчатый корпус, ряд контейнеров вдоль палубы и двигательные блоки за кормой;
+ * на скулах носа горят бортовые огни, красный слева и зелёный справа.
+ */
+export function drawShip(team: TeamColors, angle: number): Pixmap {
+  const image = new Pixmap(SHIP_FRAME, SHIP_FRAME)
+  // Координаты — от центра спрайта, как у юнитов: сдвиг к центру делает originX в Pixmap.fill.
+  image.originX = image.originY = SHIP_FRAME / 2
+  const sin = Math.sin(angle)
+  const cos = Math.cos(angle)
+  const x = (along: number, across: number) => along * cos - across * sin
+  const y = (along: number, across: number) => along * sin + across * cos
+  /** Брусок вдоль хода: от from до to по оси «вперёд», со сдвигом across вбок. */
+  const bar = (from: number, to: number, across: number, width: number, color: number) =>
+    image.line(x(from, across), y(from, across), x(to, across), y(to, across), width, color)
+  /** Брусок поперёк хода на расстоянии along вперёд. */
+  const beam = (along: number, from: number, to: number, width: number, color: number) =>
+    image.line(x(along, from), y(along, from), x(along, to), y(along, to), width, color)
+  const dot = (along: number, across: number, radius: number, color: number) =>
+    image.circle(x(along, across), y(along, across), radius, color)
+
+  // Корпус — длинная коробка с плоской кормой и тупым носом: так грузовик и узнаётся.
+  bar(-10.5, 11.6, 0, 14, SHIP_INK)
+  bar(-10, 11.2, 0, 12, SHIP_HULL[1])
+  bar(-9.8, 10.8, -5, 0.9, SHIP_HULL[3])
+  // Нос со ступенькой.
+  beam(12.4, -4.6, 4.6, 1.8, SHIP_INK)
+  beam(13.2, -2.6, 2.6, 1.2, SHIP_INK)
+  beam(12.4, -3.8, 3.8, 1, SHIP_HULL[1])
+  // Двигательные блоки позади кормы: вынесены за борт, из их чёрных сопел бьёт выхлоп.
+  for (const side of [-1, 1]) {
+    bar(-13.6, -9.6, side * 5, 5.8, SHIP_INK)
+    bar(-13.2, -10, side * 5, 4.6, SHIP_IRON[2])
+    bar(-13.2, -10, side * 2.6, 1.2, SHIP_IRON[3])
+    bar(-13.6, -12.4, side * 5, 5, SHIP_IRON[0])
+  }
+  // Рубка перед грузом: надстройка во всю палубу со стеклом по передней кромке.
+  beam(9.6, -5.4, 5.4, 3.4, SHIP_INK)
+  beam(9.6, -4.4, 4.4, 2.2, SHIP_HULL[2])
+  beam(10.7, -3.2, 3.2, 1, team[2])
+  // Груз: три контейнера вдоль палубы, между ними — тёмные швы, у правого борта каждого — тень.
+  for (const along of [5.6, -0.2, -6]) {
+    beam(along, -4, 4, 4.6, SHIP_INK)
+    bar(along - 1.8, along + 1.8, 0, 6.6, team[1])
+    bar(along - 1.8, along + 1.8, 2.8, 1.2, team[0])
+  }
+  // Огни на скулах носа: слева красный, справа зелёный.
+  for (const side of [-1, 1]) {
+    dot(11.4, side * 5.4, 1, SHIP_INK)
+    dot(11.4, side * 5.4, 0.6, side < 0 ? SHIP_PORT : SHIP_STARBOARD)
   }
   return image
 }
