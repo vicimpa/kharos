@@ -67,6 +67,18 @@ export function canBuild(sim: Sim, player: number, type: BuildingType, x: number
 export const REPAIR_SPEED = 2
 /** Какую долю цены здания или юнита стоит починить его с нуля до целого, по умолчанию. Платят по мере починки. См. Sim.rules. */
 export const REPAIR_COST = 0.5
+/**
+ * Сколько секунд после попадания цель не чинится, по умолчанию. Иначе один строитель за стеной отменяет осаду:
+ * он возвращает больше прочности в секунду, чем бьёт отряд. Ремонт — между боями, а не под огнём. См. Sim.rules.
+ */
+export const REPAIR_PAUSE = 3
+
+/** Попадали ли по этому в последние repairPause секунд: по такому не работают и к нему не едут. */
+function underFire(sim: Sim, entity: Entity) {
+  const health = sim.world.get(entity, Health)
+  if (!health || health.hit < 0) return false
+  return sim.time.tick - health.hit < sim.rules.repairPause / sim.time.step
+}
 
 /** Сколько кредитов стоит дочинить объект до его max; share — доля цены за починку от нуля до обычной единицы. */
 export const repairCostOf = (cost: number, health: number, share = REPAIR_COST, max = 1) => Math.ceil(cost * share * (max - health))
@@ -292,8 +304,8 @@ function volunteer(sim: Sim) {
   const damaged: Entity[] = []
   for (const [entity, health] of world.query(Health, Position, Owner)) if (health.value < health.max) damaged.push(entity)
   for (const entity of damaged) {
-    // За едущим юнитом сами не гоняются: встанет — починят.
-    if (!isRepairable(sim, entity) || world.has(entity, Path)) continue
+    // За едущим юнитом сами не гоняются: встанет — починят. К тому, по кому бьют, тоже не едут: переждут бой.
+    if (!isRepairable(sim, entity) || world.has(entity, Path) || underFire(sim, entity)) continue
     if (world.has(entity, Building) && (overbuilt ??= overbuiltPlants(sim)).has(entity)) continue
     sites.push({ entity, work: workAt(sim, entity)!, player: ownerOf(sim, entity) })
   }
@@ -370,7 +382,8 @@ export function repairLinks(sim: Sim): RepairLink[] {
   const targets: { entity: Entity; work: Work; player: number; demolish: boolean; ordered: boolean }[] = []
   for (const [entity] of world.query(Site, Position, Owner)) targets.push({ entity, work: workAt(sim, entity)!, player: 0, demolish: false, ordered: false })
   for (const [entity, health] of world.query(Health, Position, Owner)) {
-    if (health.value < health.max && isRepairable(sim, entity)) targets.push({ entity, work: workAt(sim, entity)!, player: 0, demolish: false, ordered: false })
+    // По кому сейчас бьют, не чинят: посланный строитель постоит рядом и возьмётся, когда бой стихнет.
+    if (health.value < health.max && isRepairable(sim, entity) && !underFire(sim, entity)) targets.push({ entity, work: workAt(sim, entity)!, player: 0, demolish: false, ordered: false })
   }
   // Считается недёшево, поэтому только если есть повреждённое здание, и один раз.
   let overbuilt: Set<Entity> | undefined
@@ -522,7 +535,7 @@ export function construct(sim: Sim) {
       // Починка идёт быстрее стройки и оплачивается по мере работы; кончились кредиты — стоит.
       const health = world.get(entity, Health)
       const work = workAt(sim, entity)
-      if (!health || !work) continue
+      if (!health || !work || underFire(sim, entity)) continue
       const gain = Math.min(health.max - health.value, (count * sim.rules.repairSpeed) / workTicks(work.cost, time.step))
       const price = gain * work.cost * sim.rules.repairCost
       if (price <= 0 || spend(sim, ownerOf(sim, entity), price)) health.value += gain

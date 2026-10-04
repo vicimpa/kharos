@@ -67,8 +67,8 @@ interface Mark {
   /** Стена: остановленный ею выстрел достаётся только стенам. */
   wall: boolean
   hp: number
-  /** Компонент прочности: урон пишется прямо в него. */
-  health: { value: number }
+  /** Компонент прочности: урон пишется прямо в него, туда же — тик попадания. */
+  health: { value: number; hit: number }
 }
 
 /** Расстояние от точки до края цели в тайлах. */
@@ -222,6 +222,8 @@ export function fight(sim: Sim) {
   /** Наносит урон. source — кто стрелял: уцелевший свободный юнит отвечает ему огнём. */
   const hit = (mark: Mark, amount: number, weapon: WeaponSpec, source: Entity) => {
     if (dead.has(mark.entity)) return
+    // Тик попадания помнит ремонт: под огнём не чинят, см. REPAIR_PAUSE.
+    mark.health.hit = time.tick
     mark.health.value -= (amount * (weapon.vs?.[mark.armor] ?? 1)) / mark.hp
     if (mark.health.value <= 0) {
       dead.add(mark.entity)

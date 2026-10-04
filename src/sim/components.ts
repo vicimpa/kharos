@@ -16,8 +16,9 @@ export const Building = component('Building', { type: 'command' as BuildingType,
  * Сколько урона стоит за единицей, знает вид: см. UnitSpec.hp и buildingHp. max — предел: у оборонительной
  * постройки на песке он ниже единицы (SAND_DURABILITY), и чинят её только до него.
  * repairable — чинят ли это те, у кого есть Repair. regen — какую долю прочности в секунду оно восстанавливает само.
+ * hit — тик последнего попадания; −1 — по этому ещё не попадали. По нему ремонт пережидает бой, см. REPAIR_PAUSE.
  */
-export const Health = component('Health', { value: 1, max: 1, repairable: true, regen: 0 })
+export const Health = component('Health', { value: 1, max: 1, repairable: true, regen: 0, hit: -1 })
 
 /**
  * Ремонтник: строит, разбирает и чинит своё — стройки, повреждённые здания и юнитов с Health.repairable. Работа

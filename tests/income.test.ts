@@ -82,31 +82,32 @@ test('генератор материи даёт кредиты за энерг�
   const { sim, x, y } = start()
   put(sim, 'matter', x + 6, y)
   // Без электростанции генератор материи стоит.
-  expect(economyOf(sim, 1)).toEqual({ produced: 0, demand: 5, income: 0.2, crowd: 1 })
+  expect(economyOf(sim, 1)).toEqual({ produced: 0, demand: 3, income: 0.2, crowd: 1 })
 
   put(sim, 'generator', x + 6, y + 4)
-  expect(economyOf(sim, 1)).toEqual({ produced: 10, demand: 5, income: 1.2, crowd: 1 })
+  expect(economyOf(sim, 1)).toEqual({ produced: 10, demand: 3, income: 1.7, crowd: 1 })
   const credits = creditsOf(sim, 1)
   seconds(sim, 10)
-  expect(creditsOf(sim, 1)).toBe(credits + 12)
+  expect(creditsOf(sim, 1)).toBe(credits + 17)
 })
 
 test('каждый следующий генератор материи в зоне просит больше энергии', () => {
   const { sim, x, y } = start()
   put(sim, 'generator', x + 6, y + 4)
   put(sim, 'matter', x + 6, y)
-  expect(powerOf('matter', economyOf(sim, 1))).toBe(-10)
+  // Второму генератору тесно: он просит две нормы вместо одной.
+  expect(powerOf('matter', economyOf(sim, 1))).toBe(-6)
   expect(powerOf('generator', economyOf(sim, 1))).toBe(10)
 
-  // Два просят 5 + 10 = 15 энергии, а есть 10: оба работают на две трети.
+  // Два просят 3 + 6 = 9 энергии — одной электростанции пока хватает.
   put(sim, 'matter', x + 9, y)
-  expect(economyOf(sim, 1).demand).toBe(15)
-  expect(economyOf(sim, 1).income).toBeCloseTo(0.2 + 2 * (10 / 15))
+  expect(economyOf(sim, 1).demand).toBe(9)
+  expect(economyOf(sim, 1).income).toBeCloseTo(0.2 + 2 * 1.5)
 
-  // Третий просит ещё 15: без новой электростанции общий доход от него только упадёт.
+  // Третий просит ещё 9: 18 при 10, и общий доход от него только падает.
   put(sim, 'matter', x + 9, y + 4)
-  expect(economyOf(sim, 1).demand).toBe(30)
-  expect(economyOf(sim, 1).income).toBeCloseTo(0.2 + 3 * (10 / 30))
+  expect(economyOf(sim, 1).demand).toBe(18)
+  expect(economyOf(sim, 1).income).toBeCloseTo(0.2 + 3 * 1.5 * (10 / 18))
 })
 
 test('здания вне зоны и без главного здания не работают', () => {
@@ -114,7 +115,7 @@ test('здания вне зоны и без главного здания не 
   put(sim, 'generator', x + 6, y)
   put(sim, 'matter', x + 6, y + 3)
   put(sim, 'matter', x + 60, y)
-  expect(economyOf(sim, 1)).toEqual({ produced: 10, demand: 5, income: 1.2, crowd: 1 })
+  expect(economyOf(sim, 1)).toEqual({ produced: 10, demand: 3, income: 1.7, crowd: 1 })
 
   sim.send(1, { type: 'pack', building: coreOf(sim) })
   seconds(sim, 10.1)
@@ -212,19 +213,19 @@ test('энергия у каждой зоны своя: электростанц
   put(sim, 'generator', x + 6, y)
   put(sim, 'generator', x + 6, y + 3)
   put(sim, 'matter', x + 9, y)
-  expect(zoneEconomies(sim, 1)).toEqual([{ produced: 20, demand: 5, income: 1.2, crowd: 1 }])
+  expect(zoneEconomies(sim, 1)).toEqual([{ produced: 20, demand: 3, income: 1.7, crowd: 1 }])
 
   // Второе главное здание далеко от первого — вторая зона. Её генератор материи без своей электростанции стоит.
   const far = x + 300
   put(sim, 'command', far, y)
   put(sim, 'matter', far + 4, y)
   expect(zonesOf(sim, 1).length).toBe(2)
-  expect(zoneEconomies(sim, 1)[1]).toEqual({ produced: 0, demand: 5, income: 0.2, crowd: 1 })
+  expect(zoneEconomies(sim, 1)[1]).toEqual({ produced: 0, demand: 3, income: 0.2, crowd: 1 })
   // Теснота тоже считается по зонам: в каждой генератор материи первый.
-  expect(economyOf(sim, 1).income).toBeCloseTo(1.4)
+  expect(economyOf(sim, 1).income).toBeCloseTo(1.9)
 
   put(sim, 'generator', far + 4, y + 3)
-  expect(zoneEconomies(sim, 1)[1].income).toBeCloseTo(1.2)
+  expect(zoneEconomies(sim, 1)[1].income).toBeCloseTo(1.7)
 
   // Главное здание внутри чужой зоны свою не начинает: зона у них общая.
   put(sim, 'command', x + 10, y + 6)
@@ -263,18 +264,21 @@ test('перегруженная электростанция теряет пр�
   expect(health()).toBe(1)
   expect(powerStates(sim).size).toBe(0)
 
-  // Просят 15 при 10: перегруз наполовину, станция под ударом, потребители замедлены.
+  // Просят 18 при 10: перегруз 0.8, станция под ударом, потребители замедлены.
   const second = put(sim, 'matter', x + 9, y)
-  expect(powerStates(sim)).toEqual(new Map([[plant, 'overload'], [first, 'starved'], [second, 'starved']]))
+  const third = put(sim, 'matter', x + 9, y + 4)
+  expect(powerStates(sim)).toEqual(new Map([[plant, 'overload'], [first, 'starved'], [second, 'starved'], [third, 'starved']]))
   sim.advance(TICK)
-  expect(health()).toBeCloseTo(1 - OVERLOAD_DAMAGE * 0.5 * TICK)
+  expect(health()).toBeCloseTo(1 - OVERLOAD_DAMAGE * 0.8 * TICK)
   // Повреждённая станция даёт меньше энергии, поэтому перегруз растёт сам и урон ускоряется.
   seconds(sim, 20)
-  expect(health()).toBeLessThan(1 - OVERLOAD_DAMAGE * 0.5 * 20)
+  expect(health()).toBeLessThan(1 - OVERLOAD_DAMAGE * 0.8 * 20)
   expect(economyOf(sim, 1).produced).toBeCloseTo(10 * health())
 
   // Перегруз сняли — урон прекратился, но сама станция не чинится.
+  // Снимать надо весь перегруз: битая станция даёт меньше десяти, и двух генераторов материи ей уже много.
   sim.world.destroy(second)
+  sim.world.destroy(third)
   const damaged = health()
   seconds(sim, 4)
   expect(health()).toBe(damaged)
@@ -283,6 +287,7 @@ test('перегруженная электростанция теряет пр�
   // Сильный перегруз доводит станцию до разрушения; дальше потребители стоят без энергии.
   put(sim, 'matter', x + 9, y)
   put(sim, 'matter', x + 9, y + 4)
+  put(sim, 'matter', x + 12, y)
   seconds(sim, 1 / OVERLOAD_DAMAGE + 5)
   expect(sim.world.has(plant, Building)).toBe(false)
   expect(economyOf(sim, 1).produced).toBe(0)
@@ -315,12 +320,13 @@ test('строители чинят повреждённое здание — п
   const paid = credits + 1.2 * repairTime - creditsOf(sim, 1)
   expect(Math.abs(paid - 0.8 * BUILDINGS.generator.cost * REPAIR_COST)).toBeLessThan(15)
 
-  // Без кредитов починка стоит.
+  // Денег нет — починка идёт только на то, что капает доходом зоны (1,7 в секунду), а секунда полной работы
+  // стоит 20 кредитов: за десять секунд наберётся десятая часть работы, не больше.
   sim.world.get(plant, Health)!.value = 0.5
   for (const [entity, player] of sim.world.query(Player)) if (player.id === 1) sim.world.set(entity, Player, { credits: 0, earned: 0 })
   seconds(sim, 10)
-  expect(health()).toBeLessThan(0.6)
   expect(health()).toBeGreaterThan(0.5)
+  expect(health()).toBeLessThan(0.65)
   sim.world.get(plant, Health)!.value = 1
   sim.advance(TICK)
   expect(sim.world.has(builders[0], Builds)).toBe(false)
@@ -328,6 +334,7 @@ test('строители чинят повреждённое здание — п
   // Перегруженную станцию строители сами не чинят: она только теряет прочность.
   for (const [entity, player] of sim.world.query(Player)) if (player.id === 1) sim.world.set(entity, Player, { credits: 500 })
   put(sim, 'matter', x + 9, y)
+  put(sim, 'matter', x + 9, y + 4)
   seconds(sim, 10)
   const worn = health()
   expect(worn).toBeLessThan(1)

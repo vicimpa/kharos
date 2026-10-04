@@ -4,7 +4,7 @@ import { createOccupancy, type Occupancy } from './buildings'
 import { fight, recover } from './combat'
 import { apply, type Command } from './commands'
 import { SAVED } from './components'
-import { REPAIR_COST, REPAIR_SPEED, construct } from './construction'
+import { REPAIR_COST, REPAIR_PAUSE, REPAIR_SPEED, construct } from './construction'
 import { convert } from './conversion'
 import { haul } from './hauling'
 import { earn } from './income'
@@ -27,9 +27,11 @@ export interface Rules {
   repairSpeed: number
   /** Какую долю цены здания или юнита стоит починить его с нуля до целого. */
   repairCost: number
+  /** Сколько секунд после попадания цель не чинится: ремонт — между боями, а не под огнём. Ноль — чинят и под огнём. */
+  repairPause: number
 }
 
-export const DEFAULT_RULES: Rules = { repairSpeed: REPAIR_SPEED, repairCost: REPAIR_COST }
+export const DEFAULT_RULES: Rules = { repairSpeed: REPAIR_SPEED, repairCost: REPAIR_COST, repairPause: REPAIR_PAUSE }
 
 export interface SimOptions {
   generator: GeneratorConfig

@@ -77,8 +77,9 @@ export const BUILDINGS = {
   // Электростанция.
   generator: { width: 2, height: 2, cost: 300, power: 10 },
   // Генератор материи — базовый доход: превращает энергию в кредиты. Первая электростанция окупает его быстро,
-  // дальше теснота делает каждый следующий всё дороже.
-  matter: { width: 2, height: 2, cost: 250, power: -5, income: 1, crowding: true },
+  // дальше теснота делает каждый следующий всё дороже. Он страховка на случай, когда линий добычи нет (§4.3 шаг 3):
+  // одной электростанции хватает на два генератора.
+  matter: { width: 2, height: 2, cost: 250, power: -3, income: 1.5, crowding: true },
   radar: { width: 2, height: 2, cost: 400 },
   windtrap: { width: 2, height: 2, cost: 300 },
   barracks: { width: 2, height: 2, cost: 250, power: -2, produces: ['infantry', 'rocketeer'] },

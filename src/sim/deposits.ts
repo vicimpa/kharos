@@ -14,13 +14,14 @@ const DEPOSIT_CHANCE = 0.6
 /**
  * Виды месторождений: запас (от min до max) и сколько в секунду из него добывает шахта.
  * Одна шахта с одним грузовиком должна приносить заметный доход, поэтому копают быстро.
- * Харит редок и дорог: запас мал, а добыча медленная.
+ * Запас конечный (§4.3 шаг 4): металла хватает на 20–40 минут работы шахты, поэтому за новыми месторождениями
+ * приходится идти на чужую землю, а не сидеть на одном. Харит редок и дорог: запас мал, добыча медленная.
  */
 export const DEPOSIT_KINDS = {
-  metal: { min: 4000, max: 8000, rate: 1 },
-  silicon: { min: 4000, max: 8000, rate: 1 },
-  fuel: { min: 3000, max: 6000, rate: 0.8 },
-  kharite: { min: 600, max: 1200, rate: 0.3 },
+  metal: { min: 1200, max: 2500, rate: 1 },
+  silicon: { min: 1200, max: 2500, rate: 1 },
+  fuel: { min: 800, max: 1600, rate: 0.8 },
+  kharite: { min: 200, max: 400, rate: 0.3 },
 } satisfies Partial<Record<Resource, { min: number; max: number; rate: number }>>
 
 export type DepositKind = keyof typeof DEPOSIT_KINDS

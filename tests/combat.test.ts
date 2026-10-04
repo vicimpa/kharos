@@ -3,6 +3,7 @@ import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Armed, Blast, Building, Builds, Carrier, activeRepairs, Health, Inventory, INFANTRY_REGEN, isFighter, Repair, wrap, Turret, Owner, Path, Position, Producer, Shot, UNITS, Unit, WEAPONS, buildingHp, canAttack, canPlace, createSim, driveBattle, isWalkable, powerStates, producibleBy, randomArmy, spawnBattle, zoneEconomies, type Sim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
+import { REPAIR_PAUSE } from '../src/sim/construction'
 import { addCredits } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
 
@@ -561,8 +562,34 @@ test('скорость и цена ремонта берутся из прави
   expect(repaired(0)).toBe(0)
 
   const sim = createSim({ ...options, rules: { repairCost: 1 } })
-  expect(sim.rules).toEqual({ repairSpeed: 2, repairCost: 1 })
+  expect(sim.rules).toEqual({ repairSpeed: 2, repairCost: 1, repairPause: 3 })
   expect(createSim(JSON.parse(JSON.stringify(sim.save()))).rules.repairCost).toBe(1)
+})
+
+test('под огнём не чинят: три секунды после попадания работа стоит', () => {
+  const { sim, x, y } = field()
+  addCredits(sim, 1, 5000)
+  const station = placeBuilding(sim.world, 'turret', x + 6, y, 1)
+  sim.world.add(station, Repair({ radius: 3 }))
+  const tank = spawnUnit(sim, 'tank', 1, x + 4, y)
+  const health = () => sim.world.get(tank, Health)!.value
+
+  // Попадание отмечает тик: ремонтник рядом, но пока не работает.
+  sim.world.get(tank, Health)!.value = 0.2
+  sim.world.get(tank, Health)!.hit = sim.time.tick
+  seconds(sim, REPAIR_PAUSE - 0.5)
+  expect(health()).toBe(0.2)
+
+  // Пауза вышла — чинят как обычно.
+  seconds(sim, 1)
+  expect(health()).toBeGreaterThan(0.2)
+
+  // Правило нулевое — чинят и под огнём.
+  sim.rules.repairPause = 0
+  sim.world.get(tank, Health)!.value = 0.2
+  sim.world.get(tank, Health)!.hit = sim.time.tick
+  seconds(sim, 1)
+  expect(health()).toBeGreaterThan(0.2)
 })
 
 test('бесплатная починка идёт и без кредитов', () => {
