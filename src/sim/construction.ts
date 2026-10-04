@@ -41,16 +41,26 @@ export function inControl(sim: Sim, player: number, type: BuildingType, x: numbe
 }
 
 /**
+ * Нужна ли зданию своя зона строительства: здание с собственной зоной её не требует — оно начинает новую,
+ * а оборонительные постройки ставят и вовсе где угодно, лишь бы не в чужой зоне.
+ */
+function needsZone(type: BuildingType) {
+  const { zone, defense } = buildingSpec(type)
+  return zone === undefined && !defense
+}
+
+/**
  * Может ли игрок заложить здесь здание: вид строится строителями, место годится, лежит в своей зоне строительства
- * и не задевает чужую. Здание с собственной зоной своей зоны не требует — оно начинает новую.
+ * и не задевает чужую. Своей зоны не требуют здание с собственной зоной (оно начинает новую) и оборонительные
+ * постройки: их ставят и вне своих зон, но по-прежнему не в чужих.
  */
 export function canBuild(sim: Sim, player: number, type: BuildingType, x: number, y: number) {
   if (!BUILDABLE.includes(type) || !canPlace(sim, type, x, y)) return false
-  const { width, height, zone }: BuildingSpec = BUILDINGS[type]
+  const { width, height }: BuildingSpec = BUILDINGS[type]
   if (inForeignZone(sim, player, x, y, width, height)) return false
   // Шахта встаёт ровно на месторождение, в котором ещё что-то есть.
   if (buildingSpec(type).extract && reserveLeft(sim, x, y) <= 0) return false
-  return zone !== undefined || inControl(sim, player, type, x, y)
+  return !needsZone(type) || inControl(sim, player, type, x, y)
 }
 
 /** Во сколько раз чинить быстрее, чем строить, по умолчанию: полностью разбитое чинится за половину времени стройки. См. Sim.rules. */
@@ -301,7 +311,7 @@ function volunteer(sim: Sim) {
       let workable = open.get(site.entity)
       if (workable === undefined) {
         const { type, work } = site
-        workable = type === undefined || buildingSpec(type).zone !== undefined || inControl(sim, player, type, work.x, work.y)
+        workable = type === undefined || !needsZone(type) || inControl(sim, player, type, work.x, work.y)
         open.set(site.entity, workable)
       }
       if (!workable) continue
@@ -444,7 +454,7 @@ function isStalled(sim: Sim, entity: Entity) {
   if (!site) return sim.rules.repairCost > 0 && creditsOf(sim, ownerOf(sim, entity)) <= 0
   if (site.demolish) return false
   const { x, y } = world.get(entity, Position)!
-  if (buildingSpec(site.type).zone === undefined && !inControl(sim, ownerOf(sim, entity), site.type, x, y)) return true
+  if (needsZone(site.type) && !inControl(sim, ownerOf(sim, entity), site.type, x, y)) return true
   return isSiteBlocked(sim, entity) || awaitsMaterials(sim, entity)
 }
 
@@ -477,7 +487,8 @@ function workDone(sim: Sim) {
  * и здание. Строитель сам подъезжает к своей работе (Builds), а дальше работает как любой ремонтник.
  * С первым тиком работы площадка становится недостроенным зданием и занимает тайлы. Пока на ней стоят юниты,
  * работа не начинается: свои с неё уходят, чужих ждут.
- * Стройка вне радиуса контроля (главное здание свернули) стоит, пока контроль не вернётся.
+ * Стройка вне радиуса контроля (главное здание свернули) стоит, пока контроль не вернётся; оборонительным
+ * постройкам контроль не нужен, их стройка не встаёт.
  */
 export function construct(sim: Sim) {
   const { world, time } = sim
@@ -526,7 +537,7 @@ export function construct(sim: Sim) {
       world.destroy(entity)
       continue
     }
-    if (buildingSpec(site.type).zone === undefined && !inControl(sim, player, site.type, position.x, position.y)) continue
+    if (needsZone(site.type) && !inControl(sim, player, site.type, position.x, position.y)) continue
     if (!world.has(entity, Building)) {
       // Выгонять пробуют не каждый тик: поиск пути недёшев.
       if (!clearSite(sim, entity, onTurn(time, entity, RETRY_TICKS))) continue

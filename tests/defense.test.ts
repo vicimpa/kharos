@@ -3,7 +3,7 @@ import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Terrain, terrainAt } from '../src/map/terrain'
 import {
-  Armed, Building, Carrier, Health, SAND_DURABILITY, Site, Turret,
+  Armed, Building, Carrier, CONTROL_RADIUS, Health, SAND_DURABILITY, Site, Turret,
   canBuild, canPlace, createSim, durabilityOf, isWalkable, siteAt, zoneOf, type BuildingType, type Sim,
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
@@ -90,6 +90,91 @@ test('строитель возводит стену на песке тольк�
   const wallCircle = Array.from({ length: circles.length / 3 }, (_, i) => circles.slice(i * 3, i * 3 + 3))
     .find(([x, y]) => x === sand.x + 0.5 && y === sand.y + 0.5)
   expect(wallCircle).toEqual([sand.x + 0.5, sand.y + 0.5, 0])
+})
+
+/** Скальное место под здание не ближе min тайлов от точки: там ещё ничьей зоны нет. */
+function farSpot(sim: Sim, from: { x: number; y: number }, min: number) {
+  for (let y = 0; y < 400; y++) {
+    for (let x = 0; x < 400; x++) {
+      if (!canPlace(sim, 'generator', x, y)) continue
+      if (Math.hypot(x + 0.5 - from.x, y + 0.5 - from.y) < min) continue
+      return { x, y }
+    }
+  }
+  throw new Error('Не нашлось скалы вдали от базы')
+}
+
+test('стены и турели ставятся вне зоны строительства, обычные здания — нет', () => {
+  const sim = createSim(options)
+  const { core } = frontier(sim)
+  placeBuilding(sim.world, 'command', core.x, core.y, 1)
+  const spot = farSpot(sim, { x: core.x + 1.5, y: core.y + 1.5 }, CONTROL_RADIUS + 8)
+
+  expect(canBuild(sim, 1, 'generator', spot.x, spot.y)).toBe(false)
+  for (const type of ['wall', 'turret', 'rocketTurret', 'cannonTurret'] as BuildingType[]) {
+    expect(canBuild(sim, 1, type, spot.x, spot.y)).toBe(true)
+  }
+})
+
+test('в чужой зоне не ставится и оборона', () => {
+  const sim = createSim(options)
+  const { core } = frontier(sim)
+  placeBuilding(sim.world, 'command', core.x, core.y, 1)
+  const spot = farSpot(sim, { x: core.x + 1.5, y: core.y + 1.5 }, 2 * CONTROL_RADIUS + 4)
+
+  // Главное здание второго игрока неподалёку: место входит в его зону (12 тайлов), само здание его не занимает,
+  // а до зоны первого далеко.
+  let foe: { x: number; y: number } | undefined
+  for (let dy = -10; dy <= 10 && !foe; dy++) {
+    for (let dx = -10; dx <= 10; dx++) {
+      const distance = Math.hypot(dx + 1, dy + 1)
+      if (distance < 6 || distance > 10) continue
+      if (canPlace(sim, 'command', spot.x + dx, spot.y + dy)) {
+        foe = { x: spot.x + dx, y: spot.y + dy }
+        break
+      }
+    }
+  }
+  expect(foe).toBeDefined()
+  placeBuilding(sim.world, 'command', foe!.x, foe!.y, 2)
+
+  // Второй игрок здесь строить может — место в его зоне; первый не может: рядом чужая зона.
+  expect(canBuild(sim, 2, 'generator', spot.x, spot.y)).toBe(true)
+  for (const type of ['wall', 'turret', 'rocketTurret', 'cannonTurret'] as BuildingType[]) {
+    expect(canBuild(sim, 1, type, spot.x, spot.y)).toBe(false)
+  }
+})
+
+test('стройка обороны вне зоны идёт своим ходом: свободный строитель доводит стену до конца', () => {
+  const sim = createSim(options)
+  const { core } = frontier(sim)
+  placeBuilding(sim.world, 'command', core.x, core.y, 1)
+  const spot = farSpot(sim, { x: core.x + 1.5, y: core.y + 1.5 }, CONTROL_RADIUS + 8)
+  expect(canBuild(sim, 1, 'wall', spot.x, spot.y)).toBe(true)
+
+  let builderTile: { x: number; y: number } | undefined
+  for (let radius = 1; radius <= 3 && !builderTile; radius++) {
+    for (let dy = -radius; dy <= radius && !builderTile; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if ((dx || dy) && isWalkable(sim, spot.x + dx, spot.y + dy)) {
+          builderTile = { x: spot.x + dx, y: spot.y + dy }
+          break
+        }
+      }
+    }
+  }
+  expect(builderTile).toBeDefined()
+  spawnUnit(sim, 'builder', 1, builderTile!.x, builderTile!.y)
+  addCredits(sim, 1, 100)
+  // Строителей не называем: за площадку берётся свободный — та же проверка зоны, что и у стройки.
+  sim.send(1, { type: 'build', building: 'wall', x: spot.x, y: spot.y, builders: [] })
+  sim.advance(TICK)
+  const wall = siteAt(sim, spot.x, spot.y)!
+  expect(wall).toBeDefined()
+
+  seconds(sim, 3)
+  expect(sim.world.has(wall, Building)).toBe(true)
+  expect(sim.world.has(wall, Site)).toBe(false)
 })
 
 test('три оборонительные турели получают своё оружие, сами стреляют и гибнут вместе с основанием', () => {
