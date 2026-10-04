@@ -37,8 +37,8 @@ const SMOKE_WIND = 0.12
 const SMOKE_RISE = 0.25
 /** Какая доля яркости остаётся у дыма в полной темноте. */
 const SMOKE_NIGHT = 0.75
-/** Как высоко поднимается ядро в верхней точке дуги — доля от дальности выстрела. */
-const SHELL_ARC = 0.3
+/** Как высоко поднимается ракета в верхней точке дуги — доля от дальности выстрела. Ядро летит прямо. */
+const ROCKET_ARC = 0.3
 /** Излом разряда: через сколько тайлов ломается линия, насколько отклоняется и сколько раз в секунду меняется. */
 const ARC_STEP = 0.45
 const ARC_SWAY = 0.28
@@ -318,16 +318,15 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
       const step = rocket ? ROCKET_SMOKE_STEP : SHELL_SMOKE_STEP
       const x = shot.prevX + (position.x - shot.prevX) * time.alpha
       const y = shot.prevY + (position.y - shot.prevY) * time.alpha
-      // Дым ядра остаётся в воздухе, на высоте дуги.
-      const lift = rocket ? 0 : shellLift(shot, time.alpha)
       const distance = Math.hypot(x - last.x, y - last.y)
       const count = Math.min(16, Math.floor(distance / step))
       for (let i = 1; i <= count; i++) {
         const share = (i * step) / distance
         const atX = last.x + (x - last.x) * share
         const atY = last.y + (y - last.y) * share
-        if (rocket) puff(atX + spread(0.08), atY + spread(0.08), 0.32, 1.3, 0.55, 0.75, spread(0.25), spread(0.25))
-        else puff(atX, atY - lift, 0.18, 0.7, 0.5, 0.55, spread(0.15), spread(0.15))
+        // Дым ракеты остаётся в воздухе, на высоте её дуги; ядро летит прямо и низко.
+        if (rocket) puff(atX + spread(0.08), atY - arcLift(shot, atX, atY) + spread(0.08), 0.32, 1.3, 0.55, 0.75, spread(0.25), spread(0.25))
+        else puff(atX, atY, 0.18, 0.7, 0.5, 0.55, spread(0.15), spread(0.15))
       }
       if (count) {
         const share = (count * step) / distance
@@ -338,9 +337,16 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
     for (const entity of trails.keys()) if (!alive.has(entity)) trails.delete(entity)
   }
 
-  /** Как высоко над землёй ядро сейчас, в тайлах. */
-  const shellLift = (shot: { age: number; life: number; fromX: number; fromY: number; toX: number; toY: number }, alpha: number) =>
-    Math.sin(Math.PI * ageOf(shot, alpha)) * Math.hypot(shot.toX - shot.fromX, shot.toY - shot.fromY) * SHELL_ARC
+  /**
+   * Как высоко над землёй ракета в точке (x, y), в тайлах: она одна летит по дуге, поверх стен. Высота считается
+   * по пройденной доле пути, а не по возрасту: ракета наводится на цель, и пути у неё отпущено с запасом.
+   */
+  const arcLift = (shot: { fromX: number; fromY: number; toX: number; toY: number }, x: number, y: number) => {
+    const flown = Math.hypot(x - shot.fromX, y - shot.fromY)
+    const left = Math.hypot(shot.toX - x, shot.toY - y)
+    const reach = flown + left
+    return reach ? Math.sin(Math.PI * (flown / reach)) * reach * ROCKET_ARC : 0
+  }
 
   /** Цвет пыли над тайлом. */
   const dustColor = (x: number, y: number): { color: Color; level: number } => {
@@ -586,14 +592,17 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
             line(solid, x - headingX * tail, y - headingY * tail, x, y, 2, TRACER)
             line(glow, x - headingX * tail, y - headingY * tail, x, y, 2, BULLET)
           } else if (weapon.shot === 'rocket') {
-            line(glow, x - headingX * (ROCKET_BODY + 0.2), y - headingY * (ROCKET_BODY + 0.2), x - headingX * ROCKET_BODY, y - headingY * ROCKET_BODY, 3, FLAME)
-            line(solid, x - headingX * ROCKET_BODY, y - headingY * ROCKET_BODY, x, y, 3, ROCKET)
+            // Ракета идёт по дуге поверх стен: чем выше поднялась, тем дальше её тень на земле.
+            const head = y - arcLift(shot, x, y)
+            const tailX = x - headingX * ROCKET_BODY
+            const tailY = y - headingY * ROCKET_BODY - arcLift(shot, tailX, y - headingY * ROCKET_BODY)
+            dot(solid, x, y, 4, ROCKET, 0.25)
+            line(glow, tailX - headingX * 0.2, tailY - headingY * 0.2, tailX, tailY, 3, FLAME)
+            line(solid, tailX, tailY, x, head, 3, ROCKET)
           } else {
-            // Ядро летит по дуге: чем выше, тем крупнее и тем дальше от своей тени на земле.
-            const lift = shellLift(shot, alpha)
-            dot(solid, x, y, 4, SHELL, 0.35)
-            dot(solid, x, y - lift, 5 + lift * 2, SHELL)
-            dot(solid, x - point, y - lift - point, 2, ROCKET)
+            // Ядро летит быстро и прямо, низко над землёй.
+            dot(solid, x, y, 4, SHELL)
+            dot(solid, x - point, y - point, 2, ROCKET)
           }
         }
 

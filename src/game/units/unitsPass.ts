@@ -5,7 +5,7 @@ import type { Pass } from '../../render/renderer'
 import { createSpriteProgram, createSprites } from '../../render/sprites'
 import type { Entity } from '../../ecs'
 import {
-  Armed, Attached, Owner, Position, TURN, TURRET_TYPES, Turret, UNIT_TYPES, Unit, WEAPONS, flies, weaponOf, wrap, type ShotKind, type TurretType,
+  Armed, Attached, Building, Owner, Position, TURN, TURRET_TYPES, Turret, UNIT_TYPES, Unit, WEAPONS, flies, weaponOf, wrap, type ShotKind, type TurretType,
   type UnitType,
 } from '../../sim'
 import type { Scene } from '../scene'
@@ -48,10 +48,10 @@ export function drawnFacing(unit: { facing: number; prevFacing: number }, alpha:
 const TEAM_NAMES = Object.keys(TEAMS) as Team[]
 
 /**
- * Проходы юнитов: тени, сами юниты и их огни. Юниты — сущности с Position и Unit. Проходов два: наземные юниты
- * рисуются под зданиями, летающие (air) — над ними. Картинки у проходов общие.
+ * Проходы юнитов и турелей: наземные юниты рисуются под зданиями, установленные на зданиях турели — поверх
+ * своих оснований, а летающие юниты — выше них. Картинки у проходов общие.
  */
-export function createUnitsPasses(gl: WebGL2RenderingContext, scene: Scene): { ground: Pass; air: Pass } {
+export function createUnitsPasses(gl: WebGL2RenderingContext, scene: Scene): { ground: Pass; emplacements: Pass; air: Pass } {
   // Кадры каждого вида, цвета и кадра анимации — все направления подряд; turret — у турелей их по одному кадру.
   const sheets: { key: string; images: Pixmap[] }[] = []
   const sheet = (key: string, frame: number, draw: (image: Pixmap, angle: number) => void) => {
@@ -124,7 +124,7 @@ export function createUnitsPasses(gl: WebGL2RenderingContext, scene: Scene): { g
     return since < back ? (RECOIL[weapon.shot] * (1 - since / back)) / 16 : 0
   }
 
-  const layer = (air: boolean): Pass => {
+  const layer = (air: boolean, emplacements = false): Pass => {
     // Тени лежат под всеми юнитами, иначе тень соседа ляжет на кабину.
     const shadows = createSprites(gl, program)
     const sprites = createSprites(gl, program)
@@ -139,53 +139,60 @@ export function createUnitsPasses(gl: WebGL2RenderingContext, scene: Scene): { g
 
         shadows.clear()
         sprites.clear()
-        if (!air) frame++
-        for (const [entity, position, unit, owner] of world.query(Position, Unit, Owner)) {
-          if (flies(unit.type) !== air) continue
-          const { x, y } = drawnPosition(position, unit, time.alpha)
-          if (Math.abs(x - camera.x) > halfWidth || Math.abs(y - camera.y) > halfHeight) continue
+        if (!air && !emplacements) frame++
+        if (!emplacements) {
+          for (const [entity, position, unit, owner] of world.query(Position, Unit, Owner)) {
+            if (flies(unit.type) !== air) continue
+            const { x, y } = drawnPosition(position, unit, time.alpha)
+            if (Math.abs(x - camera.x) > halfWidth || Math.abs(y - camera.y) > halfHeight) continue
 
-          const facing = drawnFacing(unit, time.alpha)
-          const forwardX = Math.cos(facing) / 16
-          const forwardY = Math.sin(facing) / 16
-          // Выстрел отбрасывает стрелка назад.
-          const kick = recoilOf(entity) * 16
-          const left = x - forwardX * kick - camera.x - SPRITE_TILES / 2
-          const top = y - forwardY * kick - camera.y - SPRITE_TILES / 2
-          // Свет встаёт на узел сетки пиксель-арта, иначе его пиксели не совпадут с пикселями земли.
-          const snap = (value: number) => Math.round(value * 16) / 16
-          const { lamps, beam } = UNIT_LIGHTS[unit.type]
-          for (const lamp of lamps) {
-            const lampX = snap(x + lamp.along * forwardX - lamp.across * forwardY)
-            const lampY = snap(y + lamp.along * forwardY + lamp.across * forwardX)
-            lights.add(lampX, lampY, lamp.glow * 2, lamp.glow, 1)
+            const facing = drawnFacing(unit, time.alpha)
+            const forwardX = Math.cos(facing) / 16
+            const forwardY = Math.sin(facing) / 16
+            // Выстрел отбрасывает стрелка назад.
+            const kick = recoilOf(entity) * 16
+            const left = x - forwardX * kick - camera.x - SPRITE_TILES / 2
+            const top = y - forwardY * kick - camera.y - SPRITE_TILES / 2
+            // Свет встаёт на узел сетки пиксель-арта, иначе его пиксели не совпадут с пикселями земли.
+            const snap = (value: number) => Math.round(value * 16) / 16
+            const { lamps, beam } = UNIT_LIGHTS[unit.type]
+            for (const lamp of lamps) {
+              const lampX = snap(x + lamp.along * forwardX - lamp.across * forwardY)
+              const lampY = snap(y + lamp.along * forwardY + lamp.across * forwardX)
+              lights.add(lampX, lampY, lamp.glow * 2, lamp.glow, 1)
+            }
+            lights.beam(snap(x + beam.along * forwardX), snap(y + beam.along * forwardY), facing, beam.length, beam.near, beam.spread, beam.level)
+
+            const direction = directionOf(facing)
+            const team: Team = owner.player === scene.player ? 'own' : 'foe'
+            const phase = phaseOf(entity, unit.type, x, y)
+            const { u, v, width: frameWidth, height: frameHeight } = framesOf(team, unit.type, phase)[direction]
+            shadows.push(left + shadowShift, top + shadowShift, SPRITE_TILES, SPRITE_TILES, u, v, frameWidth, frameHeight, 0, 0, 0, shadowAlpha)
+            sprites.push(left, top, SPRITE_TILES, SPRITE_TILES, u, v, frameWidth, frameHeight, 1, 1, 1, 1)
           }
-          lights.beam(snap(x + beam.along * forwardX), snap(y + beam.along * forwardY), facing, beam.length, beam.near, beam.spread, beam.level)
-
-          const direction = directionOf(facing)
-          const team: Team = owner.player === scene.player ? 'own' : 'foe'
-          const phase = phaseOf(entity, unit.type, x, y)
-          const { u, v, width: frameWidth, height: frameHeight } = framesOf(team, unit.type, phase)[direction]
-          shadows.push(left + shadowShift, top + shadowShift, SPRITE_TILES, SPRITE_TILES, u, v, frameWidth, frameHeight, 0, 0, 0, shadowAlpha)
-          sprites.push(left, top, SPRITE_TILES, SPRITE_TILES, u, v, frameWidth, frameHeight, 1, 1, 1, 1)
         }
         // Турели — поверх всех юнитов слоя: на своём носителе они должны лежать сверху.
         for (const [entity, position, turret, owner, attached] of world.query(Position, Turret, Owner, Attached)) {
           const carrier = world.get(attached.parent as never, Unit)
-          if (!carrier || flies(carrier.type) !== air) continue
+          // Турель здания рисуется в верхнем слое: её основание уже нарисовано проходом зданий.
+          const mountedOnBuilding = !carrier && world.has(attached.parent as never, Building)
+          if (mountedOnBuilding !== emplacements) continue
+          if (!mountedOnBuilding && (!carrier || flies(carrier.type) !== air)) continue
           const { x, y } = drawnPosition(position, turret, time.alpha)
           if (Math.abs(x - camera.x) > halfWidth || Math.abs(y - camera.y) > halfHeight) continue
           const team: Team = owner.player === scene.player ? 'own' : 'foe'
           // Поворот турели — относительно носителя: оба сглаживаются по отдельности, как в симуляции.
-          const facing = drawnFacing(carrier, time.alpha) + turret.prevAngle + wrap(turret.angle - turret.prevAngle) * time.alpha
+          const facing = (carrier ? drawnFacing(carrier, time.alpha) : 0) + turret.prevAngle + wrap(turret.angle - turret.prevAngle) * time.alpha
           const { u, v, width: frameWidth, height: frameHeight } = turretFramesOf(team, turret.type)[directionOf(facing)]
           const kick = recoilOf(entity)
           const left = x - Math.cos(facing) * kick - camera.x - TURRET_TILES / 2
           const top = y - Math.sin(facing) * kick - camera.y - TURRET_TILES / 2
-          shadows.push(left + shadowShift / 2, top + shadowShift / 2, TURRET_TILES, TURRET_TILES, u, v, frameWidth, frameHeight, 0, 0, 0, shadowAlpha)
+          const turretShadowShift = mountedOnBuilding ? SHADOW_SHIFT : shadowShift
+          const turretShadowAlpha = mountedOnBuilding ? SHADOW_ALPHA : shadowAlpha
+          shadows.push(left + turretShadowShift / 2, top + turretShadowShift / 2, TURRET_TILES, TURRET_TILES, u, v, frameWidth, frameHeight, 0, 0, 0, turretShadowAlpha)
           sprites.push(left, top, TURRET_TILES, TURRET_TILES, u, v, frameWidth, frameHeight, 1, 1, 1, 1)
         }
-        if (!air && frame % FORGET_FRAMES === 0) {
+        if (!air && !emplacements && frame % FORGET_FRAMES === 0) {
           for (const [entity, track] of walked) if (frame - track.seen > FORGET_FRAMES) walked.delete(entity)
         }
         if (!sprites.count) return
@@ -207,12 +214,12 @@ export function createUnitsPasses(gl: WebGL2RenderingContext, scene: Scene): { g
         shadows.destroy()
         sprites.destroy()
         // Общие картинки и программу освобождает наземный проход.
-        if (air) return
+        if (air || emplacements) return
         program.destroy()
         atlas.texture.destroy()
       },
     }
   }
 
-  return { ground: layer(false), air: layer(true) }
+  return { ground: layer(false), emplacements: layer(false, true), air: layer(true) }
 }

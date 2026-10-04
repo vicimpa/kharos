@@ -1,13 +1,13 @@
 import type { Entity } from '../ecs'
-import { BUILDINGS, type BuildingType } from './buildings'
+import { BUILDINGS, buildingSpec, isWall, type BuildingType } from './buildings'
 import { NONE, isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './common'
-import { Armed, Blast, Building, Converting, Health, Owner, Path, Position, Shot, Turret, Unit } from './components'
+import { Armed, Blast, Building, Converting, Health, Owner, Path, Position, Shot, Site, Turret, Unit } from './components'
 import { releaseHauler } from './hauling'
 import { searchedTiles } from './path'
 import type { Sim } from './sim'
 import { TURRETS, carrierOf, turnerOf, turretsOf } from './turrets'
 import { UNITS, flies, orderMove, unitSpec, type UnitSpec } from './units'
-import { WEAPONS, type Armor, type WeaponSpec, type WeaponType } from './weapons'
+import { WEAPONS, type Armor, type ShotKind, type WeaponSpec, type WeaponType } from './weapons'
 
 /** Сколько единиц прочности у здания на кредит его цены. */
 export const BUILDING_HP = 2
@@ -34,11 +34,16 @@ const CHAIN_DECAY = 0.6
 const OVERFLY = 1.5
 /** У края взрыва достаётся такая доля урона. */
 const SPLASH_EDGE = 0.5
+/**
+ * Что стена останавливает. Ракета летит поверх неё, разряд бьёт через неё: от электричества и ракет стена не укрывает.
+ * Остальное — пули, ядро, лазер — в стену и попадает, а не в того, кто за ней.
+ */
+const STOPS_AT_WALL: Record<ShotKind, boolean> = { bullet: true, shell: true, laser: true, rocket: false, arc: false }
 /** Учебный противник: игрок, за которого никто не играет. Его юнитов создаёт отладочная команда spawnUnit. */
 export const TRAINING_PLAYER = 9999
 
 /** Сколько урона выдерживает здание этого вида. */
-export const buildingHp = (type: BuildingType) => BUILDINGS[type].cost * BUILDING_HP
+export const buildingHp = (type: BuildingType) => buildingSpec(type).hp ?? BUILDINGS[type].cost * BUILDING_HP
 
 /** Враги ли игроки. Игрок 0 — ничей: он ни с кем не воюет. */
 export const hostile = (a: number, b: number) => a !== b && a !== 0 && b !== 0
@@ -59,6 +64,8 @@ interface Mark {
   radius: number
   air: boolean
   armor: Armor
+  /** Стена: остановленный ею выстрел достаётся только стенам. */
+  wall: boolean
   hp: number
   /** Компонент прочности: урон пишется прямо в него. */
   health: { value: number }
@@ -75,23 +82,64 @@ function collectMarks(sim: Sim) {
     const spec: UnitSpec = UNITS[unit.type]
     marks.set(entity, {
       entity, player: owner.player, x: position.x, y: position.y, left: position.x, top: position.y, width: 0, height: 0,
-      radius: spec.radius, air: spec.kind === 'air', armor: spec.kind, hp: spec.hp, health,
+      radius: spec.radius, air: spec.kind === 'air', armor: spec.kind, wall: false, hp: spec.hp, health,
     })
   }
   for (const [entity, position, building, owner, health] of sim.world.query(Position, Building, Owner, Health)) {
     const { width, height } = BUILDINGS[building.type]
     marks.set(entity, {
       entity, player: owner.player, x: position.x + width / 2, y: position.y + height / 2, left: position.x, top: position.y, width, height,
-      radius: 0, air: false, armor: 'building', hp: buildingHp(building.type), health,
+      radius: 0, air: false, armor: 'building', wall: building.type === 'wall', hp: buildingHp(building.type), health,
     })
   }
   return marks
 }
 
+/**
+ * Первая чужая стена на отрезке выстрела и точка, где снаряд в неё входит; undefined — путь свободен.
+ * Своя стена не мешает: через неё стреляют, как через бруствер. Отрезок задан в тайлах, от стрелка к цели.
+ */
+function wallOnPath(sim: Sim, player: number, x0: number, y0: number, x1: number, y1: number) {
+  const dx = x1 - x0
+  const dy = y1 - y0
+  if (!dx && !dy) return undefined
+  const lastX = Math.floor(x1)
+  const lastY = Math.floor(y1)
+  const stepX = dx > 0 ? 1 : -1
+  const stepY = dy > 0 ? 1 : -1
+  /** Через сколько долей отрезка снаряд пересекает следующую границу тайла по этой оси. */
+  const deltaX = dx ? Math.abs(1 / dx) : Infinity
+  const deltaY = dy ? Math.abs(1 / dy) : Infinity
+  let tileX = Math.floor(x0)
+  let tileY = Math.floor(y0)
+  let crossX = dx ? (dx > 0 ? tileX + 1 - x0 : x0 - tileX) / Math.abs(dx) : Infinity
+  let crossY = dy ? (dy > 0 ? tileY + 1 - y0 : y0 - tileY) / Math.abs(dy) : Infinity
+  /** Доля отрезка, на которой снаряд вошёл в текущий тайл. */
+  let t = 0
+  // Отрезок короткий: снаряд за тик пролетает тайл-другой. Запас нужен лишь на вырожденный случай.
+  for (let tile = 0; tile < 64; tile++) {
+    const building = sim.occupancy.at(tileX, tileY)
+    if (building !== undefined && isWall(sim, building) && !isOwn(sim, player, building)) {
+      return { wall: building, x: x0 + dx * t, y: y0 + dy * t }
+    }
+    if (tileX === lastX && tileY === lastY) return undefined
+    if (crossX < crossY) {
+      t = crossX
+      tileX += stepX
+      crossX += deltaX
+    } else {
+      t = crossY
+      tileY += stepY
+      crossY += deltaY
+    }
+  }
+  return undefined
+}
+
 /** Раз в тик: те, чья прочность восстанавливается сама (Health.regen), понемногу поправляются. */
 export function recover(sim: Sim) {
   for (const [, health] of sim.world.query(Health)) {
-    if (health.regen > 0 && health.value < 1) health.value = Math.min(1, health.value + health.regen * sim.time.step)
+    if (health.regen > 0 && health.value < health.max) health.value = Math.min(health.max, health.value + health.regen * sim.time.step)
   }
 }
 
@@ -187,19 +235,24 @@ export function fight(sim: Sim) {
       const own = weaponOf(sim, gunner)
       if (!armed || !own || armed.target !== NONE || !canHit(WEAPONS[own], mark.player, from)) continue
       armed.target = source
-      armed.chase = true
+      // Здание отвечает, только если само достаёт до стрелка: гнаться за ним может лишь носитель-юнит.
+      armed.chase = world.has(mark.entity, Unit)
       armed.stuck = 0
     }
   }
 
-  /** Попадание в точку: урон цели или всем врагам в радиусе взрыва. */
-  const impact = (weapon: WeaponSpec, player: number, source: Entity, target: Entity, x: number, y: number) => {
+  /**
+   * Попадание в точку: урон цели или всем врагам в радиусе взрыва. blocked — выстрел остановила стена:
+   * тогда взрыв достаётся только стенам, а всё, что за ними, укрыто.
+   */
+  const impact = (weapon: WeaponSpec, player: number, source: Entity, target: Entity, x: number, y: number, blocked = false) => {
     if (!weapon.splash) {
       const mark = marks.get(target)
       if (mark && canHit(weapon, player, mark)) hit(mark, weapon.damage, weapon, source)
       return
     }
     for (const mark of marks.values()) {
+      if (blocked && !mark.wall) continue
       if (!canHit(weapon, player, mark)) continue
       const distance = distanceTo(mark, x, y)
       if (distance > weapon.splash) continue
@@ -212,7 +265,7 @@ export function fight(sim: Sim) {
   for (const [entity, blast] of world.query(Blast)) if (++blast.age >= blast.life) gone.push(entity)
 
   // Снаряды летят. Попадания — после обхода.
-  const landed: { entity: Entity; weapon: WeaponSpec; player: number; source: Entity; target: Entity; x: number; y: number }[] = []
+  const landed: { entity: Entity; weapon: WeaponSpec; player: number; source: Entity; target: Entity; x: number; y: number; blocked: boolean }[] = []
   for (const [entity, shot, position] of world.query(Shot, Position)) {
     const weapon: WeaponSpec = WEAPONS[shot.weapon]
     shot.age++
@@ -240,15 +293,15 @@ export function fight(sim: Sim) {
         position.y = shot.toY
       }
       if (reached || weapon.splash) {
-        landed.push({ entity, weapon, player: shot.player, source: shot.source as Entity, target: shot.target as Entity, x: position.x, y: position.y })
+        landed.push({ entity, weapon, player: shot.player, source: shot.source as Entity, target: shot.target as Entity, x: position.x, y: position.y, blocked: shot.blocked })
       } else gone.push(entity)
       continue
     }
     position.x += (dx / distance) * move
     position.y += (dy / distance) * move
   }
-  for (const { entity, weapon, player, source, target, x, y } of landed) {
-    impact(weapon, player, source, target, x, y)
+  for (const { entity, weapon, player, source, target, x, y, blocked } of landed) {
+    impact(weapon, player, source, target, x, y, blocked)
     blasts.push({ x, y, size: weapon.splash ?? 0.2 })
     gone.push(entity)
   }
@@ -274,7 +327,7 @@ export function fight(sim: Sim) {
     const position = world.get(entity, Position)
     const turner = turnerOf(sim, entity)
     const weaponType = weaponOf(sim, entity)
-    if (!body || !position || !turner || !weaponType || world.has(carrier, Converting)) continue
+    if (!body || !position || !turner || !weaponType || world.has(carrier, Converting) || world.has(carrier, Site)) continue
     const self = { x: position.x, y: position.y, player: body.player }
     const weapon: WeaponSpec = WEAPONS[weaponType]
 
@@ -303,7 +356,7 @@ export function fight(sim: Sim) {
     }
 
     if (distanceTo(target, self.x, self.y) > weapon.range) {
-      if (!armed.chase) armed.target = NONE
+      if (!armed.chase || !world.has(mover, Unit)) armed.target = NONE
       // Носитель везёт к цели одна его турель за тик: остальным ехать с ним же.
       else if (mounted && chasing.has(mover)) continue
       // Вставший трогается снова не каждый тик, а не нашедший пути — всё реже: искать его без конца слишком дорого.
@@ -337,11 +390,23 @@ export function fight(sim: Sim) {
     const fromX = self.x + Math.cos(aimer.facing) * turner.radius
     const fromY = self.y + Math.sin(aimer.facing) * turner.radius
     const shot = { weapon: weaponType, player: self.player, source: carrier, fromX, fromY, prevX: fromX, prevY: fromY }
+    // Стена на линии огня принимает выстрел на себя: за ней укрытие. Турели зданий стоят выше стены и бьют поверх.
+    const wall = !world.has(carrier, Building) && STOPS_AT_WALL[weapon.shot] ? wallOnPath(sim, self.player, self.x, self.y, target.x, target.y) : undefined
+    const hitX = wall ? wall.x : target.x
+    const hitY = wall ? wall.y : target.y
     if (weapon.speed) {
       // Ядру отпущено время до точки падения, наводящимся — пока не улетят слишком далеко.
-      const reach = weapon.shot === 'shell' ? Math.hypot(target.x - fromX, target.y - fromY) : weapon.range * OVERFLY
+      const reach = weapon.shot === 'shell' ? Math.hypot(hitX - fromX, hitY - fromY) : weapon.range * OVERFLY
       const life = Math.max(1, Math.ceil(reach / weapon.speed / time.step))
-      world.spawn(Position({ x: fromX, y: fromY }), Shot({ ...shot, target: target.entity, toX: target.x, toY: target.y, life }))
+      const targetEntity = wall ? wall.wall : target.entity
+      world.spawn(Position({ x: fromX, y: fromY }), Shot({ ...shot, target: targetEntity, toX: hitX, toY: hitY, blocked: wall !== undefined, life }))
+      continue
+    }
+    // Луч стены не обходит: лазер бьёт в неё, а не в цель за ней. Разряду стена не помеха — он бьёт через неё.
+    if (wall) {
+      world.spawn(Position({ x: fromX, y: fromY }), Shot({ ...shot, target: wall.wall, toX: hitX, toY: hitY, life: BEAM_TICKS }))
+      const mark = marks.get(wall.wall)
+      if (mark) hit(mark, weapon.damage, weapon, carrier)
       continue
     }
     // Лазер и разряд бьют сразу; разряд перескакивает дальше на ближайших врагов.

@@ -1,13 +1,14 @@
-import type { Entity } from '../ecs'
+import type { Entity, World } from '../ecs'
+import { BUILDINGS, buildingSpec } from './buildings'
 import { NONE, turnToward, wrap } from './common'
-import { Armed, Attached, Carrier, Owner, Position, Repair, Turret, Unit } from './components'
+import { Armed, Attached, Building, Carrier, Owner, Position, Repair, Turret, Unit } from './components'
 import type { Sim } from './sim'
 import { UNITS, unitSpec } from './units'
 import type { WeaponType } from './weapons'
 
 /**
- * Что симуляция знает о виде турели. Турель — отдельная сущность, прикреплённая к юниту-носителю (Attached):
- * ездит вместе с ним, но поворачивается сама. Урона не получает — бьют по носителю, и гибнет она вместе с ним.
+ * Что симуляция знает о виде турели. Турель — отдельная сущность, прикреплённая к носителю (Attached):
+ * едет с юнитом или стоит на здании, но поворачивается сама. Урона не получает — бьют по носителю, и гибнет она вместе с ним.
  * Как она выглядит, знает клиент: см. game/units/turretArt.ts.
  */
 export interface TurretSpec {
@@ -49,17 +50,28 @@ const mountedAt = (x: number, y: number, facing: number, along: number, across: 
   y: y + along * Math.sin(facing) + across * Math.cos(facing),
 })
 
-/** Ставит на юнит турели, положенные его виду, и записывает их в его Carrier. */
-export function mountTurrets(sim: Sim, entity: Entity) {
-  const { world } = sim
-  const unit = world.get(entity, Unit)
+/** Центр и направление носителя: у здания Position — левый верхний угол, у юнита — уже центр. */
+function carrierPose(world: World, entity: Entity) {
   const position = world.get(entity, Position)
-  const mounts = unit && unitSpec(unit.type).mounts
-  if (!mounts || !position) return
+  const unit = world.get(entity, Unit)
+  const building = unit ? undefined : world.get(entity, Building)
+  if (!position || (!unit && !building)) return undefined
+  if (unit) return { x: position.x, y: position.y, facing: unit.facing }
+  const { width, height } = BUILDINGS[building!.type]
+  return { x: position.x + width / 2, y: position.y + height / 2, facing: 0 }
+}
+
+/** Ставит на юнит или здание турели, положенные его виду, и записывает их в его Carrier. */
+export function mountTurrets(world: World, entity: Entity) {
+  const unit = world.get(entity, Unit)
+  const building = unit ? undefined : world.get(entity, Building)
+  const mounts = unit ? unitSpec(unit.type).mounts : building ? buildingSpec(building.type).mounts : undefined
+  const pose = carrierPose(world, entity)
+  if (!mounts || !pose) return
   const player = world.get(entity, Owner)?.player ?? 0
   const turrets: number[] = []
   for (const { turret: type, along, across } of mounts) {
-    const at = mountedAt(position.x, position.y, unit.facing, along, across)
+    const at = mountedAt(pose.x, pose.y, pose.facing, along, across)
     const spec = turretSpec(type)
     const turret = world.spawn(
       Position(at),
@@ -77,7 +89,7 @@ export function mountTurrets(sim: Sim, entity: Entity) {
 /** Носитель турели или сама сущность, если она ни к чему не прикреплена. */
 export const carrierOf = (sim: Sim, entity: Entity): Entity => (sim.world.get(entity, Attached)?.parent as Entity | undefined) ?? entity
 
-/** Турели юнита; у юнита без них — пусто. */
+/** Турели носителя; у сущности без них — пусто. */
 export const turretsOf = (sim: Sim, entity: Entity): readonly Entity[] => (sim.world.get(entity, Carrier)?.turrets ?? []) as Entity[]
 
 /**
@@ -104,8 +116,8 @@ export function turnerOf(sim: Sim, entity: Entity): { body: { facing: number }; 
 }
 
 /**
- * Раз в тик, после движения: турели встают на свои места на носителях, а турели погибших носителей исчезают.
- * Поворот турели — относительно носителя: поворачиваясь, носитель поворачивает и её.
+ * Раз в тик, после движения: турели встают на свои места на юнитах и зданиях, а турели погибших носителей исчезают.
+ * Поворот турели — относительно носителя: поворачиваясь, юнит поворачивает и её.
  */
 export function followCarriers(sim: Sim) {
   const { world } = sim
@@ -115,13 +127,12 @@ export function followCarriers(sim: Sim) {
     turret.prevY = position.y
     turret.prevAngle = turret.angle
     const parent = attached.parent as Entity
-    const unit = world.get(parent, Unit)
-    const at = world.get(parent, Position)
-    if (!unit || !at || attached.parent === NONE) {
+    const pose = attached.parent === NONE ? undefined : carrierPose(world, parent)
+    if (!pose) {
       orphans.push(entity)
       continue
     }
-    const { x, y } = mountedAt(at.x, at.y, unit.facing, attached.along, attached.across)
+    const { x, y } = mountedAt(pose.x, pose.y, pose.facing, attached.along, attached.across)
     position.x = x
     position.y = y
   }
@@ -141,6 +152,6 @@ export function restTurrets(sim: Sim) {
   }
 }
 
-/** Может ли юнит воевать: вооружён сам или несёт вооружённые турели. */
+/** Может ли носитель воевать: вооружён сам или несёт вооружённые турели. */
 export const canFight = (sim: Sim, entity: Entity) =>
   sim.world.has(entity, Armed) || turretsOf(sim, entity).some((turret) => sim.world.has(turret, Armed))

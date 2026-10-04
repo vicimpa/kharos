@@ -143,12 +143,15 @@ export function createPowerPass(gl: WebGL2RenderingContext, scene: Scene): Pass 
             1, 1, 1, 1,
           )
         }
-        const health = world.get(entity, Health)?.value ?? 1
-        if (health < 1) {
-          const [r, g, b] = health > 0.5 ? BAR_GOOD : BAR_BAD
+        const record = world.get(entity, Health)
+        const health = record?.value ?? 1
+        const max = record?.max ?? 1
+        if (health < max) {
+          const share = health / max
+          const [r, g, b] = share > 0.5 ? BAR_GOOD : BAR_BAD
           const top = y + spec.height + BAR_GAP
           sprites.push(x, top, spec.width, barHeight, whiteU, whiteV, 0, 0, ...BAR_BACK, 1)
-          sprites.push(x, top, spec.width * Math.max(0, health), barHeight, whiteU, whiteV, 0, 0, r, g, b, 1)
+          sprites.push(x, top, spec.width * Math.max(0, share), barHeight, whiteU, whiteV, 0, 0, r, g, b, 1)
         }
       }
 

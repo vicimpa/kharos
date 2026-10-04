@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { BUILDING_ART } from '../src/game/buildings/buildingArt'
+import { BUILDING_ART, WALL_CONNECTION } from '../src/game/buildings/buildingArt'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Pixmap } from '../src/render/pixmap'
 import { BUILDING_TYPES, canPlace, createSim, type Sim } from '../src/sim'
@@ -39,14 +39,37 @@ test('каждый чертёж рисуется во всех кадрах и �
   for (const type of BUILDING_TYPES) {
     const art = BUILDING_ART[type]
     const counts = new Set<number>()
-    for (let frame = 0; frame < 16; frame++) {
-      const image = new Pixmap(art.width * 16 + 32, art.height * 16 + 32)
-      image.originX = image.originY = 16
-      let lights = 0
-      art.draw(image, frame / 16, () => lights++)
-      counts.add(lights)
-      expect(image.data.some((value) => value > 0)).toBe(true)
+    for (let variant = 0; variant < (art.variants ?? 1); variant++) {
+      for (let frame = 0; frame < 16; frame++) {
+        const image = new Pixmap(art.width * 16 + 32, art.height * 16 + 32)
+        image.originX = image.originY = 16
+        let lights = 0
+        art.draw(image, frame / 16, () => lights++, variant)
+        counts.add(lights)
+        expect(image.data.some((value) => value > 0)).toBe(true)
+      }
     }
     expect(counts.size).toBe(1)
   }
+})
+
+test('чертёж стены протягивает рукава только к соседям по четырём сторонам', () => {
+  const draw = (connections: number) => {
+    const image = new Pixmap(16, 16)
+    BUILDING_ART.wall.draw(image, 0, () => {}, connections)
+    return image
+  }
+  const alpha = (image: Pixmap, x: number, y: number) => image.data[(y * image.width + x) * 4 + 3]
+
+  const alone = draw(0)
+  expect(alpha(alone, 15, 8)).toBe(0)
+  expect(alpha(alone, 8, 0)).toBe(0)
+
+  const northEast = draw(WALL_CONNECTION.north | WALL_CONNECTION.east)
+  expect(alpha(northEast, 8, 0)).toBe(255)
+  expect(alpha(northEast, 15, 8)).toBe(255)
+  expect(alpha(northEast, 8, 15)).toBe(0)
+  expect(alpha(northEast, 0, 8)).toBe(0)
+  // Угловое соединение состоит из двух ортогональных рукавов, а не закрашивает диагональ.
+  expect(alpha(northEast, 15, 0)).toBe(0)
 })

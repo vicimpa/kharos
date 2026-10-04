@@ -28,7 +28,10 @@ export const BUILDING_NAMES: Record<BuildingType, string> = {
   mine: 'Шахта',
   silo: 'Хранилище',
   spaceport: 'Космопорт',
-  turret: 'Турель',
+  wall: 'Стена',
+  turret: 'Пулемётная турель',
+  rocketTurret: 'Ракетная турель',
+  cannonTurret: 'Пушечная турель',
 }
 
 /** За что выдана награда. */

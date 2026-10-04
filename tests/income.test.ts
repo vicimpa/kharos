@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
+import { Terrain, terrainAt } from '../src/map/terrain'
 import {
   BUILDINGS, Building, Builds, CORE, Health, Owner, Player, Site, Unit,
   OVERLOAD_DAMAGE, REPAIR_COST, REPAIR_SPEED, canBuild, canDeploy, canPlace, createSim, creditsOf, economyOf, powerOf, powerStates, refundOf, rewardsOf, siteAt, zoneEconomies, zoneOf, zonesOf, spawnStartingUnits, type BuildingType, type Sim,
@@ -22,7 +23,9 @@ function start() {
   const sim = createSim(options)
   const rock = (x: number, y: number) => {
     for (let tileY = y; tileY < y + PLATEAU; tileY++) {
-      for (let tileX = x; tileX < x + WIDE; tileX++) if (!canPlace(sim, 'turret', tileX, tileY)) return false
+      for (let tileX = x; tileX < x + WIDE; tileX++) {
+        if (terrainAt(sim.land, tileX, tileY) !== Terrain.Rock) return false
+      }
     }
     return true
   }

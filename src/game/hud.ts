@@ -199,10 +199,12 @@ export function readHud(scene: Scene): HudState {
           : null,
       }
     }
-    const left = world.get(entity, Health)?.value ?? 1
-    if (built && left < 1) {
-      health = round(left)
-      repair = repairCostOf(BUILDINGS[built.type].cost, left, sim.rules.repairCost)
+    const record = world.get(entity, Health)
+    const left = record?.value ?? 1
+    const max = record?.max ?? 1
+    if (built && left < max) {
+      health = round(left / max)
+      repair = repairCostOf(BUILDINGS[built.type].cost, left, sim.rules.repairCost, max)
     }
     if (built && powerStates(sim).get(entity) === 'starved') starved = true
     const work = world.get(entity, Site)

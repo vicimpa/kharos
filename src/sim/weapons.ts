@@ -37,8 +37,8 @@ export const WEAPONS = {
   // Пули: часто и слабо, хороши против пехоты, по броне и стенам почти бесполезны.
   rifle: { shot: 'bullet', range: 4.5, damage: 5, reload: 0.4, speed: 24, air: true, vs: { vehicle: 0.5, heavy: 0.25, building: 0.2 } },
   machinegun: { shot: 'bullet', range: 5, damage: 6, reload: 0.18, speed: 26, air: true, vs: { vehicle: 0.5, heavy: 0.25, building: 0.2 } },
-  // Ядро летит по дуге в точку, где цель была при выстреле: от него можно уехать. Бьёт по площади.
-  cannon: { shot: 'shell', range: 7, damage: 60, reload: 2.5, speed: 9, splash: 1.5, air: false, vs: { infantry: 0.6 } },
+  // Ядро летит быстро и прямо в точку, где цель была при выстреле: от него можно уехать. Бьёт по площади.
+  cannon: { shot: 'shell', range: 7, damage: 60, reload: 2.5, speed: 18, splash: 1.5, air: false, vs: { infantry: 0.6 } },
   // Ракета бьёт дальше прочей техники и достаёт и технику, и летающих: этим оружием встречают лёгкую броню и авиацию.
   launcher: { shot: 'rocket', range: 6.5, damage: 36, reload: 2, speed: 8, splash: 0.7, air: true, vs: { infantry: 0.3, heavy: 0.8, air: 1.5 } },
   // Лазер попадает сразу и всегда и лучше всех пробивает тяжёлую броню: это оружие против танков.

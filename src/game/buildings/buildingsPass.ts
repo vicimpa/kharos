@@ -1,11 +1,12 @@
 import { setBlend } from '../../gl'
+import { tileKey } from '../../map/terrain'
 import { createAtlas, type AtlasFrame } from '../../render/atlas'
 import { Pixmap } from '../../render/pixmap'
 import type { Pass } from '../../render/renderer'
 import { createSpriteProgram, createSprites } from '../../render/sprites'
 import { BUILDING_TYPES, Building, Position, Site, siteTicks, type BuildingType } from '../../sim'
 import type { Scene } from '../scene'
-import { ART_FRAMES, ART_TILE, BUILDING_ART, type BuildingArt } from './buildingArt'
+import { ART_FRAMES, ART_TILE, BUILDING_ART, WALL_CONNECTION, type BuildingArt } from './buildingArt'
 
 /** Поля вокруг основания в пикселях спрайта: место для высоких частей. */
 const PAD = ART_TILE
@@ -37,8 +38,8 @@ interface Sheet {
   lights: ArtLight[]
 }
 
-/** Растеризует чертёж в кадры анимации и собирает его огни. */
-function drawSheet(art: BuildingArt): Sheet {
+/** Растеризует один вариант чертежа в кадры анимации и собирает его огни. */
+function drawSheet(art: BuildingArt, variant: number): Sheet {
   const images: Pixmap[] = []
   const lights: ArtLight[] = []
   for (let i = 0; i < ART_FRAMES; i++) {
@@ -48,7 +49,7 @@ function drawSheet(art: BuildingArt): Sheet {
     art.draw(image, i / ART_FRAMES, (x, y, size, level) => {
       const light = (lights[slot++] ??= { x, y, size, levels: [] })
       light.levels[i] = level
-    })
+    }, variant)
     images.push(image)
   }
   return { art, images, frames: [], lights }
@@ -70,8 +71,11 @@ interface Visible {
  * Стройка (Site) рисуется чертежом, поверх которого снизу вверх растёт настоящее здание.
  */
 export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): Pass {
-  const sheets = new Map<BuildingType, Sheet>(BUILDING_TYPES.map((type) => [type, drawSheet(BUILDING_ART[type])]))
-  const all = [...sheets.values()]
+  const sheets = new Map<BuildingType, Sheet[]>(BUILDING_TYPES.map((type): [BuildingType, Sheet[]] => {
+    const art = BUILDING_ART[type]
+    return [type, Array.from({ length: art.variants ?? 1 }, (_, variant) => drawSheet(art, variant))]
+  }))
+  const all = [...sheets.values()].flat()
   const atlas = createAtlas(gl, all.flatMap((sheet) => sheet.images))
   all.forEach((sheet, i) => (sheet.frames = atlas.frames.slice(i * ART_FRAMES, (i + 1) * ART_FRAMES)))
 
@@ -88,8 +92,25 @@ export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): P
       const step = Math.floor(time * FRAMES_PER_SECOND)
 
       const { world, time: simTime } = scene.sim
+      // И готовая стена, и ещё не начатая соседняя площадка участвуют в соединении: чертёж сразу показывает итог.
+      const walls = new Set<number>()
+      for (const [, position, building] of world.query(Position, Building)) {
+        if (building.type === 'wall') walls.add(tileKey(position.x, position.y))
+      }
+      for (const [, position, site] of world.query(Position, Site)) {
+        if (site.type === 'wall') walls.add(tileKey(position.x, position.y))
+      }
+      const wallVariant = (position: { x: number; y: number }, type: BuildingType) => {
+        if (type !== 'wall') return 0
+        let variant = 0
+        if (walls.has(tileKey(position.x, position.y - 1))) variant |= WALL_CONNECTION.north
+        if (walls.has(tileKey(position.x + 1, position.y))) variant |= WALL_CONNECTION.east
+        if (walls.has(tileKey(position.x, position.y + 1))) variant |= WALL_CONNECTION.south
+        if (walls.has(tileKey(position.x - 1, position.y))) variant |= WALL_CONNECTION.west
+        return variant
+      }
       const see = (position: { x: number; y: number }, type: BuildingType, phase: number, built: number) => {
-        const sheet = sheets.get(type)!
+        const sheet = sheets.get(type)![wallVariant(position, type)]
         if (position.x + sheet.art.width < camera.x - halfWidth || position.x > camera.x + halfWidth) return
         if (position.y + sheet.art.height < camera.y - halfHeight || position.y > camera.y + halfHeight) return
         const frame = (step + phase) % ART_FRAMES

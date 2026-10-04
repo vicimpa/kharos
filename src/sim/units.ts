@@ -200,7 +200,7 @@ export function spawnUnit(sim: Sim, type: UnitType, player: number, x: number, y
   if (spec.weapon) world.add(entity, Armed)
   if (spec.repair) world.add(entity, Repair({ radius: spec.repair }))
   equipStorage(world, entity, spec)
-  mountTurrets(sim, entity)
+  mountTurrets(sim.world, entity)
   return entity
 }
 

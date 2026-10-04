@@ -133,13 +133,14 @@ export function createGame(
         createBoundsPass(gl, scene),
         units.ground,
         buildings,
+        units.emplacements,
         // Пыль от винтов — на земле и на крышах, под летающими.
         combat.dust,
         // Летающие — над зданиями.
         units.air,
         createPrecipitationPass(gl, scene, landWindow),
         combat.lights,
-        createLightingPass(gl, scene, [units.ground, buildings]),
+        createLightingPass(gl, scene, [units.ground, buildings, units.emplacements]),
         createPowerPass(gl, scene),
         combat.effects,
         createSelectionPass(gl, scene),

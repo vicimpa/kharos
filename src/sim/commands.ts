@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { BUILDINGS, canPlace, placeBuilding, type BuildingType } from './buildings'
+import { BUILDINGS, canPlace, durabilityOf, placeBuilding, type BuildingType } from './buildings'
 import { TRAINING_PLAYER, orderAttack, stopAttack } from './combat'
 import { isOwn } from './common'
 import { Builds, Unit } from './components'
@@ -63,7 +63,8 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
     case 'placeBuilding': {
       if (!Object.hasOwn(BUILDINGS, command.building)) return false
       if (!canPlace(sim, command.building, command.x, command.y)) return false
-      placeBuilding(sim.world, command.building, command.x, command.y, player)
+      const durability = durabilityOf(sim, command.building, command.x, command.y)
+      placeBuilding(sim.world, command.building, command.x, command.y, player, durability)
       return true
     }
     case 'move': {

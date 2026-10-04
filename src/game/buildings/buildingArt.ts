@@ -15,8 +15,10 @@ export interface BuildingArt {
   /** Сколько тайлов здание занимает на земле. */
   width: number
   height: number
+  /** Число вариантов соседства; без поля у здания один общий вид. */
+  variants?: number
   /** light сообщает об огнях кадра; их число и порядок не должны зависеть от t. */
-  draw(g: Pixmap, t: number, light: EmitLight): void
+  draw(g: Pixmap, t: number, light: EmitLight, variant?: number): void
 }
 
 /** Огонь в точке (x, y) чертежа: size — радиус лампы в пикселях, level — яркость от 0 до 1. */
@@ -450,20 +452,80 @@ const silo: BuildingArt = {
   },
 }
 
-/** Турель: башня с орудием, которое обводит окрестности. */
+/** Биты соседей стены: четыре направления дают 16 вариантов от одиночной секции до перекрёстка. */
+export const WALL_CONNECTION = { north: 1, east: 2, south: 4, west: 8 } as const
+
+/** Стена: центральная опора и рукава до соседних секций. */
+const wall: BuildingArt = {
+  ...BUILDINGS.wall,
+  variants: 16,
+  draw(g, _t, _light, connections = 0) {
+    const north = !!(connections & WALL_CONNECTION.north)
+    const east = !!(connections & WALL_CONNECTION.east)
+    const south = !!(connections & WALL_CONNECTION.south)
+    const west = !!(connections & WALL_CONNECTION.west)
+
+    // Рукава доходят до края тайла только со стороны соседа: две секции встречаются без прозрачного шва.
+    if (east || west) {
+      const left = west ? 0 : 3
+      const right = east ? 16 : 13
+      g.rect(left, 4, right - left, 9, INK)
+      g.rect(left, 5, right - left, 6, STEEL[1])
+      g.rect(left, 5, right - left, 1, STEEL[3])
+      g.rect(left, 11, right - left, 1, STEEL[0])
+    }
+    if (north || south) {
+      const top = north ? 0 : 3
+      const bottom = south ? 16 : 13
+      g.rect(4, top, 9, bottom - top, INK)
+      g.rect(5, top, 6, bottom - top, STEEL[1])
+      g.rect(5, top, 1, bottom - top, STEEL[3])
+      g.rect(11, top, 1, bottom - top, STEEL[0])
+    }
+
+    // Центральная опора скрывает наложение рукавов и остаётся у одиночной секции.
+    g.rect(3, 3, 10, 10, INK)
+    g.rect(4, 4, 8, 8, IRON[1])
+    g.rect(4, 4, 8, 1, IRON[3])
+    g.rect(4, 11, 8, 1, IRON[0])
+    g.rect(4, 5, 1, 6, IRON[2])
+    g.rect(11, 5, 1, 6, IRON[0])
+    for (const [x, y] of [[5, 5], [10, 5], [5, 10], [10, 10]]) g.rect(x, y, 1, 1, RUST[1])
+  },
+}
+
+/** Основание оборонительной турели; само вращающееся оружие рисуется поверх отдельной сущностью. */
+function emplacement(g: Pixmap, t: number, light: EmitLight, band: number) {
+  slab(g, 0, 1, 16, 15, 2, STEEL)
+  g.circle(8, 8, 6, INK)
+  g.circle(8, 8, 5, IRON[0])
+  g.ring(8, 8, 4, 1, band)
+  g.circle(8, 8, 2, IRON[2])
+  bulb(g, light, 1, 2, pulse(t))
+  bulb(g, light, 13, 2, pulse(t, 0.5))
+}
+
+/** Пулемётная турель: серое кольцо наведения. */
 const turret: BuildingArt = {
   ...BUILDINGS.turret,
   draw(g, t, light) {
-    slab(g, 0, 1, 16, 15, 2, STEEL)
-    tower(g, 8, 9, 5, 3, IRON)
-    const angle = t * TURN
-    const tipX = 8 + Math.cos(angle) * 9
-    const tipY = 6 + Math.sin(angle) * 7
-    g.line(8, 6, tipX, tipY, 4, INK)
-    g.line(8, 6, tipX, tipY, 2, IRON[3])
-    g.circle(8, 6, 3, INK)
-    g.circle(8, 6, 2, IRON[2])
-    bulb(g, light, 7, 5, pulse(t * 2))
+    emplacement(g, t, light, IRON[3])
+  },
+}
+
+/** Ракетная турель: ржаво-красное кольцо. */
+const rocketTurret: BuildingArt = {
+  ...BUILDINGS.rocketTurret,
+  draw(g, t, light) {
+    emplacement(g, t, light, RUST[1])
+  },
+}
+
+/** Пушечная турель: золотое кольцо тяжёлого орудия. */
+const cannonTurret: BuildingArt = {
+  ...BUILDINGS.cannonTurret,
+  draw(g, t, light) {
+    emplacement(g, t, light, GOLD[1])
   },
 }
 
@@ -479,5 +541,8 @@ export const BUILDING_ART = {
   mine,
   silo,
   spaceport,
+  wall,
   turret,
+  rocketTurret,
+  cannonTurret,
 } satisfies Record<BuildingType, BuildingArt>

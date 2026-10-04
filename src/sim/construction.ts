@@ -1,6 +1,6 @@
 import type { Entity } from '../ecs'
 import { tileKey } from '../map/terrain'
-import { BUILDABLE, BUILDINGS, BUILD_RATE, CORE, buildingSpec, canPlace, equip, newBuilding, siteAt, type BuildingSpec, type BuildingType } from './buildings'
+import { BUILDABLE, BUILDINGS, BUILD_RATE, CORE, buildingSpec, canPlace, durabilityOf, equip, newBuilding, siteAt, type BuildingSpec, type BuildingType } from './buildings'
 import { NONE, isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './common'
 import { Building, Builds, Converting, Health, Inventory, Owner, Path, Position, Producer, Repair, Site, Unit } from './components'
 import { reserveLeft } from './deposits'
@@ -58,8 +58,8 @@ export const REPAIR_SPEED = 2
 /** Какую долю цены здания или юнита стоит починить его с нуля до целого, по умолчанию. Платят по мере починки. См. Sim.rules. */
 export const REPAIR_COST = 0.5
 
-/** Сколько кредитов стоит дочинить то, что стоит cost кредитов, с прочностью health; share — доля цены за полную починку. */
-export const repairCostOf = (cost: number, health: number, share = REPAIR_COST) => Math.ceil(cost * share * (1 - health))
+/** Сколько кредитов стоит дочинить объект до его max; share — доля цены за починку от нуля до обычной единицы. */
+export const repairCostOf = (cost: number, health: number, share = REPAIR_COST, max = 1) => Math.ceil(cost * share * (max - health))
 
 /**
  * Можно ли это чинить: готовое повреждённое здание или повреждённый юнит, чья прочность чинится
@@ -70,7 +70,7 @@ function isRepairable(sim: Sim, entity: Entity) {
   // Нулевая скорость ремонта — ремонта нет вовсе: строители не едут чинить и не стоят без дела у разбитого.
   if (sim.rules.repairSpeed <= 0) return false
   const health = world.get(entity, Health)
-  return !!health?.repairable && health.value < 1 && !world.has(entity, Site) && !world.has(entity, Converting)
+  return !!health?.repairable && health.value < health.max && !world.has(entity, Site) && !world.has(entity, Converting)
 }
 
 /** Может ли игрок послать строителей чинить это здание или юнит. */
@@ -280,7 +280,7 @@ function volunteer(sim: Sim) {
   // Считается недёшево, поэтому только если есть что чинить, и один раз.
   let overbuilt: Set<Entity> | undefined
   const damaged: Entity[] = []
-  for (const [entity, health] of world.query(Health, Position, Owner)) if (health.value < 1) damaged.push(entity)
+  for (const [entity, health] of world.query(Health, Position, Owner)) if (health.value < health.max) damaged.push(entity)
   for (const entity of damaged) {
     // За едущим юнитом сами не гоняются: встанет — починят.
     if (!isRepairable(sim, entity) || world.has(entity, Path)) continue
@@ -360,7 +360,7 @@ export function repairLinks(sim: Sim): RepairLink[] {
   const targets: { entity: Entity; work: Work; player: number; demolish: boolean; ordered: boolean }[] = []
   for (const [entity] of world.query(Site, Position, Owner)) targets.push({ entity, work: workAt(sim, entity)!, player: 0, demolish: false, ordered: false })
   for (const [entity, health] of world.query(Health, Position, Owner)) {
-    if (health.value < 1 && isRepairable(sim, entity)) targets.push({ entity, work: workAt(sim, entity)!, player: 0, demolish: false, ordered: false })
+    if (health.value < health.max && isRepairable(sim, entity)) targets.push({ entity, work: workAt(sim, entity)!, player: 0, demolish: false, ordered: false })
   }
   // Считается недёшево, поэтому только если есть повреждённое здание, и один раз.
   let overbuilt: Set<Entity> | undefined
@@ -512,7 +512,7 @@ export function construct(sim: Sim) {
       const health = world.get(entity, Health)
       const work = workAt(sim, entity)
       if (!health || !work) continue
-      const gain = Math.min(1 - health.value, (count * sim.rules.repairSpeed) / workTicks(work.cost, time.step))
+      const gain = Math.min(health.max - health.value, (count * sim.rules.repairSpeed) / workTicks(work.cost, time.step))
       const price = gain * work.cost * sim.rules.repairCost
       if (price <= 0 || spend(sim, ownerOf(sim, entity), price)) health.value += gain
       continue
@@ -531,7 +531,8 @@ export function construct(sim: Sim) {
       // Выгонять пробуют не каждый тик: поиск пути недёшев.
       if (!clearSite(sim, entity, onTurn(time, entity, RETRY_TICKS))) continue
       world.add(entity, newBuilding(world, site.type))
-      world.add(entity, Health)
+      const durability = durabilityOf(sim, site.type, position.x, position.y)
+      world.add(entity, Health({ value: durability, max: durability }))
     }
     // Дальше привезённых материалов стройка не идёт.
     site.progress = Math.max(site.progress, Math.min(site.progress + count, siteTicks(site.type, time.step) * materialShare(sim, entity)))

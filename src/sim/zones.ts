@@ -36,12 +36,12 @@ export function allZones(sim: Sim): Map<number, Zone[]> {
   const cores = new Map<number, number[]>()
   for (const [entity, position, building, owner] of sim.world.query(Position, Building, Owner)) {
     if (sim.world.has(entity, Site)) continue
-    const { width, height, zone }: BuildingSpec = BUILDINGS[building.type]
+    const { width, height, zone, expand }: BuildingSpec = BUILDINGS[building.type]
     const core = zone !== undefined
     const target = core ? cores : waiting
     let list = target.get(owner.player)
     if (!list) target.set(owner.player, (list = []))
-    list.push(entity, position.x + width / 2, position.y + height / 2, zone ?? EXPAND_RADIUS)
+    list.push(entity, position.x + width / 2, position.y + height / 2, zone ?? expand ?? EXPAND_RADIUS)
   }
 
   const result = new Map<number, Zone[]>()

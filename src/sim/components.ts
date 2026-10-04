@@ -12,11 +12,12 @@ export const Position = component('Position', { x: 0, y: 0 })
 export const Building = component('Building', { type: 'command' as BuildingType, phase: 0 })
 
 /**
- * Прочность юнита или здания: value — от 1 до 0, в нуле юнит гибнет, а здание разрушается.
- * Сколько урона стоит за единицей, знает вид: см. UnitSpec.hp и buildingHp.
+ * Прочность юнита или здания: value — от max до 0, в нуле юнит гибнет, а здание разрушается.
+ * Сколько урона стоит за единицей, знает вид: см. UnitSpec.hp и buildingHp. max — предел: у оборонительной
+ * постройки на песке он ниже единицы (SAND_DURABILITY), и чинят её только до него.
  * repairable — чинят ли это те, у кого есть Repair. regen — какую долю прочности в секунду оно восстанавливает само.
  */
-export const Health = component('Health', { value: 1, repairable: true, regen: 0 })
+export const Health = component('Health', { value: 1, max: 1, repairable: true, regen: 0 })
 
 /**
  * Ремонтник: строит, разбирает и чинит своё — стройки, повреждённые здания и юнитов с Health.repairable. Работа
@@ -134,7 +135,8 @@ export const Armed = component('Armed', { target: -1, chase: false, cooldown: 0,
  * Выстрел. Position — где снаряд сейчас, prevX и prevY — где был тик назад. Пуля, ракета и ядро летят из (fromX, fromY)
  * в (toX, toY); пуля и ракета следят за целью target, ядро падает туда, где цель была при выстреле. Лазер и разряд
  * бьют сразу, и сущность — только след от них: линия из from в to. age — сколько тиков выстрел живёт, life — сколько
- * ему отпущено. player и source — чей выстрел и кто стрелял.
+ * ему отпущено. player и source — чей выстрел и кто стрелял. blocked — выстрел остановила стена: бьёт он по ней,
+ * а всё, что за стеной, укрыто.
  */
 export const Shot = component('Shot', {
   weapon: 'rifle' as WeaponType,
@@ -149,6 +151,7 @@ export const Shot = component('Shot', {
   prevY: 0,
   age: 0,
   life: 0,
+  blocked: false,
 })
 
 /** Взрыв: только картинка, урон уже нанесён. size — радиус в тайлах; age и life — как у выстрела. */
