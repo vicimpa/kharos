@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import type { Entity } from '../src/ecs'
 import {
-  BUILDINGS, Beam, DEPOSIT_KINDS, Deposit, Hauler, Inventory, REFINE_RATE, REFINE_RATIO, RESOURCE_SPECS, SELL_SECONDS, TRUCK_CAPACITY, Trade, amountOf, canBuild, deliveredTo, gapBetween, canSell, isWalkable, stockOf, canPlace, createSim, creditsOf, depositAt, depositIn, depositNear, reserveLeft, rewardsOf,
+  BUILDINGS, Beam, DEPOSIT_CELL, DEPOSIT_KINDS, DEPOSIT_TYPES, Deposit, Hauler, Inventory, REFINE_RATE, REFINE_RATIO, RESOURCE_SPECS, SELL_SECONDS, TRUCK_CAPACITY, Trade, amountOf, canBuild, deliveredTo, gapBetween, canSell, isWalkable, stockOf, canPlace, createSim, creditsOf, depositAt, depositIn, depositNear, reserveLeft, rewardsOf,
   zonesOf, type BuildingType, type DepositSpot, type Good, type Sim,
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
@@ -51,6 +51,38 @@ test('месторождения считаются из сида: одни и �
   }
   // Нетронутые месторождения в мире не хранятся.
   expect(first.world.count(Deposit)).toBe(0)
+})
+
+test('у большинства точек карты все четыре вида месторождений в радиусе 150 тайлов', () => {
+  // Спавн игроков случайный (как в Rust), поэтому проверяется статистика по сетке точек, а не одна точка:
+  // шансы видов подобраны так, что у 8 из 10 точек карты в радиусе 150 тайлов есть все четыре вида,
+  // и ни один вид не отсутствует более чем у каждой десятой точки (вопрос 14 §6 design.md).
+  const sim = createSim(options)
+  const reach = 150
+  let all = 0
+  let points = 0
+  const missing: Record<string, number> = {}
+  for (const kind of DEPOSIT_TYPES) missing[kind] = 0
+  for (let x = -448; x <= 448; x += 64) {
+    for (let y = -448; y <= 448; y += 64) {
+      points++
+      const kinds = new Set<string>()
+      const from = Math.floor((x - reach) / DEPOSIT_CELL)
+      const to = Math.floor((x + reach) / DEPOSIT_CELL)
+      const top = Math.floor((y - reach) / DEPOSIT_CELL)
+      const bottom = Math.floor((y + reach) / DEPOSIT_CELL)
+      for (let cellY = top; cellY <= bottom; cellY++) {
+        for (let cellX = from; cellX <= to; cellX++) {
+          const spot = depositIn(sim, cellX, cellY)
+          if (spot && Math.hypot(spot.x + 1 - x, spot.y + 1 - y) <= reach) kinds.add(spot.kind)
+        }
+      }
+      if (DEPOSIT_TYPES.every((kind) => kinds.has(kind))) all++
+      for (const kind of DEPOSIT_TYPES) if (!kinds.has(kind)) missing[kind]++
+    }
+  }
+  expect(all / points).toBeGreaterThanOrEqual(0.8)
+  for (const kind of DEPOSIT_TYPES) expect(missing[kind] / points).toBeLessThanOrEqual(0.1)
 })
 
 test('шахта ставится только на месторождение и без своей зоны, строит её строитель', () => {

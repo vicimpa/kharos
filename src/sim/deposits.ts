@@ -8,8 +8,8 @@ import type { Sim } from './sim'
 export const DEPOSIT_CELL = 40
 /** Сторона месторождения в тайлах. Шахта встаёт ровно на него. */
 export const DEPOSIT_SIZE = 2
-/** В какой доле клеток месторождение есть. */
-const DEPOSIT_CHANCE = 0.6
+/** В какой доле клеток месторождение есть. Выше — плотнее карта: в круге 150 тайлов хватает месторождений на все виды. */
+const DEPOSIT_CHANCE = 0.85
 
 /**
  * Виды месторождений: запас (от min до max) и сколько в секунду из него добывает шахта.
@@ -28,14 +28,16 @@ export type DepositKind = keyof typeof DEPOSIT_KINDS
 export const DEPOSIT_TYPES = Object.keys(DEPOSIT_KINDS) as DepositKind[]
 
 /**
- * Что чаще лежит в каком биоме: доли видов месторождений. География решает, чего игроку не хватает: в красных
- * пустошах много металла и харита, в эрге и солончаках — кремния, топливо — в топях.
+ * Что чаще лежит в каком биоме: доли видов месторождений. Все четыре вида есть в каждом биоме — биомы
+ * регулируют только количество, иначе случайный спавн оставил бы базу без топлива или харита (вопрос 14 §6).
+ * Топи богаты топливом, пустоши — металлом и харитом, солончаки — кремнием. Харит редок запасом и скоростью
+ * добычи, а не отсутствием: спорный приз — богатое месторождение, а не сам вид.
  */
 const BIOME_KINDS: Record<Biome, Record<DepositKind, number>> = {
-  [Biome.Erg]: { metal: 0.35, silicon: 0.4, fuel: 0.15, kharite: 0.1 },
-  [Biome.SaltFlats]: { metal: 0.3, silicon: 0.45, fuel: 0.15, kharite: 0.1 },
-  [Biome.RedWastes]: { metal: 0.6, silicon: 0.1, fuel: 0.1, kharite: 0.2 },
-  [Biome.Marsh]: { metal: 0.25, silicon: 0.1, fuel: 0.6, kharite: 0.05 },
+  [Biome.Erg]: { metal: 0.3, silicon: 0.36, fuel: 0.19, kharite: 0.15 },
+  [Biome.SaltFlats]: { metal: 0.26, silicon: 0.4, fuel: 0.19, kharite: 0.15 },
+  [Biome.RedWastes]: { metal: 0.42, silicon: 0.16, fuel: 0.2, kharite: 0.22 },
+  [Biome.Marsh]: { metal: 0.24, silicon: 0.14, fuel: 0.46, kharite: 0.16 },
 }
 
 /** Вид месторождения по биому и случайному числу от 0 до 1. */
