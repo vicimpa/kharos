@@ -26,8 +26,8 @@ test('тестовая карта: готовая база с энергией, 
   expect(trucks.filter((entity) => sim.world.get(entity, Hauler)!.mine >= 0).length).toBe(1)
   expect(units.length).toBeGreaterThan(trucks.length + 5)
 
-  // Шахта работает: металла в хранилищах становится больше.
+  // Шахта работает: руда идёт через переработку, и металла в хранилищах становится больше.
   const before = stockOf(sim, 1).items.metal ?? 0
   seconds(sim, 120)
-  expect(stockOf(sim, 1).items.metal ?? 0).toBeGreaterThan(before + DEPOSIT_KINDS.metal.rate * 30)
+  expect(stockOf(sim, 1).items.metal ?? 0).toBeGreaterThan(before + DEPOSIT_KINDS.metal.rate * 60)
 })

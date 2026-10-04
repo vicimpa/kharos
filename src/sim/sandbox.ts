@@ -20,7 +20,7 @@ const MINE_ROOM = 2
 
 /** Что стоит на тестовой карте, кроме шахты и главного здания: по порядку, от главного здания наружу. */
 const SANDBOX_BUILDINGS: BuildingType[] = [
-  'generator', 'generator', 'silo', 'silo', 'spaceport', 'factory', 'barracks', 'matter',
+  'generator', 'generator', 'refinery', 'silo', 'silo', 'spaceport', 'factory', 'barracks', 'matter',
 ]
 /** С какими юнитами игрок начинает на тестовой карте, кроме грузовиков. */
 const SANDBOX_UNITS: UnitType[] = ['builder', 'builder', 'infantry', 'infantry', 'rocketeer', 'buggy', 'tank', 'tesla', 'carrier']
@@ -79,9 +79,9 @@ function placeNear(sim: Sim, spot: DepositSpot, type: BuildingType, x: number, y
 
 /**
  * Тестовая карта: готовая база игрока у ближайшего к началу мира месторождения металла. Шахта, главное здание,
- * хранилища с запасом всех ресурсов, космопорт, электростанции и заводы уже стоят;
- * один грузовик возит металл из шахты, остальные работают на заявки зон. Есть строители, немного войск и кредитов.
- * Возвращает, где база: туда смотрит камера. undefined — подходящего месторождения рядом нет.
+ * переработка, хранилища с запасом всех ресурсов, космопорт, электростанции и заводы уже стоят;
+ * один грузовик возит руду из шахты на переработку, остальные работают на заявки зон. Есть строители, немного
+ * войск и кредитов. Возвращает, где база: туда смотрит камера. undefined — подходящего месторождения рядом нет.
  */
 export function spawnSandbox(sim: Sim, player: number) {
   const spot = findBaseSpot(sim)

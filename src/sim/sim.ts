@@ -11,6 +11,7 @@ import { earn } from './income'
 import { trade } from './trade'
 import { moveUnits } from './movement'
 import { produceUnits } from './production'
+import { refine } from './refining'
 import { followCarriers, restTurrets } from './turrets'
 
 /** Границы карты в тайлах. Правая и нижняя — не включая. */
@@ -42,8 +43,11 @@ export interface SimOptions {
 }
 
 /** Сохранение симуляции. Обычные данные: их можно положить в JSON, на диск или отправить по сети. */
-/** Версия формата сохранения. Меняется, когда старые сохранения перестают подходить: тогда они отбрасываются. */
-export const SAVE_VERSION = 15
+/**
+ * Версия формата сохранения. Меняется, когда старые сохранения перестают подходить: тогда они отбрасываются.
+ * 16 — руда: шахты кладут в свой склад руду, а не готовый ресурс, и в старых сохранениях она осталась бы там навсегда.
+ */
+export const SAVE_VERSION = 16
 
 export interface SimSave extends SimOptions {
   version: typeof SAVE_VERSION
@@ -104,6 +108,8 @@ export function createSim(source: SimOptions | SimSave): Sim {
       commands,
       () => convert(sim),
       (_, time) => produceUnits(sim, time),
+      // После производства и до движения: переработка превращает привезённую руду в готовое, грузовики развезут его.
+      (_, time) => refine(sim, time),
       (_, time) => moveUnits(sim, time),
       // Турели встают на носители, уже сдвинувшиеся за этот тик.
       () => followCarriers(sim),

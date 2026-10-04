@@ -2,10 +2,10 @@ import type { Entity } from '../ecs'
 import { BUILDINGS, buildingSpec, isReady, type BuildingSpec } from './buildings'
 import { NONE, isOwn, onTurn } from './common'
 import { Beam, Building, Converting, Hauler, Inventory, Owner, Path, Position, Site } from './components'
-import { DEPOSIT_KINDS, reserveLeft, takeReserve, type DepositKind } from './deposits'
+import { DEPOSIT_KINDS, reserveLeft, takeReserve } from './deposits'
 import { amountOf, approach, beamFor, put, reaches, resetBeams, roomFor, transfer } from './inventory'
-import { acceptsDelivery, dispatch, mineKind, offersPickup, storeFor } from './logistics'
-import { RESOURCES, type Resource } from './resources'
+import { acceptsDelivery, deliveryFor, dispatch, mineOre, offersPickup } from './logistics'
+import { GOODS, resourceOf, type Good } from './resources'
 import type { Sim } from './sim'
 import { UNITS } from './units'
 
@@ -26,7 +26,7 @@ const specOf = (sim: Sim, building: Entity): BuildingSpec | undefined => {
 export const canHaul = (sim: Sim, player: number, mine: Entity) => isReady(sim, player, mine) && !!specOf(sim, mine)?.extract
 
 /**
- * Привязывает грузовики игрока к его шахте: с этого момента они возят только из неё в хранилища, а не работают
+ * Привязывает грузовики игрока к его шахте: с этого момента они возят только из неё на переработку, а не работают
  * на заявки зон. Не грузовики и чужие юниты из списка выбрасываются.
  */
 export function assignHaulers(sim: Sim, player: number, mine: Entity, units: Entity[]) {
@@ -42,13 +42,13 @@ export function assignHaulers(sim: Sim, player: number, mine: Entity, units: Ent
   return trucks.length > 0
 }
 
-/** Что лежит в кузове: первый ресурс, которого там есть хоть сколько-то; undefined — пусто. */
-const carriedBy = (sim: Sim, truck: Entity): Resource | undefined => {
+/** Что лежит в кузове: первый груз, которого там есть хоть сколько-то; undefined — пусто. */
+const carriedBy = (sim: Sim, truck: Entity): Good | undefined => {
   const cargo = sim.world.get(truck, Inventory)
-  return cargo && RESOURCES.find((resource) => amountOf(cargo, resource) > EPSILON)
+  return cargo && GOODS.find((resource) => amountOf(cargo, resource) > EPSILON)
 }
 
-/** Бросает работу. Груз остаётся в кузове: грузовик сначала отвезёт его в хранилище. */
+/** Бросает работу. Груз остаётся в кузове: грузовик сначала отвезёт его в хранилище или на переработку. */
 function dropJob(sim: Sim, truck: Entity) {
   const hauler = sim.world.get(truck, Hauler)!
   hauler.from = hauler.to = NONE
@@ -58,7 +58,7 @@ function dropJob(sim: Sim, truck: Entity) {
 
 /**
  * Снимает грузовик с работы и с шахты. Дальше он свободен: работу ему даст диспетчер зон (см. logistics.ts),
- * а груз в кузове он сначала отвезёт в хранилище.
+ * а груз в кузове он сначала отвезёт в хранилище или на переработку.
  */
 export function releaseHauler(sim: Sim, truck: Entity) {
   const hauler = sim.world.get(truck, Hauler)
@@ -73,7 +73,7 @@ function seek(sim: Sim, truck: Entity, building: Entity, toBuilding: boolean) {
   if (beam !== undefined) approach(sim, truck, building, sim.world.get(beam, Beam)!.radius)
 }
 
-/** Раз в тик: шахты добывают в свои склады, пока там есть место; что и как быстро — решает месторождение. */
+/** Раз в тик: шахты добывают руду в свои склады, пока там есть место; что и как быстро — решает месторождение. */
 function extract(sim: Sim) {
   const { world, time } = sim
   const mines: Entity[] = []
@@ -82,11 +82,12 @@ function extract(sim: Sim) {
   }
   // Первая добыча заводит месторождению сущность, а состав мира меняется после обхода.
   for (const entity of mines) {
-    const kind = mineKind(sim, entity) as DepositKind | undefined
-    if (!kind) continue
+    const ore = mineOre(sim, entity)
+    if (!ore) continue
     const inventory = world.get(entity, Inventory)!
     const { x, y } = world.get(entity, Position)!
-    put(inventory, kind, takeReserve(sim, x, y, Math.min(DEPOSIT_KINDS[kind].rate * time.step, roomFor(inventory, kind))))
+    const rate = DEPOSIT_KINDS[resourceOf(ore)].rate
+    put(inventory, ore, takeReserve(sim, x, y, Math.min(rate * time.step, roomFor(inventory, ore))))
   }
 }
 
@@ -94,19 +95,18 @@ function extract(sim: Sim) {
 function isSpent(sim: Sim, mine: Entity) {
   const position = sim.world.get(mine, Position)
   const inventory = sim.world.get(mine, Inventory)
-  const kind = mineKind(sim, mine)
-  if (!position || !inventory || !kind) return true
-  return reserveLeft(sim, position.x, position.y) <= 0 && amountOf(inventory, kind) <= EPSILON
+  const ore = mineOre(sim, mine)
+  if (!position || !inventory || !ore) return true
+  return reserveLeft(sim, position.x, position.y) <= 0 && amountOf(inventory, ore) <= EPSILON
 }
 
 /**
- * Раз в тик: шахты добывают, грузовики возят. Ресурс между зданием и грузовиком переносит луч грузовика
+ * Раз в тик: шахты добывают, грузовики возят. Груз между зданием и грузовиком переносит луч грузовика
  * (см. inventory.ts): ему достаточно встать в радиусе. Очередей нет: у одного склада грузятся все сразу.
  *
- * Привязанный к шахте грузовик возит из неё в ближайшее хранилище, где есть место. Свободному работу даёт
- * диспетчер зон: подвезти заказанное или увезти накопленное в хранилище (см. logistics.ts). Работа — забрать
- * ресурс со склада from и сгрузить на склад to. Пропал склад, кончился ресурс или место — грузовик ищет другое
- * хранилище или бросает работу.
+ * Привязанный к шахте грузовик возит руду из неё на переработку. Свободному работу даёт диспетчер зон: подвезти
+ * заказанное или увезти готовое из переработки в хранилище (см. logistics.ts). Работа — забрать груз со склада
+ * from и сгрузить на склад to. Пропал склад, кончился груз или место — грузовик ищет другой или бросает работу.
  */
 export function haul(sim: Sim) {
   const { world, time } = sim
@@ -131,20 +131,20 @@ export function haul(sim: Sim) {
     const retry = onTurn(time, entity, RETRY_TICKS)
 
     if (hauler.from === NONE && hauler.to === NONE) {
-      const carried = RESOURCES.find((resource) => amountOf(cargo, resource) > EPSILON)
+      const carried = GOODS.find((resource) => amountOf(cargo, resource) > EPSILON)
       if (carried) {
-        // Остался груз — сначала в хранилище.
+        // Остался груз — сначала в хранилище или переработку.
         hauler.resource = carried
         hauler.full = true
       } else if (hauler.mine !== NONE) {
-        const kind = mineKind(sim, hauler.mine as Entity)
+        const ore = mineOre(sim, hauler.mine as Entity)
         // Шахта выработана и вывезена: грузовик свободен.
-        if (!kind || isSpent(sim, hauler.mine as Entity)) {
+        if (!ore || isSpent(sim, hauler.mine as Entity)) {
           released.push(entity)
           continue
         }
         hauler.from = hauler.mine
-        hauler.resource = kind
+        hauler.resource = ore
         hauler.amount = cargo.capacity
         hauler.full = false
       } else {
@@ -224,7 +224,8 @@ export function haul(sim: Sim) {
     hauler.resource = resource
     hauler.full = true
     hauler.waiting = false
-    hauler.to = storeFor(sim, truck, resource, hauler.to as Entity)
+    // Туда, откуда взял, не везёт: остаток едет в другое хранилище или на другую переработку.
+    hauler.to = deliveryFor(sim, truck, resource, hauler.from as Entity)
   }
 
   if (time.tick % DISPATCH_TICKS === 0) dispatch(sim)

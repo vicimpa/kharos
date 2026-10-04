@@ -1,8 +1,9 @@
 /**
  * Раздел «набег»: нападение на экономику.
  *
- * Сцена — живая линия добычи: шахта на металле, хранилище с главным зданием рядом и два грузовика, которые возят
- * добытое. Сначала линия меряется на ходу (сколько металла в секунду приходит в хранилище), потом к ней подходит
+ * Сцена — живая линия добычи: шахта на металле, переработка с электростанцией, хранилище с главным зданием
+ * рядом и два грузовика: один привязан к шахте и возит руду на завод, второй свободный — развозит готовое.
+ * Сначала линия меряется на ходу (сколько металла в секунду приходит в хранилище), потом к ней подходит
  * отряд и получает приказ: снести шахту, затем грузовики.
  *
  * Строки — отряды разной цены. Меряется: за сколько секунд они сносят шахту, за сколько — грузовики, и сколько
@@ -77,10 +78,13 @@ function lineScene(): Line {
     const mine = placeBuilding(sim.world, 'mine', spot.x, spot.y, DEFENDER)
     const silo = placeNearMine(sim, spot, 'silo', spot.x + 4, spot.y + 4)
     const core = placeNearMine(sim, spot, 'command', spot.x + 8, spot.y)
-    const tiles = freeTilesNear(sim, spot.x, spot.y, 2)
-    if (!silo || !core || tiles.length < 4) break
+    const refinery = placeNearMine(sim, spot, 'refinery', spot.x + 4, spot.y - 4)
+    const generator = placeNearMine(sim, spot, 'generator', spot.x + 8, spot.y - 4)
+    const tiles = freeTilesNear(sim, spot.x, spot.y, 4)
+    if (!silo || !core || !refinery || !generator || tiles.length < 4) break
     const trucks = [0, 1].map((i) => spawnUnit(sim, 'truck', DEFENDER, tiles[i * 2], tiles[i * 2 + 1]))
-    sim.send(DEFENDER, { type: 'haul', units: trucks, mine })
+    // Первый возит руду из шахты на завод, второй свободен: он развозит готовое по хранилищам.
+    sim.send(DEFENDER, { type: 'haul', units: [trucks[0]], mine })
     return { sim, mine: { x: spot.x, y: spot.y }, trucks }
   }
   sim.destroy()
@@ -162,7 +166,7 @@ function distanceTo(sim: Sim, entity: Entity, spot: { x: number; y: number }) {
 
 /** Печатает таблицу набегов. */
 export function runRaids() {
-  console.log('\nНабег на экономику: шахта с двумя грузовиками и хранилищем, обороны нет')
+  console.log('\nНабег на экономику: шахта с грузовиками, переработкой и хранилищем, обороны нет')
   console.log(`  сперва меряется поток линии, потом отряд в ${GAP} тайлах получает приказ: шахта, затем грузовики`)
   const rows: (string | number)[][] = []
   let flow = 0
@@ -184,6 +188,7 @@ export function runRaids() {
   }
   printTable(['отряд', 'цена', 'шахта', 'грузовики', 'ущерб кр', 'ущерб/с', 'цена/ущерб'], rows, 14, 10)
   console.log('  шахта и грузовики — когда их снесли; ущерб — сколько защитнику строить заново;')
-  console.log(`  ущерб/с — с какой скоростью отряд сносит линию; цена/ущерб — во сколько кр обходится 1 кр ущерба`)
+  console.log('  ущерб/с — с какой скоростью отряд сносит линию; цена/ущерб — во сколько кр обходится 1 кр ущерба')
+  console.log('  переработка в ущерб не входит: она переживает набег, но встаёт без шахты и грузовиков')
   console.log(`  линия добывает металла в секунду: ${round(flow, 2)}, это ${round(flow * RESOURCE_SPECS.metal.price, 1)} кр/с выручки, пока цела`)
 }

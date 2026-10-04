@@ -2,7 +2,7 @@ import type { Entity, World } from '../ecs'
 import { tileKey } from '../map/terrain'
 import { BUILDINGS, siteAt } from './buildings'
 import { Beam, Building, Inventory, Position, Unit } from './components'
-import { RESOURCES, type Amounts, type Resource } from './resources'
+import { GOODS, type Amounts, type Good } from './resources'
 import type { Sim } from './sim'
 import { UNITS, isWalkable, orderMove, standingUnits } from './units'
 
@@ -14,31 +14,31 @@ export interface BeamSpec {
   take?: boolean
 }
 
-type Stock = { items: Amounts; capacity: number; accepts: readonly Resource[]; limits: Amounts }
+type Stock = { items: Amounts; capacity: number; accepts: readonly Good[]; limits: Amounts }
 
-/** Сколько этого ресурса лежит на складе. */
-export const amountOf = (inventory: Stock, resource: Resource) => inventory.items[resource] ?? 0
+/** Сколько этого груза лежит на складе. */
+export const amountOf = (inventory: Stock, resource: Good) => inventory.items[resource] ?? 0
 
-/** Сколько лежит на складе всего, всех ресурсов вместе. */
-export const loadOf = (inventory: Stock) => RESOURCES.reduce((sum, resource) => sum + amountOf(inventory, resource), 0)
+/** Сколько лежит на складе всего, любого груза вместе, вместе с рудой. */
+export const loadOf = (inventory: Stock) => GOODS.reduce((sum, resource) => sum + amountOf(inventory, resource), 0)
 
-/** Сколько этого ресурса ещё поместится на склад; ноль — склад полон, такое сюда не кладут или его предел набран. */
-export function roomFor(inventory: Stock, resource: Resource) {
+/** Сколько этого груза ещё поместится на склад; ноль — склад полон, такое сюда не кладут или его предел набран. */
+export function roomFor(inventory: Stock, resource: Good) {
   if (inventory.accepts.length && !inventory.accepts.includes(resource)) return 0
   const limit = inventory.limits[resource]
   const left = limit === undefined ? Infinity : limit - amountOf(inventory, resource)
   return Math.max(0, Math.min(left, inventory.capacity - loadOf(inventory)))
 }
 
-/** Кладёт на склад до amount ресурса, сколько поместится. Возвращает, сколько положено. */
-export function put(inventory: Stock, resource: Resource, amount: number) {
+/** Кладёт на склад до amount груза, сколько поместится. Возвращает, сколько положено. */
+export function put(inventory: Stock, resource: Good, amount: number) {
   const moved = Math.max(0, Math.min(amount, roomFor(inventory, resource)))
   if (moved) inventory.items[resource] = amountOf(inventory, resource) + moved
   return moved
 }
 
-/** Забирает со склада до amount ресурса, сколько есть. Возвращает, сколько забрано. */
-export function take(inventory: Stock, resource: Resource, amount: number) {
+/** Забирает со склада до amount груза, сколько есть. Возвращает, сколько забрано. */
+export function take(inventory: Stock, resource: Good, amount: number) {
   const moved = Math.max(0, Math.min(amount, amountOf(inventory, resource)))
   if (moved) inventory.items[resource] = amountOf(inventory, resource) - moved
   return moved
@@ -47,7 +47,7 @@ export function take(inventory: Stock, resource: Resource, amount: number) {
 /** Склад и луч вида здания или юнита: capacity — объём, accepts и limits — что и сколько каждого сюда кладут. */
 export interface StorageSpec {
   inventory?: number
-  accepts?: Resource[]
+  accepts?: readonly Good[]
   limits?: Amounts
   beam?: BeamSpec
 }
@@ -102,7 +102,7 @@ export function reaches(sim: Sim, from: Entity, to: Entity) {
  * Переносит лучом до amount ресурса со склада from на склад to, если луч дотягивается. Очереди нет: один луч
  * за тик может работать с любым числом складов, каждый получает до rate в секунду. Возвращает, сколько перенесено.
  */
-export function transfer(sim: Sim, from: Entity, to: Entity, resource: Resource, amount = Infinity) {
+export function transfer(sim: Sim, from: Entity, to: Entity, resource: Good, amount = Infinity) {
   const { world, time } = sim
   const carrier = beamFor(sim, from, to)
   if (carrier === undefined) return 0

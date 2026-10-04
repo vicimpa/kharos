@@ -1,4 +1,4 @@
-import type { BuildingType, Resource, Reward, UnitType } from '../sim'
+import { isOre, type BuildingType, type Good, type Ore, type Resource, type Reward, type UnitType } from '../sim'
 
 /** Названия для интерфейса. Симуляция знает только ключи. */
 export const UNIT_NAMES: Record<UnitType, string> = {
@@ -50,3 +50,14 @@ export const RESOURCE_NAMES: Record<Resource, string> = {
   fuel: 'Топливо',
   kharite: 'Харит',
 }
+
+/** Руда называется по тому, что из неё выходит на переработке; исключение — нефть. */
+export const ORE_NAMES: Record<Ore, string> = {
+  metalOre: 'Металлическая руда',
+  siliconOre: 'Кремниевая руда',
+  fuelOre: 'Нефть',
+  khariteOre: 'Харитовая руда',
+}
+
+/** Название любого груза: готового ресурса или руды. */
+export const goodName = (good: Good) => (isOre(good) ? ORE_NAMES[good] : RESOURCE_NAMES[good])

@@ -1,6 +1,6 @@
 import { component } from '../ecs'
 import type { BuildingType } from './buildings'
-import type { Amounts, Resource } from './resources'
+import type { Amounts, Good, Resource } from './resources'
 import type { TurretType } from './turrets'
 import type { UnitType } from './units'
 import type { WeaponType } from './weapons'
@@ -86,7 +86,7 @@ export const Deposit = component('Deposit', { mined: 0 })
 
 /**
  * Грузовик. Груз лежит в его складе (Inventory). mine — шахта, к которой его привязал игрок; -1 — свободен:
- * тогда работу ему даёт диспетчер зон (см. logistics.ts). Работа — перевезти до amount ресурса resource со склада
+ * тогда работу ему даёт диспетчер зон (см. logistics.ts). Работа — перевезти до amount груза resource со склада
  * from на склад to; from = -1 — работы нет, to = -1 — куда везти, решится, когда наберёт груз. full — груз набран
  * и едет к to; loading — в этот тик идёт погрузка или выгрузка; waiting — уже получил приказ подъехать к лучу.
  */
@@ -94,7 +94,7 @@ export const Hauler = component('Hauler', {
   mine: -1,
   from: -1,
   to: -1,
-  resource: 'metal' as Resource,
+  resource: 'metal' as Good,
   amount: 0,
   full: false,
   loading: false,
@@ -102,20 +102,20 @@ export const Hauler = component('Hauler', {
 })
 
 /**
- * Склад: ресурсы, которые лежат в здании или едут в юните. items — сколько какого ресурса; capacity — сколько
- * помещается всего, всех ресурсов вместе; accepts — какие ресурсы сюда кладут, пусто — любые; limits — сколько
- * каждого ресурса помещается самое большее: так стройка принимает ровно свои материалы.
- * Между складами ресурсы переносит транспортный луч: см. Beam и inventory.ts.
+ * Склад: груз, который лежит в здании или едет в юните. items — сколько какого груза, вместе с рудой; capacity —
+ * сколько помещается всего, любого груза вместе; accepts — какой груз сюда кладут, пусто — любой; limits — сколько
+ * каждого груза помещается самое большее: так стройка принимает ровно свои материалы, а переработка — буфер руды.
+ * Между складами груз переносит транспортный луч: см. Beam и inventory.ts.
  */
-export const Inventory = component('Inventory', () => ({ items: {} as Amounts, capacity: 0, accepts: [] as Resource[], limits: {} as Amounts }))
+export const Inventory = component('Inventory', () => ({ items: {} as Amounts, capacity: 0, accepts: [] as readonly Good[], limits: {} as Amounts }))
 
 /**
- * Транспортный луч: переносит ресурсы между своим складом и чужим, если между их краями не больше radius тайлов.
+ * Транспортный луч: переносит груз между своим складом и чужим, если между их краями не больше radius тайлов.
  * give — умеет отдавать, take — забирать; rate — сколько единиц в секунду на каждый склад. Очереди нет: луч
  * работает со всеми, кто в радиусе, сразу. links — с кем он работал в этот тик: target — чей склад, pulling —
  * забирал он с него или отдавал на него, resource — что переносил.
  */
-export const Beam = component('Beam', () => ({ radius: 2, rate: 10, give: true, take: true, links: [] as { target: number; pulling: boolean; resource: Resource }[] }))
+export const Beam = component('Beam', () => ({ radius: 2, rate: 10, give: true, take: true, links: [] as { target: number; pulling: boolean; resource: Good }[] }))
 
 /**
  * Заявка на продажу: есть у космопорта от заявки до денег. resource — что продаётся, wanted — сколько;

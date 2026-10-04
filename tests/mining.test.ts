@@ -2,8 +2,8 @@ import { expect, test } from 'bun:test'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import type { Entity } from '../src/ecs'
 import {
-  BUILDINGS, Beam, DEPOSIT_KINDS, Deposit, Hauler, Inventory, RESOURCE_SPECS, SELL_SECONDS, TRUCK_CAPACITY, Trade, amountOf, canBuild, deliveredTo, gapBetween, canSell, isWalkable, stockOf, canPlace, createSim, creditsOf, depositAt, depositIn, depositNear, reserveLeft, rewardsOf,
-  zonesOf, type DepositSpot, type Sim,
+  BUILDINGS, Beam, DEPOSIT_KINDS, Deposit, Hauler, Inventory, REFINE_RATE, REFINE_RATIO, RESOURCE_SPECS, SELL_SECONDS, TRUCK_CAPACITY, Trade, amountOf, canBuild, deliveredTo, gapBetween, canSell, isWalkable, stockOf, canPlace, createSim, creditsOf, depositAt, depositIn, depositNear, reserveLeft, rewardsOf,
+  zonesOf, type BuildingType, type DepositSpot, type Good, type Sim,
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { addCredits } from '../src/sim/economy'
@@ -102,14 +102,28 @@ function base() {
   throw new Error('В мире не нашлось места под базу у месторождения')
 }
 
-/** Сколько руды на складе сущности. */
-const oreIn = (sim: Sim, entity: Entity) => amountOf(sim.world.get(entity, Inventory)!, 'metal')
+/** Ставит здание игрока 1 рядом с базой; место не проверяется — тесты ставят здания нарочно. */
+const place = (sim: Sim, type: BuildingType, x: number, y: number) => placeBuilding(sim.world, type, x, y, 1)
 
-test('шахта копит добытое у себя; грузовик забирает его лучом шахты и везёт в ближайшее хранилище', () => {
+/** Сколько груза на складе сущности. */
+const good = (sim: Sim, entity: Entity, resource: Good) => amountOf(sim.world.get(entity, Inventory)!, resource)
+/** Сколько руды металла на складе сущности. */
+const oreIn = (sim: Sim, entity: Entity) => good(sim, entity, 'metalOre')
+/** Сколько готового металла на складе сущности. */
+const metalIn = (sim: Sim, entity: Entity) => good(sim, entity, 'metal')
+
+/** Переработка с электростанцией в зоне главного здания: завод работает, только когда есть энергия. */
+function refineryAt(sim: Sim, spot: DepositSpot) {
+  const refinery = place(sim, 'refinery', spot.x + 12, spot.y + 2)
+  place(sim, 'generator', spot.x + 14, spot.y)
+  return refinery
+}
+
+test('шахта копит руду; привязанный грузовик возит её на переработку, а без неё копит в кузове', () => {
   const { sim, spot, mine, core, truck } = base()
   const hauler = () => sim.world.get(truck, Hauler)!
   const cargo = () => oreIn(sim, truck)
-  // Без грузовика шахта добывает в свой склад.
+  // Без грузовика шахта добывает руду в свой склад.
   seconds(sim, 5)
   expect(oreIn(sim, mine)).toBeCloseTo(DEPOSIT_KINDS.metal.rate * 5)
   expect(reserveLeft(sim, spot.x, spot.y)).toBeCloseTo(spot.reserve - oreIn(sim, mine))
@@ -126,53 +140,68 @@ test('шахта копит добытое у себя; грузовик заб�
   until(sim, () => hauler().loading)
   const beam = sim.world.get(truck, Beam)!
   expect(gapBetween(sim, mine, truck)).toBeLessThanOrEqual(beam.radius)
-  expect(beam.links).toEqual([{ target: mine, pulling: true, resource: 'metal' }])
+  expect(beam.links).toEqual([{ target: mine, pulling: true, resource: 'metalOre' }])
   until(sim, () => oreIn(sim, mine) < 0.1)
   // Дальше грузится по мере добычи.
   const loaded = cargo()
   seconds(sim, 10)
   expect(cargo()).toBeCloseTo(loaded + DEPOSIT_KINDS.metal.rate * 10, 0)
 
-  // Полный едет к главному зданию и сгружает руду лучом; сама руда кредитов не даёт.
+  // Полный не находит переработки и ждёт с грузом: руду в хранилища не кладут.
   until(sim, () => hauler().full)
   expect(cargo()).toBe(TRUCK_CAPACITY)
-  until(sim, () => oreIn(sim, core) > 0)
-  expect(gapBetween(sim, core, truck)).toBeLessThanOrEqual(beam.radius)
-  expect(beam.links).toEqual([{ target: core, pulling: false, resource: 'metal' }])
-  until(sim, () => !hauler().full)
-  expect(oreIn(sim, core)).toBeCloseTo(TRUCK_CAPACITY)
-  expect(stockOf(sim, 1)).toEqual({ items: { metal: oreIn(sim, core) }, capacity: BUILDINGS.command.inventory })
-  // Разгрузился — вернулся к шахте сам.
-  until(sim, () => hauler().loading && cargo() > 0)
-  expect(gapBetween(sim, mine, truck)).toBeLessThanOrEqual(beam.radius)
+  seconds(sim, 5)
+  expect(hauler().to).toBe(-1)
+  expect(stockOf(sim, 1).items).toEqual({})
+  expect(oreIn(sim, core)).toBe(0)
 
-  // Приказ идти снимает грузовик с шахты. Дальше он свободен: накопленное в шахте диспетчер велит ему увезти самому.
+  // Появилась переработка: кузов уезжает к ней и становится металлом.
+  const refinery = refineryAt(sim, spot)
+  until(sim, () => !hauler().full)
+  expect(metalIn(sim, refinery) + oreIn(sim, refinery)).toBeCloseTo(TRUCK_CAPACITY)
+  until(sim, () => metalIn(sim, refinery) > 15)
+  // Готовое копится у завода: заявок на него нет, а сам грузовик возит только руду.
+  seconds(sim, 10)
+  expect(stockOf(sim, 1).items).toEqual({})
+
+  // Приказ идти снимает грузовик с шахты. Дальше он свободен: накопленное в шахте диспетчер велит ему увезти.
   sim.send(1, { type: 'move', units: [truck], x: spot.x - 3, y: spot.y })
   seconds(sim, 1)
   expect(hauler().mine).toBe(-1)
-  sim.world.get(mine, Inventory)!.items.metal = BUILDINGS.mine.inventory
+  sim.world.get(mine, Inventory)!.items.metalOre = BUILDINGS.mine.inventory
   until(sim, () => hauler().from === mine)
 
-  // Сохранение помнит и добытое, и груз, и запас.
+  // Сохранение помнит и руду, и груз, и запас.
   const copy = createSim(JSON.parse(JSON.stringify(sim.save())))
   expect(reserveLeft(copy, spot.x, spot.y)).toBe(reserveLeft(sim, spot.x, spot.y))
   expect(oreIn(copy, truck)).toBe(cargo())
-  expect(oreIn(copy, core)).toBe(oreIn(sim, core))
+  expect(metalIn(copy, refinery)).toBe(metalIn(sim, refinery))
   expect(oreIn(copy, mine)).toBe(oreIn(sim, mine))
   expect(copy.world.get(truck, Hauler)).toEqual(hauler())
 
   // Полная шахта, которую некому вывезти, не добывает.
   sim.world.destroy(truck)
-  sim.world.get(mine, Inventory)!.items.metal = BUILDINGS.mine.inventory
+  sim.world.get(mine, Inventory)!.items.metalOre = BUILDINGS.mine.inventory
   const left = reserveLeft(sim, spot.x, spot.y)
   seconds(sim, 5)
   expect(reserveLeft(sim, spot.x, spot.y)).toBe(left)
 })
 
+test('без переработки руда копится в шахте и кузове: металла не появляется нигде', () => {
+  const { sim, spot, mine, truck } = base()
+  sim.send(1, { type: 'haul', units: [truck], mine })
+  until(sim, () => sim.world.get(truck, Hauler)!.full)
+  seconds(sim, 30)
+  expect(stockOf(sim, 1).items).toEqual({})
+  expect(oreIn(sim, mine) + oreIn(sim, truck)).toBeGreaterThan(DEPOSIT_KINDS.metal.rate * 25)
+  expect(reserveLeft(sim, spot.x, spot.y)).toBeGreaterThan(0)
+})
+
 test('очередей нет: несколько грузовиков выкачивают шахту одновременно', () => {
   const { sim, mine, truck, spot } = base()
+  const refinery = refineryAt(sim, spot)
   const second = spawnUnit(sim, 'truck', 1, spot.x - 1, spot.y + 1)
-  sim.world.get(mine, Inventory)!.items.metal = BUILDINGS.mine.inventory
+  sim.world.get(mine, Inventory)!.items.metalOre = BUILDINGS.mine.inventory
   sim.send(1, { type: 'haul', units: [truck, second], mine })
   // Руду грузовикам даёт только шахта: прибавилось у обоих в один тик — качали одновременно.
   let both = 0
@@ -182,27 +211,62 @@ test('очередей нет: несколько грузовиков выка�
     if (oreIn(sim, truck) > before[0] && oreIn(sim, second) > before[1]) both++
   }
   expect(both).toBeGreaterThan(0)
-  // В шахте было на два кузова: оба довезли полные до главного здания.
-  until(sim, () => (stockOf(sim, 1).items.metal ?? 0) >= 2 * TRUCK_CAPACITY - 1e-6)
+  // В шахте было на два кузова: оба доехали до переработки и стали металлом.
+  until(sim, () => metalIn(sim, refinery) + oreIn(sim, refinery) >= 2 * TRUCK_CAPACITY - 1e-6)
+})
+
+test('переработка берёт 1,5 руды в секунду и отдаёт металл один к одному', () => {
+  const { sim, spot, mine, truck } = base()
+  sim.world.destroy(mine)
+  sim.world.destroy(truck)
+  const refinery = refineryAt(sim, spot)
+  const inventory = sim.world.get(refinery, Inventory)!
+  inventory.items.metalOre = 40
+  seconds(sim, 10)
+  const made = metalIn(sim, refinery)
+  expect(made).toBeCloseTo((REFINE_RATE * 10) / REFINE_RATIO, 1)
+  expect(oreIn(sim, refinery)).toBeCloseTo(40 - made * REFINE_RATIO)
+  // Руда не теряется: сколько переработано, столько и стало металла.
+  seconds(sim, 20)
+  expect(metalIn(sim, refinery)).toBeCloseTo(40 / REFINE_RATIO)
+  expect(oreIn(sim, refinery)).toBe(0)
+})
+
+test('заводу некуда девать готовое — он стоит и руду не тратит', () => {
+  const { sim, spot, mine, truck } = base()
+  sim.world.destroy(mine)
+  sim.world.destroy(truck)
+  const refinery = refineryAt(sim, spot)
+  const inventory = sim.world.get(refinery, Inventory)!
+  inventory.items.metalOre = 25
+  inventory.items.metal = inventory.capacity - 25
+  seconds(sim, 10)
+  expect(oreIn(sim, refinery)).toBe(25)
+  expect(metalIn(sim, refinery)).toBe(inventory.capacity - 25)
 })
 
 test('хранилище конечно: когда место кончилось, грузовик везёт остаток в другое; запас — по всем хранилищам', () => {
   const { sim, spot, mine, core, truck } = base()
+  const refinery = refineryAt(sim, spot)
+  // Руда шахты тут не при чём: у завода уже лежит готовый металл, а в кузове шахты — нет.
+  sim.world.destroy(mine)
   const capacity = BUILDINGS.command.inventory
   sim.world.get(core, Inventory)!.items.metal = capacity - 5
-  sim.send(1, { type: 'haul', units: [truck], mine })
+  sim.world.get(refinery, Inventory)!.items.metal = TRUCK_CAPACITY
   const hauler = () => sim.world.get(truck, Hauler)!
-  until(sim, () => hauler().full && oreIn(sim, core) >= capacity)
+  const stock = () => amountOf(sim.world.get(core, Inventory)!, 'metal')
+
+  // Грузовик вывозит металл от завода, но в главное здание влезает только пять единиц.
+  until(sim, () => hauler().full && stock() >= capacity)
   seconds(sim, 10)
-  // Влезло только пять единиц, остальное в кузове: везти некуда, он ждёт.
-  expect(oreIn(sim, core)).toBe(capacity)
-  expect(oreIn(sim, truck)).toBeCloseTo(TRUCK_CAPACITY - 5)
+  expect(stock()).toBe(capacity)
+  expect(metalIn(sim, truck)).toBeCloseTo(TRUCK_CAPACITY - 5)
   expect(hauler().to).toBe(-1)
 
   // Новое хранилище принимает остаток.
-  const silo = placeBuilding(sim.world, 'silo', spot.x + 9, spot.y, 1)
+  const silo = place(sim, 'silo', spot.x + 9, spot.y)
   until(sim, () => !hauler().full)
-  expect(oreIn(sim, silo)).toBeCloseTo(TRUCK_CAPACITY - 5)
+  expect(amountOf(sim.world.get(silo, Inventory)!, 'metal')).toBeCloseTo(TRUCK_CAPACITY - 5)
   expect(stockOf(sim, 1).capacity).toBe(capacity + BUILDINGS.silo.inventory)
 })
 
@@ -213,8 +277,8 @@ test('космопорт продаёт по заявке: диспетчер ш
   sim.world.get(silo, Inventory)!.items.metal = 15
   const credits = creditsOf(sim, 1)
   const hauler = () => sim.world.get(truck, Hauler)!
-  const stored = () => oreIn(sim, core) + oreIn(sim, silo)
-  // Без космопорта руда лежит и денег не приносит.
+  const stored = () => metalIn(sim, core) + metalIn(sim, silo)
+  // Без космопорта металл лежит и денег не приносит.
   seconds(sim, 5)
   expect(creditsOf(sim, 1) - credits).toBeLessThanOrEqual(1)
   expect(canBuild(sim, 1, 'spaceport', spot.x + 9, spot.y)).toBe(true)
@@ -222,7 +286,7 @@ test('космопорт продаёт по заявке: диспетчер ш
   expect(canSell(sim, 1, port)).toBe(true)
   expect(canSell(sim, 2, port)).toBe(false)
 
-  // Заявка руду не забирает: её должны привезти.
+  // Заявка сама по себе товар не приносит: его должны привезти.
   sim.send(2, { type: 'sell', port, resource: 'metal', amount: 50 })
   sim.send(1, { type: 'sell', port, resource: 'metal', amount: 50 })
   sim.advance(TICK)
@@ -235,21 +299,21 @@ test('космопорт продаёт по заявке: диспетчер ш
   sim.advance(TICK)
   expect(order().wanted).toBe(50)
 
-  // Космопорт заказал руду, и диспетчер отдал заявку свободному грузовику: тот выкачивает её из хранилища
+  // Космопорт заказал металл, и диспетчер отдал заявку свободному грузовику: тот выкачивает его из хранилища
   // и сгружает в космопорт.
   until(sim, () => hauler().to === port)
-  until(sim, () => hauler().loading && oreIn(sim, truck) > 0)
+  until(sim, () => hauler().loading && metalIn(sim, truck) > 0)
   until(sim, () => delivered() > 0)
   expect(gapBetween(sim, port, truck)).toBeLessThanOrEqual(sim.world.get(truck, Beam)!.radius)
-  // Руда нигде не теряется: она в хранилищах, в кузове или в космопорте.
-  expect(stored() + oreIn(sim, truck) + delivered()).toBeCloseTo(95)
+  // Металл нигде не теряется: он в хранилищах, в кузове или в космопорте.
+  expect(stored() + metalIn(sim, truck) + delivered()).toBeCloseTo(95)
 
   // Привезли всё — грузовик свободен, корабль улетел, кредиты приходят после полёта.
   until(sim, () => order().total > 0)
   expect(delivered()).toBeCloseTo(50)
   expect(stored()).toBeCloseTo(45)
   until(sim, () => hauler().to !== port, 5)
-  expect(oreIn(sim, truck)).toBe(0)
+  expect(metalIn(sim, truck)).toBe(0)
   const before = creditsOf(sim, 1)
   seconds(sim, SELL_SECONDS - 2)
   expect(creditsOf(sim, 1) - before).toBeLessThan(10)
@@ -278,16 +342,20 @@ test('космопорт продаёт по заявке: диспетчер ш
 test('здания можно ставить вплотную к шахте, а выработанное месторождение освобождает грузовик', () => {
   const { sim, spot, mine, truck } = base()
   addCredits(sim, 1, 1000)
+  refineryAt(sim, spot)
   // Вплотную к шахте строить можно: место для грузовика под ней не нужно.
   expect(canBuild(sim, 1, 'silo', spot.x, spot.y + 2)).toBe(true)
 
   sim.send(1, { type: 'haul', units: [truck], mine })
   const hauler = () => sim.world.get(truck, Hauler)!
   until(sim, () => hauler().loading)
+  // Даём грузовику набрать груз, потом вырабатываем месторождение.
+  seconds(sim, 15)
   for (const [, deposit] of sim.world.query(Deposit)) deposit.mined = spot.reserve - 1
   until(sim, () => reserveLeft(sim, spot.x, spot.y) === 0)
-  // Довёз остаток и освободился.
+  // Довёз остаток до переработки и освободился.
   until(sim, () => hauler().mine === -1 && oreIn(sim, truck) === 0)
-  expect((stockOf(sim, 1).items.metal ?? 0)).toBeGreaterThan(1)
+  // Переработанный металл свободный грузовик свозит в хранилище.
+  until(sim, () => (stockOf(sim, 1).items.metal ?? 0) > 1)
   expect(canBuild(sim, 1, 'mine', spot.x, spot.y)).toBe(false)
 })

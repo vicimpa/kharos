@@ -1,8 +1,8 @@
 import type { HudState, Stack } from '../game/hud'
 import { cssColor } from '../game/resourceColors'
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { REWARDS, type BuildingType, type Command, type Resource, type Reward } from '../sim'
-import { BUILDING_NAMES, RESOURCE_NAMES, REWARD_NAMES, UNIT_NAMES } from './names'
+import { REWARDS, type BuildingType, type Command, type Good, type Reward } from '../sim'
+import { BUILDING_NAMES, RESOURCE_NAMES, REWARD_NAMES, UNIT_NAMES, goodName } from './names'
 
 interface HudProps {
   state: HudState
@@ -13,10 +13,10 @@ interface HudProps {
 
 const percent = (value: number) => `${Math.round(value * 100)}%`
 
-/** Значок ресурса цвета ресурса и количество; название — во всплывающей подсказке. */
-function Res({ resource, amount, of }: { resource: Resource; amount?: number; of?: number }) {
+/** Значок груза цвета груза и количество; название — во всплывающей подсказке. */
+function Res({ resource, amount, of }: { resource: Good; amount?: number; of?: number }) {
   return (
-    <span class="hud__res" title={RESOURCE_NAMES[resource]}>
+    <span class="hud__res" title={goodName(resource)}>
       <i style={{ background: cssColor(resource) }} />
       {amount !== undefined && (of !== undefined ? `${amount}/${of}` : amount)}
     </span>
@@ -112,6 +112,12 @@ export function Hud({ state, send, place }: HudProps) {
               {state.stored.items.length === 0 && 'пусто'} — вмещает {state.stored.capacity}
             </div>
           )}
+          {state.refinery && (
+            <div class="hud__hint">
+              Принимает {state.refinery.intake} руды в секунду и делает из неё готовое. Руду привозят грузовики из
+              шахт — привязанный и свободные, — а готовое свободные грузовики развозят по хранилищам
+            </div>
+          )}
           {state.materials && (
             <div class={state.materials.waiting ? 'hud__hint is-short' : 'hud__hint'}>
               Материалы:{' '}
@@ -126,7 +132,7 @@ export function Hud({ state, send, place }: HudProps) {
               Груз: <Stacks items={state.cargo.items} />
               {state.cargo.items.length === 0 && 'пусто'} из {state.cargo.capacity}.{' '}
               {state.cargo.bound > 0
-                ? 'Возит из шахты в хранилища'
+                ? 'Возит руду из шахты на переработку'
                 : state.cargo.busy > 0
                   ? 'Везёт по заявке зоны'
                   : 'Свободен: сам берёт заявки зон. Правый щелчок по шахте — возить только из неё'}

@@ -7,7 +7,7 @@ import { Pixmap } from '../render/pixmap'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites } from '../render/sprites'
 import { BUILDINGS, Beam, Blast, Building, Health, Position, Shot, UNITS, Unit, WEAPONS, activeRepairs, flies, type RepairLink, type WeaponSpec } from '../sim'
-import { RESOURCE_COLORS } from './resourceColors'
+import { GOOD_COLORS } from './resourceColors'
 import type { Scene } from './scene'
 import type { TeamColors } from './units/unitArt'
 import { drawnPosition } from './units/unitsPass'
@@ -713,7 +713,7 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
           dot(glow, fromX, fromY, 6, TRACTOR, 0.7)
           dot(glow, toX, toY, 6, TRACTOR, 0.7)
           const length = Math.hypot(toX - fromX, toY - fromY)
-          const CARGO = cargoColor(RESOURCE_COLORS[link.resource])
+          const CARGO = cargoColor(GOOD_COLORS[link.resource])
           const count = Math.floor(length / CARGO_STEP)
           const shift = ((time * CARGO_SPEED) / CARGO_STEP) % 1
           for (let i = 0; i < count; i++) {
