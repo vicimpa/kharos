@@ -8,6 +8,7 @@ import {
   Armed, Attached, Building, Owner, Position, TURN, TURRET_TYPES, Turret, UNIT_TYPES, Unit, WEAPONS, flies, weaponOf, wrap, type ShotKind, type TurretType,
   type UnitType,
 } from '../../sim'
+import { spawnGhostOf } from '../placing'
 import type { Scene } from '../scene'
 import { GAIT_PHASES, GAIT_STEP, TEAMS, TURRET_ART, TURRET_FRAME, UNIT_ART, UNIT_DIRECTIONS, UNIT_FRAME, UNIT_GAITS, UNIT_LIGHTS, type Team } from './unitArt'
 
@@ -46,6 +47,8 @@ export function drawnFacing(unit: { facing: number; prevFacing: number }, alpha:
 }
 
 const TEAM_NAMES = Object.keys(TEAMS) as Team[]
+/** Куда смотрит призрак юнита: вправо-вниз, как на портрете. */
+const GHOST_FACING = Math.PI / 4
 
 /**
  * Проходы юнитов и турелей: наземные юниты рисуются под зданиями, установленные на зданиях турели — поверх
@@ -170,6 +173,17 @@ export function createUnitsPasses(gl: WebGL2RenderingContext, scene: Scene): { g
             shadows.push(left + shadowShift, top + shadowShift, SPRITE_TILES, SPRITE_TILES, u, v, frameWidth, frameHeight, 0, 0, 0, shadowAlpha)
             sprites.push(left, top, SPRITE_TILES, SPRITE_TILES, u, v, frameWidth, frameHeight, 1, 1, 1, 1)
           }
+        }
+        // Призрак отладочного спавна: полупрозрачный юнит в тайле под указателем; красный — если туда нельзя.
+        const ghost = emplacements ? null : spawnGhostOf(scene)
+        if (ghost && ghost.spawn.kind !== 'building' && flies(ghost.spawn.type) === air) {
+          const team: Team = ghost.spawn.kind === 'enemy' ? 'foe' : 'own'
+          const { u, v, width: frameWidth, height: frameHeight } = framesOf(team, ghost.spawn.type, 0)[directionOf(GHOST_FACING)]
+          const level = 0.55
+          sprites.push(
+            ghost.x + 0.5 - camera.x - SPRITE_TILES / 2, ghost.y + 0.5 - camera.y - SPRITE_TILES / 2, SPRITE_TILES, SPRITE_TILES,
+            u, v, frameWidth, frameHeight, level, ghost.allowed ? level : level * 0.2, ghost.allowed ? level : level * 0.2, level,
+          )
         }
         // Турели — поверх всех юнитов слоя: на своём носителе они должны лежать сверху.
         for (const [entity, position, turret, owner, attached] of world.query(Position, Turret, Owner, Attached)) {

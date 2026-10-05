@@ -1,5 +1,7 @@
 import type { Pixmap } from '../../render/pixmap'
 import { BUILDINGS, type BuildingType } from '../../sim/buildings'
+import { GOOD_COLORS } from '../resourceColors'
+
 
 /**
  * Векторные чертежи зданий. Рисуются на Pixmap в пикселях будущего спрайта: ART_TILE пикселей на тайл,
@@ -17,8 +19,13 @@ export interface BuildingArt {
   height: number
   /** Число вариантов соседства; без поля у здания один общий вид. */
   variants?: number
-  /** light сообщает об огнях кадра; их число и порядок не должны зависеть от t. */
-  draw(g: Pixmap, t: number, light: EmitLight, variant?: number): void
+  /**
+   * У здания два вида анимации: в простое (лампы мигают, механизмы стоят) и в работе (working). Без поля — один вид.
+   * Работает ли здание, решает проход зданий по тому, что происходит с его складом.
+   */
+  working?: boolean
+  /** light сообщает об огнях кадра; их число и порядок не должны зависеть ни от t, ни от working. */
+  draw(g: Pixmap, t: number, light: EmitLight, variant?: number, working?: boolean): void
 }
 
 /** Огонь в точке (x, y) чертежа: size — радиус лампы в пикселях, level — яркость от 0 до 1. */
@@ -259,33 +266,390 @@ const command: BuildingArt = {
   },
 }
 
-/** Перерабатывающий завод: баки, печь с трубой и приёмный лоток с лентой. */
-const refinery: BuildingArt = {
-  ...BUILDINGS.refinery,
-  draw(g, t, light) {
-    slab(g, 0, 2, 48, 30, 3, STEEL)
+/** Три тона цвета: тёмный, основной, светлый — для окраски частей здания цветом его груза. */
+function accent(color: number) {
+  const mix = (amount: number) => {
+    const channel = (shift: number) => {
+      const value = (color >> shift) & 255
+      return Math.round(amount > 0 ? value + (255 - value) * amount : value * (1 + amount)) << shift
+    }
+    return channel(16) | channel(8) | channel(0)
+  }
+  return [mix(-0.55), mix(-0.15), mix(0.3)] as const
+}
 
-    pipe(g, 12, 8, 6)
-    pipe(g, 12, 19, 6)
-    tower(g, 8, 12, 6, 6, IRON)
-    tower(g, 9, 22, 4, 3, IRON)
+/** Огонь печи: от тёмно-красного к белому. */
+const FIRE = [0x6a1a10, 0xc2401a, 0xf08a2a, 0xffd36a, 0xfff4d0] as const
+const fireColor = (level: number) => FIRE[Math.min(FIRE.length - 1, Math.max(0, Math.floor(level * FIRE.length)))]
+/** Жёлто-чёрные полосы опасности. */
+const HAZARD = [0x1a1608, 0xd9b021] as const
+/** Огнеупорный кирпич печей. */
+const BRICK: Tones = [0x2a1a16, RUST[0], RUST[1], RUST[2], 0xe0a080]
+/** Электрическая дуга: от синего к белому. */
+const ARC = [0x2f5fd0, 0x8fc0ff, 0xf2f8ff] as const
 
-    // Лоток: полосы ленты ползут к печи.
-    g.rect(34, 6, 12, 18, INK)
-    g.rect(35, 7, 10, 16, RUST[0])
-    const step = Math.floor(t * ART_FRAMES) % 4
-    for (let k = 0; k < 4; k++) g.rect(35, 7 + ((k * 4 + 3 - step) % 16), 10, 1, RUST[1])
-    bulb(g, light, 34, 25, chase(t, 0))
-    bulb(g, light, 44, 25, chase(t, 0.5))
+/** Воспроизводимое случайное число от 0 до 1 по двум целым: дуги и пузыри скачут, но кадры одинаковы при каждой сборке. */
+function hash(a: number, b: number) {
+  const value = Math.sin(a * 127.1 + b * 311.7) * 43758.5453
+  return value - Math.floor(value)
+}
 
-    slab(g, 16, -3, 17, 22, 6, IRON)
-    g.rect(18, 0, 13, 1, IRON[0])
-    g.rect(18, 8, 13, 1, IRON[0])
-    g.rect(22, 12, 5, 6, INK)
-    g.rect(23, 13, 3, 5, DARK)
-    windows(g, [18, 28], 14)
-    tower(g, 24, 6, 4, 6, STEEL)
-    lamp(g, light, 24, 0, 2, pulse(t * 2))
+/**
+ * Переработки у каждой руды свои, и силуэты у них нарочно непохожие: какую руду завод берёт, видно издалека,
+ * а не только по цвету. Цвет ресурса — у того, что завод выдаёт. В простое горят только сигнальные лампы,
+ * печь тлеет, механизмы стоят; в работе всё движется и светит.
+ */
+
+/**
+ * Плавильня, 3×3: открытая ванна жидкого металла — сверху видно раскалённое зеркало с коркой шлака, — жёлоб из неё
+ * на конвейер изложниц, где слитки остывают, и штабель готовых слитков.
+ */
+const smelter: BuildingArt = {
+  ...BUILDINGS.smelter,
+  working: true,
+  draw(g, t, light, _variant, working = false) {
+    const tint = accent(GOOD_COLORS.metal)
+    const frame = Math.floor(t * ART_FRAMES)
+    slab(g, 0, 2, 48, 46, 3, IRON)
+    g.rect(2, 4, 44, 1, RUST[0])
+
+    // Ванна: кирпичное кольцо, внутри металл. В работе он ярко светится и по нему плывёт шлак; в простое — остывшая корка.
+    const cx = 16
+    const cy = 18
+    g.circle(cx, cy, 14, INK)
+    g.circle(cx, cy, 13, BRICK[1])
+    g.circle(cx - 1, cy - 1, 12, BRICK[2])
+    g.circle(cx, cy, 10, INK)
+    g.circle(cx, cy, 9, working ? fireColor(0.55) : fireColor(0.05))
+    g.circle(cx - 1, cy - 1, 7, working ? fireColor(0.75) : 0x3a2a26)
+    g.circle(cx - 2, cy - 2, 4, working ? fireColor(0.95) : 0x4a3530)
+    for (let i = 0; i < 5; i++) {
+      // Корка шлака: в работе кружит по зеркалу, в простое лежит и чуть тлеет трещинами.
+      const angle = TURN * ((working ? t : 0) + i / 5)
+      const reach = 4 + hash(i, 1) * 4
+      const x = Math.round(cx + Math.cos(angle) * reach)
+      const y = Math.round(cy + Math.sin(angle) * reach)
+      g.rect(x, y, 2, 1, working ? FIRE[1] : fireColor(0.25 + 0.15 * pulse(t, i / 5)))
+    }
+    if (working) {
+      // Пузырь лопается в случайном месте каждые пару кадров.
+      const bubble = Math.floor(frame / 2)
+      g.rect(Math.round(cx - 5 + hash(bubble, 7) * 10), Math.round(cy - 5 + hash(bubble, 9) * 10), 1, 1, FIRE[4])
+    }
+    light(cx, cy, 8, working ? 0.8 + 0.2 * pulse(t * 2) : 0.15)
+
+    // Жёлоб из ванны вправо, на конвейер.
+    g.rect(29, 15, 7, 4, INK)
+    g.rect(29, 16, 7, 2, working ? fireColor(0.7 + 0.25 * pulse(t * 4)) : BRICK[0])
+
+    // Конвейер изложниц вдоль правого края: формы едут вниз, металл в них остывает от огня к цвету металла.
+    g.rect(35, 5, 10, 38, INK)
+    g.rect(36, 6, 8, 36, IRON[0])
+    const shift = working ? frame % 6 : 0
+    for (let k = 0; k < 7; k++) {
+      const y = 6 + k * 6 + shift - 6
+      if (y < 6 || y > 38) continue
+      g.rect(37, y, 6, 4, IRON[2])
+      g.rect(38, y + 1, 4, 2, k < 2 && working ? fireColor(0.9 - k * 0.3) : k < 4 && working ? FIRE[1] : tint[1])
+      g.rect(38, y + 1, 4, 1, k < 2 && working ? FIRE[4] : tint[2])
+    }
+
+    // Штабель готовых слитков внизу слева.
+    for (const [x, y] of [[4, 38], [11, 38], [18, 38], [7, 35], [14, 35], [10, 32]] as const) {
+      g.rect(x, y, 7, 4, INK)
+      g.rect(x + 1, y + 1, 5, 2, tint[1])
+      g.rect(x + 1, y + 1, 5, 1, tint[2])
+    }
+    lamp(g, light, 29, 40, 2, pulse(t))
+  },
+}
+
+/**
+ * Кремниевый завод, 3×2: дуговая печь — три электрода в тигле, между ними трещат разряды, — две камеры, где
+ * из расплава тянут кристаллы, и стопки готовых пластин.
+ */
+const siliconWorks: BuildingArt = {
+  ...BUILDINGS.siliconWorks,
+  working: true,
+  draw(g, t, light, _variant, working = false) {
+    const tint = accent(GOOD_COLORS.silicon)
+    const frame = Math.floor(t * ART_FRAMES)
+    const WHITE: Tones = [0x6d7680, 0x9aa4ae, 0xc3cbd3, 0xe1e7ec, 0xffffff]
+    slab(g, 0, 2, 48, 30, 3, WHITE)
+
+    // Тигель печи с расплавом.
+    const cx = 14
+    const cy = 15
+    g.circle(cx, cy, 12, INK)
+    g.circle(cx, cy, 11, IRON[1])
+    g.circle(cx - 1, cy - 1, 10, IRON[2])
+    g.circle(cx, cy, 8, INK)
+    // Расплав кварца рыжий от жара: на нём голубые дуги видны, а цвет кремния — у кристаллов и пластин.
+    g.circle(cx, cy, 7, working ? fireColor(0.45) : 0x262a30)
+    g.circle(cx - 1, cy - 1, 4, working ? fireColor(0.7) : 0x30353c)
+    // Три электрода треугольником; в работе между ними и к расплаву бьют дуги, каждые два кадра — новые.
+    const electrodes = [0, 1, 2].map((i) => {
+      const angle = TURN * (i / 3) - TURN / 4
+      return [Math.round(cx + Math.cos(angle) * 5), Math.round(cy + Math.sin(angle) * 5)] as const
+    })
+    if (working) {
+      const beat = Math.floor(frame / 2)
+      for (let i = 0; i < 3; i++) {
+        const [x0, y0] = electrodes[i]
+        const [x1, y1] = electrodes[(i + 1) % 3]
+        const bend = (hash(beat, i) - 0.5) * 4
+        const mx = (x0 + x1) / 2 + (cx - (x0 + x1) / 2) * 0.3 + bend
+        const my = (y0 + y1) / 2 + (cy - (y0 + y1) / 2) * 0.3 - bend
+        g.line(x0, y0, mx, my, 1.5, hash(beat, i + 5) > 0.3 ? ARC[2] : ARC[1])
+        g.line(mx, my, x1, y1, 1.5, ARC[2])
+        g.rect(Math.round(mx), Math.round(my), 1, 1, ARC[2])
+      }
+    }
+    for (const [x, y] of electrodes) {
+      g.circle(x, y, 2, INK)
+      g.circle(x, y, 1.5, working ? ARC[1] : IRON[4])
+    }
+    light(cx, cy, 6, working ? 0.6 + 0.4 * hash(Math.floor(frame / 2), 11) : 0)
+
+    // Камеры выращивания: круглые колпаки со смотровым окном, в работе внутри светится тянущийся кристалл.
+    for (const [x, y, offset] of [[33, 10, 0], [33, 22, 0.5]] as const) {
+      g.circle(x, y, 5, INK)
+      g.circle(x, y, 4, WHITE[2])
+      g.circle(x - 1, y - 1, 2, WHITE[4])
+      g.circle(x, y, 2, working ? tint[1] : WHITE[0])
+      if (working) g.rect(x, y - 1 + Math.round(pulse(t, offset)), 1, 1, tint[2])
+    }
+    // Стопки готовых пластин: тонкие диски цвета кремния.
+    for (const [x, y] of [[42, 9], [42, 17], [42, 25]] as const) {
+      g.circle(x, y, 3, INK)
+      g.circle(x, y, 2, tint[1])
+      g.rect(x - 1, y - 2, 2, 1, tint[2])
+    }
+    lamp(g, light, 26, 26, 1, pulse(t))
+  },
+}
+
+/** Перегонный завод, 2×3: ректификационная колонна сверху, шаровые баки и факел, где сгорает лишний газ. */
+const distillery: BuildingArt = {
+  ...BUILDINGS.distillery,
+  working: true,
+  draw(g, t, light, _variant, working = false) {
+    const tint = accent(GOOD_COLORS.fuel)
+    slab(g, 0, 2, 32, 46, 3, STEEL)
+    g.rect(3, 42, 26, 1, RUST[1])
+
+    pipe(g, 4, 30, 24)
+    pipe(g, 10, 22, 3)
+    for (const x of [8, 22]) {
+      g.circle(x, 36, 6, INK)
+      g.circle(x, 36, 5, tint[0])
+      g.circle(x - 1, 35, 4, tint[1])
+      g.rect(x - 3, 33, 2, 1, tint[2])
+    }
+
+    // Колонна сверху: толстый круг с кольцевой площадкой; в работе по кольцу бегут огни.
+    tower(g, 12, 16, 8, 3, STEEL)
+    g.circle(12, 13, 5, INK)
+    g.circle(12, 13, 4, STEEL[2])
+    g.circle(11, 12, 2, STEEL[3])
+    for (let i = 0; i < 6; i++) {
+      const angle = (TURN * i) / 6
+      bulb(g, light, Math.round(12 + Math.cos(angle) * 6.5) - 1, Math.round(13 + Math.sin(angle) * 6.5) - 1, working ? chase(t, i / 6) : 0)
+    }
+    pipe(g, 19, 10, 5)
+
+    // Факел сверху: в работе пляшет огонь, в простое тлеет запальник.
+    const flame = working ? pulse(t * 4) : 0
+    g.circle(25, 10, 4, INK)
+    g.circle(25, 10, 3, IRON[2])
+    if (working) {
+      g.circle(25, 10, 2 + flame, fireColor(0.55 + flame * 0.2))
+      g.circle(25, 9, 1 + flame * 0.6, fireColor(0.95))
+    } else g.rect(25, 10, 1, 1, fireColor(0.5 + 0.3 * pulse(t)))
+    light(25, 9, 4, working ? 0.7 + flame * 0.3 : 0.1)
+    lamp(g, light, 27, 24, 1, pulse(t))
+  },
+}
+
+/** Обогатитель харита, 2×2: круглая центрифуга во всю площадку за полосами опасности, в центре — светящееся ядро. */
+const enricher: BuildingArt = {
+  ...BUILDINGS.enricher,
+  working: true,
+  draw(g, t, light, _variant, working = false) {
+    const tint = accent(GOOD_COLORS.kharite)
+    slab(g, 0, 2, 32, 30, 3, IRON)
+    for (let x = 2; x < 30; x += 4) {
+      g.rect(x, 4, 2, 2, HAZARD[1])
+      g.rect(x + 2, 4, 2, 2, HAZARD[0])
+    }
+
+    // Центрифуга: в работе капсулы бегут по кольцу, в простое стоят.
+    const cx = 16
+    const cy = 16
+    g.circle(cx, cy, 11, INK)
+    g.circle(cx, cy, 10, IRON[2])
+    g.circle(cx, cy, 7, INK)
+    g.circle(cx, cy, 6, IRON[0])
+    for (let i = 0; i < 4; i++) {
+      const angle = TURN * ((working ? t : 0.125) + i / 4)
+      const x = cx + Math.cos(angle) * 8.5
+      const y = cy + Math.sin(angle) * 8.5
+      g.line(cx, cy, x, y, 1, IRON[3])
+      g.circle(x, y, 2, working ? tint[1] : tint[0])
+      g.rect(Math.round(x) - 1, Math.round(y) - 1, 1, 1, tint[2])
+    }
+    // Ядро: в работе дышит светом харита, в простое едва теплится.
+    const core = working ? 0.6 + 0.4 * pulse(t * 2) : 0.15
+    g.circle(cx, cy, 4, tint[0])
+    g.circle(cx, cy, 3, core > 0.85 ? tint[2] : working ? tint[1] : tint[0])
+    light(cx, cy, 5, core)
+    lamp(g, light, 28, 26, 2, pulse(t * (working ? 3 : 1)))
+  },
+}
+
+/**
+ * Цеха изделий, как и переработки, нарочно непохожи: что цех делает, видно по силуэту, а цвет изделия — у готового.
+ * В простое горит только сигнальная лампа и механизмы стоят; в работе всё движется.
+ */
+
+/** Цех стройблоков: бетономешалка с лопастями, формовочный стол, где блок выдавливается из формы, и паллеты кладки. */
+const blockPlant: BuildingArt = {
+  ...BUILDINGS.blockPlant,
+  working: true,
+  draw(g, t, light, _variant, working = false) {
+    const tint = accent(GOOD_COLORS.blocks)
+    const CONCRETE: Tones = [0x4a4844, 0x6e6a63, 0x8f8a80, 0xb1aba0, 0xd4cfc4]
+    slab(g, 0, 2, 32, 30, 3, CONCRETE)
+
+    // Мешалка: барабан с лопастями, в работе они крутятся в сером растворе.
+    const cx = 10
+    const cy = 11
+    g.circle(cx, cy, 8, INK)
+    g.circle(cx, cy, 7, RUST[1])
+    g.circle(cx, cy, 5, INK)
+    g.circle(cx, cy, 4, CONCRETE[1])
+    for (let i = 0; i < 3; i++) {
+      const angle = TURN * ((working ? t : 0) + i / 3)
+      g.line(cx, cy, cx + Math.cos(angle) * 4, cy + Math.sin(angle) * 4, 1, CONCRETE[3])
+    }
+    g.rect(cx, cy, 1, 1, INK)
+
+    // Формовочный стол под мешалкой: блок выдавливается из формы и уезжает вправо.
+    g.rect(2, 21, 16, 7, INK)
+    g.rect(3, 22, 14, 5, IRON[1])
+    g.rect(3, 22, 4, 5, IRON[0])
+    const slide = working ? Math.floor(t * ART_FRAMES) % 8 : 0
+    if (working) {
+      g.rect(4 + slide, 23, 4, 3, INK)
+      g.rect(5 + slide, 23, 3, 2, tint[1])
+      g.rect(5 + slide, 23, 3, 1, tint[2])
+    }
+
+    // Паллеты стройблоков: кладка вперевязку.
+    for (const [x, y] of [[20, 5], [20, 17]] as const) {
+      g.rect(x, y, 10, 9, INK)
+      for (let row = 0; row < 3; row++) {
+        const offset = row % 2 ? 2 : 0
+        for (let col = -1; col < 3; col++) {
+          const bx = x + 1 + offset + col * 4
+          const left = Math.max(bx, x + 1)
+          const right = Math.min(bx + 3, x + 9)
+          if (right <= left) continue
+          g.rect(left, y + 1 + row * 3, right - left, 2, tint[1])
+          g.rect(left, y + 1 + row * 3, right - left, 1, tint[2])
+        }
+      }
+    }
+    lamp(g, light, 18, 3, 1, pulse(t))
+    bulb(g, light, 15, 18, working ? chase(t, 0) : 0)
+  },
+}
+
+/** Патронный цех: бункер пороха, по ленте рядами едут латунные гильзы, на краях — полосы опасности. */
+const ammoPlant: BuildingArt = {
+  ...BUILDINGS.ammoPlant,
+  working: true,
+  draw(g, t, light, _variant, working = false) {
+    const tint = accent(GOOD_COLORS.ammo)
+    slab(g, 0, 2, 32, 30, 3, IRON)
+    for (let x = 2; x < 30; x += 4) {
+      g.rect(x, 26, 2, 2, HAZARD[1])
+      g.rect(x + 2, 26, 2, 2, HAZARD[0])
+    }
+
+    // Бункер пороха: воронка сверху, тёмная засыпка; в работе из горла сыплется порох.
+    g.rect(2, 4, 11, 11, INK)
+    g.rect(3, 5, 9, 9, IRON[2])
+    g.rect(5, 7, 5, 5, IRON[1])
+    g.rect(6, 8, 3, 3, 0x1a1a1a)
+    if (working) g.rect(7, 9 + (Math.floor(t * ART_FRAMES) % 2), 1, 1, IRON[3])
+    // Подача с бункера на ленту.
+    g.rect(13, 8, 4, 3, INK)
+    g.rect(13, 9, 4, 1, RUST[1])
+
+    // Лента: три ряда гильз, в работе ползут вниз; донца гильз сверху — латунные кружки.
+    g.rect(16, 4, 14, 21, INK)
+    g.rect(17, 5, 12, 19, IRON[0])
+    const shift = working ? Math.floor(t * ART_FRAMES) % 4 : 0
+    for (let row = 0; row < 6; row++) {
+      const y = 5 + row * 4 + shift - 2
+      if (y < 5 || y > 21) continue
+      for (let col = 0; col < 3; col++) {
+        const x = 19 + col * 4
+        g.circle(x, y + 1, 1.5, tint[0])
+        g.rect(x, y + 1, 1, 1, row > 2 ? tint[2] : IRON[3])
+      }
+    }
+    // Готовые ящики с патронами внизу слева.
+    for (const x of [3, 9]) {
+      g.rect(x, 17, 6, 7, INK)
+      g.rect(x + 1, 18, 4, 5, 0x3d4a2a)
+      g.rect(x + 1, 20, 4, 1, tint[1])
+    }
+    lamp(g, light, 29, 3, 1, pulse(t * (working ? 3 : 1)))
+    bulb(g, light, 14, 13, working ? chase(t, 0.5) : 0)
+  },
+}
+
+/** Цех компонентов: чистая комната с зелёной платой, над которой ездит манипулятор и ставит микросхемы. */
+const partsPlant: BuildingArt = {
+  ...BUILDINGS.partsPlant,
+  working: true,
+  draw(g, t, light, _variant, working = false) {
+    const tint = accent(GOOD_COLORS.parts)
+    const WHITE: Tones = [0x6d7680, 0x9aa4ae, 0xc3cbd3, 0xe1e7ec, 0xffffff]
+    slab(g, 0, 2, 32, 30, 3, WHITE)
+
+    // Плата: зелёное поле с дорожками и микросхемами.
+    const PCB = [0x0d3a22, 0x16603a, 0x2a8c55] as const
+    g.rect(3, 5, 26, 18, INK)
+    g.rect(4, 6, 24, 16, PCB[1])
+    for (let y = 8; y < 21; y += 4) g.rect(5, y, 22, 1, PCB[2])
+    for (let x = 9; x < 27; x += 6) g.rect(x, 7, 1, 14, PCB[0])
+    for (const [x, y] of [[6, 9], [14, 9], [22, 9], [6, 16], [14, 16]] as const) {
+      g.rect(x, y, 4, 3, INK)
+      g.rect(x, y, 4, 1, 0x30363c)
+    }
+    // Светодиоды платы: в работе бегут, в простое тихо.
+    for (let i = 0; i < 3; i++) bulb(g, light, 22 + (i % 2) * 3, 15 + i * 2, working ? chase(t, i / 3) : 0)
+
+    // Портал манипулятора: рельс поперёк, каретка ездит туда-сюда и опускает головку.
+    const along = working ? 0.5 - 0.5 * Math.cos(TURN * t) : 0
+    const hx = Math.round(6 + along * 18)
+    g.rect(3, 12, 26, 2, INK)
+    g.rect(3, 12, 26, 1, WHITE[3])
+    g.rect(hx - 2, 10, 5, 6, INK)
+    g.rect(hx - 1, 11, 3, 4, WHITE[2])
+    g.rect(hx, 12, 1, 2, working && along > 0.45 && along < 0.55 ? tint[2] : tint[0])
+
+    // Готовые компоненты в лотке внизу.
+    g.rect(3, 23, 26, 5, INK)
+    g.rect(4, 24, 24, 3, WHITE[1])
+    for (let x = 5; x < 27; x += 4) {
+      g.rect(x, 24, 3, 2, tint[0])
+      g.rect(x, 24, 3, 1, tint[1])
+    }
+    lamp(g, light, 29, 4, 1, pulse(t))
   },
 }
 
@@ -531,7 +895,13 @@ const cannonTurret: BuildingArt = {
 
 export const BUILDING_ART = {
   command,
-  refinery,
+  smelter,
+  siliconWorks,
+  distillery,
+  enricher,
+  blockPlant,
+  ammoPlant,
+  partsPlant,
   factory,
   generator,
   matter,

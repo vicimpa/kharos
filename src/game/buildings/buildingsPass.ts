@@ -4,7 +4,9 @@ import { createAtlas, type AtlasFrame } from '../../render/atlas'
 import { Pixmap } from '../../render/pixmap'
 import type { Pass } from '../../render/renderer'
 import { createSpriteProgram, createSprites } from '../../render/sprites'
-import { BUILDING_TYPES, Building, Position, Site, siteTicks, type BuildingType } from '../../sim'
+import type { Entity } from '../../ecs'
+import { Assembly, BUILDING_TYPES, Building, Inventory, Position, Site, amountOf, buildingSpec, siteTicks, type BuildingType } from '../../sim'
+import { spawnGhostOf } from '../placing'
 import type { Scene } from '../scene'
 import { ART_FRAMES, ART_TILE, BUILDING_ART, WALL_CONNECTION, type BuildingArt } from './buildingArt'
 
@@ -19,8 +21,16 @@ const LIGHT_REACH = 16
 const BLOOM_REACH = 3
 /** Запас в тайлах вокруг экрана: здание за краем ещё может дотянуться до него светом. */
 const VISIBLE_MARGIN = 5
+/**
+ * Сколько секунд здание ещё считается работающим после того, как работа последний раз сдвинулась: склад меняется
+ * по тикам симуляции, а не каждый кадр, и без запаса анимация мигала бы.
+ */
+const WORK_HOLD = 0.6
 /** Цвет недостроенного: чертёж здания, сквозь который видно землю. Альфа меньше половины — тени от лучей он не даёт. */
 const BLUEPRINT = [0.3, 0.6, 1, 0.4] as const
+/** Призрак отладочного спавна: полупрозрачное здание; красное — если туда нельзя. */
+const GHOST = [0.55, 0.55, 0.55, 0.55] as const
+const GHOST_FORBIDDEN = [0.55, 0.12, 0.1, 0.55] as const
 
 /** Огонь чертежа: место в пикселях спрайта и яркость в каждом кадре. */
 interface ArtLight {
@@ -38,18 +48,21 @@ interface Sheet {
   lights: ArtLight[]
 }
 
+/** Сколько кадров в листе: у здания с видом работы — сначала кадры простоя, за ними кадры работы. */
+const framesOf = (art: BuildingArt) => ART_FRAMES * (art.working ? 2 : 1)
+
 /** Растеризует один вариант чертежа в кадры анимации и собирает его огни. */
 function drawSheet(art: BuildingArt, variant: number): Sheet {
   const images: Pixmap[] = []
   const lights: ArtLight[] = []
-  for (let i = 0; i < ART_FRAMES; i++) {
+  for (let i = 0; i < framesOf(art); i++) {
     const image = new Pixmap(art.width * ART_TILE + PAD * 2, art.height * ART_TILE + PAD * 2)
     image.originX = image.originY = PAD
     let slot = 0
-    art.draw(image, i / ART_FRAMES, (x, y, size, level) => {
+    art.draw(image, (i % ART_FRAMES) / ART_FRAMES, (x, y, size, level) => {
       const light = (lights[slot++] ??= { x, y, size, levels: [] })
       light.levels[i] = level
-    }, variant)
+    }, variant, i >= ART_FRAMES)
     images.push(image)
   }
   return { art, images, frames: [], lights }
@@ -77,7 +90,24 @@ export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): P
   }))
   const all = [...sheets.values()].flat()
   const atlas = createAtlas(gl, all.flatMap((sheet) => sheet.images))
-  all.forEach((sheet, i) => (sheet.frames = atlas.frames.slice(i * ART_FRAMES, (i + 1) * ART_FRAMES)))
+  let first = 0
+  for (const sheet of all) {
+    sheet.frames = atlas.frames.slice(first, first + sheet.images.length)
+    first += sheet.images.length
+  }
+
+  /**
+   * Работает ли здание: переработка — пока убывает её руда, цех — пока движется сборка. Для каждого здания
+   * помнится прошлое значение и до какой секунды экранных часов оно считается работающим.
+   */
+  const activity = new Map<Entity, { value: number; until: number }>()
+  const workOf = (entity: Entity, type: BuildingType) => {
+    const { world } = scene.sim
+    const ore = buildingSpec(type).refines
+    if (ore) return amountOf(world.get(entity, Inventory)!, ore)
+    const assembly = world.get(entity, Assembly)
+    return assembly ? assembly.progress : undefined
+  }
 
   const program = createSpriteProgram(gl)
   // Тени лежат под всеми зданиями, иначе тень соседа ляжет на стену.
@@ -90,6 +120,7 @@ export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): P
       const halfWidth = width / 2 / camera.zoom + VISIBLE_MARGIN
       const halfHeight = height / 2 / camera.zoom + VISIBLE_MARGIN
       const step = Math.floor(time * FRAMES_PER_SECOND)
+      const pad = PAD / ART_TILE
 
       const { world, time: simTime } = scene.sim
       // И готовая стена, и ещё не начатая соседняя площадка участвуют в соединении: чертёж сразу показывает итог.
@@ -109,30 +140,41 @@ export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): P
         if (walls.has(tileKey(position.x - 1, position.y))) variant |= WALL_CONNECTION.west
         return variant
       }
-      const see = (position: { x: number; y: number }, type: BuildingType, phase: number, built: number) => {
+      const see = (position: { x: number; y: number }, type: BuildingType, phase: number, built: number, working = false) => {
         const sheet = sheets.get(type)![wallVariant(position, type)]
         if (position.x + sheet.art.width < camera.x - halfWidth || position.x > camera.x + halfWidth) return
         if (position.y + sheet.art.height < camera.y - halfHeight || position.y > camera.y + halfHeight) return
-        const frame = (step + phase) % ART_FRAMES
+        const frame = ((step + phase) % ART_FRAMES) + (working && sheet.art.working ? ART_FRAMES : 0)
         visible.push({ x: position.x, y: position.y, sheet, frame, bottom: position.y + sheet.art.height, built })
       }
 
       visible.length = 0
       for (const [entity, position, building] of world.query(Position, Building)) {
         const site = world.get(entity, Site)
-        see(position, building.type, building.phase, site ? site.progress / siteTicks(site.type, simTime.step) : 1)
+        let working = false
+        const value = !site && BUILDING_ART[building.type].working ? workOf(entity, building.type) : undefined
+        if (value !== undefined) {
+          const state = activity.get(entity) ?? { value, until: 0 }
+          if (Math.abs(value - state.value) > 1e-9) state.until = time + WORK_HOLD
+          state.value = value
+          activity.set(entity, state)
+          working = time < state.until
+        }
+        see(position, building.type, building.phase, site ? site.progress / siteTicks(site.type, simTime.step) : 1, working)
       }
       // Площадки, к которым строитель ещё не приступил: здания на них пока нет.
       for (const [entity, position, site] of world.query(Position, Site)) {
         if (!world.has(entity, Building)) see(position, site.type, 0, 0)
       }
-      if (!visible.length) return
+      if (step % 64 === 0) for (const entity of activity.keys()) if (!world.has(entity, Building)) activity.delete(entity)
+      // Призрак отладочного спавна рисуется поверх всех зданий.
+      const ghost = spawnGhostOf(scene)
+      if (!visible.length && ghost?.spawn.kind !== 'building') return
       // Нижние здания рисуются позже и перекрывают верхние.
       visible.sort((a, b) => a.bottom - b.bottom)
 
       shadows.clear()
       sprites.clear()
-      const pad = PAD / ART_TILE
       const shift = SHADOW_SHIFT / ART_TILE
       for (const { x, y, sheet, frame, built } of visible) {
         const { u, v, width: frameWidth, height: frameHeight } = sheet.frames[frame]
@@ -163,6 +205,15 @@ export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): P
             light.levels[frame],
           )
         }
+      }
+
+      if (ghost && ghost.spawn.kind === 'building') {
+        const sheet = sheets.get(ghost.spawn.type)![0]
+        const { u, v, width: frameWidth, height: frameHeight } = sheet.frames[step % ART_FRAMES]
+        sprites.push(
+          ghost.x - pad - camera.x, ghost.y - pad - camera.y, sheet.art.width + pad * 2, sheet.art.height + pad * 2,
+          u, v, frameWidth, frameHeight, ...(ghost.allowed ? GHOST : GHOST_FORBIDDEN),
+        )
       }
 
       setBlend(gl, 'alpha')

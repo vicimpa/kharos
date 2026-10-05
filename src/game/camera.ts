@@ -18,6 +18,11 @@ export class Camera {
   /** Размер экрана в пикселях CSS. */
   width = 1
   height = 1
+  /**
+   * Сколько пикселей холста по краям закрыто интерфейсом: верхней полосой и нижней панелью. Видимая часть мира —
+   * между ними; её середина — то, на что «смотрит» камера: туда наводят, её держат в границах карты.
+   */
+  inset = { top: 0, right: 0, bottom: 0, left: 0 }
   /** Указатель мыши в пикселях экрана; null — указатель вне холста. */
   pointer: Point | null = null
 
@@ -28,14 +33,43 @@ export class Camera {
     return { x: Math.floor(x), y: Math.floor(y) }
   }
 
+  /** Середина видимой части холста в пикселях экрана. */
+  get viewCenter(): Point {
+    return {
+      x: (this.inset.left + this.width - this.inset.right) / 2,
+      y: (this.inset.top + this.height - this.inset.bottom) / 2,
+    }
+  }
+
+  /** Тайл в середине видимой части. */
+  get focus(): Point {
+    const { x, y } = this.viewCenter
+    return this.screenToTile(x, y)
+  }
+
+  /** Ставит камеру так, чтобы точка (x, y) в тайлах оказалась в середине видимой части. */
+  centerOn(x: number, y: number) {
+    const focus = this.focus
+    this.x += x - focus.x
+    this.y += y - focus.y
+  }
+
+  /** Видимая часть в тайлах: левый верхний и правый нижний углы. */
+  get visible() {
+    return {
+      from: this.screenToTile(this.inset.left, this.inset.top),
+      to: this.screenToTile(this.width - this.inset.right, this.height - this.inset.bottom),
+    }
+  }
+
   /** Сдвиг в тайлах. */
   moveBy(dx: number, dy: number) {
     this.x += dx
     this.y += dy
   }
 
-  /** Меняет масштаб; точка экрана (anchorX, anchorY) остаётся на месте. По умолчанию это центр экрана. */
-  zoomTo(zoom: number, anchorX = this.width / 2, anchorY = this.height / 2) {
+  /** Меняет масштаб; точка экрана (anchorX, anchorY) остаётся на месте. По умолчанию это середина видимой части. */
+  zoomTo(zoom: number, anchorX = this.viewCenter.x, anchorY = this.viewCenter.y) {
     const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.minZoom, zoom))
     const offsetX = anchorX - this.width / 2
     const offsetY = anchorY - this.height / 2

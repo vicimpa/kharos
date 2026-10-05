@@ -1,6 +1,6 @@
 import type { Entity } from '../ecs'
 import type { MapSettings } from '../map/settings'
-import type { BuildingType, Sim } from '../sim'
+import type { BuildingType, Sim, UnitType } from '../sim'
 import type { Camera } from './camera'
 
 /** Прямоугольник в тайлах, заданный двумя противоположными углами. */
@@ -29,6 +29,14 @@ export interface Scene {
   selectionBox: Box | null
   /** Здание, для которого игрок сейчас выбирает место; null — обычный режим. */
   placing: BuildingType | null
+  /**
+   * Отладочный спавн: что ставит щелчок левой кнопкой — готовое здание, свой юнит или юнит учебного противника.
+   * Остаётся выбранным, пока не отменят правой кнопкой или Esc; null — обычный режим.
+   */
+  spawning: Spawn | null
   /** Показывать ли сетку тайлов. */
   grid: boolean
 }
+
+/** Что ставит отладочный спавн. */
+export type Spawn = { kind: 'building'; type: BuildingType } | { kind: 'unit' | 'enemy'; type: UnitType }

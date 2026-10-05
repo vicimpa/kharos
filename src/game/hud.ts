@@ -1,14 +1,21 @@
 import type { Entity } from '../ecs'
 import {
-  BUILDABLE, BUILDINGS, Building, Converting, Hauler, Health, CORE, GOODS, REFINE_RATE, RESOURCES, RESOURCE_SPECS, buildingSpec, isOwn, producibleBy, Trade, Inventory, amountOf, deliveredTo, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit, unitSpec,
-  awaitsMaterials, buildTicks, canDemolish, canFight, canDeploy, canPack, depositAt, entriesOf, isDeployBlocked, coreCenters, creditsOf, economyOf, isSiteBlocked, materialsFor, reserveLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, spareOf, zoneEconomies, zonesOf,
-  Position, type Amounts, type BuildingType, type Command, type DepositKind, type Good, type Resource, type UnitType,
+  Assembly, Harvester, BUILDABLE, buyPrice, roomFor, BUILDINGS, Building, Converting, Hauler, Health, CORE, GOODS, PRODUCT_SPECS, REFINE_RATE, RESOURCES, RESOURCE_SPECS, buildingSpec, cycleSeconds, isOwn, producibleBy, productStock, Trade, Inventory, amountOf, deliveredTo, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit, unitSpec,
+  awaitsMaterials, buildTicks, canDemolish, canFight, canDeploy, canPack, depositAt, depositNear, DEPOSIT_SIZE, entriesOf, isDeployBlocked, coreCenters, creditsOf, economyOf, isSiteBlocked, materialsFor, reserveLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, spareOf, zoneEconomies, zonesOf,
+  Position, type Amounts, type BuildingType, type Command, type DepositKind, type Good, type Ore, type Product, type Resource, type UnitType,
 } from '../sim'
-import type { Scene } from './scene'
+import type { Scene, Spawn } from './scene'
 
 /** Что интерфейс игрока показывает прямо сейчас. Обычные данные: их можно сравнивать и хранить в состоянии. */
 export interface HudState {
   credits: number
+  /**
+   * Месторождение под указателем мыши на карте: что в нём, сколько осталось и где указатель на экране,
+   * чтобы подсказка встала рядом. null — указатель не над месторождением.
+   */
+  hover: { kind: DepositKind; left: number; x: number; y: number } | null
+  /** Что ставит отладочный спавн; null — он выключен. */
+  spawning: Spawn | null
   /** Награды, которые игрок уже получил, по порядку. */
   rewards: string[]
   /** Доход в кредитах в секунду. */
@@ -34,9 +41,28 @@ export interface HudState {
   /** Запас игрока во всех хранилищах; null — хранить негде. */
   stock: { items: Stack[]; capacity: number } | null
   /** Склад выбранного здания: что в нём, сколько помещается всего; store — это хранилище. */
-  stored: { items: Stack[]; capacity: number; store: boolean } | null
-  /** Переработка: сколько руды в секунду завод принимает. */
-  refinery: { intake: number } | null
+  stored: { items: Stack[]; capacity: number; store: boolean; slots: { resource: Good; amount: number; of: number }[] | null } | null
+  /** Переработка: какую руду она принимает и сколько в секунду. */
+  refinery: { ore: Ore; intake: number } | null
+  /**
+   * Завод изделий: что собирает, включён ли, готовность нынешней сборки от 0 до 1, норма и сколько изделия уже
+   * есть у зоны; inputs — из чего одна сборка, yield — сколько штук она даёт и за сколько секунд.
+   */
+  assembly: {
+    plant: number
+    recipe: Product
+    on: boolean
+    progress: number
+    have: number
+    stock: number
+    inputs: Stack[]
+    yield: number
+    seconds: number
+  } | null
+  /** Харвестеры среди выбранных: сколько их и что они сейчас копают; null — копать пока нечего. */
+  harvest: { count: number; kind: DepositKind | null } | null
+  /** Боеприпасы выбранной турели: сколько есть и сколько помещается. */
+  ammo: { have: number; capacity: number } | null
   /**
    * Материалы, которых ждёт выбранная стройка или первый заказ выбранного производителя: сколько нужно и сколько
    * уже на месте. waiting — работа стоит, пока их не привезут.
@@ -50,7 +76,10 @@ export interface HudState {
   trade: {
     port: number
     offers: { resource: Resource; available: number; price: number }[]
-    order: { resource: Resource; wanted: number; delivered: number; price: number; flight: number | null } | null
+    /** Закупка с орбиты: почём каждый ресурс и сколько единиц влезет в склад космопорта. */
+    purchases: { resource: Resource; price: number; room: number }[]
+    /** buy — это закупка: деньги уже отданы, корабль летит с грузом. */
+    order: { resource: Resource; wanted: number; delivered: number; price: number; flight: number | null; buy: boolean } | null
   } | null
   /** Груз выбранных грузовиков вместе; bound — сколько из них привязано к шахте, busy — сколько заняты работой. */
   cargo: { items: Stack[]; capacity: number; bound: number; busy: number } | null
@@ -120,6 +149,18 @@ const exactOf = (amounts: Amounts): Stack[] => entriesOf(amounts).map(([resource
 
 const round = (value: number) => Math.round(value * 100) / 100
 
+/** Месторождение под указателем мыши, см. HudState.hover. */
+function hoverOf(scene: Scene): HudState['hover'] {
+  const { camera, sim } = scene
+  const tile = camera.pointerTile
+  if (!tile || !camera.pointer) return null
+  // Месторождение занимает DEPOSIT_SIZE × DEPOSIT_SIZE тайлов: подходит то, что накрывает тайл под указателем.
+  const spot = depositNear(sim, tile.x + 0.5, tile.y + 0.5, DEPOSIT_SIZE)
+  const covers = spot && tile.x >= spot.x && tile.x < spot.x + DEPOSIT_SIZE && tile.y >= spot.y && tile.y < spot.y + DEPOSIT_SIZE
+  if (!spot || !covers) return null
+  return { kind: spot.kind, left: Math.floor(reserveLeft(sim, spot.x, spot.y)), x: camera.pointer.x, y: camera.pointer.y }
+}
+
 /** Собирает состояние интерфейса из симуляции и выделения. */
 export function readHud(scene: Scene): HudState {
   const { sim, player, selection } = scene
@@ -133,6 +174,9 @@ export function readHud(scene: Scene): HudState {
   let deposit: HudState['deposit'] = null
   let stored: HudState['stored'] = null
   let refinery: HudState['refinery'] = null
+  let assembly: HudState['assembly'] = null
+  let harvest: HudState['harvest'] = null
+  let ammo: HudState['ammo'] = null
   let materials: HudState['materials'] = null
   let cargo: HudState['cargo'] = null
   let trade: HudState['trade'] = null
@@ -177,10 +221,38 @@ export function readHud(scene: Scene): HudState {
     }
     const built = world.get(entity, Building)
     const ready = !!built && !world.has(entity, Site)
-    if (ready && inventory) {
-      stored = { items: stacksOf(inventory.items), capacity: inventory.capacity, store: !!buildingSpec(built!.type).stores }
+    const spec = built && buildingSpec(built.type)
+    // У турели на складе только патроны: их показывает своя строка.
+    if (ready && inventory && !spec!.ammo) {
+      // У переработок и цехов у каждого груза своё место: показываем, сколько в каждом из скольких.
+      const slots = inventory.accepts.length && inventory.accepts.every((good) => inventory.limits[good] !== undefined)
+        ? inventory.accepts.map((good) => ({ resource: good, amount: Math.floor(amountOf(inventory, good)), of: inventory.limits[good]! }))
+        : null
+      stored = { items: stacksOf(inventory.items), capacity: inventory.capacity, store: !!spec!.stores, slots }
     }
-    if (ready && buildingSpec(built!.type).refines) refinery = { intake: REFINE_RATE }
+    if (ready && spec!.refines) refinery = { ore: spec!.refines, intake: REFINE_RATE }
+    const digging = world.get(entity, Harvester)
+    if (digging) {
+      harvest ??= { count: 0, kind: null }
+      harvest.count++
+      if (digging.x >= 0) harvest.kind = depositAt(sim, digging.x, digging.y)?.kind ?? harvest.kind
+    }
+    if (ready && spec!.ammo && inventory) ammo = { have: Math.floor(amountOf(inventory, 'ammo')), capacity: inventory.capacity }
+    const assembling = ready ? world.get(entity, Assembly) : undefined
+    if (assembling && isOwn(sim, player, entity)) {
+      const spec = PRODUCT_SPECS[assembling.recipe]
+      assembly = {
+        plant: entity,
+        recipe: assembling.recipe,
+        on: assembling.on,
+        progress: round(Math.min(1, assembling.progress / cycleSeconds(assembling.recipe))),
+        have: Math.floor(productStock(sim, entity)),
+        stock: spec.stock,
+        inputs: exactOf(spec.recipe),
+        yield: spec.yield,
+        seconds: cycleSeconds(assembling.recipe),
+      }
+    }
     const wanted = materialsFor(sim, entity)
     if (wanted && isOwn(sim, player, entity)) {
       const site = world.has(entity, Site)
@@ -196,13 +268,19 @@ export function readHud(scene: Scene): HudState {
       trade = {
         port: entity,
         offers: resourceStacksOf(items).map(({ resource, amount }) => ({ resource, available: amount, price: RESOURCE_SPECS[resource].price })),
+        purchases: RESOURCES.map((resource) => ({
+          resource,
+          price: buyPrice(resource),
+          room: Math.floor(roomFor(world.get(entity, Inventory)!, resource)),
+        })),
         order: order
           ? {
               resource: order.resource,
               wanted: Math.round(order.wanted),
               delivered: Math.floor(deliveredTo(sim, entity)),
-              price: RESOURCE_SPECS[order.resource].price,
+              price: order.buy ? buyPrice(order.resource) : RESOURCE_SPECS[order.resource].price,
               flight: order.total ? round(1 - order.left / order.total) : null,
+              buy: order.buy,
             }
           : null,
       }
@@ -229,6 +307,8 @@ export function readHud(scene: Scene): HudState {
   const stock = stockOf(sim, player)
   const state: HudState = {
     credits,
+    spawning: scene.spawning ? { ...scene.spawning } : null,
+    hover: hoverOf(scene),
     rewards: [...rewardsOf(sim, player)],
     income: round(economyOf(sim, player).income),
     power,
@@ -242,6 +322,9 @@ export function readHud(scene: Scene): HudState {
     stock: stock.capacity ? { items: stacksOf(stock.items), capacity: stock.capacity } : null,
     stored,
     refinery,
+    assembly,
+    harvest,
+    ammo,
     materials,
     trade,
     cargo,

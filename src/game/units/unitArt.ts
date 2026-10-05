@@ -34,7 +34,7 @@ export type UnitArt = (g: Pixmap, angle: number, team: TeamColors, phase: number
 /** Чем юнит ходит: от этого зависит анимация хода. */
 export type Gait = 'tracks' | 'wheels' | 'legs' | 'air'
 export const UNIT_GAITS: Record<UnitType, Gait> = {
-  mcv: 'tracks', builder: 'wheels', infantry: 'legs', truck: 'wheels', rocketeer: 'legs', buggy: 'wheels',
+  mcv: 'tracks', harvester: 'tracks', builder: 'wheels', infantry: 'legs', truck: 'wheels', rocketeer: 'legs', buggy: 'wheels',
   lancer: 'wheels', tank: 'tracks', tesla: 'tracks', carrier: 'wheels', drone: 'air', gunship: 'air',
 }
 /**
@@ -57,6 +57,7 @@ export const UNIT_TRACES: Partial<Record<UnitType, { sides: number[]; width: num
   builder: { sides: [-4, 4], width: 3 },
   infantry: { sides: [-1.5, 1.5], width: 1.4 },
   truck: { sides: [-4.5, 4.5], width: 3 },
+  harvester: { sides: [-6, 6], width: 4 },
   rocketeer: { sides: [-1.5, 1.5], width: 1.4 },
   buggy: { sides: [-4.5, 4.5], width: 3 },
   lancer: { sides: [-4.5, 4.5], width: 3 },
@@ -192,6 +193,37 @@ const truck: UnitArt = (g, angle, team, phase) => {
   p.dot(2, 0, 1.8, INK)
   p.dot(2, 0, 1.2, 0x5ff2d0)
   p.dot(1.6, -0.4, 0.5, 0xd8fff6)
+}
+
+/**
+ * Харвестер: на гусеницах, спереди — широкий барабан с зубьями, которые крутятся на ходу, за ним бункер
+ * с рудой и кабина. Крупнее грузовика и окрашен в цвет стороны: его ловят в поле, его надо узнавать.
+ */
+const harvester: UnitArt = (g, angle, team, phase) => {
+  const p = pen(g, angle)
+  for (const side of [-6, 6]) {
+    p.bar(-9, 7, side, 4, INK)
+    treads(p, -8.5, 6.5, side, 1.5, phase, IRON[2])
+  }
+  p.bar(-9, 6, 0, 9, INK)
+  p.bar(-8, 5, 0, 7, team[0])
+  // Бункер с рудой.
+  p.bar(-7, 0, 0, 6, IRON[1])
+  p.bar(-6, -1, 0, 4, 0x6b2f1e)
+  p.dot(-4, -1, 1.2, 0xb5562e)
+  p.dot(-2.5, 1, 1, 0xe58a4a)
+  // Кабина.
+  p.bar(1, 5, 2.5, 3, HAZARD[1])
+  p.bar(3, 4.5, 2.5, 1.5, team[2])
+  // Барабан поперёк хода: зубья бегут по кругу вместе с фазой хода.
+  p.beam(9, -7, 7, 3.5, INK)
+  p.beam(9, -6.5, 6.5, 2.2, IRON[3])
+  for (let tooth = -6 + (phase % 2) * 1.5; tooth <= 6; tooth += 3) p.dot(10, tooth, 0.8, IRON[4])
+  p.bar(6, 8, -5, 1.2, INK)
+  p.bar(6, 8, 5, 1.2, INK)
+  // Излучатель транспортного луча на бункере.
+  p.dot(-3, -2.5, 1.5, INK)
+  p.dot(-3, -2.5, 1, 0x5ff2d0)
 }
 
 /** Ракетчик: пехотинец с трубой на плече. */
@@ -355,6 +387,10 @@ export const UNIT_LIGHTS: Record<UnitType, UnitLights> = {
     lamps: [{ along: 6, across: -2, glow: 2 }, { along: 6, across: 2, glow: 2 }],
     beam: { along: 10, length: 52, near: 4, spread: 0.3, level: 1 },
   },
+  harvester: {
+    lamps: [{ along: 7, across: -4, glow: 2 }, { along: 7, across: 4, glow: 2 }],
+    beam: { along: 12, length: 56, near: 5, spread: 0.32, level: 1 },
+  },
   truck: {
     lamps: [{ along: 8, across: -2.5, glow: 2 }, { along: 8, across: 2.5, glow: 2 }],
     beam: { along: 11, length: 56, near: 4.5, spread: 0.3, level: 1 },
@@ -397,7 +433,7 @@ export const UNIT_LIGHTS: Record<UnitType, UnitLights> = {
   },
 }
 
-export const UNIT_ART = { mcv, builder, infantry, truck, rocketeer, buggy, lancer, tank, tesla, carrier, drone, gunship } satisfies Record<UnitType, UnitArt>
+export const UNIT_ART = { mcv, builder, infantry, truck, harvester, rocketeer, buggy, lancer, tank, tesla, carrier, drone, gunship } satisfies Record<UnitType, UnitArt>
 
 /** Сторона кадра турели в пикселях: два тайла, чтобы влез длинный ствол. */
 export const TURRET_FRAME = 32

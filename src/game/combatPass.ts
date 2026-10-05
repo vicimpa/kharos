@@ -6,11 +6,11 @@ import { createLineProgram, createLines } from '../render/lines'
 import { Pixmap } from '../render/pixmap'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites } from '../render/sprites'
-import { BUILDINGS, Beam, Blast, Building, Health, Position, Shot, UNITS, Unit, WEAPONS, activeRepairs, flies, type RepairLink, type WeaponSpec } from '../sim'
+import { BUILDINGS, Beam, Blast, Building, DEPOSIT_SIZE, Harvester, Hauler, Health, Inventory, ORE_OF, Position, Shot, UNITS, Unit, WEAPONS, activeRepairs, depositAt, flies, loadOf, resourceOf, type RepairLink, type WeaponSpec } from '../sim'
 import { GOOD_COLORS } from './resourceColors'
 import type { Scene } from './scene'
 import type { TeamColors } from './units/unitArt'
-import { drawnPosition } from './units/unitsPass'
+import { drawnFacing, drawnPosition } from './units/unitsPass'
 
 /** Сторона кадра взрыва в пикселях и число кадров от вспышки до дыма. */
 const BLAST_FRAME = 48
@@ -97,6 +97,22 @@ const SAND_DUST: Record<Biome, number> = {
 }
 const ROCK_DUST = 0xaa9d89
 const SPRAY = 0xc4d6cf
+
+/**
+ * Работа харвестера: пока кузов наполняется, у ковша клубится пыль и летят комочки руды цвета её ресурса,
+ * с кормы идёт выхлоп. Сколько того и другого в секунду, на сколько тайлов от середины машины ковш и выхлоп,
+ * и сколько секунд после последней добычи харвестер ещё считается копающим: кузов растёт по тикам, а не по кадрам.
+ */
+const DIG_DUST_RATE = 14
+const DIG_CHUNK_RATE = 22
+const DIG_EXHAUST_RATE = 5
+const DIG_FRONT = 0.55
+const DIG_BACK = 0.5
+const DIG_HOLD = 0.3
+/** Луч добычи: сколько в веере лучей, на сколько тайлов от середины месторождения бегают их концы и как быстро. */
+const DIG_RAYS = 3
+const DIG_SPREAD = 0.7
+const DIG_SWEEP = 1.3
 
 /** Высота полоски прочности в пикселях экрана и её отступ над юнитом в тайлах. */
 const BAR_HEIGHT = 3
@@ -279,6 +295,11 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
   /** Где был каждый летающий в прошлом кадре: пыль от быстрого юнита ложится вдоль пути, а не кучками. */
   const flyers = new Map<Entity, { x: number; y: number; seen: number }>()
   let dustFrame = 0
+  /** Сколько руды было в кузове каждого харвестера и до какой секунды экранных часов digClock он копает. */
+  const diggers = new Map<Entity, { load: number; until: number }>()
+  let digClock = 0
+  /** Кто копает в этом кадре: откуда бьёт луч добычи, куда, каким цветом руды. Заполняется в проходе пыли. */
+  const digging = new Map<Entity, { fromX: number; fromY: number; toX: number; toY: number; color: Color }>()
   /** Где снаряд оставил последний клуб дыма; по этому же списку видно, какие выстрелы и взрывы уже дымили. */
   const trails = new Map<Entity, { x: number; y: number }>()
   const alive = new Set<Entity>()
@@ -461,6 +482,70 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
       }
     }
     if (dustFrame % 120 === 0) for (const [entity, flyer] of flyers) if (dustFrame - flyer.seen > 120) flyers.delete(entity)
+    emitDigging(delta, camera, halfWidth, halfHeight)
+  }
+
+  /** Случайное число событий за кадр при частоте rate в секунду. */
+  const countOf = (rate: number, delta: number) => {
+    const expected = rate * delta
+    return Math.floor(expected) + (Math.random() < expected % 1 ? 1 : 0)
+  }
+
+  /** Пыль, руда и выхлоп копающих харвестеров. Копает тот, у кого кузов вырос за последние DIG_HOLD секунд. */
+  const emitDigging = (delta: number, camera: { x: number; y: number }, halfWidth: number, halfHeight: number) => {
+    const { world, time } = scene.sim
+    digClock += delta
+    digging.clear()
+    for (const [entity, harvester, hauler, cargo, position, unit] of world.query(Harvester, Hauler, Inventory, Position, Unit)) {
+      const load = loadOf(cargo)
+      const state = diggers.get(entity) ?? { load, until: 0 }
+      // Координаты на карте бывают и отрицательными: есть ли месторождение, решает depositAt, а не знак.
+      const spot = hauler.full ? undefined : depositAt(scene.sim, harvester.x, harvester.y)
+      if (load > state.load + 1e-9 && spot) state.until = digClock + DIG_HOLD
+      state.load = load
+      diggers.set(entity, state)
+      if (digClock > state.until || !spot) continue
+      const { x, y } = drawnPosition(position, unit, time.alpha)
+      if (Math.abs(x - camera.x) > halfWidth || Math.abs(y - camera.y) > halfHeight) continue
+      const facing = drawnFacing(unit, time.alpha)
+      const frontX = x + Math.cos(facing) * DIG_FRONT
+      const frontY = y + Math.sin(facing) * DIG_FRONT
+      const ore = rgb(GOOD_COLORS[resourceOf(ORE_OF[spot.kind])])
+      digging.set(entity, { fromX: frontX, fromY: frontY, toX: spot.x + DEPOSIT_SIZE / 2, toY: spot.y + DEPOSIT_SIZE / 2, color: ore })
+      // Пыль у ковша — цвета земли, стелется и тает.
+      for (let i = countOf(DIG_DUST_RATE, delta); i > 0; i--) {
+        const angle = facing + spread(2.4)
+        const speed = 0.5 + Math.random() * 0.7
+        const atX = frontX + spread(0.4)
+        const atY = frontY + spread(0.4)
+        const { color, level } = dustColor(atX, atY)
+        if (dust.length >= DUST_LIMIT) dust.shift()
+        dust.push({
+          x: atX, y: atY, speedX: Math.cos(angle) * speed, speedY: Math.sin(angle) * speed, age: 0, life: 0.7 + Math.random() * 0.6,
+          size: 0.35 + Math.random() * 0.25, grow: 2 + Math.random(), shade: 1, level, kind: Math.floor(Math.random() * PUFF_KINDS), color,
+        })
+      }
+      // Комочки руды: вылетают из-под ковша и летят в кузов, мелкие и плотные.
+      for (let i = countOf(DIG_CHUNK_RATE, delta); i > 0; i--) {
+        const atX = frontX + spread(0.5)
+        const atY = frontY + spread(0.5)
+        const life = 0.25 + Math.random() * 0.2
+        const speedX = (x - atX) / life + spread(0.8)
+        const speedY = (y - atY) / life + spread(0.8)
+        if (dust.length >= DUST_LIMIT) dust.shift()
+        dust.push({
+          x: atX, y: atY, speedX, speedY, age: 0, life, size: 0.1 + Math.random() * 0.08, grow: 1, shade: 1, level: 1,
+          kind: Math.floor(Math.random() * PUFF_KINDS), color: ore,
+        })
+      }
+      // Выхлоп с кормы: сизый, всплывает, как дым выстрелов.
+      for (let i = countOf(DIG_EXHAUST_RATE, delta); i > 0; i--) {
+        const backX = x - Math.cos(facing) * DIG_BACK
+        const backY = y - Math.sin(facing) * DIG_BACK
+        puff(backX + spread(0.1), backY + spread(0.1), 0.18, 0.9, 0.4, 0.55, -Math.cos(facing) * 0.3 + spread(0.2), -Math.sin(facing) * 0.3 + spread(0.2))
+      }
+    }
+    if (dustFrame % 120 === 0) for (const entity of diggers.keys()) if (!world.has(entity, Harvester)) diggers.delete(entity)
   }
 
   return {
@@ -533,6 +618,8 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
             if (ends) lights.add((ends.fromX + ends.toX) / 2, (ends.fromY + ends.toY) / 2, 10, 4, 0.5)
           }
         }
+
+        for (const { toX, toY } of digging.values()) lights.add(toX, toY, 12, 5, 0.6)
 
         emitSmoke()
         // Дым тормозит, набирает скорость ветра и понемногу всплывает; клубы растут и тают.
@@ -723,6 +810,36 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
             dot(solid, fromX + (toX - fromX) * share, fromY + (toY - fromY) * share, 3, CARGO, level)
             dot(glow, fromX + (toX - fromX) * share, fromY + (toY - fromY) * share, 2, CARGO, level * 0.6)
           }
+        }
+
+        // Луч добычи: веер из ковша харвестера в месторождение. Концы веера бегают по месторождению, где они
+        // касаются земли — вспышка, а по лучам к ковшу летят комки руды цвета её ресурса.
+        for (const [entity, { fromX, fromY, toX, toY, color }] of digging) {
+          if (!visible(fromX, fromY) && !visible(toX, toY)) continue
+          for (let ray = 0; ray < DIG_RAYS; ray++) {
+            const seed = entity * 17 + ray * 5
+            const beat = time * DIG_SWEEP + ray * 0.37
+            const endX = toX + Math.sin(beat * 2.1 + seed) * DIG_SPREAD
+            const endY = toY + Math.cos(beat * 1.7 + seed * 3) * DIG_SPREAD
+            const flicker = 0.7 + 0.3 * noise(seed, Math.floor(time * WELD_RATE))
+            line(glow, fromX, fromY, endX, endY, 6, color, 0.22 * flicker)
+            line(glow, fromX, fromY, endX, endY, 1.5, CORE, 0.5 * flicker)
+            dot(glow, endX, endY, 9, color, 0.6 * flicker)
+            dot(glow, endX, endY, 3, CORE, flicker)
+            const length = Math.hypot(endX - fromX, endY - fromY) || 1
+            const count = Math.floor(length / CARGO_STEP)
+            const shift = ((time * CARGO_SPEED * 1.6) / CARGO_STEP + ray / DIG_RAYS) % 1
+            for (let i = 0; i < count; i++) {
+              const share = ((i + shift) * CARGO_STEP) / length
+              const level = Math.min(1, share * 4, (1 - share) * 4)
+              // Комки идут от земли к ковшу.
+              const atX = endX + (fromX - endX) * share
+              const atY = endY + (fromY - endY) * share
+              dot(solid, atX, atY, 3.5, color, level)
+              dot(glow, atX, atY, 2, color, level * 0.7)
+            }
+          }
+          dot(glow, fromX, fromY, 7, color, 0.8)
         }
 
         // Полоски прочности над повреждёнными юнитами — своими и чужими.

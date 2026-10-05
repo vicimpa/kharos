@@ -4,7 +4,7 @@ import type { MapSettings } from '../map/settings'
 import { createTerrainPass } from '../map/terrainPass'
 import { createRenderer } from '../render/renderer'
 import type { Session } from '../net/connect'
-import { Position, Unit, createSim, isOwn, driveBattle, randomArmy, spawnBattle, spawnSandbox, spawnStartingUnits, type BuildingType, type Command, type SimOptions } from '../sim'
+import { Position, Unit, createSim, isOwn, driveBattle, randomArmy, spawnBattle, spawnSandbox, spawnStartingUnits, type BuildingType, type Command, type SimOptions, type UnitType } from '../sim'
 import { createLightingPass } from '../weather/lightingPass'
 import { createPrecipitationPass } from '../weather/precipitationPass'
 import { createBoundsPass } from './boundsPass'
@@ -19,7 +19,8 @@ import { createSoundscape } from './soundscape'
 import { createDepositsPass } from './depositsPass'
 import { startFrames } from './frames'
 import { readHud, type HudState } from './hud'
-import type { Scene } from './scene'
+import { createMinimap, type Minimap } from './minimap'
+import type { Scene, Spawn } from './scene'
 import { createPowerPass } from './powerPass'
 import { createSelectionPass } from './selectionPass'
 import { loadCamera, loadSave, storeCamera, storeSave } from './storage'
@@ -40,6 +41,18 @@ export interface Game {
   send(command: Command): void
   /** Начинает выбор места под здание; null — отменяет его. */
   place(building: BuildingType | null): void
+  /** Выбирает, что ставит отладочный спавн; null — выключает его. */
+  spawn(spawn: Spawn | null): void
+  /** Мини-карта нижней панели. */
+  readonly minimap: Minimap
+  /** Ставит центр экрана в точку карты, в тайлах. */
+  lookAt(x: number, y: number): void
+  /** Оставляет в выделении только юнитов вида type; remove — убирает их. */
+  narrow(type: UnitType, remove: boolean): void
+  /** Наводит камеру на выделенное. */
+  lookAtSelection(): void
+  /** Посылает выделенных юнитов в точку карты, в тайлах. */
+  moveSelected(x: number, y: number): void
   /** Выключен ли звук; выбор хранится в браузере. */
   muted: boolean
   /** Останавливает игру и освобождает ресурсы. */
@@ -112,6 +125,7 @@ export function createGame(
     selection: new Set(),
     selectionBox: null,
     placing: null,
+    spawning: null,
     grid: false,
   }
 
@@ -149,6 +163,17 @@ export function createGame(
     },
     onError,
   )
+  /**
+   * Какие края холста закрыты интерфейсом: верхняя полоса и нижняя панель лежат поверх него. Меряется каждый кадр —
+   * панели могут меняться, — по классам интерфейса.
+   */
+  const measureInset = () => {
+    const frame = canvas.getBoundingClientRect()
+    const top = document.querySelector('.hud--top')?.getBoundingClientRect()
+    const bottom = document.querySelector('.hud.bar')?.getBoundingClientRect()
+    camera.inset.top = top ? Math.max(0, Math.min(frame.height, top.bottom - frame.top)) : 0
+    camera.inset.bottom = bottom ? Math.max(0, Math.min(frame.height, frame.bottom - bottom.top)) : 0
+  }
   const controls = createControls(canvas, scene)
   const audio = createAudio()
   const shake = createShake()
@@ -170,6 +195,7 @@ export function createGame(
     scene.sim.destroy()
     scene.selection.clear()
     scene.placing = null
+    scene.spawning = null
     scene.sim = createNewSim(scene.settings, mode)
     // Новый мир — камера снова у стартового набора.
     camera.x = camera.y = 0
@@ -200,8 +226,7 @@ export function createGame(
     if (!centered) {
       for (const [entity, position] of sim.world.query(Position, Unit)) {
         if (!isOwn(sim, scene.player, entity)) continue
-        camera.x = position.x
-        camera.y = position.y
+        camera.centerOn(position.x, position.y)
         centered = true
         break
       }
@@ -210,11 +235,15 @@ export function createGame(
     const { width, height } = renderer.resize()
     camera.width = width
     camera.height = height
+    measureInset()
     camera.minZoom = minZoom(width, height)
     if (camera.zoom < camera.minZoom) camera.zoomTo(camera.minZoom)
-    // Центр экрана не уходит за границы карты.
-    camera.x = Math.min(sim.bounds.right, Math.max(sim.bounds.left, camera.x))
-    camera.y = Math.min(sim.bounds.bottom, Math.max(sim.bounds.top, camera.y))
+    // Середина видимой части не уходит за границы карты: край карты можно подвести к краю панели, но не под неё.
+    const focus = camera.focus
+    camera.centerOn(
+      Math.min(sim.bounds.right, Math.max(sim.bounds.left, focus.x)),
+      Math.min(sim.bounds.bottom, Math.max(sim.bounds.top, focus.y)),
+    )
 
     soundscape.update(seconds)
     shake.update(seconds)
@@ -255,6 +284,18 @@ export function createGame(
     send: (command) => scene.sim.send(scene.player, command),
     place(building) {
       scene.placing = building
+    },
+    spawn(spawn) {
+      scene.spawning = spawn
+      if (spawn) scene.placing = null
+    },
+    minimap: createMinimap(scene),
+    lookAt: (x, y) => camera.centerOn(x, y),
+    lookAtSelection: () => controls.lookAtSelection(),
+    narrow: (type, remove) => controls.narrow(type, remove),
+    moveSelected(x, y) {
+      const units = [...scene.selection].filter((entity) => scene.sim.world.has(entity, Unit))
+      if (units.length) scene.sim.send(scene.player, { type: 'move', units, x: Math.floor(x), y: Math.floor(y) })
     },
     get muted() {
       return audio.muted
