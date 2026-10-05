@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { DEPOSIT_SIZE, Harvester, depositNear, type UnitType, Owner, Position, Repair, isOwn, UNITS, Unit, canAttack, canFight, canHaul, canRepair, siteAt } from '../sim'
+import { DEPOSIT_SIZE, Harvester, depositNear, hasMine, type UnitType, Owner, Position, Repair, isOwn, UNITS, Unit, canAttack, canFight, canHaul, canRepair, siteAt } from '../sim'
 import { placementOf, spawnGhostOf } from './placing'
 import type { Scene, Spawn } from './scene'
 
@@ -165,9 +165,10 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
       // Вооружённые по врагу — атакуют: по чужому юниту или зданию под курсором.
       const enemy = unitAt(point.x, point.y, false) ?? damaged
       const fighters = units.some((entity) => canFight(sim, entity))
-      // Харвестеры по месторождению — копают его.
+      // Харвестеры по месторождению — копают его, если на нём нет шахты.
       const harvesters = units.some((entity) => sim.world.has(entity, Harvester))
-      const deposit = harvesters ? depositNear(sim, point.x, point.y, DEPOSIT_SIZE) : null
+      const found = harvesters ? depositNear(sim, point.x, point.y, DEPOSIT_SIZE) : null
+      const deposit = found && !hasMine(sim, found) ? found : null
       const onDeposit = deposit && x >= deposit.x && x < deposit.x + DEPOSIT_SIZE && y >= deposit.y && y < deposit.y + DEPOSIT_SIZE
       // Грузовики по своей шахте — привязываются к ней и возят добытое.
       if (fighters && enemy !== undefined && canAttack(sim, scene.player, enemy)) {

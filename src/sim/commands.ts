@@ -3,8 +3,8 @@ import { setWorking } from './assembly'
 import { orderHarvest } from './harvesting'
 import { BUILDINGS, canPlace, durabilityOf, placeBuilding, type BuildingType } from './buildings'
 import { TRAINING_PLAYER, orderAttack, stopAttack } from './combat'
-import { isOwn } from './common'
-import { Builds, Unit } from './components'
+import { NONE, isOwn } from './common'
+import { Builds, Harvester, Unit } from './components'
 import { assignBuilders, cancelBuild, demolish, orderBuild } from './construction'
 import { DEPLOY_SECONDS, PACK_SECONDS, canDeploy, canPack, cancelDeploy, startConverting } from './conversion'
 import { assignHaulers, releaseHauler } from './hauling'
@@ -82,9 +82,12 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
         return sim.world.has(entity, Unit) && isOwn(sim, player, entity)
       })
       if (!units.length) return false
-      // Приказ идти снимает строителя со стройки, грузовик — с маршрута, а бойца — с цели.
+      // Приказ идти снимает строителя со стройки, грузовик — с маршрута, бойца — с цели, а харвестера —
+      // с месторождения: он ждёт команды.
       for (const entity of units) {
         sim.world.remove(entity, Builds)
+        const harvester = sim.world.get(entity, Harvester)
+        if (harvester) Object.assign(harvester, { x: NONE, y: NONE, ordered: false, parked: true })
         releaseHauler(sim, entity)
         stopAttack(sim, entity)
       }

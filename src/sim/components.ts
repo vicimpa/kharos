@@ -118,9 +118,10 @@ export const Inventory = component('Inventory', () => ({ items: {} as Amounts, c
 /**
  * Харвестер: сам копает руду из месторождения в кузов и возит её на переработку (доставку ведёт Hauler).
  * x, y — левый верхний тайл месторождения, где он копает; -1 — ещё не выбрано: тогда он ищет ближайшее сам.
- * ordered — месторождение назначил игрок; выработается — харвестер снова ищет сам.
+ * ordered — месторождение назначил игрок. Выработается — харвестер сам ищет ближайшее того же вида.
+ * parked — игрок увёл его приказом идти: стоит и ждёт команды, сам месторождение не ищет.
  */
-export const Harvester = component('Harvester', { x: -1, y: -1, ordered: false })
+export const Harvester = component('Harvester', { x: -1, y: -1, ordered: false, parked: false })
 
 export const Beam = component('Beam', () => ({ radius: 2, rate: 10, give: true, take: true, links: [] as { target: number; pulling: boolean; resource: Good }[] }))
 

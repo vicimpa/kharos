@@ -1,7 +1,7 @@
 import type { Entity } from '../ecs'
-import { buildingSpec, isReady } from './buildings'
+import { buildingSpec, isReady, siteAt } from './buildings'
 import { NONE, isOwn, onTurn } from './common'
-import { Building, Converting, Hauler, Harvester, Inventory, Owner, Path, Position, Unit } from './components'
+import { Building, Converting, Site, Hauler, Harvester, Inventory, Owner, Path, Position, Unit } from './components'
 import { DEPOSIT_CELL, DEPOSIT_KINDS, DEPOSIT_SIZE, depositAt, depositIn, reserveLeft, takeReserve, type DepositSpot } from './deposits'
 import { amountOf, loadOf, put, roomFor } from './inventory'
 import { GOODS, ORE_OF, type Ore } from './resources'
@@ -10,9 +10,9 @@ import { orderMove, unitSpec } from './units'
 
 /** Насколько далеко харвестер сам ищет месторождение, в тайлах. */
 export const HARVEST_SEARCH = 60
-/** С какого расстояния до центра месторождения харвестер копает, в тайлах: встаёт у его края или у шахты на нём. */
+/** С какого расстояния до центра месторождения харвестер копает, в тайлах: встаёт у его края. */
 const HARVEST_REACH = 2.2
-/** На сколько тайлов к центру месторождения подходить: ближе не нужно, а сам центр может быть занят шахтой. */
+/** На сколько тайлов к центру месторождения подходить: ближе не нужно. */
 const APPROACH = 1.5
 /** Раз во сколько тиков харвестер без дела ищет месторождение и прокладывает путь заново. */
 const RETRY_TICKS = 20
@@ -21,6 +21,24 @@ const NO_REFINERY = 1000
 const EPSILON = 1e-9
 
 const centerOf = (spot: DepositSpot) => ({ x: spot.x + DEPOSIT_SIZE / 2, y: spot.y + DEPOSIT_SIZE / 2 })
+
+/**
+ * Стоит ли на месторождении шахта — готовая или строящаяся, чья угодно. Такое месторождение харвестер не копает:
+ * его выкачивает шахта, и вдвоём они бы делили один запас.
+ */
+export function hasMine(sim: Sim, spot: DepositSpot) {
+  for (let y = spot.y; y < spot.y + DEPOSIT_SIZE; y++) {
+    for (let x = spot.x; x < spot.x + DEPOSIT_SIZE; x++) {
+      const building = sim.occupancy.at(x, y)
+      const type = building === undefined ? undefined : sim.world.get(building, Building)?.type
+      if (type && buildingSpec(type).extract) return true
+      const site = siteAt(sim, x, y)
+      const planned = site === undefined ? undefined : sim.world.get(site, Site)!.type
+      if (planned && buildingSpec(planned).extract) return true
+    }
+  }
+  return false
+}
 
 /** Руды, которые у игрока есть где переработать: у него готовая переработка этой руды. */
 function refinedBy(sim: Sim, player: number) {
@@ -33,10 +51,10 @@ function refinedBy(sim: Sim, player: number) {
 }
 
 /**
- * Ближайшее к харвестеру месторождение с рудой в пределах HARVEST_SEARCH. Те, руду которых игроку негде
+ * Ближайшее к харвестеру месторождение с рудой и без шахты в пределах HARVEST_SEARCH; kind — только этого вида. Те, руду которых игроку негде
  * переработать, идут последними: копать их можно, но везти некуда.
  */
-function nearestDeposit(sim: Sim, x: number, y: number, refined: Set<Ore>) {
+function nearestDeposit(sim: Sim, x: number, y: number, refined: Set<Ore>, kind?: DepositSpot['kind']) {
   let best: DepositSpot | undefined
   let bestScore = Infinity
   const from = Math.floor((x - HARVEST_SEARCH) / DEPOSIT_CELL)
@@ -46,7 +64,7 @@ function nearestDeposit(sim: Sim, x: number, y: number, refined: Set<Ore>) {
   for (let cellY = top; cellY <= bottom; cellY++) {
     for (let cellX = from; cellX <= to; cellX++) {
       const spot = depositIn(sim, cellX, cellY)
-      if (!spot || reserveLeft(sim, spot.x, spot.y) <= 0) continue
+      if (!spot || (kind && spot.kind !== kind) || reserveLeft(sim, spot.x, spot.y) <= 0 || hasMine(sim, spot)) continue
       const center = centerOf(spot)
       const distance = Math.hypot(center.x - x, center.y - y)
       if (distance > HARVEST_SEARCH) continue
@@ -63,12 +81,12 @@ function nearestDeposit(sim: Sim, x: number, y: number, refined: Set<Ore>) {
 export function orderHarvest(sim: Sim, player: number, units: Entity[], x: number, y: number) {
   const { world } = sim
   const spot = depositAt(sim, x, y)
-  if (!spot || reserveLeft(sim, x, y) <= 0) return false
+  if (!spot || reserveLeft(sim, x, y) <= 0 || hasMine(sim, spot)) return false
   let ordered = false
   for (const entity of new Set(units)) {
     const harvester = world.get(entity, Harvester)
     if (!harvester || !isOwn(sim, player, entity)) continue
-    Object.assign(harvester, { x, y, ordered: true })
+    Object.assign(harvester, { x, y, ordered: true, parked: false })
     world.remove(entity, Path)
     ordered = true
   }
@@ -77,7 +95,7 @@ export function orderHarvest(sim: Sim, player: number, units: Entity[], x: numbe
 
 /**
  * Раз в тик, до перевозок: харвестеры копают. Пустой или неполный харвестер едет к своему месторождению
- * (назначенному игроком или ближайшему) и копает в кузов со скоростью UnitSpec.harvest. Полный — или когда
+ * (назначенному игроком, а у нового — ближайшему; выработанное меняет на ближайшее того же вида) и копает в кузов со скоростью UnitSpec.harvest. Полный — или когда
  * месторождение выработано, а в кузове что-то есть, — отдаёт руду перевозкам: дальше его ведёт Hauler, как
  * гружёный грузовик, на ближайшую переработку этой руды. Разгрузился — снова копать.
  */
@@ -91,21 +109,28 @@ export function harvest(sim: Sim) {
     // Везёт руду — этим занимаются перевозки.
     if (hauler.full || world.has(entity, Converting)) continue
     const retry = onTurn(time, entity, RETRY_TICKS)
+    // Уведённый приказом идти стоит, пока игрок не даст новую команду.
+    if (harvester.parked) continue
     let spot = harvester.x === NONE ? null : depositAt(sim, harvester.x, harvester.y)
-    if (spot && reserveLeft(sim, spot.x, spot.y) <= 0) spot = null
+    // Выработано или на нём поставили шахту — искать другое того же вида.
+    const spent = spot && (reserveLeft(sim, spot.x, spot.y) <= 0 || hasMine(sim, spot)) ? spot : null
+    if (spent) spot = null
     if (!spot) {
       if (loadOf(cargo) > EPSILON) {
         // Месторождение выработано — довезти, что накопано.
         deliver(sim, entity, cargo)
         continue
       }
-      Object.assign(harvester, { x: NONE, y: NONE, ordered: false })
       if (!retry) continue
       if (!refined.has(owner.player)) refined.set(owner.player, refinedBy(sim, owner.player))
-      spot = nearestDeposit(sim, position.x, position.y, refined.get(owner.player)!) ?? null
+      spot = nearestDeposit(sim, position.x, position.y, refined.get(owner.player)!, spent?.kind) ?? null
+      if (!spot && spent) {
+        // Такого же поблизости нет — ждёт команды.
+        Object.assign(harvester, { x: NONE, y: NONE, ordered: false, parked: true })
+        continue
+      }
       if (!spot) continue
-      harvester.x = spot.x
-      harvester.y = spot.y
+      Object.assign(harvester, { x: spot.x, y: spot.y, ordered: false })
     }
     const center = centerOf(spot)
     if (Math.hypot(center.x - position.x, center.y - position.y) > HARVEST_REACH) {

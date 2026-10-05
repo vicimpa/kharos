@@ -21,7 +21,7 @@ function start() {
   for (let cellY = -5; cellY < 5; cellY++) {
     for (let cellX = -5; cellX < 5; cellX++) {
       const spot = depositIn(sim, cellX, cellY)
-      if (spot && spot.kind === 'metal' && canPlace(sim, 'silo', spot.x + 3, spot.y)) return { sim, spot }
+      if (spot && spot.kind === 'metal' && canPlace(sim, 'metalYard', spot.x + 3, spot.y)) return { sim, spot }
     }
   }
   throw new Error('В мире не нашлось месторождения')
@@ -102,7 +102,7 @@ test('шахта ставится только на месторождение �
   // Готовая шахта начинает свою зону: рядом можно строить.
   expect(zonesOf(sim, 1).length).toBe(1)
   expect(rewardsOf(sim, 1)).toEqual(['mine'])
-  expect(canBuild(sim, 1, 'silo', spot.x + 3, spot.y)).toBe(true)
+  expect(canBuild(sim, 1, 'metalYard', spot.x + 3, spot.y)).toBe(true)
 })
 
 /** Крутит симуляцию, пока условие не выполнится; падает, если не дождалась за limit секунд. */
@@ -278,17 +278,18 @@ test('заводу некуда девать готовое — он стоит 
 })
 
 test('хранилище конечно: когда место кончилось, грузовик везёт остаток в другое; запас — по всем хранилищам', () => {
-  const { sim, spot, mine, core, truck } = base()
+  const { sim, spot, mine, truck } = base()
   const refinery = refineryAt(sim, spot)
   // Руда шахты тут не при чём: у завода уже лежит готовый металл, а в кузове шахты — нет.
   sim.world.destroy(mine)
-  const capacity = BUILDINGS.command.inventory
-  sim.world.get(core, Inventory)!.items.metal = capacity - 5
+  const first = place(sim, 'metalYard', spot.x + 5, spot.y + 5)
+  const capacity = BUILDINGS.metalYard.inventory
+  sim.world.get(first, Inventory)!.items.metal = capacity - 5
   sim.world.get(refinery, Inventory)!.items.metal = TRUCK_CAPACITY
   const hauler = () => sim.world.get(truck, Hauler)!
-  const stock = () => amountOf(sim.world.get(core, Inventory)!, 'metal')
+  const stock = () => amountOf(sim.world.get(first, Inventory)!, 'metal')
 
-  // Грузовик вывозит металл от завода, но в главное здание влезает только пять единиц.
+  // Грузовик вывозит металл от завода, но в склад влезает только пять единиц.
   until(sim, () => hauler().full && stock() >= capacity)
   seconds(sim, 10)
   expect(stock()).toBe(capacity)
@@ -296,20 +297,21 @@ test('хранилище конечно: когда место кончилос�
   expect(hauler().to).toBe(-1)
 
   // Новое хранилище принимает остаток.
-  const silo = place(sim, 'silo', spot.x + 9, spot.y)
+  const second = place(sim, 'metalYard', spot.x + 9, spot.y + 5)
   until(sim, () => !hauler().full)
-  expect(amountOf(sim.world.get(silo, Inventory)!, 'metal')).toBeCloseTo(TRUCK_CAPACITY - 5)
-  expect(stockOf(sim, 1).capacity).toBe(capacity + BUILDINGS.silo.inventory)
+  expect(amountOf(sim.world.get(second, Inventory)!, 'metal')).toBeCloseTo(TRUCK_CAPACITY - 5)
+  expect(stockOf(sim, 1).capacity).toBe(capacity * 2)
 })
 
 test('космопорт продаёт по заявке: диспетчер шлёт свободные грузовики свезти товар из хранилищ, потом приходят кредиты', () => {
-  const { sim, spot, mine, core, truck } = base()
-  sim.world.get(core, Inventory)!.items.metal = 80
-  const silo = placeBuilding(sim.world, 'silo', spot.x + 9, spot.y + 5, 1)
-  sim.world.get(silo, Inventory)!.items.metal = 15
+  const { sim, spot, mine, truck } = base()
+  const first = placeBuilding(sim.world, 'metalYard', spot.x + 5, spot.y + 5, 1)
+  sim.world.get(first, Inventory)!.items.metal = 80
+  const second = placeBuilding(sim.world, 'metalYard', spot.x + 9, spot.y + 5, 1)
+  sim.world.get(second, Inventory)!.items.metal = 15
   const credits = creditsOf(sim, 1)
   const hauler = () => sim.world.get(truck, Hauler)!
-  const stored = () => metalIn(sim, core) + metalIn(sim, silo)
+  const stored = () => metalIn(sim, first) + metalIn(sim, second)
   // Без космопорта металл лежит и денег не приносит.
   seconds(sim, 5)
   expect(creditsOf(sim, 1) - credits).toBeLessThanOrEqual(1)
@@ -376,7 +378,8 @@ test('здания можно ставить вплотную к шахте, а 
   addCredits(sim, 1, 1000)
   refineryAt(sim, spot)
   // Вплотную к шахте строить можно: место для грузовика под ней не нужно.
-  expect(canBuild(sim, 1, 'silo', spot.x, spot.y + 2)).toBe(true)
+  expect(canBuild(sim, 1, 'metalYard', spot.x, spot.y + 2)).toBe(true)
+  place(sim, 'metalYard', spot.x + 5, spot.y + 5)
 
   sim.send(1, { type: 'haul', units: [truck], mine })
   const hauler = () => sim.world.get(truck, Hauler)!
@@ -432,4 +435,53 @@ test('несколько харвестеров на одном месторож
   seconds(sim, 30)
   const loads = harvesters.map((harvester) => oreIn(sim, harvester))
   for (const load of loads) expect(load).toBeGreaterThan(0)
+})
+
+test('месторождение под шахтой харвестер не копает: ни сам, ни по приказу', () => {
+  const { sim, spot, truck } = base()
+  sim.world.destroy(truck)
+  refineryAt(sim, spot)
+  const reserve = reserveLeft(sim, spot.x, spot.y)
+  const harvester = spawnUnit(sim, 'harvester', 1, spot.x - 1, spot.y)
+  sim.send(1, { type: 'harvest', units: [harvester], x: spot.x, y: spot.y })
+  seconds(sim, 10)
+  expect(sim.world.get(harvester, Harvester)!.x === spot.x && sim.world.get(harvester, Harvester)!.y === spot.y).toBe(false)
+  // Запас уходит только шахте: в харвестер с этого месторождения не попало ничего.
+  expect(oreIn(sim, harvester)).toBe(0)
+  expect(reserveLeft(sim, spot.x, spot.y)).toBeLessThanOrEqual(reserve)
+})
+
+test('харвестер, уведённый приказом идти, стоит и ждёт команды; приказ копать снова запускает его', () => {
+  const { sim, spot, mine, truck } = base()
+  sim.world.destroy(mine)
+  sim.world.destroy(truck)
+  refineryAt(sim, spot)
+  const harvester = spawnUnit(sim, 'harvester', 1, spot.x - 1, spot.y)
+  until(sim, () => oreIn(sim, harvester) > 0)
+  sim.send(1, { type: 'move', units: [harvester], x: spot.x - 6, y: spot.y })
+  seconds(sim, 15)
+  const load = oreIn(sim, harvester)
+  seconds(sim, 10)
+  expect(sim.world.get(harvester, Harvester)!).toMatchObject({ x: -1, parked: true })
+  expect(oreIn(sim, harvester)).toBe(load)
+
+  sim.send(1, { type: 'harvest', units: [harvester], x: spot.x, y: spot.y })
+  until(sim, () => oreIn(sim, harvester) > load)
+  expect(sim.world.get(harvester, Harvester)!.parked).toBe(false)
+})
+
+test('выработав месторождение, харвестер едет на ближайшее того же вида', () => {
+  const { sim, spot, mine, truck } = base()
+  sim.world.destroy(mine)
+  sim.world.destroy(truck)
+  refineryAt(sim, spot)
+  const harvester = spawnUnit(sim, 'harvester', 1, spot.x - 1, spot.y)
+  until(sim, () => oreIn(sim, harvester) > 0)
+  for (const [, deposit] of sim.world.query(Deposit)) deposit.mined = spot.reserve
+  until(sim, () => {
+    const { x, y } = sim.world.get(harvester, Harvester)!
+    return x !== -1 && (x !== spot.x || y !== spot.y)
+  })
+  const { x, y } = sim.world.get(harvester, Harvester)!
+  expect(depositAt(sim, x, y)!.kind).toBe(spot.kind)
 })
