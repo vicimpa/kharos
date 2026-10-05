@@ -35,7 +35,7 @@ export const REWARDS = {
   generator: 150,
   matter: 200,
   mine: 200,
-  silo: 50,
+  metalYard: 50,
 } satisfies Record<string, number>
 
 export type Reward = keyof typeof REWARDS

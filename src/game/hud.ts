@@ -1,6 +1,6 @@
 import type { Entity } from '../ecs'
 import {
-  Assembly, Harvester, BUILDABLE, buyPrice, roomFor, BUILDINGS, Building, Converting, Hauler, Health, CORE, GOODS, PRODUCT_SPECS, REFINE_RATE, RESOURCES, RESOURCE_SPECS, buildingSpec, cycleSeconds, isOwn, producibleBy, productStock, Trade, Inventory, amountOf, deliveredTo, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit, unitSpec,
+  Assembly, Harvester, BUILDABLE, buyPrice, roomFor, BUILDINGS, Building, Converting, Hauler, Health, CORE, GOODS, PRODUCT_SPECS, REFINE_RATE, RESOURCES, RESOURCE_SPECS, buildingSpec, cycleSeconds, isOwn, producibleBy, productStock, Trade, Inventory, amountOf, loadOf, deliveredTo, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit, unitSpec,
   awaitsMaterials, buildTicks, canDemolish, canFight, canDeploy, canPack, depositAt, depositNear, DEPOSIT_SIZE, entriesOf, isDeployBlocked, coreCenters, creditsOf, economyOf, isSiteBlocked, materialsFor, reserveLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, spareOf, zoneEconomies, zonesOf,
   Position, type Amounts, type BuildingType, type Command, type DepositKind, type Good, type Ore, type Product, type Resource, type UnitType,
 } from '../sim'
@@ -41,7 +41,7 @@ export interface HudState {
   /** Запас игрока во всех хранилищах; null — хранить негде. */
   stock: { items: Stack[]; capacity: number } | null
   /** Склад выбранного здания: что в нём, сколько помещается всего; store — это хранилище. */
-  stored: { items: Stack[]; capacity: number; store: boolean; slots: { resource: Good; amount: number; of: number }[] | null } | null
+  stored: { items: Stack[]; capacity: number; store: boolean; buffer: boolean; slots: { resource: Good; amount: number; of: number }[] | null } | null
   /** Переработка: какую руду она принимает и сколько в секунду. */
   refinery: { ore: Ore; intake: number } | null
   /**
@@ -223,12 +223,14 @@ export function readHud(scene: Scene): HudState {
     const ready = !!built && !world.has(entity, Site)
     const spec = built && buildingSpec(built.type)
     // У турели на складе только патроны: их показывает своя строка.
-    if (ready && inventory && !spec!.ammo) {
+    // Буфер производителя — не склад: показываем его, только пока там лежат материалы заказа.
+    const buffer = !!spec && !spec.inventory
+    if (ready && inventory && !spec!.ammo && !(buffer && loadOf(inventory) <= 0)) {
       // У переработок и цехов у каждого груза своё место: показываем, сколько в каждом из скольких.
       const slots = inventory.accepts.length && inventory.accepts.every((good) => inventory.limits[good] !== undefined)
         ? inventory.accepts.map((good) => ({ resource: good, amount: Math.floor(amountOf(inventory, good)), of: inventory.limits[good]! }))
         : null
-      stored = { items: stacksOf(inventory.items), capacity: inventory.capacity, store: !!spec!.stores, slots }
+      stored = { items: stacksOf(inventory.items), capacity: inventory.capacity, store: !!spec!.stores, buffer, slots }
     }
     if (ready && spec!.refines) refinery = { ore: spec!.refines, intake: REFINE_RATE }
     const digging = world.get(entity, Harvester)

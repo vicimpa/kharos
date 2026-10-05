@@ -20,7 +20,7 @@ const MINE_ROOM = 2
 
 /** Что стоит на тестовой карте, кроме шахты и главного здания: по порядку, от главного здания наружу. */
 const SANDBOX_BUILDINGS: BuildingType[] = [
-  'generator', 'generator', 'generator', 'generator', 'smelter', 'siliconWorks', 'blockPlant', 'ammoPlant', 'silo', 'silo', 'spaceport', 'factory', 'barracks', 'matter',
+  'generator', 'generator', 'generator', 'generator', 'smelter', 'siliconWorks', 'blockPlant', 'ammoPlant', 'metalYard', 'siliconStore', 'fuelTank', 'khariteVault', 'blockYard', 'ammoBunker', 'partsLocker', 'spaceport', 'factory', 'barracks', 'matter',
 ]
 /** С какими юнитами игрок начинает на тестовой карте, кроме грузовиков. */
 const SANDBOX_UNITS: UnitType[] = ['harvester', 'builder', 'builder', 'infantry', 'infantry', 'rocketeer', 'buggy', 'tank', 'tesla', 'carrier']
@@ -92,7 +92,7 @@ export function spawnSandbox(sim: Sim, player: number) {
   const centerY = spot.y + BUILDINGS.mine.height / 2
   const core = placeNear(sim, spot, 'command', centerX + 4, centerY, player, 2)
   const at = core === undefined ? { x: centerX, y: centerY } : { x: centerX + 6, y: centerY }
-  const stores: Entity[] = core === undefined ? [] : [core]
+  const stores: Entity[] = []
   for (const type of SANDBOX_BUILDINGS) {
     const building = placeNear(sim, spot, type, at.x, at.y, player, 1)
     if (building !== undefined && buildingSpec(type).stores) stores.push(building)

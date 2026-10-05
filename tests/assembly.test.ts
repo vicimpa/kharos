@@ -5,7 +5,8 @@ import {
   Assembly, BUILDINGS, BUY_MARKUP, BUY_SECONDS, Health, Inventory, PRODUCT_SPECS, RESOURCE_SPECS, Trade, buyPrice, creditsOf, UNITS, WEAPONS, amountOf, canPlace, createSim, cycleSeconds,
   stockOf, type BuildingType, type Good, type Sim,
 } from '../src/sim'
-import { placeBuilding } from '../src/sim/buildings'
+import { STORES, placeBuilding, storeFor } from '../src/sim/buildings'
+import type { Amounts, Ware } from '../src/sim/resources'
 import { addCredits } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
 
@@ -29,7 +30,8 @@ function base(extra: BuildingType[]) {
   addCredits(sim, 1, 10000)
   const layout: [BuildingType, number][] = [['command', 0], ['generator', 4], ['generator', 7]]
   let at = 10
-  for (const type of extra) {
+  // Ряд хранилищ — по одному на каждое готовое — после зданий из списка.
+  for (const type of [...extra, ...STORES]) {
     layout.push([type, at])
     at += BUILDINGS[type].width + 1
   }
@@ -38,17 +40,24 @@ function base(extra: BuildingType[]) {
       if (!layout.every(([type, dx]) => canPlace(sim, type, x + dx, y))) continue
       if (!canPlace(sim, 'command', x, y + 4) || !canPlace(sim, 'command', x + 4, y + 4)) continue
       const buildings = layout.map(([type, dx]) => placeBuilding(sim.world, type, x + dx, y, 1))
-      return { sim, x, y, core: buildings[0], buildings: buildings.slice(3) }
+      const placed = buildings.slice(3, 3 + extra.length)
+      const shelves = buildings.slice(3 + extra.length)
+      const store = (item: Ware) => shelves[STORES.indexOf(storeFor(item)!)]
+      /** Кладёт груз в хранилища его вида. */
+      const stash = (items: Amounts) => {
+        for (const [item, amount] of Object.entries(items) as [Ware, number][]) sim.world.get(store(item), Inventory)!.items[item] = amount
+      }
+      return { sim, x, y, core: buildings[0], buildings: placed, store, stash }
     }
   }
   throw new Error('Не нашлось места под базу')
 }
 
 test('завод стройблоков собирает их из сырья хранилищ, отвозит в хранилище и встаёт на норме', () => {
-  const { sim, x, y, core, buildings } = base(['blockPlant', 'silo'])
+  const { sim, x, y, store, stash, buildings } = base(['blockPlant'])
   const [workshop] = buildings
   expect(sim.world.get(workshop, Assembly)!.recipe).toBe('blocks')
-  sim.world.get(core, Inventory)!.items = { metal: 60, silicon: 30 }
+  stash({ metal: 60, silicon: 30 })
   sim.send(1, { type: 'work', building: workshop, on: true })
   for (let i = 0; i < 2; i++) spawnUnit(sim, 'truck', 1, x + 2 + i * 2, y + 5)
 
@@ -67,9 +76,9 @@ test('завод стройблоков собирает их из сырья х
 })
 
 test('новый завод выключен: сырья не заказывает; выключенный доделывает сборку, а сырьё увозят', () => {
-  const { sim, x, y, core, buildings } = base(['ammoPlant', 'silo'])
+  const { sim, x, y, store, stash, buildings } = base(['ammoPlant'])
   const [plant] = buildings
-  sim.world.get(core, Inventory)!.items = { metal: 30 }
+  stash({ metal: 30 })
   spawnUnit(sim, 'truck', 1, x + 2, y + 5)
   const assembly = () => sim.world.get(plant, Assembly)!
 
@@ -96,9 +105,9 @@ test('новый завод выключен: сырья не заказывае
 })
 
 test('изделия не продаются: космопорт берёт только ресурсы', () => {
-  const { sim, core, buildings } = base(['spaceport'])
+  const { sim, store, stash, buildings } = base(['spaceport'])
   const [port] = buildings
-  sim.world.get(core, Inventory)!.items = { blocks: 30, metal: 30 }
+  stash({ blocks: 30, metal: 30 })
   sim.send(1, { type: 'sell', port, resource: 'blocks' as never, amount: 10 })
   sim.advance(TICK)
   expect(sim.world.has(port, Trade)).toBe(false)
@@ -129,10 +138,10 @@ test('турель строится заряженной, тратит патр�
 })
 
 test('расстрелявшая запас турель заказывает патроны, и грузовик везёт их из хранилища', () => {
-  const { sim, x, y, core, buildings } = base(['turret'])
+  const { sim, x, y, store, stash, buildings } = base(['turret'])
   const [defense] = buildings
   const full = BUILDINGS.turret.inventory
-  sim.world.get(core, Inventory)!.items = { ammo: 100 }
+  stash({ ammo: 100 })
   // Расстреляла меньше четверти — заказа ещё нет.
   sim.world.get(defense, Inventory)!.items.ammo = full - 20
   spawnUnit(sim, 'truck', 1, x + 2, y + 5)
@@ -145,7 +154,7 @@ test('расстрелявшая запас турель заказывает п
   seconds(sim, 20)
   const loaded = good(sim, defense, 'ammo')
   expect(loaded).toBeGreaterThan(full * 0.75)
-  expect(good(sim, core, 'ammo')).toBeCloseTo(100 - (loaded - 10))
+  expect(good(sim, store('ammo'), 'ammo')).toBeCloseTo(100 - (loaded - 10))
 })
 
 test('компоненты нужны верхнему тиру: разрядник ждёт их на заводе', () => {
@@ -157,7 +166,7 @@ test('компоненты нужны верхнему тиру: разрядн�
 })
 
 test('закупка с орбиты: кредиты сразу, груз через полёт корабля, грузовики увозят его в хранилище', () => {
-  const { sim, x, y, buildings } = base(['spaceport', 'silo'])
+  const { sim, x, y, buildings } = base(['spaceport', 'metalYard'])
   const [port] = buildings
   spawnUnit(sim, 'truck', 1, x + 2, y + 5)
   const credits = creditsOf(sim, 1)

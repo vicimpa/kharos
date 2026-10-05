@@ -33,7 +33,13 @@ export const BUILDING_NAMES: Record<BuildingType, string> = {
   windtrap: 'Ветряная ловушка',
   barracks: 'Казармы',
   mine: 'Шахта',
-  silo: 'Хранилище',
+  metalYard: 'Склад металла',
+  siliconStore: 'Склад кремния',
+  fuelTank: 'Топливные баки',
+  khariteVault: 'Сейф харита',
+  blockYard: 'Склад стройблоков',
+  ammoBunker: 'Бункер боеприпасов',
+  partsLocker: 'Шкаф компонентов',
   spaceport: 'Космопорт',
   wall: 'Стена',
   turret: 'Пулемётная турель',
@@ -48,7 +54,7 @@ export const REWARD_NAMES: Record<Reward, string> = {
   generator: 'Первая электростанция',
   matter: 'Первый генератор материи',
   mine: 'Первая шахта',
-  silo: 'Первое хранилище',
+  metalYard: 'Первый склад металла',
 }
 
 export const RESOURCE_NAMES: Record<Resource, string> = {

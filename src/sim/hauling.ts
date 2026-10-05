@@ -226,8 +226,10 @@ export function haul(sim: Sim) {
     hauler.resource = resource
     hauler.full = true
     hauler.waiting = false
-    // Туда, откуда взял, не везёт: остаток едет в другое хранилище или на другую переработку.
-    hauler.to = deliveryFor(sim, truck, resource, hauler.from as Entity)
+    // Туда, откуда взял, не везёт: остаток едет в другое хранилище или на другую переработку. Другого нет —
+    // везёт обратно: хранилище у каждого груза своё, и единственное нельзя исключать.
+    const other = deliveryFor(sim, truck, resource, hauler.from as Entity)
+    hauler.to = other === NONE ? deliveryFor(sim, truck, resource) : other
   }
 
   if (time.tick % DISPATCH_TICKS === 0) dispatch(sim)

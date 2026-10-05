@@ -117,6 +117,15 @@ function plant(product: Product) {
   } as const satisfies BuildingSpec
 }
 
+/**
+ * Хранилище одного груза: принимает только его. Склада «всего» нет — под каждый ресурс и каждое изделие
+ * своё здание со своим размером и ценой: металла нужно больше всего, и двор под него просторный и дешёвый;
+ * харит редок и дорог, его сейф маленький и дорогой.
+ */
+function store(accepts: readonly Good[], width: number, height: number, cost: number, inventory: number) {
+  return { width, height, cost, inventory, accepts, stores: true } as const satisfies BuildingSpec
+}
+
 /** Сколько кредитов цены здания один строитель возводит за секунду: здание за 300 строится 15 секунд. */
 export const BUILD_RATE = 20
 
@@ -125,8 +134,8 @@ export const SAND_DURABILITY = 0.7
 
 export const BUILDINGS = {
   // Доход главного здания не даёт остаться без кредитов совсем: на генератор он копит долго, но копит.
-  // Немного ресурсов главное здание хранит само. Руду оно не принимает: её место — шахта и переработка.
-  command: { width: 3, height: 3, cost: 2000, income: 0.2, zone: 12, inventory: 100, accepts: WARES, stores: true, produces: ['builder', 'truck', 'harvester'] },
+  // Своего склада у главного здания нет: всё готовое лежит в хранилищах своего вида.
+  command: { width: 3, height: 3, cost: 2000, income: 0.2, zone: 12, produces: ['builder', 'truck', 'harvester'] },
   // Переработка — по зданию на руду: каждое принимает только свою руду и выдаёт её ресурс, один передел
   // (§4.3 шаг 5). Приём 1,5 руды/с — примерно полторы шахты металла: где поставить завод между шахтами
   // и хранилищем, решает игрок. Руду держит про запас на кузов, готовое отдаёт по общим заявкам.
@@ -139,7 +148,7 @@ export const BUILDINGS = {
   ammoPlant: plant('ammo'),
   partsPlant: plant('parts'),
   // Машинный завод: машинки и тяжёлая техника. Строится из стройблоков: военная промышленность требует цеха.
-  factory: { width: 2, height: 2, cost: 450, power: -5, materials: { blocks: 10 }, produces: ['buggy', 'lancer', 'tank', 'tesla', 'carrier'] },
+  factory: { width: 3, height: 3, cost: 450, power: -5, materials: { blocks: 10 }, produces: ['buggy', 'lancer', 'tank', 'tesla', 'carrier'] },
   // Электростанция.
   generator: { width: 2, height: 2, cost: 300, power: 10 },
   // Генератор материи — базовый доход: превращает энергию в кредиты. Первая электростанция окупает его быстро,
@@ -148,11 +157,19 @@ export const BUILDINGS = {
   matter: { width: 2, height: 2, cost: 250, power: -3, income: 1.5, crowding: true },
   radar: { width: 2, height: 2, cost: 400 },
   windtrap: { width: 2, height: 2, cost: 300 },
-  barracks: { width: 2, height: 2, cost: 250, power: -2, produces: ['infantry', 'rocketeer'] },
+  barracks: { width: 3, height: 2, cost: 250, power: -2, produces: ['infantry', 'rocketeer'] },
   // Шахта энергии не просит и начинает свою зону: тянуть к месторождению цепочку зданий не нужно.
   // Добытое копится в шахте, пока его не выкачают грузовики.
   mine: { width: 2, height: 2, cost: 300, zone: 7, extract: true, inventory: 60 },
-  silo: { width: 2, height: 1, cost: 100, inventory: 200, accepts: WARES, stores: true },
+  // Хранилища: по одному на каждый ресурс и каждое изделие. Стройблоки громоздкие; боеприпасов делают много,
+  // и бункер под них вместительный; компоненты дорогие и мелкие.
+  metalYard: store(['metal'], 3, 2, 150, 400),
+  siliconStore: store(['silicon'], 2, 2, 150, 300),
+  fuelTank: store(['fuel'], 2, 2, 200, 300),
+  khariteVault: store(['kharite'], 1, 1, 250, 60),
+  blockYard: store(['blocks'], 2, 2, 150, 200),
+  ammoBunker: store(['ammo'], 2, 1, 200, 300),
+  partsLocker: store(['parts'], 1, 1, 200, 60),
   // Космопорт ещё и выпускает летающих. Энергию просит всегда, но от её нехватки замедляется только производство.
   // Товар на продажу грузовики сгружают в трюм корабля. Строится из металла, а не из стройблоков: с него
   // начинаются деньги, и первой продаже хватает одной линии металла — без цеха и кремния.
@@ -175,9 +192,14 @@ export const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[]
 /** Что возводят строители. Остальные здания появятся вместе с тем, для чего они нужны. */
 export const BUILDABLE: BuildingType[] = [
   'generator', 'matter', 'mine', 'smelter', 'siliconWorks', 'distillery', 'enricher', 'blockPlant', 'ammoPlant', 'partsPlant',
-  'silo', 'spaceport', 'barracks', 'factory',
+  'metalYard', 'siliconStore', 'fuelTank', 'khariteVault', 'blockYard', 'ammoBunker', 'partsLocker', 'spaceport', 'barracks', 'factory',
   'wall', 'turret', 'rocketTurret', 'cannonTurret',
 ]
+
+/** Хранилища — по одному на каждое готовое. */
+export const STORES = BUILDING_TYPES.filter((type) => buildingSpec(type).stores)
+/** Хранилище, которое принимает этот груз; у руды его нет. */
+export const storeFor = (good: Good) => STORES.find((type) => buildingSpec(type).accepts?.includes(good))
 
 /** Какие тайлы заняты зданиями. Обновляется сам: следит за появлением и исчезновением зданий в мире. */
 export interface Occupancy {

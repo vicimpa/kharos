@@ -76,7 +76,7 @@ function lineScene(): Line {
     const spot = depositIn(sim, cell.x, cell.y)
     if (!spot || spot.kind !== 'metal') continue
     const mine = placeBuilding(sim.world, 'mine', spot.x, spot.y, DEFENDER)
-    const silo = placeNearMine(sim, spot, 'silo', spot.x + 4, spot.y + 4)
+    const silo = placeNearMine(sim, spot, 'metalYard', spot.x + 4, spot.y + 4)
     const core = placeNearMine(sim, spot, 'command', spot.x + 8, spot.y)
     const refinery = placeNearMine(sim, spot, 'smelter', spot.x + 4, spot.y - 4)
     const generator = placeNearMine(sim, spot, 'generator', spot.x + 8, spot.y - 4)

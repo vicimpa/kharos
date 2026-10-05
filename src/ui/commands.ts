@@ -18,10 +18,11 @@ const TRADE = 8
 const LIST = 8
 
 /** Страница сетки строителя: корень с разделами или сами здания раздела. */
-export type Page = 'root' | 'economy' | 'industry' | 'military' | 'sell' | 'buy'
+export type Page = 'root' | 'economy' | 'storage' | 'industry' | 'military' | 'sell' | 'buy'
 
-/** Разделы строителя: в какой странице какое здание. Остальное — хозяйство: энергия, добыча, хранение, торговля. */
+/** Разделы строителя: в какой странице какое здание. Остальное — хозяйство: энергия, добыча, торговля. */
 const SECTIONS: Partial<Record<Page, BuildingType[]>> = {
+  storage: ['metalYard', 'siliconStore', 'fuelTank', 'khariteVault', 'blockYard', 'ammoBunker', 'partsLocker'],
   industry: ['smelter', 'siliconWorks', 'distillery', 'enricher', 'blockPlant', 'ammoPlant', 'partsPlant'],
   military: ['barracks', 'factory', 'wall', 'turret', 'rocketTurret', 'cannonTurret'],
 }
@@ -61,7 +62,8 @@ export function commandsOf(state: HudState, page: Page, { send, place, open }: A
   if (construction) {
     if (page === 'root') {
       list([
-        { label: 'Хозяйство', building: 'mine', title: 'Энергия, добыча, хранение и торговля', run: () => open('economy') },
+        { label: 'Хозяйство', building: 'mine', title: 'Энергия, добыча и торговля', run: () => open('economy') },
+        { label: 'Склады', building: 'metalYard', title: 'Хранилища ресурсов и изделий', run: () => open('storage') },
         { label: 'Переработка', building: 'smelter', title: 'Переработка руды и заводы изделий', run: () => open('industry') },
         { label: 'Военное', building: 'turret', title: 'Казармы, завод, стены и турели', run: () => open('military') },
       ])

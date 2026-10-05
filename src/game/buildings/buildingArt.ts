@@ -125,48 +125,57 @@ const generator: BuildingArt = {
   },
 }
 
-/** Завод: ребристый цех с воротами и вентилятором, перед воротами — пандус. */
+/**
+ * Машинный завод, 3×3: сборочный цех под ребристой крышей с мостовым краном, ворота на юг и двор с пандусом,
+ * где стоит выкаченная машина. Вентилятор на крыше крутится, огни над воротами бегут.
+ */
 const factory: BuildingArt = {
   ...BUILDINGS.factory,
   draw(g, t, light) {
-    slab(g, 0, 4, 32, 28, 3, STEEL)
+    slab(g, 0, 2, 48, 46, 3, STEEL)
 
-    // Пандус и разводка по двору.
-    g.rect(10, 20, 12, 8, IRON[0])
-    g.rect(11, 20, 10, 7, IRON[1])
-    g.rect(11, 22, 10, 1, RUST[1])
-    g.rect(11, 25, 10, 1, RUST[1])
-    for (const x of [3, 24]) {
-      g.rect(x, 22, 5, 1, RUST[1])
-      g.rect(x === 3 ? 3 : 28, 22, 1, 5, RUST[1])
-    }
+    // Двор: бетон с разметкой и пандус от ворот.
+    g.rect(3, 30, 42, 14, IRON[1])
+    g.rect(3, 30, 42, 1, IRON[0])
+    for (let x = 5; x < 44; x += 6) g.rect(x, 42, 3, 1, HAZARD[1])
+    g.rect(16, 30, 16, 12, IRON[0])
+    for (let y = 32; y < 42; y += 3) g.rect(17, y, 14, 1, IRON[2])
+    // Выкаченная машина на пандусе: корпус, гусеницы, башня.
+    g.rect(19, 33, 10, 8, INK)
+    g.rect(19, 33, 2, 8, IRON[0])
+    g.rect(27, 33, 2, 8, IRON[0])
+    g.rect(21, 34, 6, 6, TEAM[1])
+    g.rect(21, 34, 6, 1, TEAM[2])
+    g.circle(24, 37, 2, STEEL[3])
+    g.rect(24, 31, 1, 4, INK)
 
-    // Цех выше двора и выступает над основанием.
-    slab(g, 2, -4, 28, 24, 7, IRON)
-    for (let x = 5; x <= 25; x += 4) {
-      g.rect(x, -2, 1, 13, IRON[0])
-      g.rect(x + 1, -2, 1, 13, IRON[2])
+    // Цех: длинный корпус с рёбрами крыши, по которой ездит кран.
+    slab(g, 2, 0, 44, 30, 4, IRON)
+    for (let x = 5; x <= 41; x += 4) {
+      g.rect(x, 2, 1, 22, IRON[0])
+      g.rect(x + 1, 2, 1, 22, IRON[2])
     }
-    g.rect(10, 12, 12, 7, INK)
-    g.rect(11, 13, 10, 6, 0x04070b)
-    for (const x of [4, 24]) {
-      g.rect(x, 14, 4, 3, INK)
-      g.rect(x, 14, 4, 2, TEAM[1])
-      g.rect(x, 14, 2, 1, TEAM[2])
-    }
-    // Огни над воротами бегут слева направо.
-    for (let i = 0; i < 5; i++) g.rect(11 + i * 2, 11, 2, 1, teamColor(chase(t, i / 5)))
+    // Мостовой кран: балка поперёк цеха ходит вдоль него туда и обратно.
+    const crane = Math.round(8 + 28 * (0.5 - 0.5 * Math.cos(TURN * t)))
+    g.rect(crane - 1, 2, 4, 22, INK)
+    g.rect(crane, 2, 2, 22, HAZARD[1])
+    g.rect(crane - 1, 11, 4, 4, IRON[3])
+    // Ворота в торце цеха.
+    g.rect(16, 23, 16, 7, INK)
+    g.rect(17, 24, 14, 6, DARK)
+    for (let i = 0; i < 7; i++) g.rect(17 + i * 2, 22, 2, 1, teamColor(chase(t, i / 7)))
 
-    tower(g, 24, 3, 4, 3, STEEL)
-    g.circle(24, 0, 3, INK)
-    // У крыльчатки четыре лопасти: четверть оборота замыкает цикл.
+    // Вентилятор на крыше: у крыльчатки четыре лопасти, четверть оборота замыкает цикл.
+    g.circle(39, 8, 5, INK)
+    g.circle(39, 8, 4, IRON[0])
     const angle = t * TURN * 0.25
     for (const turn of [angle, angle + TURN / 4]) {
-      const dx = Math.cos(turn) * 3
-      const dy = Math.sin(turn) * 3
-      g.line(24 - dx, -dy, 24 + dx, dy, 1.2, IRON[3])
+      const dx = Math.cos(turn) * 3.5
+      const dy = Math.sin(turn) * 3.5
+      g.line(39 - dx, 8 - dy, 39 + dx, 8 + dy, 1.2, IRON[3])
     }
-    lamp(g, light, 8, 3, 2, pulse(t))
+    lamp(g, light, 7, 36, 2, pulse(t))
+    lamp(g, light, 41, 36, 2, pulse(t, 0.5))
   },
 }
 
@@ -706,26 +715,39 @@ const windtrap: BuildingArt = {
   },
 }
 
-/** Казармы: длинный корпус со знаменем на крыше, дверью и плацем. */
+/**
+ * Казармы, 3×2: два спальных корпуса с плоскими крышами, между ними штаб со знаменем, перед ними плац
+ * с разметкой строя. По плацу ходит часовой.
+ */
 const barracks: BuildingArt = {
   ...BUILDINGS.barracks,
   draw(g, t, light) {
-    slab(g, 0, 3, 32, 29, 3, STEEL)
-    g.rect(4, 21, 24, 1, RUST[1])
-    g.rect(4, 25, 24, 1, RUST[1])
-    tower(g, 5, 25, 2, 2, IRON)
-    tower(g, 27, 25, 2, 2, IRON)
+    slab(g, 0, 2, 48, 30, 3, STEEL)
 
-    slab(g, 2, -2, 28, 20, 6, IRON)
-    g.rect(4, 2, 24, 2, IRON[2])
-    g.rect(4, 7, 24, 1, IRON[0])
-    g.rect(13, -1, 6, 11, TEAM[1])
-    g.rect(14, -1, 2, 11, TEAM[2])
-    g.rect(13, 11, 6, 6, INK)
-    g.rect(14, 12, 4, 5, DARK)
-    windows(g, [4, 8, 21, 25], 13)
-    bulb(g, light, 10, 9, pulse(t))
-    bulb(g, light, 20, 9, pulse(t, 0.5))
+    // Плац: песчаная площадка с точками строя.
+    g.rect(3, 19, 42, 9, 0x6b5a3e)
+    g.rect(3, 19, 42, 1, 0x4d4030)
+    for (let x = 7; x < 44; x += 5) for (const y of [22, 25]) g.rect(x, y, 1, 1, 0x8f7a55)
+    // Часовой ходит вдоль плаца туда и обратно.
+    const walk = Math.round(6 + 34 * (0.5 - 0.5 * Math.cos(TURN * t)))
+    g.rect(walk, 22, 3, 3, INK)
+    g.rect(walk + 1, 23, 1, 1, TEAM[2])
+
+    // Спальные корпуса по бокам: крыши с вентиляцией.
+    for (const x of [2, 31]) {
+      slab(g, x, 3, 15, 15, 3, IRON)
+      g.rect(x + 2, 6, 11, 1, IRON[0])
+      g.rect(x + 2, 10, 11, 1, IRON[0])
+      g.rect(x + 6, 7, 3, 2, IRON[3])
+    }
+    // Штаб посередине со знаменем команды.
+    slab(g, 17, 1, 14, 17, 3, STEEL)
+    g.rect(19, 3, 10, 9, TEAM[1])
+    g.rect(19, 3, 10, 2, TEAM[2])
+    g.rect(23, 6, 2, 3, TEAM[3])
+    g.rect(21, 13, 6, 2, INK)
+    bulb(g, light, 18, 15, pulse(t))
+    bulb(g, light, 28, 15, pulse(t, 0.5))
   },
 }
 
@@ -803,16 +825,182 @@ const spaceport: BuildingArt = {
   },
 }
 
-/** Хранилище: два бака с перемычкой. */
-const silo: BuildingArt = {
-  ...BUILDINGS.silo,
+/**
+ * Хранилища у каждого ресурса свои, и, как у переработки, силуэт говорит, что в них лежит: штабеля слитков,
+ * герметичные боксы, круглые баки, бронированный сейф, поддоны блоков, бункер боеприпасов и шкаф компонентов. Цвет груза — его цвет на складе.
+ */
+
+/** Склад металла, 3×2: открытый двор со штабелями слитков и козловым краном над ними. */
+const metalYard: BuildingArt = {
+  ...BUILDINGS.metalYard,
   draw(g, t, light) {
-    slab(g, 0, 1, 32, 15, 2, STEEL)
-    pipe(g, 12, 9, 8)
-    for (const [x, offset] of [[8, 0], [24, 0.5]]) {
-      tower(g, x, 9, 5, 5, IRON)
-      bulb(g, light, x - 1, 3, pulse(t, offset))
+    const tint = accent(GOOD_COLORS.metal)
+    slab(g, 0, 1, 48, 31, 3, IRON)
+    g.rect(2, 3, 44, 24, IRON[1])
+    for (let x = 3; x < 46; x += 8) g.rect(x, 26, 4, 1, HAZARD[1])
+    // Штабеля: каждый — три ряда слитков.
+    for (const sx of [4, 19, 34]) {
+      for (let row = 0; row < 3; row++) {
+        for (let k = 0; k < 2; k++) {
+          const x = sx + k * 5
+          const y = 6 + row * 6
+          g.rect(x, y, 5, 5, INK)
+          g.rect(x + 1, y + 1, 3, 3, tint[1])
+          g.rect(x + 1, y + 1, 3, 1, tint[2])
+        }
+      }
     }
+    // Козловой кран ходит над штабелями.
+    const x = Math.round(6 + 34 * (0.5 - 0.5 * Math.cos(TURN * t)))
+    g.rect(x, 2, 3, 25, INK)
+    g.rect(x + 1, 2, 1, 25, HAZARD[1])
+    g.rect(x - 1, 12, 5, 3, IRON[3])
+    bulb(g, light, 2, 28, pulse(t))
+    bulb(g, light, 44, 28, pulse(t, 0.5))
+  },
+}
+
+/** Склад кремния, 2×2: белый герметичный корпус с боксами под стеклом, чистый воздух гонят фильтры. */
+const siliconStore: BuildingArt = {
+  ...BUILDINGS.siliconStore,
+  draw(g, t, light) {
+    const tint = accent(GOOD_COLORS.silicon)
+    const WHITE: Tones = [0x6d7680, 0x9aa4ae, 0xc3cbd3, 0xe1e7ec, 0xffffff]
+    slab(g, 0, 1, 32, 31, 3, WHITE)
+    // Боксы: окна в корпусе, за стеклом — стопки пластин.
+    for (const [x, y] of [[3, 4], [17, 4], [3, 15], [17, 15]] as const) {
+      g.rect(x, y, 12, 9, INK)
+      g.rect(x + 1, y + 1, 10, 7, 0x1a2a38)
+      for (let k = 0; k < 3; k++) {
+        g.rect(x + 2 + k * 3, y + 3, 2, 4, tint[1])
+        g.rect(x + 2 + k * 3, y + 3, 2, 1, tint[2])
+      }
+      g.rect(x + 1, y + 1, 3, 1, 0x5a7a90)
+    }
+    // Фильтры на крыше: решётки вентиляторов, огонёк чистоты.
+    for (const x of [8, 22]) {
+      g.circle(x, 27, 2, INK)
+      g.rect(x - 1, 27 - (Math.floor(t * ART_FRAMES) % 2), 2, 1, WHITE[3])
+    }
+    bulb(g, light, 14, 26, pulse(t))
+  },
+}
+
+/** Топливные баки, 2×2: два круглых бака сверху, обвязка труб и задвижка. */
+const fuelTank: BuildingArt = {
+  ...BUILDINGS.fuelTank,
+  draw(g, t, light) {
+    const tint = accent(GOOD_COLORS.fuel)
+    slab(g, 0, 1, 32, 31, 3, STEEL)
+    pipe(g, 3, 26, 26)
+    for (const [x, y] of [[10, 11], [22, 19]] as const) {
+      g.circle(x, y, 8, INK)
+      g.circle(x, y, 7, IRON[2])
+      g.circle(x - 1, y - 1, 5, IRON[3])
+      // Плавающая крыша: кольцо цвета груза, по нему ходит блик.
+      g.ring(x, y, 4, 1, tint[1])
+      const angle = TURN * t
+      g.rect(Math.round(x + Math.cos(angle) * 4), Math.round(y + Math.sin(angle) * 4), 1, 1, tint[2])
+      g.circle(x, y, 1, INK)
+    }
+    // Задвижка между баками.
+    g.rect(14, 13, 4, 4, INK)
+    g.rect(15, 14, 2, 2, HAZARD[1])
+    bulb(g, light, 26, 4, pulse(t))
+  },
+}
+
+/** Сейф харита, 1×1: бронированный куб с толстой дверью и замком, сквозь щели светится груз. */
+const khariteVault: BuildingArt = {
+  ...BUILDINGS.khariteVault,
+  draw(g, t, light) {
+    const tint = accent(GOOD_COLORS.kharite)
+    slab(g, 0, 1, 16, 15, 2, IRON)
+    g.rect(2, 3, 12, 9, IRON[0])
+    g.rect(3, 4, 10, 7, IRON[2])
+    g.rect(3, 4, 10, 1, IRON[3])
+    // Щели светятся цветом харита.
+    const glow = 0.5 + 0.5 * pulse(t)
+    g.rect(3, 7, 10, 1, glow > 0.6 ? tint[2] : tint[1])
+    light(8, 7, 3, 0.3 + 0.4 * glow)
+    // Замок.
+    g.circle(8, 7, 2, INK)
+    g.circle(8, 7, 1, HAZARD[1])
+  },
+}
+
+/** Склад стройблоков, 2×2: двор с поддонами кирпичных блоков и погрузчиком, который их развозит. */
+const blockYard: BuildingArt = {
+  ...BUILDINGS.blockYard,
+  draw(g, t, light) {
+    const tint = accent(GOOD_COLORS.blocks)
+    slab(g, 0, 1, 32, 31, 3, IRON)
+    g.rect(2, 3, 28, 22, IRON[1])
+    // Поддоны: деревянная решётка, на ней кладка блоков со швами.
+    for (const [x, y] of [[3, 4], [17, 4], [3, 14], [17, 14]] as const) {
+      g.rect(x, y, 12, 9, INK)
+      g.rect(x + 1, y + 7, 10, 1, RUST[1])
+      for (let row = 0; row < 3; row++) {
+        for (let k = 0; k < 3; k++) {
+          const bx = x + 1 + k * 3 + (row % 2)
+          g.rect(bx, y + 1 + row * 2, 3, 2, row === 0 ? tint[2] : tint[1])
+          g.rect(bx + 2, y + 1 + row * 2, 1, 2, tint[0])
+        }
+      }
+    }
+    // Погрузчик ездит по проходу внизу.
+    const x = Math.round(4 + 20 * (0.5 - 0.5 * Math.cos(TURN * t)))
+    g.rect(x, 26, 5, 3, INK)
+    g.rect(x + 1, 26, 3, 2, HAZARD[1])
+    bulb(g, light, 28, 27, pulse(t))
+  },
+}
+
+/** Бункер боеприпасов, 2×1: заглублённый бетонный каземат с полосами опасности и бронедверью. */
+const ammoBunker: BuildingArt = {
+  ...BUILDINGS.ammoBunker,
+  draw(g, t, light) {
+    const tint = accent(GOOD_COLORS.ammo)
+    slab(g, 0, 1, 32, 15, 2, IRON)
+    // Обвалование: земляной вал вокруг крыши.
+    g.rect(2, 3, 28, 9, 0x4d4030)
+    g.rect(4, 4, 24, 7, IRON[2])
+    g.rect(4, 4, 24, 1, IRON[3])
+    // Полосы опасности по краю крыши.
+    for (let x = 4; x < 28; x += 4) g.rect(x, 10, 2, 1, HAZARD[1])
+    // Ящики у входа и бронедверь.
+    for (const x of [6, 10]) {
+      g.rect(x, 6, 3, 3, INK)
+      g.rect(x, 6, 2, 2, tint[1])
+      g.rect(x, 6, 2, 1, tint[2])
+    }
+    g.rect(18, 5, 8, 5, INK)
+    g.rect(19, 6, 6, 3, IRON[1])
+    g.rect(21, 7, 2, 1, HAZARD[1])
+    // Красная лампа «взрывоопасно» мигает.
+    const level = pulse(t * 2)
+    g.rect(28, 5, 2, 2, level > 0.5 ? 0xff6b5a : 0x6a1a10)
+    light(29, 6, 1, level * 0.5)
+  },
+}
+
+/** Шкаф компонентов, 1×1: закрытая стойка с ящичками, на каждом — огонёк учёта. */
+const partsLocker: BuildingArt = {
+  ...BUILDINGS.partsLocker,
+  draw(g, t, light) {
+    const tint = accent(GOOD_COLORS.parts)
+    slab(g, 0, 1, 16, 15, 2, STEEL)
+    g.rect(2, 3, 12, 9, INK)
+    // Ящички в два столбца, огоньки бегут сверху вниз.
+    for (let row = 0; row < 3; row++) {
+      for (const x of [3, 9]) {
+        g.rect(x, 4 + row * 3, 4, 2, STEEL[2])
+        g.rect(x + 1, 4 + row * 3, 2, 1, STEEL[3])
+      }
+      const level = chase(t, row / 3)
+      g.rect(7, 4 + row * 3, 2, 2, level > 0.3 ? tint[2] : tint[0])
+    }
+    light(8, 7, 2, 0.3 + 0.3 * pulse(t))
   },
 }
 
@@ -909,7 +1097,13 @@ export const BUILDING_ART = {
   windtrap,
   barracks,
   mine,
-  silo,
+  metalYard,
+  siliconStore,
+  fuelTank,
+  khariteVault,
+  blockYard,
+  ammoBunker,
+  partsLocker,
   spaceport,
   wall,
   turret,

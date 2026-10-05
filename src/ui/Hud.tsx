@@ -291,8 +291,9 @@ function Info({ state, lookAtSelection, narrow }: { state: HudState; lookAtSelec
         )}
         {state.stored && !state.stored.slots && (
           <div class="hud__hint">
-            {state.stored.store ? 'Хранилище' : 'Склад'}: <Stacks items={state.stored.items} />
-            {state.stored.items.length === 0 && 'пусто'} — вмещает {state.stored.capacity}
+            {state.stored.buffer ? 'Материалы заказа' : state.stored.store ? 'Хранилище' : 'Склад'}: <Stacks items={state.stored.items} />
+            {state.stored.items.length === 0 && 'пусто'}
+            {!state.stored.buffer && ` — вмещает ${state.stored.capacity}`}
           </div>
         )}
         {state.refinery && (

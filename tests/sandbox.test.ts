@@ -14,7 +14,7 @@ test('тестовая карта: готовая база с энергией, 
   expect(spawnSandbox(sim, 1)).toBeDefined()
   const types: string[] = []
   for (const [, building] of sim.world.query(Building, Owner)) types.push(building.type)
-  for (const type of ['mine', 'command', 'silo', 'spaceport', 'factory', 'barracks', 'generator', 'matter'] as const) expect(types).toContain(type)
+  for (const type of ['mine', 'command', 'metalYard', 'spaceport', 'factory', 'barracks', 'generator', 'matter'] as const) expect(types).toContain(type)
   // Всё стоит в одной зоне, и энергии хватает всем.
   expect(zonesOf(sim, 1).length).toBeGreaterThan(0)
   expect([...powerStates(sim).values()].every((state) => state !== 'starved')).toBe(true)

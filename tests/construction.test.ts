@@ -65,7 +65,7 @@ test('строитель возводит здание: кредиты спис�
   expect(sim.world.get(entity, Site)).toEqual({ type: 'generator', progress: 0, demolish: false })
   // Пока строитель не доехал, площадка никому не мешает, но второе здание на неё не поставить.
   expect(isWalkable(sim, site.x, site.y)).toBe(true)
-  expect(canBuild(sim, 1, 'silo', site.x, site.y)).toBe(false)
+  expect(canBuild(sim, 1, 'metalYard', site.x, site.y)).toBe(false)
   expect(sim.world.get(builders[0], Builds)).toEqual({ site: entity })
 
   seconds(sim, 8)
@@ -209,7 +209,7 @@ test('без главного здания стройка стоит, готов
   expect(frozen).toBeGreaterThan(0)
   seconds(sim, 5)
   expect(sim.world.get(entity, Site)!.progress).toBe(frozen)
-  expect(canBuild(sim, 1, 'silo', site.x, site.y + 3)).toBe(false)
+  expect(canBuild(sim, 1, 'metalYard', site.x, site.y + 3)).toBe(false)
 
   // Развернулся на прежнем месте — стройка продолжается.
   sim.send(1, { type: 'deploy', unit: unitsOf(sim, 'mcv')[0] })

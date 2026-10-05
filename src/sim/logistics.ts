@@ -385,9 +385,10 @@ export function dispatch(sim: Sim) {
             const inventory = world.get(source, Inventory)!
             const holds = Math.min(inventory.limits[resource] ?? inventory.capacity, inventory.capacity)
             // Остаток сырья прежнего рецепта цеху не нужен: его увозят весь, сколько бы его ни было.
-            // Как и закупку в космопорте: ей там не место, склад космопорта — под товар продажи.
+            // Как и закупку в космопорте: ей там не место, склад космопорта — под товар продажи. Даже крошки:
+            // иначе остаток на пороге MIN_JOB так и лежал бы у цеха.
             const leftover = (world.has(source, Assembly) && !isProduct(resource)) || !!buildingSpec(world.get(source, Building)!.type).trades
-            if (available < (leftover ? MIN_JOB : Math.min(PUSH_MIN, room, holds * PUSH_SHARE))) continue
+            if (available < (leftover ? 1e-9 : Math.min(PUSH_MIN, room, holds * PUSH_SHARE))) continue
             const score = -distance(sim, truck, source)
             if (best && score <= best.score) continue
             best = { from: source, to: NONE as Entity, resource, amount: Math.min(available, room), score }

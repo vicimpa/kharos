@@ -78,7 +78,7 @@ function mineScene(freeTrucks = FREE_TRUCKS): Mine {
     const cx = spot.x + 1
     const cy = spot.y + 1
     const core = placeNearMine(sim, spot, 'command', cx + 7, cy)
-    const silo = placeNearMine(sim, spot, 'silo', cx + 4, cy + 6)
+    const silo = placeNearMine(sim, spot, 'metalYard', cx + 4, cy + 6)
     const refinery = placeNearMine(sim, spot, 'smelter', cx + 4, cy - 4)
     const port = placeNearMine(sim, spot, 'spaceport', cx + 8, cy + 5)
     const generator = placeNearMine(sim, spot, 'generator', cx + 6, cy - 5)
@@ -356,7 +356,7 @@ function makeSteps(opening: Opening, core: { x: number; y: number }, deposit: De
     build('электростанция', 'generator', 1, core.x + 5, core.y - 4),
     build('шахта', 'mine', 1, deposit.x, deposit.y),
     build('генератор материи', 'matter', 1, core.x + 2, core.y - 4),
-    build('хранилище', 'silo', 1, core.x + 4, core.y + 5),
+    build('хранилище', 'metalYard', 1, core.x + 4, core.y + 5),
     produce('грузовик', 'truck', 1),
     // Второй грузовик — свободный: привязанный к шахте руду на переработку возит, а космопорту нужен металл.
     produce('второй грузовик', 'truck', 2),

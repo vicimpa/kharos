@@ -5,7 +5,8 @@ import {
   BUILDINGS, DEPOSIT_TYPES, Inventory, Producer, RESOURCE_SPECS, SELL_SECONDS, Site, UNITS, Unit, amountOf, awaitsMaterials, canPlace, createSim, creditsOf,
   depositIn, materialShare, siteTicks, type BuildingType, type Sim,
 } from '../src/sim'
-import { placeBuilding } from '../src/sim/buildings'
+import { STORES, placeBuilding, storeFor } from '../src/sim/buildings'
+import type { Amounts, Ware } from '../src/sim/resources'
 import { addCredits } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
 
@@ -28,7 +29,8 @@ function base(extra: BuildingType[]) {
   addCredits(sim, 1, 10000)
   const layout: [BuildingType, number][] = [['command', 0], ['generator', 4], ['generator', 7]]
   let at = 10
-  for (const type of extra) {
+  // Ряд хранилищ — по одному на каждое готовое — после зданий из списка.
+  for (const type of [...extra, ...STORES]) {
     layout.push([type, at])
     at += BUILDINGS[type].width + 1
   }
@@ -37,7 +39,14 @@ function base(extra: BuildingType[]) {
       if (!layout.every(([type, dx]) => canPlace(sim, type, x + dx, y))) continue
       if (!canPlace(sim, 'command', x, y + 4) || !canPlace(sim, 'command', x + 4, y + 4)) continue
       const buildings = layout.map(([type, dx]) => placeBuilding(sim.world, type, x + dx, y, 1))
-      return { sim, x, y, core: buildings[0], buildings: buildings.slice(3) }
+      const placed = buildings.slice(3, 3 + extra.length)
+      const shelves = buildings.slice(3 + extra.length)
+      const store = (item: Ware) => shelves[STORES.indexOf(storeFor(item)!)]
+      /** Кладёт груз в хранилища его вида. */
+      const stash = (items: Amounts) => {
+        for (const [item, amount] of Object.entries(items) as [Ware, number][]) sim.world.get(store(item), Inventory)!.items[item] = amount
+      }
+      return { sim, x, y, core: buildings[0], buildings: placed, store, stash }
     }
   }
   throw new Error('Не нашлось места под базу')
@@ -58,9 +67,9 @@ test('месторождения бывают разных видов: что г
 })
 
 test('стройка ждёт материалов: без стройблоков она не идёт дальше привезённого, грузовик привозит их из хранилища', () => {
-  const { sim, x, y, core } = base([])
+  const { sim, x, y, store, stash } = base([])
   const builder = spawnUnit(sim, 'builder', 1, x + 5, y + 4)
-  sim.send(1, { type: 'build', building: 'factory', x: x + 10, y, builders: [builder] })
+  sim.send(1, { type: 'build', building: 'factory', x, y: y + 4, builders: [builder] })
   sim.advance(TICK)
   let site: Entity | undefined
   for (const [entity] of sim.world.query(Site)) site = entity
@@ -70,40 +79,40 @@ test('стройка ждёт материалов: без стройблоко�
   expect(sim.world.get(site!, Site)!.progress).toBe(0)
 
   // Стройблоки в хранилище и свободный грузовик — стройка идёт до конца.
-  sim.world.get(core, Inventory)!.items.blocks = 50
+  stash({ blocks: 50 })
   spawnUnit(sim, 'truck', 1, x + 6, y + 4)
   until(sim, () => materialShare(sim, site!) > 0)
   expect(sim.world.get(site!, Site)!.progress).toBeLessThanOrEqual(siteTicks('factory', TICK) * materialShare(sim, site!) + 1e-6)
   until(sim, () => !sim.world.has(site!, Site))
-  expect(oreIn(sim, core, 'blocks')).toBeCloseTo(50 - BUILDINGS.factory.materials.blocks)
+  expect(oreIn(sim, store('blocks'), 'blocks')).toBeCloseTo(50 - BUILDINGS.factory.materials.blocks)
 })
 
 test('производство ждёт материалов первого заказа и тратит их в начале работы', () => {
-  const { sim, x, y, core, buildings } = base(['factory'])
+  const { sim, x, y, store, stash, buildings } = base(['factory'])
   const [factory] = buildings
   sim.send(1, { type: 'produce', producer: factory, unit: 'tank' })
   seconds(sim, UNITS.tank.buildTime + 2)
   expect(sim.world.get(factory, Producer)).toMatchObject({ queue: ['tank'], progress: 0 })
 
-  sim.world.get(core, Inventory)!.items = { metal: 40, silicon: 10 }
+  stash({ metal: 40, silicon: 10 })
   spawnUnit(sim, 'truck', 1, x + 5, y + 4)
   const tanks = () => [...sim.world.query(Unit)].filter(([, unit]) => unit.type === 'tank').length
   until(sim, () => tanks() > 0)
   // Привезли ровно на танк, и танк их забрал.
-  expect(oreIn(sim, core, 'metal') + oreIn(sim, factory, 'metal')).toBeCloseTo(40 - UNITS.tank.materials.metal)
-  expect(oreIn(sim, core, 'silicon') + oreIn(sim, factory, 'silicon')).toBeCloseTo(10 - UNITS.tank.materials.silicon)
+  expect(oreIn(sim, store('metal'), 'metal') + oreIn(sim, factory, 'metal')).toBeCloseTo(40 - UNITS.tank.materials.metal)
+  expect(oreIn(sim, store('silicon'), 'silicon') + oreIn(sim, factory, 'silicon')).toBeCloseTo(10 - UNITS.tank.materials.silicon)
 })
 
 test('космопорт продаёт любой ресурс по его цене', () => {
-  const { sim, x, y, core, buildings } = base(['spaceport'])
+  const { sim, x, y, store, stash, buildings } = base(['spaceport'])
   const [port] = buildings
-  sim.world.get(core, Inventory)!.items.metal = 30
+  stash({ metal: 30 })
   spawnUnit(sim, 'truck', 1, x + 5, y + 4)
   sim.send(1, { type: 'sell', port, resource: 'metal', amount: 20 })
   seconds(sim, 1)
   const before = creditsOf(sim, 1)
   until(sim, () => creditsOf(sim, 1) - before >= 20 * RESOURCE_SPECS.metal.price)
-  expect(oreIn(sim, core, 'metal')).toBeCloseTo(10)
+  expect(oreIn(sim, store('metal'), 'metal')).toBeCloseTo(10)
   expect(oreIn(sim, port, 'metal')).toBeCloseTo(0)
   // Пока везли и летели, прошло не меньше полёта.
   expect(sim.time.tick * TICK).toBeGreaterThan(SELL_SECONDS)

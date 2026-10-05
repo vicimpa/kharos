@@ -130,21 +130,21 @@ test('готовые здания расширяют зону строитель
   // Главное здание стоит у (x + 3.5, y + 3.5): радиус 12 кончается около x + 15.
   const far = x + 17
   expect(zoneOf(sim, 1).length).toBe(3)
-  expect(canPlace(sim, 'silo', far, y + 3)).toBe(true)
-  expect(canBuild(sim, 1, 'silo', far, y + 3)).toBe(false)
+  expect(canPlace(sim, 'khariteVault', far, y + 3)).toBe(true)
+  expect(canBuild(sim, 1, 'khariteVault', far, y + 3)).toBe(false)
 
   // Площадка у края зоны её не расширяет, готовое здание — расширяет.
-  sim.send(1, { type: 'build', building: 'silo', x: x + 13, y: y + 3, builders: [] })
+  sim.send(1, { type: 'build', building: 'khariteVault', x: x + 13, y: y + 3, builders: [] })
   sim.advance(TICK)
-  expect(canBuild(sim, 1, 'silo', far, y + 3)).toBe(false)
-  put(sim, 'silo', x + 13, y + 5)
+  expect(canBuild(sim, 1, 'khariteVault', far, y + 3)).toBe(false)
+  put(sim, 'khariteVault', x + 13, y + 5)
   expect(zoneOf(sim, 1).length).toBe(6)
-  expect(canBuild(sim, 1, 'silo', far, y + 3)).toBe(true)
+  expect(canBuild(sim, 1, 'khariteVault', far, y + 3)).toBe(true)
 
   // Здание, до которого цепочка не дотягивается, зону не даёт; встанет звено между ними — даст.
-  put(sim, 'silo', x + 22, y + 5)
+  put(sim, 'khariteVault', x + 22, y + 5)
   expect(zoneOf(sim, 1).length).toBe(6)
-  put(sim, 'silo', x + 18, y + 5)
+  put(sim, 'khariteVault', x + 18, y + 5)
   expect(zoneOf(sim, 1).length).toBe(12)
 
   sim.send(1, { type: 'pack', building: coreOf(sim) })
@@ -155,15 +155,15 @@ test('готовые здания расширяют зону строитель
 test('здание разбирают строители в полтора раза быстрее стройки; половина цены возвращается в конце', () => {
   const { sim, x, y } = start()
   const plant = put(sim, 'generator', x + 6, y + 6)
-  const link = put(sim, 'silo', x + 13, y + 5)
+  const link = put(sim, 'khariteVault', x + 13, y + 5)
   const core = coreOf(sim)
   const builders: Entity[] = []
   for (const [entity, unit] of sim.world.query(Unit)) if (unit.type === 'builder') builders.push(entity)
   expect(refundOf('generator')).toBe(150)
-  expect(canBuild(sim, 1, 'silo', x + 17, y + 3)).toBe(true)
+  expect(canBuild(sim, 1, 'khariteVault', x + 17, y + 3)).toBe(true)
 
   // Чужое, главное и недостроенное под разбор не идут.
-  sim.send(1, { type: 'build', building: 'silo', x: x + 9, y: y + 9, builders: [] })
+  sim.send(1, { type: 'build', building: 'khariteVault', x: x + 9, y: y + 9, builders: [] })
   sim.advance(TICK)
   const site = siteAt(sim, x + 9, y + 9)!
   sim.send(2, { type: 'demolish', building: plant, builders: [] })
@@ -180,14 +180,14 @@ test('здание разбирают строители в полтора ра�
   sim.advance(TICK)
   expect(sim.world.get(plant, Site)).toEqual({ type: 'generator', progress: 300, demolish: true })
   expect(economyOf(sim, 1).produced).toBe(0)
-  expect(canBuild(sim, 1, 'silo', x + 17, y + 3)).toBe(false)
+  expect(canBuild(sim, 1, 'khariteVault', x + 17, y + 3)).toBe(false)
 
   // Отмена разбора возвращает здание в строй, денег при этом не даёт.
   const credits = creditsOf(sim, 1)
   sim.send(1, { type: 'cancelBuild', site: link })
   sim.advance(TICK)
   expect(sim.world.has(link, Site)).toBe(false)
-  expect(canBuild(sim, 1, 'silo', x + 17, y + 3)).toBe(true)
+  expect(canBuild(sim, 1, 'khariteVault', x + 17, y + 3)).toBe(true)
   expect(creditsOf(sim, 1) - credits).toBeLessThan(2)
 
   // Свободный строитель рядом берётся за разбор сам. Один разбирает электростанцию за 15 / 1,5 = 10 секунд, не считая дороги.
@@ -236,11 +236,11 @@ test('в чужой зоне не строят и не разворачиваю�
   const { sim, x, y } = start()
   // Главное здание игрока 2 — справа, зоны перекрываются между x + 11 и x + 15.
   placeBuilding(sim.world, 'command', x + 22, y + 2, 2)
-  expect(canBuild(sim, 1, 'silo', x + 6, y + 2)).toBe(true)
+  expect(canBuild(sim, 1, 'khariteVault', x + 6, y + 2)).toBe(true)
   // В перекрытии зон не строит ни один.
-  expect(canBuild(sim, 1, 'silo', x + 12, y + 3)).toBe(false)
-  expect(canBuild(sim, 2, 'silo', x + 12, y + 3)).toBe(false)
-  expect(canBuild(sim, 2, 'silo', x + 18, y + 3)).toBe(true)
+  expect(canBuild(sim, 1, 'khariteVault', x + 12, y + 3)).toBe(false)
+  expect(canBuild(sim, 2, 'khariteVault', x + 12, y + 3)).toBe(false)
+  expect(canBuild(sim, 2, 'khariteVault', x + 18, y + 3)).toBe(true)
 
   sim.send(2, { type: 'spawnUnit', unit: 'mcv', x: x + 8, y: y + 8 })
   sim.send(2, { type: 'spawnUnit', unit: 'mcv', x: x + 20, y: y + 9 })
