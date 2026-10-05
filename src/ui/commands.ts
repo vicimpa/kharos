@@ -1,0 +1,229 @@
+import type { HudState, Stack } from '../game/hud'
+import type { BuildingType, Command, Good } from '../sim'
+import { BUILDING_NAMES, RESOURCE_NAMES, UNIT_NAMES } from './names'
+
+/** Клавиши ячеек сетки команд по порядку: три ряда по четыре, как на клавиатуре, справа от WASD. */
+export const GRID_KEYS = ['KeyT', 'KeyY', 'KeyU', 'KeyI', 'KeyG', 'KeyH', 'KeyJ', 'KeyK', 'KeyB', 'KeyN', 'KeyM', 'Comma'] as const
+/** Подпись клавиши на кнопке. */
+export const keyLabel = (code: string) => (code === 'Comma' ? ',' : code.slice(3))
+export const GRID_SIZE = GRID_KEYS.length
+/** Постоянные места: превращение, отмена заказа, разбор, назад. Так рука привыкает к ним. */
+const CONVERT = 8
+const CANCEL = 9
+const DEMOLISH = 10
+const BACK = 11
+/** Кнопки продажи и закупки космопорта: начало нижнего ряда. Отмена заказа техники у космопорта тогда — на месте «Назад». */
+const TRADE = 8
+/** Сколько ячеек сверху отдаётся под списки: заказы, здания, рецепты. */
+const LIST = 8
+
+/** Страница сетки строителя: корень с разделами или сами здания раздела. */
+export type Page = 'root' | 'economy' | 'industry' | 'military' | 'sell' | 'buy'
+
+/** Разделы строителя: в какой странице какое здание. Остальное — хозяйство: энергия, добыча, хранение, торговля. */
+const SECTIONS: Partial<Record<Page, BuildingType[]>> = {
+  industry: ['smelter', 'siliconWorks', 'distillery', 'enricher', 'blockPlant', 'ammoPlant', 'partsPlant'],
+  military: ['barracks', 'factory', 'wall', 'turret', 'rocketTurret', 'cannonTurret'],
+}
+const sectionOf = (building: BuildingType): Page =>
+  (Object.keys(SECTIONS) as Page[]).find((page) => SECTIONS[page]!.includes(building)) ?? 'economy'
+
+/** Ячейка сетки команд. */
+export interface Slot {
+  label: string
+  /** Картинка: портрет здания или юнита, либо значок груза. */
+  building?: BuildingType
+  unit?: HudState['units'][number]['type']
+  good?: Good
+  cost?: number
+  /** cost — не трата, а доход: продажа, возврат за разбор. */
+  gain?: boolean
+  power?: number
+  materials?: Stack[]
+  disabled?: boolean
+  active?: boolean
+  title?: string
+  run(): void
+}
+
+interface Actions {
+  send: (command: Command) => void
+  place: (building: BuildingType | null) => void
+  open: (page: Page) => void
+}
+
+/** Сетка команд для выбранного: GRID_SIZE ячеек, пустые — null. */
+export function commandsOf(state: HudState, page: Page, { send, place, open }: Actions): (Slot | null)[] {
+  const slots: (Slot | null)[] = Array(GRID_SIZE).fill(null)
+  const list = (items: Slot[]) => items.slice(0, LIST).forEach((slot, i) => (slots[i] = slot))
+  const { construction, production, conversion, assembly, trade, site, demolish, credits } = state
+
+  if (construction) {
+    if (page === 'root') {
+      list([
+        { label: 'Хозяйство', building: 'mine', title: 'Энергия, добыча, хранение и торговля', run: () => open('economy') },
+        { label: 'Переработка', building: 'smelter', title: 'Переработка руды и заводы изделий', run: () => open('industry') },
+        { label: 'Военное', building: 'turret', title: 'Казармы, завод, стены и турели', run: () => open('military') },
+      ])
+    } else {
+      const wanted = construction.options.filter(({ building }) => sectionOf(building) === page)
+      wanted.slice(0, BACK).forEach(({ building, cost, affordable, power, materials }, i) => {
+        slots[i] = {
+          label: BUILDING_NAMES[building],
+          building,
+          cost,
+          power,
+          materials,
+          active: construction.placing === building,
+          disabled: !construction.available || !affordable,
+          title: !construction.available ? 'Сначала разверни MCV в главное здание' : affordable ? undefined : 'Не хватает кредитов',
+          run: () => place(construction.placing === building ? null : building),
+        }
+      })
+      slots[BACK] = {
+        label: 'Назад',
+        title: 'К разделам; Esc отменяет выбор места',
+        run: () => {
+          place(null)
+          open('root')
+        },
+      }
+    }
+  }
+
+  // Страницы торговли закрывают собой заказ техники и разбор.
+  if (production && page === 'root') {
+    list(
+      production.options.map(({ unit, cost, affordable, materials }) => ({
+        label: UNIT_NAMES[unit],
+        unit,
+        cost,
+        materials,
+        disabled: !affordable || production.full,
+        title: production.full ? 'Очередь заполнена' : affordable ? undefined : 'Не хватает кредитов',
+        run: () => send({ type: 'produce', producer: production.producer, unit }),
+      })),
+    )
+    if (production.queue.length) {
+      slots[trade ? BACK : CANCEL] = {
+        label: 'Отменить заказ',
+        title: 'Последний в очереди; кредиты вернутся',
+        run: () => send({ type: 'cancelProduction', producer: production.producer }),
+      }
+    }
+  }
+
+  if (conversion) {
+    if (conversion.progress === null) {
+      slots[CONVERT] = {
+        label: conversion.kind === 'deploy' ? 'Развернуть' : 'Свернуть в MCV',
+        building: 'command',
+        disabled: !conversion.possible,
+        title: conversion.possible ? undefined : 'Нужна свободная скала 3×3 под машиной',
+        run: () => send(conversion.command),
+      }
+    } else if (conversion.cancel) {
+      const cancel = conversion.cancel
+      slots[CANCEL] = { label: 'Отменить', run: () => send(cancel) }
+    }
+  }
+
+  if (assembly) {
+    slots[0] = {
+      label: assembly.on ? 'Выключить' : 'Включить',
+      good: assembly.recipe,
+      active: assembly.on,
+      title: assembly.on
+        ? 'Начатая сборка доделается, новых не будет; сырьё увезут в хранилища'
+        : 'Завод начнёт заказывать сырьё у зоны и собирать до нормы',
+      run: () => send({ type: 'work', building: assembly.plant, on: !assembly.on }),
+    }
+  }
+
+  if (trade) {
+    const { port, order } = trade
+    // Продажа и закупка — каждая на своей странице: верхний ряд корня космопорта занят заказом техники.
+    if (page === 'root') {
+      slots[TRADE] = {
+        label: 'Продажа',
+        building: 'spaceport',
+        active: !!order,
+        title: order ? 'Идёт продажа: открыть заявку' : 'Продать ресурсы с орбиты',
+        run: () => open('sell'),
+      }
+      slots[TRADE + 1] = {
+        label: 'Закупка',
+        building: 'spaceport',
+        disabled: !!order,
+        title: order ? 'Космопорт занят продажей' : 'Заказать ресурсы с орбиты втрое дороже цены продажи',
+        run: () => open('buy'),
+      }
+    } else if (!order && page === 'buy') {
+      // Закупка: верхний ряд — по 10, второй — по 50; столбец на каждый ресурс.
+      trade.purchases.slice(0, 4).forEach(({ resource, price, room }, i) => {
+        for (const [row, amount] of [[0, 10], [1, 50]] as const) {
+          const cost = amount * price
+          slots[i + row * 4] = {
+            label: `${RESOURCE_NAMES[resource]} ×${amount}`,
+            good: resource,
+            cost,
+            disabled: credits < cost || room < amount,
+            title: room < amount ? 'Не помещается в склад космопорта' : credits < cost ? 'Не хватает кредитов' : `По ${price} за единицу, корабль прилетит через 20 с`,
+            run: () => send({ type: 'buy', port, resource, amount }),
+          }
+        }
+      })
+      slots[BACK] = { label: 'Назад', run: () => open('root') }
+    } else if (!order) {
+      // Верхний ряд — продать полсотни, второй — всё, что есть: столбец на каждый ресурс.
+      trade.offers.slice(0, 4).forEach(({ resource, available, price }, i) => {
+        const part = Math.min(50, available)
+        slots[i] = {
+          label: `${RESOURCE_NAMES[resource]} ×${part}`,
+          good: resource,
+          cost: part * price,
+          gain: true,
+          title: `По ${price} за единицу`,
+          run: () => send({ type: 'sell', port, resource, amount: part }),
+        }
+        if (available > part) {
+          slots[i + 4] = {
+            label: `${RESOURCE_NAMES[resource]}: всё`,
+            good: resource,
+            cost: available * price,
+            gain: true,
+            title: `${available} по ${price}`,
+            run: () => send({ type: 'sell', port, resource, amount: available }),
+          }
+        }
+      })
+      slots[BACK] = { label: 'Назад', run: () => open('root') }
+    } else {
+      if (order.flight === null) {
+        slots[CANCEL] = {
+          label: order.delivered > 0 ? 'Отправить' : 'Снять заявку',
+          title: order.delivered > 0 ? 'Корабль улетит с тем, что уже привезли' : undefined,
+          run: () => send({ type: 'closeSale', port }),
+        }
+      }
+      slots[BACK] = { label: 'Назад', run: () => open('root') }
+    }
+  }
+
+  if (site) {
+    slots[DEMOLISH] = {
+      label: site.demolish ? 'Отменить разбор' : 'Отменить стройку',
+      run: () => send({ type: 'cancelBuild', site: site.entity }),
+    }
+  }
+  if (demolish && page === 'root') {
+    slots[DEMOLISH] = {
+      label: 'Разобрать',
+      cost: demolish.refund,
+      gain: true,
+      title: 'Здание разберут строители; когда закончат, вернётся половина цены',
+      run: () => send({ type: 'demolish', building: demolish.building, builders: [] }),
+    }
+  }
+  return slots
+}

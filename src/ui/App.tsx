@@ -5,6 +5,7 @@ import { connect } from '../net/connect'
 import { DEFAULT_PORT } from '../net/protocol'
 import type { HudState } from '../game/hud'
 import { GeneratorPanel } from './GeneratorPanel'
+import { DebugSpawn } from './DebugSpawn'
 import { Hud } from './Hud'
 
 /** Как часто интерфейс сверяется с игрой, в миллисекундах. */
@@ -47,6 +48,7 @@ export function App() {
   const [error, setError] = useState<unknown>(null)
   const [hud, setHud] = useState<HudState | null>(null)
   const [muted, setMuted] = useState(false)
+  const [debug, setDebug] = useState(false)
 
   // Игра создаётся один раз; дальше она получает только новые настройки.
   useEffect(() => {
@@ -90,42 +92,56 @@ export function App() {
   return (
     <main class="game">
       <canvas ref={canvasRef} class="game__canvas" />
-      {hud && error === null && (
+      {hud && error === null && gameRef.current && (
         <Hud
           state={hud}
           send={(command) => gameRef.current?.send(command)}
           place={(building) => gameRef.current?.place(building)}
+          minimap={gameRef.current.minimap}
+          lookAt={(x, y) => gameRef.current?.lookAt(x, y)}
+          lookAtSelection={() => gameRef.current?.lookAtSelection()}
+          narrow={(type, remove) => gameRef.current?.narrow(type, remove)}
+          moveSelected={(x, y) => gameRef.current?.moveSelected(x, y)}
+          menu={
+            <>
+              {!serverAddress() &&
+                (MODE === 'play' ? (
+                  <>
+                    <button onClick={() => openMode('battle')}>Случайный бой</button>
+                    <button onClick={() => openMode('sandbox')}>Тестовая карта</button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => gameRef.current?.restart()}>{MODE === 'battle' ? 'Новый бой' : 'Заново'}</button>
+                    <button onClick={() => openMode('play')}>В игру</button>
+                  </>
+                ))}
+              <button
+                class={debug ? 'is-active' : undefined}
+                data-tip="Отладочный спавн: поставить здание, свой юнит или врага, куда щёлкнешь"
+                onClick={() => {
+                  if (debug) gameRef.current?.spawn(null)
+                  setDebug(!debug)
+                }}
+              >
+                Отладка
+              </button>
+              <button
+                data-tip={muted ? 'Включить звук' : 'Выключить звук'}
+                onClick={() => {
+                  const game = gameRef.current
+                  if (!game) return
+                  game.muted = !muted
+                  setMuted(game.muted)
+                }}
+              >
+                {muted ? 'Звук выкл' : 'Звук вкл'}
+              </button>
+            </>
+          }
         />
       )}
-      {hud && error === null && !serverAddress() && (
-        <div class="hud hud--battle">
-          {MODE === 'play' ? (
-            <>
-              <button onClick={() => openMode('battle')}>Случайный бой</button>
-              <button onClick={() => openMode('sandbox')}>Тестовая карта</button>
-            </>
-          ) : (
-            <>
-              <button onClick={() => gameRef.current?.restart()}>{MODE === 'battle' ? 'Новый бой' : 'Заново'}</button>
-              <button onClick={() => openMode('play')}>В игру</button>
-            </>
-          )}
-        </div>
-      )}
-      {hud && error === null && (
-        <button
-          class="hud hud--sound"
-          title={muted ? 'Включить звук' : 'Выключить звук'}
-          onClick={() => {
-            const game = gameRef.current
-            if (!game) return
-            game.muted = !muted
-            setMuted(game.muted)
-          }}
-        >
-          {muted ? 'Звук выкл' : 'Звук вкл'}
-        </button>
-      )}
+      {hud && error === null && debug && <DebugSpawn spawning={hud.spawning} spawn={(spawn) => gameRef.current?.spawn(spawn)} />}
       {SHOW_PANEL && (
         <GeneratorPanel settings={settings} onChange={setSettings} onRestart={() => gameRef.current?.restart()} />
       )}

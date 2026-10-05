@@ -1,9 +1,89 @@
 :root {
   color-scheme: dark;
-  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /*
+   * Рамки, кнопки и монета рисуются кодом (src/ui/skin.ts) в переменные --skin-*. Шрифты — Ark Pixel (OFL,
+   * public/fonts, урезаны до латиницы и кириллицы): 12-пиксельный — весь текст, 10-пиксельный вдвое крупнее —
+   * заголовки (--font-title). Пиксель шрифта ложится на пиксели экрана, только когда размер кратен его сетке:
+   * текст — 12px, заголовки — 20px.
+   */
+  font-family: "Ark Pixel 12", monospace;
+  --font-title: "Ark Pixel 10", "Ark Pixel 12", monospace;
   background: #08111c;
   font-synthesis: none;
-  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: none;
+  text-rendering: optimizeSpeed;
+}
+
+/*
+ * Пиксельные рамки: девятичастная картинка скина, пиксель скина — 2 пикселя экрана. Рамка рисуется на 8 пикселей
+ * внутрь, а граница — 4: содержимое заходит на фаску, но не на обводку.
+ */
+.hud,
+.panel {
+  border: 4px solid transparent;
+  border-image: var(--skin-panel) 4 fill / 8px;
+  border-radius: 0;
+  background: none;
+}
+
+.hud button,
+.panel button,
+.game__error button {
+  border: 4px solid transparent;
+  border-image: var(--skin-button) 4 fill / 8px;
+  border-radius: 0;
+  background: none;
+  color: #d6e6f5;
+  font: inherit;
+  text-shadow: 1px 1px 0 #0b111b;
+  cursor: pointer;
+}
+
+.hud button:hover:not(:disabled),
+.panel button:hover,
+.game__error button:hover {
+  border-image-source: var(--skin-button-hover);
+  background: none;
+}
+
+.hud button:active:not(:disabled),
+.hud button.is-active {
+  border-image-source: var(--skin-button-active);
+  background: none;
+  color: #e4f4ff;
+}
+
+.hud button:disabled {
+  border-image-source: var(--skin-button-disabled);
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Утопленные окна: мини-карта, портрет, сведения о выбранном, пустые клетки, полоски. */
+.bar__minimap,
+.bar__info,
+.hud .bar__portrait,
+.hud .bar__unit,
+.bar__queue img,
+.bar__cell--empty,
+.hud__progress,
+.panel__group {
+  border: 4px solid transparent;
+  border-image: var(--skin-well) 4 fill / 8px;
+  border-radius: 0;
+  background: none;
+}
+
+@font-face {
+  font-family: "Ark Pixel 12";
+  src: url("/fonts/ark-pixel-12px.woff2") format("woff2");
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Ark Pixel 10";
+  src: url("/fonts/ark-pixel-10px.woff2") format("woff2");
+  font-display: block;
 }
 
 * {
@@ -41,16 +121,14 @@ body {
 
 .panel {
   position: absolute;
-  top: 12px;
+  top: 44px;
   right: 12px;
+  z-index: 1;
   width: 320px;
-  max-height: calc(100% - 24px);
+  max-height: calc(100% - 268px);
   overflow-y: auto;
-  padding: 12px;
-  border: 1px solid #3a2c14;
-  border-radius: 6px;
-  background: rgba(20, 14, 6, 0.9);
-  color: #ead9b0;
+  padding: 10px;
+  color: #d6e6f5;
   font-size: 12px;
 }
 
@@ -60,13 +138,7 @@ body {
 }
 
 .panel button {
-  padding: 4px 8px;
-  border: 1px solid #6b5326;
-  border-radius: 4px;
-  background: #3a2c14;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
+  padding: 2px 8px;
 }
 
 .panel.panel--collapsed {
@@ -83,9 +155,7 @@ body {
 
 .panel__group {
   margin: 10px 0;
-  padding: 6px 8px;
-  border: 1px solid #3a2c14;
-  border-radius: 4px;
+  padding: 4px 6px;
 }
 
 .panel__row {
@@ -98,14 +168,14 @@ body {
 
 .panel__row input {
   min-width: 0;
-  accent-color: #d9a441;
+  accent-color: #5aa9ff;
 }
 
 .panel__row input[type='number'] {
   padding: 3px 6px;
-  border: 1px solid #6b5326;
-  border-radius: 4px;
-  background: #140e06;
+  border: 2px solid #1c2b3e;
+  border-radius: 0;
+  background: #070d15;
   color: inherit;
   font: inherit;
 }
@@ -129,7 +199,7 @@ body {
   gap: 12px;
   padding: 24px;
   background: rgba(8, 17, 28, 0.88);
-  color: #ead9b0;
+  color: #d6e6f5;
   text-align: center;
 }
 
@@ -144,52 +214,14 @@ body {
 }
 
 .game__error button {
-  padding: 6px 14px;
-  border: 1px solid #6b5326;
-  border-radius: 4px;
-  background: #3a2c14;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
+  padding: 4px 14px;
 }
 
 .hud {
   position: absolute;
-  left: 12px;
-  border: 1px solid #1f3a57;
-  border-radius: 6px;
-  background: rgba(8, 17, 28, 0.9);
   color: #d6e6f5;
-  font-size: 13px;
+  font-size: 12px;
   user-select: none;
-}
-
-.hud--battle {
-  top: 12px;
-  left: 50%;
-  display: flex;
-  gap: 6px;
-  padding: 4px;
-  transform: translateX(-50%);
-}
-
-.hud--sound {
-  top: 12px;
-  right: 12px;
-  left: auto;
-  padding: 6px 10px;
-  font: inherit;
-  cursor: pointer;
-}
-
-.hud--sound:hover {
-  background: #14304b;
-}
-
-.hud--rewards {
-  top: 52px;
-  padding: 6px 10px;
-  border-color: #c9962b;
 }
 
 .hud__reward {
@@ -204,18 +236,322 @@ body {
   font-weight: 400;
 }
 
+.hud__power {
+  color: #8fd0ff;
+}
+
+/* Верхняя полоса: кредиты, запас, меню. */
+.hud--top {
+  top: 0;
+  right: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 38px;
+  padding: 0 8px;
+  font-variant-numeric: tabular-nums;
+}
+
 .hud--credits {
-  top: 12px;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
+  color: #f0c95a;
+  font-family: var(--font-title);
+  font-size: 20px;
+  white-space: nowrap;
+  text-shadow: 2px 2px 0 #0b111b;
 }
 
-.hud__power {
-  color: #8fd0ff;
+.hud--credits small {
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.hud__menu {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.hud .hud__menu button {
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.hud--rewards {
+  top: 44px;
+  left: 50%;
+  padding: 6px 10px;
+  border-image-source: var(--skin-gold);
+  transform: translateX(-50%);
+}
+
+/* Нижняя панель: мини-карта | выбранное | сетка команд. */
+.bar {
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  gap: 10px;
+  height: 212px;
+  padding: 6px 8px;
+}
+
+.bar__minimap {
+  flex: none;
+  width: 196px;
+  height: 196px;
+  image-rendering: pixelated;
+  cursor: crosshair;
+}
+
+.bar__info {
+  display: flex;
+  flex: 1;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px;
+}
+
+.bar__info--empty {
+  align-items: center;
+  justify-content: center;
+  color: #6f8aa5;
+  font-size: 12px;
+  text-align: center;
+}
+
+.hud .bar__portrait {
+  position: relative;
+  flex: none;
+  width: 104px;
+  height: 104px;
+  padding: 2px;
+}
+
+.bar__portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.bar__health {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 6px;
+  max-width: 100%;
+  border: 2px solid #0b111b;
+  background: #4fd07a;
+  box-shadow: inset 0 2px 0 #9ff0b4;
+}
+
+.bar__health[data-low] {
+  background: #ff6b5a;
+  box-shadow: inset 0 2px 0 #ffb0a6;
+}
+
+.bar__units {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 4px;
+  width: 172px;
+  flex: none;
+}
+
+.hud .bar__unit {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+}
+
+.bar__unit img,
+.bar__queue img {
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+
+.bar__unit b {
+  position: absolute;
+  right: 2px;
+  bottom: 0;
+  font-size: 12px;
+  text-shadow: 1px 1px 0 #000;
+}
+
+.bar__details {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.bar__queue {
+  display: flex;
+  gap: 4px;
+}
+
+.bar__queue img {
+  width: 36px;
+  height: 36px;
+}
+
+.bar__grid {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(4, 96px);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 4px;
+}
+
+.bar__cell--empty {
+  opacity: 0.6;
+}
+
+.hud .bar__cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  padding: 1px 2px;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.1;
+}
+
+.bar__cell > img {
+  position: absolute;
+  inset: 2px 2px 30px;
+  width: calc(100% - 4px);
+  height: calc(100% - 32px);
+  object-fit: contain;
+  image-rendering: pixelated;
+  opacity: 0.9;
+}
+
+.hud .bar__cell > .bar__good {
+  inset: 4px auto auto 50%;
+  width: 30px;
+  height: 30px;
+  transform: translateX(-50%);
+}
+
+.bar__cell kbd {
+  position: absolute;
+  top: 1px;
+  left: 3px;
+  color: #f0c95a;
+  font: 400 12px inherit;
+  font-family: inherit;
+  text-shadow: 1px 1px 0 #0b111b;
+}
+
+/* Название — полужирное, светлое и с обводкой в пиксель: читается на любом портрете и фоне кнопки. */
+.bar__label {
+  position: relative;
+  max-width: 100%;
+  overflow: hidden;
+  color: #eef6ff;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow:
+    1px 0 0 #0b111b,
+    -1px 0 0 #0b111b,
+    0 1px 0 #0b111b,
+    0 -1px 0 #0b111b,
+    1px 1px 0 #0b111b;
+}
+
+.bar__price {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* Карточка ячейки сетки при наведении: название с клавишей, пояснение, полная цена. */
+.tip.tip--card {
+  display: block;
+  max-width: 280px;
+  padding: 6px 8px;
+  white-space: normal;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.card__title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 400;
+}
+
+.card__title {
+  font-family: var(--font-title);
+  font-size: 20px;
+  line-height: 1.2;
+  color: #eef6ff;
+}
+
+.card__title kbd {
+  color: #f0c95a;
+  font: inherit;
+}
+
+.card__text {
+  color: #8fa9c2;
+  font-size: 12px;
+}
+
+.card__price {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.card__credits {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #f0c95a;
+}
+
+.card__credits.is-gain {
+  color: #9fd89a;
+}
+
+.bar__price b {
+  color: #f0c95a;
+  font-weight: 400;
+  text-shadow: 1px 1px 0 #0b111b;
+}
+
+.bar__price b.is-gain {
+  color: #9fd89a;
+}
+
+.bar__price .hud__res {
+  margin: 0;
 }
 
 .hud__stock {
@@ -234,11 +570,16 @@ body {
   white-space: nowrap;
 }
 
-.hud__res i {
-  width: 7px;
-  height: 7px;
-  transform: rotate(45deg);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+.hud__res img {
+  width: 15px;
+  height: 15px;
+  image-rendering: pixelated;
+}
+
+/* На верхней полосе иконки вдвое: пиксель маски — ровно два пикселя экрана. */
+.hud__stock .hud__res img {
+  width: 20px;
+  height: 20px;
 }
 
 .hud__hint.is-short {
@@ -250,24 +591,18 @@ body {
 }
 
 .hud__coin {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #f0c95a;
-  box-shadow: inset -2px -2px 0 #c9962b;
-}
-
-.hud--selection {
-  bottom: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 280px;
-  padding: 10px;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  background: var(--skin-coin) center / 16px no-repeat;
+  image-rendering: pixelated;
 }
 
 .hud__title {
-  font-weight: 600;
+  font-family: var(--font-title);
+  font-size: 20px;
+  line-height: 1.4;
+  color: #eef6ff;
 }
 
 .hud__row {
@@ -307,32 +642,12 @@ body {
 }
 
 .hud button {
-  padding: 6px 8px;
-  border: 1px solid #2d5b88;
-  border-radius: 4px;
-  background: #14304b;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
-.hud button:hover:not(:disabled) {
-  background: #1c4368;
-}
-
-.hud button.is-active {
-  border-color: #5aa9ff;
-  background: #1c4368;
+  padding: 3px 8px;
 }
 
 .hud__hint {
-  color: #8fa9c2;
+  color: #b4c9dd;
   font-size: 12px;
-}
-
-.hud button:disabled {
-  opacity: 0.45;
-  cursor: default;
 }
 
 .hud button small {
@@ -343,19 +658,19 @@ body {
   color: #8fd0ff;
 }
 
+
 .hud__progress {
   position: relative;
-  height: 22px;
+  height: 24px;
   overflow: hidden;
-  border: 1px solid #1f3a57;
-  border-radius: 4px;
-  background: #0b1826;
 }
 
+/* Заполнение — полосами по 4 пикселя, как индикаторы на зданиях. */
 .hud__progress span {
   position: absolute;
   inset: 0 auto 0 0;
-  background: #24598c;
+  background: repeating-linear-gradient(90deg, #1f63d8 0 6px, #10358f 6px 8px);
+  box-shadow: inset 0 2px 0 #5aa9ff;
 }
 
 .hud__progress em {
@@ -365,7 +680,74 @@ body {
   overflow: hidden;
   font-style: normal;
   font-size: 12px;
-  line-height: 20px;
+  line-height: 16px;
+  text-shadow: 1px 1px 0 #0b111b;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Отладочный спавн: под верхней полосой слева. */
+.debug {
+  top: 44px;
+  left: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 300px;
+  max-height: calc(100% - 268px);
+  padding: 8px;
+}
+
+.debug__tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.debug__tabs button {
+  flex: 1;
+}
+
+.debug__list {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  overflow-y: auto;
+}
+
+.hud .debug__list button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2px;
+  font-size: 12px;
+}
+
+.debug__list img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.debug__list span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Подсказка у курсора над месторождением. Мышь сквозь неё проходит на карту. */
+.tip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.tip small {
+  color: #8fa9c2;
 }

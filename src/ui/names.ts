@@ -1,4 +1,4 @@
-import { isOre, type BuildingType, type Good, type Ore, type Resource, type Reward, type UnitType } from '../sim'
+import { isOre, isProduct, type BuildingType, type Good, type Ore, type Product, type Resource, type Reward, type UnitType } from '../sim'
 
 /** Названия для интерфейса. Симуляция знает только ключи. */
 export const UNIT_NAMES: Record<UnitType, string> = {
@@ -6,6 +6,7 @@ export const UNIT_NAMES: Record<UnitType, string> = {
   builder: 'Строитель',
   infantry: 'Пехотинец',
   truck: 'Грузовик',
+  harvester: 'Харвестер',
   rocketeer: 'Ракетчик',
   buggy: 'Багги',
   lancer: 'Лазерная машина',
@@ -18,7 +19,13 @@ export const UNIT_NAMES: Record<UnitType, string> = {
 
 export const BUILDING_NAMES: Record<BuildingType, string> = {
   command: 'Главное здание',
-  refinery: 'Переработка',
+  smelter: 'Плавильня',
+  siliconWorks: 'Кремниевый завод',
+  distillery: 'Нефтеперегонка',
+  enricher: 'Обогатитель харита',
+  blockPlant: 'Завод стройблоков',
+  ammoPlant: 'Патронный завод',
+  partsPlant: 'Сборка компонентов',
   factory: 'Машинный завод',
   generator: 'Электростанция',
   matter: 'Генератор материи',
@@ -59,5 +66,12 @@ export const ORE_NAMES: Record<Ore, string> = {
   khariteOre: 'Харитовая руда',
 }
 
-/** Название любого груза: готового ресурса или руды. */
-export const goodName = (good: Good) => (isOre(good) ? ORE_NAMES[good] : RESOURCE_NAMES[good])
+/** Изделия сборочного цеха. */
+export const PRODUCT_NAMES: Record<Product, string> = {
+  blocks: 'Стройблоки',
+  ammo: 'Боеприпасы',
+  parts: 'Компоненты',
+}
+
+/** Название любого груза: ресурса, изделия или руды. */
+export const goodName = (good: Good) => (isOre(good) ? ORE_NAMES[good] : isProduct(good) ? PRODUCT_NAMES[good] : RESOURCE_NAMES[good])
