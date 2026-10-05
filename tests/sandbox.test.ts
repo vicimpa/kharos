@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { DEPOSIT_KINDS, Building, Hauler, Owner, Unit, createSim, powerStates, spawnSandbox, stockOf, zonesOf, type Sim } from '../src/sim'
+import { DEPOSIT_KINDS, Building, Hauler, Harvester, Owner, Unit, createSim, powerStates, spawnSandbox, stockOf, zonesOf, type Sim } from '../src/sim'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
 const TICK = 1 / 20
@@ -21,7 +21,7 @@ test('тестовая карта: готовая база с энергией, 
 
   const units: Entity[] = []
   for (const [entity] of sim.world.query(Unit, Owner)) units.push(entity)
-  const trucks = units.filter((entity) => sim.world.has(entity, Hauler))
+  const trucks = units.filter((entity) => sim.world.has(entity, Hauler) && !sim.world.has(entity, Harvester))
   expect(trucks.length).toBe(4)
   expect(trucks.filter((entity) => sim.world.get(entity, Hauler)!.mine >= 0).length).toBe(1)
   expect(units.length).toBeGreaterThan(trucks.length + 5)

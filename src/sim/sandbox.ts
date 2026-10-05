@@ -12,7 +12,7 @@ import { freeTilesNear, isWalkable, spawnUnit, type UnitType } from './units'
 /** Сколько кредитов у игрока на тестовой карте: хватает, чтобы сразу строить и заказывать юнитов. */
 const SANDBOX_CREDITS = 10000
 /** Что уже лежит в хранилищах: хватает на первые заказы, и сразу есть что продать. */
-const SANDBOX_STOCK: Amounts = { metal: 120, silicon: 40, fuel: 30, kharite: 12 }
+const SANDBOX_STOCK: Amounts = { metal: 120, silicon: 40, fuel: 30, kharite: 12, blocks: 20, ammo: 60, parts: 6 }
 /** Насколько далеко от начала мира ищется месторождение под базу, в клетках месторождений. */
 const SEARCH_CELLS = 6
 /** Сколько тайлов вокруг шахты оставлено свободными: там встают грузовики. */
@@ -20,10 +20,10 @@ const MINE_ROOM = 2
 
 /** Что стоит на тестовой карте, кроме шахты и главного здания: по порядку, от главного здания наружу. */
 const SANDBOX_BUILDINGS: BuildingType[] = [
-  'generator', 'generator', 'refinery', 'silo', 'silo', 'spaceport', 'factory', 'barracks', 'matter',
+  'generator', 'generator', 'generator', 'generator', 'smelter', 'siliconWorks', 'blockPlant', 'ammoPlant', 'silo', 'silo', 'spaceport', 'factory', 'barracks', 'matter',
 ]
 /** С какими юнитами игрок начинает на тестовой карте, кроме грузовиков. */
-const SANDBOX_UNITS: UnitType[] = ['builder', 'builder', 'infantry', 'infantry', 'rocketeer', 'buggy', 'tank', 'tesla', 'carrier']
+const SANDBOX_UNITS: UnitType[] = ['harvester', 'builder', 'builder', 'infantry', 'infantry', 'rocketeer', 'buggy', 'tank', 'tesla', 'carrier']
 /** Сколько грузовиков: первый привязан к шахте, остальные свободны и работают на заявки зон. */
 const SANDBOX_TRUCKS = 4
 
@@ -79,7 +79,7 @@ function placeNear(sim: Sim, spot: DepositSpot, type: BuildingType, x: number, y
 
 /**
  * Тестовая карта: готовая база игрока у ближайшего к началу мира месторождения металла. Шахта, главное здание,
- * переработка, хранилища с запасом всех ресурсов, космопорт, электростанции и заводы уже стоят;
+ * переработка, сборочный цех, хранилища с запасом всего готового, космопорт, электростанции и заводы уже стоят;
  * один грузовик возит руду из шахты на переработку, остальные работают на заявки зон. Есть строители, немного
  * войск и кредитов. Возвращает, где база: туда смотрит камера. undefined — подходящего месторождения рядом нет.
  */

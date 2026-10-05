@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import type { Entity } from '../src/ecs'
 import {
-  BUILDINGS, Beam, DEPOSIT_CELL, DEPOSIT_KINDS, DEPOSIT_TYPES, Deposit, Hauler, Inventory, REFINE_RATE, REFINE_RATIO, RESOURCE_SPECS, SELL_SECONDS, TRUCK_CAPACITY, Trade, amountOf, canBuild, deliveredTo, gapBetween, canSell, isWalkable, stockOf, canPlace, createSim, creditsOf, depositAt, depositIn, depositNear, reserveLeft, rewardsOf,
+  BUILDINGS, Beam, DEPOSIT_CELL, DEPOSIT_KINDS, DEPOSIT_TYPES, Deposit, Hauler, Harvester, Inventory, REFINE_RATE, REFINE_RATIO, RESOURCE_SPECS, SELL_SECONDS, TRUCK_CAPACITY, Trade, amountOf, canBuild, deliveredTo, gapBetween, canSell, isWalkable, stockOf, canPlace, createSim, creditsOf, depositAt, depositIn, depositNear, reserveLeft, rewardsOf,
   zonesOf, type BuildingType, type DepositSpot, type Good, type Sim,
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
@@ -146,7 +146,7 @@ const metalIn = (sim: Sim, entity: Entity) => good(sim, entity, 'metal')
 
 /** Переработка с электростанцией в зоне главного здания: завод работает, только когда есть энергия. */
 function refineryAt(sim: Sim, spot: DepositSpot) {
-  const refinery = place(sim, 'refinery', spot.x + 12, spot.y + 2)
+  const refinery = place(sim, 'smelter', spot.x + 12, spot.y + 2)
   place(sim, 'generator', spot.x + 14, spot.y)
   return refinery
 }
@@ -253,15 +253,15 @@ test('переработка берёт 1,5 руды в секунду и отд
   sim.world.destroy(truck)
   const refinery = refineryAt(sim, spot)
   const inventory = sim.world.get(refinery, Inventory)!
-  inventory.items.metalOre = 40
+  inventory.items.metalOre = 30
   seconds(sim, 10)
   const made = metalIn(sim, refinery)
   expect(made).toBeCloseTo((REFINE_RATE * 10) / REFINE_RATIO, 1)
-  expect(oreIn(sim, refinery)).toBeCloseTo(40 - made * REFINE_RATIO)
+  expect(oreIn(sim, refinery)).toBeCloseTo(30 - made * REFINE_RATIO)
   // Руда не теряется: сколько переработано, столько и стало металла.
   seconds(sim, 20)
-  expect(metalIn(sim, refinery)).toBeCloseTo(40 / REFINE_RATIO)
-  expect(oreIn(sim, refinery)).toBe(0)
+  expect(metalIn(sim, refinery)).toBeCloseTo(30 / REFINE_RATIO)
+  expect(oreIn(sim, refinery)).toBeCloseTo(0)
 })
 
 test('заводу некуда девать готовое — он стоит и руду не тратит', () => {
@@ -390,4 +390,46 @@ test('здания можно ставить вплотную к шахте, а 
   // Переработанный металл свободный грузовик свозит в хранилище.
   until(sim, () => (stockOf(sim, 1).items.metal ?? 0) > 1)
   expect(canBuild(sim, 1, 'mine', spot.x, spot.y)).toBe(false)
+})
+
+test('харвестер сам находит месторождение, копает в кузов, отвозит руду своей переработке и возвращается', () => {
+  const { sim, spot, mine, truck } = base()
+  sim.world.destroy(mine)
+  sim.world.destroy(truck)
+  const smelter = refineryAt(sim, spot)
+  const harvester = spawnUnit(sim, 'harvester', 1, spot.x - 1, spot.y)
+  const capacity = sim.world.get(harvester, Inventory)!.capacity
+  const reserve = reserveLeft(sim, spot.x, spot.y)
+
+  // Копает рядом сам — приказывать не нужно — и, набрав полный кузов, везёт его в плавильню.
+  until(sim, () => oreIn(sim, harvester) > 0)
+  expect(sim.world.get(harvester, Harvester)!).toMatchObject({ x: spot.x, y: spot.y, ordered: false })
+  until(sim, () => metalIn(sim, smelter) + oreIn(sim, smelter) >= capacity - 1e-6)
+  expect(reserveLeft(sim, spot.x, spot.y)).toBeCloseTo(reserve - capacity)
+  // Разгрузился — снова копает.
+  until(sim, () => oreIn(sim, harvester) > 1)
+
+  // Чужому месторождение не назначить; своему — можно, и он едет туда.
+  const other = depositNear(sim, spot.x + 60, spot.y, 50)!
+  sim.send(2, { type: 'harvest', units: [harvester], x: other.x, y: other.y })
+  sim.advance(TICK)
+  expect(sim.world.get(harvester, Harvester)!.x).toBe(spot.x)
+  sim.send(1, { type: 'harvest', units: [harvester], x: other.x, y: other.y })
+  sim.advance(TICK)
+  expect(sim.world.get(harvester, Harvester)!).toMatchObject({ x: other.x, y: other.y, ordered: true })
+})
+
+test('несколько харвестеров на одном месторождении копают все', () => {
+  const { sim, spot, mine, truck } = base()
+  sim.world.destroy(mine)
+  sim.world.destroy(truck)
+  refineryAt(sim, spot)
+  const harvesters = [
+    spawnUnit(sim, 'harvester', 1, spot.x - 12, spot.y),
+    spawnUnit(sim, 'harvester', 1, spot.x - 12, spot.y + 1),
+    spawnUnit(sim, 'harvester', 1, spot.x - 13, spot.y),
+  ]
+  seconds(sim, 30)
+  const loads = harvesters.map((harvester) => oreIn(sim, harvester))
+  for (const load of loads) expect(load).toBeGreaterThan(0)
 })

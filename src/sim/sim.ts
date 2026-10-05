@@ -1,11 +1,13 @@
 import { Loop, World, type System, type Time, type WorldSnapshot } from '../ecs'
 import { createLand, type GeneratorConfig, type Land } from '../map/terrain'
-import { createOccupancy, type Occupancy } from './buildings'
+import { buildingSpec, createOccupancy, type Occupancy } from './buildings'
 import { fight, recover } from './combat'
+import { assemble } from './assembly'
 import { apply, type Command } from './commands'
-import { SAVED } from './components'
+import { Building, Inventory, SAVED, Site } from './components'
 import { REPAIR_COST, REPAIR_PAUSE, REPAIR_SPEED, construct } from './construction'
 import { convert } from './conversion'
+import { harvest } from './harvesting'
 import { haul } from './hauling'
 import { earn } from './income'
 import { trade } from './trade'
@@ -46,8 +48,10 @@ export interface SimOptions {
 /**
  * Версия формата сохранения. Меняется, когда старые сохранения перестают подходить: тогда они отбрасываются.
  * 16 — руда: шахты кладут в свой склад руду, а не готовый ресурс, и в старых сохранениях она осталась бы там навсегда.
+ * 17 — изделия: склады хранилищ помнят, что принимают, и в старых сохранениях не взяли бы стройблоки и боеприпасы;
+ * у старых турелей нет склада патронов.
  */
-export const SAVE_VERSION = 16
+export const SAVE_VERSION = 18
 
 export interface SimSave extends SimOptions {
   version: typeof SAVE_VERSION
@@ -110,11 +114,14 @@ export function createSim(source: SimOptions | SimSave): Sim {
       (_, time) => produceUnits(sim, time),
       // После производства и до движения: переработка превращает привезённую руду в готовое, грузовики развезут его.
       (_, time) => refine(sim, time),
+      // Цеха собирают изделия из привезённого сырья.
+      (_, time) => assemble(sim, time),
       (_, time) => moveUnits(sim, time),
       // Турели встают на носители, уже сдвинувшиеся за этот тик.
       () => followCarriers(sim),
       // После движения: работающий строитель поворачивается к стройке, и поворот сглаживается, как у идущих.
       () => construct(sim),
+      () => harvest(sim),
       () => haul(sim),
       () => trade(sim),
       // После движения и работ: стреляющий юнит поворачивается к цели, и погибшие в этот тик уже ничего не делают.
@@ -144,6 +151,25 @@ export function createSim(source: SimOptions | SimSave): Sim {
     },
   }
 
-  if ('world' in source) world.restore(source.world, SAVED)
+  if ('world' in source) {
+    world.restore(source.world, SAVED)
+    refreshStorage(sim)
+  }
   return sim
+}
+
+/**
+ * Склад здания сохраняется целиком, вместе с объёмом и пределами, и старое сохранение принесло бы прежние числа.
+ * После загрузки они берутся из нынешнего описания здания; лишнее сверх нового предела не пропадает, а уходит
+ * само, когда его развезут. Стройки не трогаются: их склад — под материалы.
+ */
+function refreshStorage(sim: Sim) {
+  for (const [entity, building, inventory] of sim.world.query(Building, Inventory)) {
+    if (sim.world.has(entity, Site)) continue
+    const spec = buildingSpec(building.type)
+    if (!spec.inventory) continue
+    inventory.capacity = spec.inventory
+    inventory.accepts = spec.accepts ?? []
+    inventory.limits = { ...spec.limits }
+  }
 }

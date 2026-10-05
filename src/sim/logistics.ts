@@ -1,10 +1,11 @@
 import type { Entity } from '../ecs'
+import { inputsOf } from './assembly'
 import { BUILDINGS, buildingSpec, isReady } from './buildings'
 import { NONE, isOwn } from './common'
-import { Building, Converting, Hauler, Inventory, Owner, Path, Position, Producer, Site, Trade, Unit } from './components'
+import { Assembly, Building, Converting, Hauler, Harvester, Inventory, Owner, Path, Position, Producer, Site, Trade, Unit } from './components'
 import { depositAt } from './deposits'
 import { amountOf, loadOf, roomFor } from './inventory'
-import { entriesOf, isOre, ORE_OF, ORES, RESOURCES, type Amounts, type Good, type Ore } from './resources'
+import { entriesOf, isOre, isProduct, ORE_OF, WARES, stockedFor, type Amounts, type Good, type Ore, type Resource } from './resources'
 import type { Sim } from './sim'
 import { deliveredTo, isStore } from './trade'
 import { unitSpec } from './units'
@@ -13,9 +14,10 @@ import { inCircles, zonesOf, type Zone } from './zones'
 /**
  * Зональные заявки. Всё, что потребляет груз, само заказывает его у своей зоны строительства: стройка — материалы
  * на здание, производитель — материалы на первый заказ очереди, космопорт — товар по заявке на продажу, переработка
- * — руду из шахт (её берут где угодно: месторождение решает, где шахта, а не зона). Свободные грузовики игрока
- * берут самую важную заявку и везут груз из хранилищ и переработки той же зоны. Когда заявок нет, они развозят
- * готовое по хранилищам. Руду без переработки никто не возит: она копится в шахте, пока завод не построят.
+ * — руду из шахт (её берут где угодно: месторождение решает, где шахта, а не зона), цех — сырьё своего рецепта,
+ * турель — патроны. Свободные грузовики игрока берут самую важную заявку и везут груз из хранилищ, переработки
+ * и цехов той же зоны. Когда заявок нет, они развозят готовое по хранилищам. Руду без переработки никто не возит:
+ * она копится в шахте, пока завод не построят.
  * Игроку не нужно указывать каждому грузовику, что и куда везти.
  */
 
@@ -30,8 +32,17 @@ export interface Request {
   source: 'zone' | 'mines'
 }
 
-/** Что важнее везти: стройка, потом руда на переработку, потом производство юнитов, потом товар на продажу. */
-export const PRIORITY = { site: 4, refine: 3, production: 2, trade: 1 } as const
+/**
+ * Что важнее везти: стройка, потом руда на переработку и патроны турелям — без них стоит добыча и молчит
+ * оборона, — потом сырьё производству юнитов и цехам, потом товар на продажу.
+ */
+export const PRIORITY = { site: 4, refine: 3, ammo: 3, production: 2, trade: 1 } as const
+
+/**
+ * Турель заказывает патроны, когда расстреляла столько своего запаса: по одному патрону грузовики не возят,
+ * а четверти хватает, чтобы подвоз успел до того, как она замолчит.
+ */
+const AMMO_REORDER = 0.25
 
 /** Сколько тайлов пути перевешивает одна ступень важности: ближняя мелкая заявка не обгоняет важную дальнюю. */
 const PRIORITY_WEIGHT = 1000
@@ -135,14 +146,24 @@ export function mineOre(sim: Sim, mine: Entity): Ore | undefined {
 const NOTHING_OFFERED: Good[] = []
 
 /**
- * Что здание отдаёт по заявкам: хранилище и переработка — готовый ресурс, шахта — свою руду. Пусто — ничего.
- * Сколько груза есть на деле, решает availableIn; шахту это не касается, её руду берут только заявкой.
+ * Что здание отдаёт по заявкам: хранилище и переработка — готовое, шахта — свою руду, цех — всё, кроме сырья
+ * своего рецепта: изделия и остатки прежнего рецепта. Пусто — ничего. Сколько груза есть на деле, решает
+ * availableIn; шахту это не касается, её руду берут только заявкой.
  */
-function offersOf(sim: Sim, entity: Entity): Good[] {
+function offersOf(sim: Sim, entity: Entity): readonly Good[] {
   const type = sim.world.get(entity, Building)?.type
   if (type === undefined || sim.world.has(entity, Site)) return NOTHING_OFFERED
   const spec = buildingSpec(type)
-  if (spec.stores || spec.refines) return RESOURCES
+  if (spec.stores || spec.refines) return WARES
+  // Космопорт отдаёт то, что привезла закупка или осталось после продажи, — кроме товара открытой продажи.
+  if (spec.trades) {
+    const order = sim.world.get(entity, Trade)
+    return order && !order.buy ? WARES.filter((ware) => ware !== order.resource) : WARES
+  }
+  if (spec.assembles) {
+    const inputs = inputsOf(sim, entity)
+    return WARES.filter((ware) => !inputs.includes(ware as Resource))
+  }
   if (!spec.extract) return NOTHING_OFFERED
   const ore = mineOre(sim, entity)
   return ore ? [ore] : NOTHING_OFFERED
@@ -153,14 +174,16 @@ export function requestsOf(sim: Sim, player: number, flows = flowsOf(sim)): Requ
   const { world } = sim
   const zones = zonesOf(sim, player)
   const requests: Request[] = []
-  const zoneOf = (entity: Entity) => {
+  /** Зона, которая кормит здание. anywhere — здание кормит и ближайшая зона, если оно ни в какую не входит. */
+  const zoneOf = (entity: Entity, anywhere = false) => {
     const { x, y } = centerOf(sim, entity)
-    return zones.find((zone) => zone.buildings.includes(entity) || inCircles(zone.circles, x, y))
+    const own = zones.find((zone) => zone.buildings.includes(entity) || inCircles(zone.circles, x, y))
+    return own ?? (anywhere ? nearestZone(zones, x, y) : undefined)
   }
-  const need = (to: Entity, resource: Good, amount: number, priority: number, source: 'zone' | 'mines' = 'zone') => {
+  const need = (to: Entity, resource: Good, amount: number, priority: number, source: 'zone' | 'mines' = 'zone', anywhere = false) => {
     const left = amount - (flows.incoming.get(to)?.[resource] ?? 0)
     if (left < MIN_JOB) return
-    const zone = zoneOf(to)
+    const zone = zoneOf(to, anywhere)
     if (zone) requests.push({ to, resource, amount: left, priority, zone, source })
   }
 
@@ -172,15 +195,27 @@ export function requestsOf(sim: Sim, player: number, flows = flowsOf(sim)): Requ
     if (!site && (!isReady(sim, player, entity) || world.has(entity, Converting))) continue
     for (const [resource, amount] of entriesOf(missingFor(sim, entity))) need(entity, resource, amount, site ? PRIORITY.site : PRIORITY.production)
   }
-  // Переработка: руда из своих шахт, в какой бы зоне они ни стояли.
+  // Переработка: своя руда из своих шахт, в какой бы зоне они ни стояли.
   for (const [entity, owner, inventory, building] of world.query(Owner, Inventory, Building)) {
-    if (owner.player !== player || !buildingSpec(building.type).refines) continue
+    const ore = buildingSpec(building.type).refines
+    if (owner.player !== player || !ore) continue
     if (!isReady(sim, player, entity) || world.has(entity, Converting)) continue
     // Сколько ещё поместится: больше буфера руды завод не просит, пока не переработает привезённое.
-    for (const ore of ORES) {
-      const room = roomFor(inventory, ore)
-      if (room > 0) need(entity, ore, room, PRIORITY.refine, 'mines')
+    const room = roomFor(inventory, ore)
+    if (room > 0) need(entity, ore, room, PRIORITY.refine, 'mines')
+  }
+  // Включённые заводы изделий: сырьё рецепта, сколько его держат про запас.
+  for (const [entity, assembly, inventory, owner] of world.query(Assembly, Inventory, Owner)) {
+    if (owner.player !== player || !assembly.on || !isReady(sim, player, entity)) continue
+    for (const [resource, amount] of entriesOf(stockedFor(assembly.recipe))) {
+      need(entity, resource, amount - amountOf(inventory, resource), PRIORITY.production)
     }
+  }
+  // Турели: патроны, когда расстреляна четверть запаса. Оборону ставят и вне зон — её кормит ближайшая зона.
+  for (const [entity, building, inventory, owner] of world.query(Building, Inventory, Owner)) {
+    if (owner.player !== player || !buildingSpec(building.type).ammo || !isReady(sim, player, entity)) continue
+    const room = roomFor(inventory, 'ammo')
+    if (room >= inventory.capacity * AMMO_REORDER) need(entity, 'ammo', room, PRIORITY.ammo, 'zone', true)
   }
   // Продажа: товар заявки.
   for (const [entity, order] of world.query(Trade, Inventory)) {
@@ -219,13 +254,13 @@ export function storeFor(sim: Sim, truck: Entity, resource: Good, except: Entity
   return best
 }
 
-/** Ближайшая к грузовику своя переработка, куда поместится руда; NONE — такой нет. */
+/** Ближайшая к грузовику своя переработка этой руды, куда она поместится; NONE — такой нет. */
 export function refineryFor(sim: Sim, truck: Entity, ore: Ore, except: Entity = NONE as Entity): Entity {
   const player = sim.world.get(truck, Owner)?.player ?? 0
   let best = NONE as Entity
   let bestDistance = Infinity
   for (const [entity, inventory, building] of sim.world.query(Inventory, Building)) {
-    if (entity === except || !buildingSpec(building.type).refines || !isReady(sim, player, entity) || sim.world.has(entity, Converting)) continue
+    if (entity === except || buildingSpec(building.type).refines !== ore || !isReady(sim, player, entity) || sim.world.has(entity, Converting)) continue
     if (roomFor(inventory, ore) <= 1e-9) continue
     const far = distance(sim, truck, entity)
     if (far < bestDistance) {
@@ -254,9 +289,29 @@ export function acceptsDelivery(sim: Sim, player: number, to: Entity, resource: 
   const order = world.get(to, Trade)
   if (order) return order.total <= 0 && order.resource === resource
   if (materialsFor(sim, to)?.[resource]) return true
-  // Свой склад здания: переработка так принимает руду, которой больше негде лежать.
+  // Цех — сырьё своего рецепта.
+  if (inputsOf(sim, to).includes(resource as Resource)) return true
+  // Свой склад здания: переработка так принимает руду, которой больше негде лежать, турель — патроны.
   const type = world.get(to, Building)?.type
-  return type !== undefined && !!buildingSpec(type).refines && isOre(resource)
+  if (type === undefined) return false
+  const spec = buildingSpec(type)
+  return spec.refines === resource || (!!spec.ammo && resource === 'ammo')
+}
+
+/** Ближайшая к точке зона: по расстоянию до края её ближайшего круга. */
+function nearestZone(zones: readonly Zone[], x: number, y: number): Zone | undefined {
+  let best: Zone | undefined
+  let bestDistance = Infinity
+  for (const zone of zones) {
+    for (let i = 0; i < zone.circles.length; i += 3) {
+      const distance = Math.hypot(x - zone.circles[i], y - zone.circles[i + 1]) - zone.circles[i + 2]
+      if (distance < bestDistance) {
+        best = zone
+        bestDistance = distance
+      }
+    }
+  }
+  return best
 }
 
 /** Можно ли забирать груз со склада: свой готовый склад, где он есть. */
@@ -269,14 +324,14 @@ const isIdle = (sim: Sim, truck: Entity) => {
   const { world } = sim
   const hauler = world.get(truck, Hauler)!
   const cargo = world.get(truck, Inventory)
-  return hauler.mine === NONE && hauler.from === NONE && hauler.to === NONE && (!cargo || loadOf(cargo) <= 1e-9) && !world.has(truck, Path) && !world.has(truck, Converting)
+  return !world.has(truck, Harvester) && hauler.mine === NONE && hauler.from === NONE && hauler.to === NONE && (!cargo || loadOf(cargo) <= 1e-9) && !world.has(truck, Path) && !world.has(truck, Converting)
 }
 
 /**
  * Раздаёт работу свободным грузовикам. Каждому — лучшая из заявок его игрока: важнее и ближе (путь до склада,
  * откуда брать, и оттуда до заказчика). Готовое берётся в хранилищах зоны заказчика, руда — в шахтах игрока,
  * где бы они ни стояли. Если заявок, которые можно выполнить, нет — грузовик увозит готовое из переработки
- * по хранилищам; руду без заявки не возит никто.
+ * и цехов по хранилищам; руду без заявки не возит никто.
  */
 export function dispatch(sim: Sim) {
   const { world } = sim
@@ -292,14 +347,14 @@ export function dispatch(sim: Sim) {
 
   for (const [player, trucks] of idle) {
     const requests = requestsOf(sim, player, flows)
-    // Откуда брать: переработка отдаёт готовое, её шахты — руду. Хранилища груз только принимают: возить из
+    // Откуда брать: переработка и цеха отдают готовое, шахты — руду. Хранилища груз только принимают: возить из
     // одного хранилища в другое незачем, а руду в них не кладут.
-    const refineries: Entity[] = []
+    const outlets: Entity[] = []
     const mines: Entity[] = []
     for (const [entity, building] of world.query(Building, Inventory)) {
       if (!isReady(sim, player, entity) || world.has(entity, Converting)) continue
       const spec = buildingSpec(building.type)
-      if (spec.refines) refineries.push(entity)
+      if (spec.refines || spec.assembles || spec.trades) outlets.push(entity)
       else if (spec.extract) mines.push(entity)
     }
     // У шахты с привязанным грузовиком есть свой возчик: свободные её руду не трогают и занимаются готовым.
@@ -323,13 +378,16 @@ export function dispatch(sim: Sim) {
         }
       }
       if (!best) {
-        // Заявок нет — увозит готовое из переработки; куда именно, решит, когда наберёт груз.
-        for (const source of refineries) {
+        // Заявок нет — увозит готовое из переработки и цехов; куда именно, решит, когда наберёт груз.
+        for (const source of outlets) {
           for (const resource of offersOf(sim, source)) {
             const available = availableIn(sim, flows, source, resource)
             const inventory = world.get(source, Inventory)!
             const holds = Math.min(inventory.limits[resource] ?? inventory.capacity, inventory.capacity)
-            if (available < Math.min(PUSH_MIN, room, holds * PUSH_SHARE)) continue
+            // Остаток сырья прежнего рецепта цеху не нужен: его увозят весь, сколько бы его ни было.
+            // Как и закупку в космопорте: ей там не место, склад космопорта — под товар продажи.
+            const leftover = (world.has(source, Assembly) && !isProduct(resource)) || !!buildingSpec(world.get(source, Building)!.type).trades
+            if (available < (leftover ? MIN_JOB : Math.min(PUSH_MIN, room, holds * PUSH_SHARE))) continue
             const score = -distance(sim, truck, source)
             if (best && score <= best.score) continue
             best = { from: source, to: NONE as Entity, resource, amount: Math.min(available, room), score }

@@ -1,9 +1,9 @@
 import type { Entity, World } from '../ecs'
 import { Terrain, isBuildable, isPassable, terrainAt, tileKey } from '../map/terrain'
 import { isOwn } from './common'
-import { Building, Health, Repair, Owner, Position, Producer, Site } from './components'
-import { equipStorage, type BeamSpec } from './inventory'
-import { RESOURCES, type Amounts, type Good } from './resources'
+import { Assembly, Building, Health, Inventory, Repair, Owner, Position, Producer, Site } from './components'
+import { equipStorage, put, type BeamSpec } from './inventory'
+import { ORE_SPECS, PRODUCT_SPECS, WARES, stockedFor, type Amounts, type Good, type Ore, type Product } from './resources'
 import type { Sim } from './sim'
 import { mountTurrets, type MountSpec } from './turrets'
 import type { UnitType } from './units'
@@ -46,10 +46,20 @@ export interface BuildingSpec {
   /** Склад здания — хранилище: в него свозят готовое, из него берут на нужды зоны и на продажу. */
   stores?: boolean
   /**
-   * Перерабатывает руду из своего склада в готовый ресурс со скоростью REFINE_RATE. Принимает руду от шахт,
-   * а готовое отдаёт по общим заявкам. См. refining.ts.
+   * Перерабатывает эту руду из своего склада в её ресурс со скоростью REFINE_RATE. Принимает руду от шахт
+   * и харвестеров, а готовое отдаёт по общим заявкам. На каждую руду — своё здание. См. refining.ts.
    */
-  refines?: boolean
+  refines?: Ore
+  /**
+   * Завод изделия: собирает его из ресурсов своего склада по рецепту. Новый завод стоит выключенным, пока игрок
+   * его не включит. Сырьё заказывает у своей зоны, готовое отдаёт по заявкам и вывозит в хранилища. См. assembly.ts.
+   */
+  assembles?: Product
+  /**
+   * Турели здания стреляют боеприпасами с его склада: каждый выстрел тратит WeaponSpec.ammo, пустой склад —
+   * турель молчит. Склад здание заказывает у зоны само. Достроенное здание заряжено полностью.
+   */
+  ammo?: boolean
   /** Транспортный луч: им здание отдаёт ресурсы со своего склада или забирает на него. См. inventory.ts. */
   beam?: BeamSpec
   /** Через это здание продают ресурсы: грузовики свозят их сюда из хранилищ его зоны, см. trade.ts. */
@@ -71,10 +81,41 @@ export interface BuildingSpec {
 const PRODUCER_HOLD = 100
 
 /**
- * Сколько руды каждого вида держит переработка про запас: ровно кузов грузовика, чтобы привёзший его не
- * застревал с остатком. Остальное место склада — под готовое: оно уходит по заявкам и не копится.
+ * Склад переработки поделён на два места: под руду и под готовое, по REFINERY_HOLD каждое. Общий склад вёл себя
+ * непредсказуемо — накопленное готовое отнимало место у руды, и харвестер не мог разгрузиться. Руды помещается
+ * полный кузов харвестера, а значит и грузовика.
  */
-const REFINERY_ORE_HOLD = 25
+const REFINERY_HOLD = 30
+/** Сколько готового изделия держит цех, пока его не развезут: своё место, сырью оно не мешает. */
+const PLANT_OUTPUT = 30
+
+/**
+ * Сколько боеприпасов держит оборонительная турель: 35–45 секунд непрерывного огня (см. WeaponSpec.ammo).
+ * Хватает отбить налёт, но долгую осаду турель держит, только пока к ней подвозят патроны.
+ */
+const TURRET_AMMO = 120
+const TURRET_STORE = { inventory: TURRET_AMMO, accepts: ['ammo'] as const, ammo: true }
+
+/**
+ * Переработка одной руды: принимает только её и складывает её ресурс. Размер, цена и энергия — по руде:
+ * металл нужен больше всего, и плавильня дешёвая, но громоздкая; харит редок и дорог, и обогатитель компактный,
+ * но дорогой и прожорливый.
+ */
+function refinery(ore: Ore, width: number, height: number, cost: number, power: number) {
+  return {
+    width, height, cost, power, inventory: REFINERY_HOLD * 2, refines: ore,
+    accepts: [ore, ORE_SPECS[ore].resource], limits: { [ore]: REFINERY_HOLD, [ORE_SPECS[ore].resource]: REFINERY_HOLD },
+  } as const satisfies BuildingSpec
+}
+
+/** Завод одного изделия: принимает сырьё его рецепта и складывает готовое — у каждого груза своё место. */
+function plant(product: Product) {
+  const limits: Amounts = { ...stockedFor(product), [product]: PLANT_OUTPUT }
+  return {
+    width: 2, height: 2, cost: 300, power: -3, inventory: Object.values(limits).reduce((sum, amount) => sum + amount!, 0), assembles: product,
+    accepts: [...Object.keys(PRODUCT_SPECS[product].recipe), product] as Good[], limits,
+  } as const satisfies BuildingSpec
+}
 
 /** Сколько кредитов цены здания один строитель возводит за секунду: здание за 300 строится 15 секунд. */
 export const BUILD_RATE = 20
@@ -85,16 +126,20 @@ export const SAND_DURABILITY = 0.7
 export const BUILDINGS = {
   // Доход главного здания не даёт остаться без кредитов совсем: на генератор он копит долго, но копит.
   // Немного ресурсов главное здание хранит само. Руду оно не принимает: её место — шахта и переработка.
-  command: { width: 3, height: 3, cost: 2000, income: 0.2, zone: 12, inventory: 100, accepts: RESOURCES, stores: true, produces: ['builder', 'truck'] },
-  // Переработка: принимает руду из шахт и выдаёт готовый ресурс — один передел (§4.3 шаг 5). Приём 1,5 руды/с,
-  // поэтому одного завода хватает примерно на полторы шахты металла: где его поставить между шахтами и хранилищем,
-  // решает игрок. Руду держит про запас по кузову на вид, готовое отдаёт по общим заявкам.
-  refinery: {
-    width: 3, height: 2, cost: 600, power: -5, inventory: 60, refines: true,
-    limits: { metalOre: REFINERY_ORE_HOLD, siliconOre: REFINERY_ORE_HOLD, fuelOre: REFINERY_ORE_HOLD, khariteOre: REFINERY_ORE_HOLD },
-  },
-  // Машинный завод: машинки и тяжёлая техника.
-  factory: { width: 2, height: 2, cost: 450, power: -5, materials: { metal: 20 }, produces: ['buggy', 'lancer', 'tank', 'tesla', 'carrier'] },
+  command: { width: 3, height: 3, cost: 2000, income: 0.2, zone: 12, inventory: 100, accepts: WARES, stores: true, produces: ['builder', 'truck', 'harvester'] },
+  // Переработка — по зданию на руду: каждое принимает только свою руду и выдаёт её ресурс, один передел
+  // (§4.3 шаг 5). Приём 1,5 руды/с — примерно полторы шахты металла: где поставить завод между шахтами
+  // и хранилищем, решает игрок. Руду держит про запас на кузов, готовое отдаёт по общим заявкам.
+  smelter: refinery('metalOre', 3, 3, 300, -3),
+  siliconWorks: refinery('siliconOre', 3, 2, 400, -4),
+  distillery: refinery('fuelOre', 2, 3, 400, -5),
+  enricher: refinery('khariteOre', 2, 2, 650, -7),
+  // Заводы изделий: каждый собирает своё изделие из ресурсов (§3.7 design.md). Склад общий на сырьё и готовое.
+  blockPlant: plant('blocks'),
+  ammoPlant: plant('ammo'),
+  partsPlant: plant('parts'),
+  // Машинный завод: машинки и тяжёлая техника. Строится из стройблоков: военная промышленность требует цеха.
+  factory: { width: 2, height: 2, cost: 450, power: -5, materials: { blocks: 10 }, produces: ['buggy', 'lancer', 'tank', 'tesla', 'carrier'] },
   // Электростанция.
   generator: { width: 2, height: 2, cost: 300, power: 10 },
   // Генератор материи — базовый доход: превращает энергию в кредиты. Первая электростанция окупает его быстро,
@@ -107,16 +152,18 @@ export const BUILDINGS = {
   // Шахта энергии не просит и начинает свою зону: тянуть к месторождению цепочку зданий не нужно.
   // Добытое копится в шахте, пока его не выкачают грузовики.
   mine: { width: 2, height: 2, cost: 300, zone: 7, extract: true, inventory: 60 },
-  silo: { width: 2, height: 1, cost: 100, inventory: 200, accepts: RESOURCES, stores: true },
+  silo: { width: 2, height: 1, cost: 100, inventory: 200, accepts: WARES, stores: true },
   // Космопорт ещё и выпускает летающих. Энергию просит всегда, но от её нехватки замедляется только производство.
-  // Товар на продажу грузовики сгружают в трюм корабля.
-  spaceport: { width: 3, height: 3, cost: 450, power: -5, materials: { metal: 20 }, trades: true, inventory: 400, accepts: RESOURCES, produces: ['drone', 'gunship'] },
+  // Товар на продажу грузовики сгружают в трюм корабля. Строится из металла, а не из стройблоков: с него
+  // начинаются деньги, и первой продаже хватает одной линии металла — без цеха и кремния.
+  spaceport: { width: 3, height: 3, cost: 450, power: -5, materials: { metal: 20 }, trades: true, inventory: 400, accepts: WARES, produces: ['drone', 'gunship'] },
   // Дешёвая стена не расширяет зону: иначе цепочкой стен можно было бы бесплатно протянуть контроль через карту.
   wall: { width: 1, height: 1, cost: 30, hp: 400, defense: true, expand: 0 },
-  // Оборонительные турели используют то же оружие, что техника. На песке все оборонительные постройки слабее.
-  turret: { width: 1, height: 1, cost: 250, hp: 450, defense: true, mounts: [{ turret: 'gunner', along: 0, across: 0 }] },
-  rocketTurret: { width: 1, height: 1, cost: 300, hp: 400, defense: true, mounts: [{ turret: 'rocket', along: 0, across: 0 }] },
-  cannonTurret: { width: 1, height: 1, cost: 450, hp: 500, defense: true, mounts: [{ turret: 'cannon', along: 0, across: 0 }] },
+  // Оборонительные турели используют то же оружие, что техника, и стреляют боеприпасами со своего склада.
+  // На песке все оборонительные постройки слабее.
+  turret: { width: 1, height: 1, cost: 250, hp: 450, defense: true, ...TURRET_STORE, mounts: [{ turret: 'gunner', along: 0, across: 0 }] },
+  rocketTurret: { width: 1, height: 1, cost: 300, hp: 400, defense: true, ...TURRET_STORE, mounts: [{ turret: 'rocket', along: 0, across: 0 }] },
+  cannonTurret: { width: 1, height: 1, cost: 450, hp: 500, defense: true, ...TURRET_STORE, mounts: [{ turret: 'cannon', along: 0, across: 0 }] },
 } satisfies Record<string, BuildingSpec>
 
 export type BuildingType = keyof typeof BUILDINGS
@@ -127,7 +174,8 @@ export const CORE: BuildingType = 'command'
 export const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[]
 /** Что возводят строители. Остальные здания появятся вместе с тем, для чего они нужны. */
 export const BUILDABLE: BuildingType[] = [
-  'generator', 'matter', 'mine', 'refinery', 'silo', 'spaceport', 'barracks', 'factory',
+  'generator', 'matter', 'mine', 'smelter', 'siliconWorks', 'distillery', 'enricher', 'blockPlant', 'ammoPlant', 'partsPlant',
+  'silo', 'spaceport', 'barracks', 'factory',
   'wall', 'turret', 'rocketTurret', 'cannonTurret',
 ]
 
@@ -231,6 +279,11 @@ export function equip(world: World, entity: Entity, type: BuildingType) {
     equipStorage(world, entity, { inventory: PRODUCER_HOLD })
   }
   equipStorage(world, entity, spec)
+  // Достроенная турель заряжена: оборона работает сразу, а подвоз нужен, когда она отстреляется.
+  const store = world.get(entity, Inventory)
+  if (spec.ammo && store) put(store, 'ammo', store.capacity)
+  // Завод изделий стоит выключенным, пока игрок его не включит: иначе он сразу съел бы сырьё зоны.
+  if (spec.assembles) world.add(entity, Assembly({ recipe: spec.assembles }))
   mountTurrets(world, entity)
 }
 

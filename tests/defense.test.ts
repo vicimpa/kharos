@@ -3,7 +3,7 @@ import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Terrain, terrainAt } from '../src/map/terrain'
 import {
-  Armed, Building, Carrier, CONTROL_RADIUS, Health, SAND_DURABILITY, Site, Turret,
+  Armed, Building, Carrier, CONTROL_RADIUS, Health, Position, Unit, SAND_DURABILITY, Site, Turret,
   canBuild, canPlace, createSim, durabilityOf, isWalkable, siteAt, zoneOf, type BuildingType, type Sim,
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
@@ -213,7 +213,10 @@ test('турель здания не пытается гнаться за дал
   const sim = createSim(options)
   const defense = placeBuilding(sim.world, 'turret', 0, 0, 1)
   const gun = sim.world.get(defense, Carrier)!.turrets[0] as Entity
-  const lancer = spawnUnit(sim, 'lancer', 2, 7, 0)
+  const lancer = spawnUnit(sim, 'lancer', 8, 0, 0)
+  // Между дальностью лазера до края здания и дальностью пулемёта турели с надбавкой TOWER_RANGE.
+  Object.assign(sim.world.get(lancer, Position)!, { x: 8.2, y: 0.5 })
+  Object.assign(sim.world.get(lancer, Unit)!, { prevX: 8.2, prevY: 0.5 })
 
   // Лазер достаёт до здания, а его пулемёт в ответ — нет. Здание не должно попадать в логику движения юнита.
   sim.send(2, { type: 'attack', units: [lancer], target: defense })

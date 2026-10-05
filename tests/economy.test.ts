@@ -57,7 +57,7 @@ test('месторождения бывают разных видов: что г
   expect([...kinds].sort()).toEqual([...DEPOSIT_TYPES].sort())
 })
 
-test('стройка ждёт материалов: без металла она не идёт дальше привезённого, грузовик привозит его из хранилища', () => {
+test('стройка ждёт материалов: без стройблоков она не идёт дальше привезённого, грузовик привозит их из хранилища', () => {
   const { sim, x, y, core } = base([])
   const builder = spawnUnit(sim, 'builder', 1, x + 5, y + 4)
   sim.send(1, { type: 'build', building: 'factory', x: x + 10, y, builders: [builder] })
@@ -69,13 +69,13 @@ test('стройка ждёт материалов: без металла она
   expect(awaitsMaterials(sim, site!)).toBe(true)
   expect(sim.world.get(site!, Site)!.progress).toBe(0)
 
-  // Металл в хранилище и свободный грузовик — стройка идёт до конца.
-  sim.world.get(core, Inventory)!.items.metal = 50
+  // Стройблоки в хранилище и свободный грузовик — стройка идёт до конца.
+  sim.world.get(core, Inventory)!.items.blocks = 50
   spawnUnit(sim, 'truck', 1, x + 6, y + 4)
   until(sim, () => materialShare(sim, site!) > 0)
   expect(sim.world.get(site!, Site)!.progress).toBeLessThanOrEqual(siteTicks('factory', TICK) * materialShare(sim, site!) + 1e-6)
   until(sim, () => !sim.world.has(site!, Site))
-  expect(oreIn(sim, core, 'metal')).toBeCloseTo(50 - BUILDINGS.factory.materials.metal)
+  expect(oreIn(sim, core, 'blocks')).toBeCloseTo(50 - BUILDINGS.factory.materials.blocks)
 })
 
 test('производство ждёт материалов первого заказа и тратит их в начале работы', () => {

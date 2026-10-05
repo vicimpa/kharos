@@ -1,7 +1,7 @@
 import type { Entity } from '../ecs'
 import { isPassable, terrainAt, tileKey } from '../map/terrain'
 import { isOwn } from './common'
-import { Armed, Converting, Hauler, Health, Owner, Repair, Path, Position, Producer, Unit } from './components'
+import { Armed, Converting, Hauler, Harvester, Health, Owner, Repair, Path, Position, Producer, Unit } from './components'
 import { STARTING_CREDITS, addCredits } from './economy'
 import { equipStorage, type BeamSpec } from './inventory'
 import type { Amounts } from './resources'
@@ -40,6 +40,8 @@ export interface UnitSpec {
   inventory?: number
   /** Транспортный луч: им юнит отдаёт ресурсы со своего склада или забирает на него. */
   beam?: BeamSpec
+  /** Харвестер: копает руду сам, столько в секунду, и возит её на переработку. См. harvesting.ts. */
+  harvest?: number
 }
 
 /**
@@ -52,6 +54,9 @@ export const UNITS = {
   infantry: { speed: 3, turn: 10, radius: 0.3, cost: 60, buildTime: 3, kind: 'infantry', hp: 50, weapon: 'rifle' },
   // Грузовик возит добытое из шахты в хранилище и заказанное по зонам: см. hauling.ts. Своим лучом он и забирает груз,
   // и сгружает его: зданиям лучи не нужны.
+  // Харвестер — шахта на колёсах: копает медленнее шахты, зато сам и где угодно, и сам возит руду на
+  // переработку. Тяжелее грузовика: его ловят в поле, и он должен пережить первый налёт.
+  harvester: { speed: 3, turn: 3, radius: 0.55, cost: 400, buildTime: 10, kind: 'vehicle', hp: 300, inventory: 30, harvest: 0.75, beam: { radius: 2, rate: 10, give: true, take: true } },
   truck: { speed: 3.5, turn: 4, radius: 0.45, cost: 150, buildTime: 8, kind: 'vehicle', hp: 150, inventory: 25, beam: { radius: 2, rate: 10, give: true, take: true } },
   // Пехота.
   rocketeer: { speed: 2.6, turn: 10, radius: 0.3, cost: 120, buildTime: 5, kind: 'infantry', hp: 40, weapon: 'launcher' },
@@ -69,14 +74,14 @@ export const UNITS = {
     speed: 2.2, turn: 2.5, radius: 0.7, cost: 600, buildTime: 14, kind: 'heavy', hp: 450, materials: { metal: 20, silicon: 4 },
     mounts: [{ turret: 'cannon', along: -0.06, across: 0 }],
   },
-  // Разрядник: тяжёлое шасси с разрядной башней. Катушке нужен харит.
+  // Разрядник: тяжёлое шасси с разрядной башней. Катушку собирают из компонентов: в них харит, и без цеха её не сделать.
   tesla: {
-    speed: 2, turn: 2.5, radius: 0.7, cost: 700, buildTime: 16, kind: 'heavy', hp: 500, materials: { metal: 15, silicon: 6, kharite: 4 },
+    speed: 2, turn: 2.5, radius: 0.7, cost: 700, buildTime: 16, kind: 'heavy', hp: 500, materials: { metal: 15, silicon: 6, parts: 3 },
     mounts: [{ turret: 'arc', along: 0, across: 0 }],
   },
-  // Носитель: колёсное шасси танка без своего оружия — на нём три ракетные турели и ремонтная.
+  // Носитель: колёсное шасси танка без своего оружия — на нём три ракетные турели и ремонтная. Ремонтной нужен компонент.
   carrier: {
-    speed: 3, turn: 2.5, radius: 0.8, cost: 1200, buildTime: 20, kind: 'vehicle', hp: 700, materials: { metal: 25, silicon: 8 },
+    speed: 3, turn: 2.5, radius: 0.8, cost: 1200, buildTime: 20, kind: 'vehicle', hp: 700, materials: { metal: 25, silicon: 8, parts: 1 },
     mounts: [
       { turret: 'rocket', along: 0.36, across: -0.27 },
       { turret: 'rocket', along: 0.36, across: 0.27 },
@@ -196,7 +201,8 @@ export function spawnUnit(sim: Sim, type: UnitType, player: number, x: number, y
   const infantry = spec.kind === 'infantry'
   const entity = world.spawn(Position(position), Unit({ type, prevX: position.x, prevY: position.y }), Owner({ player }), Health(infantry ? { repairable: false, regen: INFANTRY_REGEN } : {}))
   if (type === 'mcv') world.add(entity, Producer)
-  if (type === 'truck') world.add(entity, Hauler)
+  if (type === 'truck' || spec.harvest) world.add(entity, Hauler)
+  if (spec.harvest) world.add(entity, Harvester)
   if (spec.weapon) world.add(entity, Armed)
   if (spec.repair) world.add(entity, Repair({ radius: spec.repair }))
   equipStorage(world, entity, spec)

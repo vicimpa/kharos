@@ -78,7 +78,7 @@ function lineScene(): Line {
     const mine = placeBuilding(sim.world, 'mine', spot.x, spot.y, DEFENDER)
     const silo = placeNearMine(sim, spot, 'silo', spot.x + 4, spot.y + 4)
     const core = placeNearMine(sim, spot, 'command', spot.x + 8, spot.y)
-    const refinery = placeNearMine(sim, spot, 'refinery', spot.x + 4, spot.y - 4)
+    const refinery = placeNearMine(sim, spot, 'smelter', spot.x + 4, spot.y - 4)
     const generator = placeNearMine(sim, spot, 'generator', spot.x + 8, spot.y - 4)
     const tiles = freeTilesNear(sim, spot.x, spot.y, 4)
     if (!silo || !core || !refinery || !generator || tiles.length < 4) break

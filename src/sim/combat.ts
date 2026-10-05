@@ -1,8 +1,9 @@
 import type { Entity } from '../ecs'
 import { BUILDINGS, buildingSpec, isWall, type BuildingType } from './buildings'
 import { NONE, isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './common'
-import { Armed, Blast, Building, Converting, Health, Owner, Path, Position, Shot, Site, Turret, Unit } from './components'
+import { Armed, Blast, Building, Converting, Health, Inventory, Owner, Path, Position, Shot, Site, Turret, Unit } from './components'
 import { releaseHauler } from './hauling'
+import { amountOf, take } from './inventory'
 import { searchedTiles } from './path'
 import type { Sim } from './sim'
 import { TURRETS, carrierOf, turnerOf, turretsOf } from './turrets'
@@ -16,6 +17,11 @@ const SCAN_TICKS = 5
 const CHASE_TICKS = 20
 /** На сколько тайлов ближе дальности выстрела подходит гонящийся: с запасом на то, что и он, и цель стоят не в центрах тайлов. */
 const CHASE_MARGIN = 1.5
+/**
+ * Насколько дальше бьёт оружие, стоящее на здании: турель выше и устойчивее машины. Без надбавки враг с тем же
+ * оружием бьёт здание рядом с турелью с дальности, считанной от края здания, и оказывается вне её досягаемости.
+ */
+export const TOWER_RANGE = 2
 /** Сколько гонящихся за тик прокладывают путь и сколько тайлов они на это вместе осматривают; остальные ждут следующего раза. */
 const CHASE_SEARCHES = 16
 const CHASE_TILES = 15000
@@ -143,6 +149,17 @@ export function recover(sim: Sim) {
   }
 }
 
+/**
+ * Хватит ли носителю боеприпасов на выстрел этим оружием. Стреляют боеприпасами только турели зданий с
+ * BuildingSpec.ammo; юнитам и прочим зданиям хватает всегда.
+ */
+export function hasAmmo(sim: Sim, carrier: Entity, weapon: WeaponSpec) {
+  const type = sim.world.get(carrier, Building)?.type
+  if (type === undefined || !buildingSpec(type).ammo || !weapon.ammo) return true
+  const store = sim.world.get(carrier, Inventory)
+  return !!store && amountOf(store, 'ammo') >= weapon.ammo - 1e-9
+}
+
 /** Оружие юнита или турели; undefined — безоружен. */
 export const weaponOf = (sim: Sim, entity: Entity): WeaponType | undefined => {
   const type = sim.world.get(entity, Unit)?.type
@@ -262,6 +279,14 @@ export function fight(sim: Sim) {
     }
   }
 
+  /** Списывает боеприпасы на выстрел со склада носителя. Юниты стреляют бесплатно; false — стрелять нечем. */
+  const spend = (carrier: Entity, weapon: WeaponSpec) => {
+    if (!hasAmmo(sim, carrier, weapon)) return false
+    const store = world.get(carrier, Inventory)
+    if (store && weapon.ammo) take(store, 'ammo', weapon.ammo)
+    return true
+  }
+
   // Взрывы и следы лучей доживают свой срок.
   const gone: Entity[] = []
   for (const [entity, blast] of world.query(Blast)) if (++blast.age >= blast.life) gone.push(entity)
@@ -332,6 +357,7 @@ export function fight(sim: Sim) {
     if (!body || !position || !turner || !weaponType || world.has(carrier, Converting) || world.has(carrier, Site)) continue
     const self = { x: position.x, y: position.y, player: body.player }
     const weapon: WeaponSpec = WEAPONS[weaponType]
+    const range = weapon.range + (world.has(carrier, Building) ? TOWER_RANGE : 0)
 
     let target = marks.get(armed.target as Entity)
     if (target && !canHit(weapon, self.player, target)) target = undefined
@@ -347,8 +373,8 @@ export function fight(sim: Sim) {
       for (const mark of marks.values()) {
         if (!canHit(weapon, self.player, mark)) continue
         const distance = distanceTo(mark, self.x, self.y)
-        if (distance > weapon.range) continue
-        const order = distance + (mark.armor === 'building' ? weapon.range : 0)
+        if (distance > range) continue
+        const order = distance + (mark.armor === 'building' ? range : 0)
         if (order >= best) continue
         best = order
         target = mark
@@ -357,7 +383,7 @@ export function fight(sim: Sim) {
       armed.target = target.entity
     }
 
-    if (distanceTo(target, self.x, self.y) > weapon.range) {
+    if (distanceTo(target, self.x, self.y) > range) {
       if (!armed.chase || !world.has(mover, Unit)) armed.target = NONE
       // Носитель везёт к цели одна его турель за тик: остальным ехать с ним же.
       else if (mounted && chasing.has(mover)) continue
@@ -386,6 +412,8 @@ export function fight(sim: Sim) {
     const { body: aimer } = turner
     aimer.facing = turnToward(aimer.facing, wanted, turner.turn * time.step)
     if (armed.cooldown > 0 || Math.abs(wrap(wanted - aimer.facing)) > AIM) continue
+    // Турель здания стреляет боеприпасами с его склада: кончились — молчит, пока не подвезут.
+    if (!spend(carrier, weapon)) continue
     armed.cooldown = Math.max(1, Math.round(weapon.reload / time.step))
 
     // Выстрел — из точки перед стрелком.
@@ -398,7 +426,7 @@ export function fight(sim: Sim) {
     const hitY = wall ? wall.y : target.y
     if (weapon.speed) {
       // Ядру отпущено время до точки падения, наводящимся — пока не улетят слишком далеко.
-      const reach = weapon.shot === 'shell' ? Math.hypot(hitX - fromX, hitY - fromY) : weapon.range * OVERFLY
+      const reach = weapon.shot === 'shell' ? Math.hypot(hitX - fromX, hitY - fromY) : range * OVERFLY
       const life = Math.max(1, Math.ceil(reach / weapon.speed / time.step))
       const targetEntity = wall ? wall.wall : target.entity
       world.spawn(Position({ x: fromX, y: fromY }), Shot({ ...shot, target: targetEntity, toX: hitX, toY: hitY, blocked: wall !== undefined, life }))

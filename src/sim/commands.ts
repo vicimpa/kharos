@@ -1,4 +1,6 @@
 import type { Entity } from '../ecs'
+import { setWorking } from './assembly'
+import { orderHarvest } from './harvesting'
 import { BUILDINGS, canPlace, durabilityOf, placeBuilding, type BuildingType } from './buildings'
 import { TRAINING_PLAYER, orderAttack, stopAttack } from './combat'
 import { isOwn } from './common'
@@ -9,7 +11,7 @@ import { assignHaulers, releaseHauler } from './hauling'
 import { cancelUnit, orderUnit } from './production'
 import type { Resource } from './resources'
 import type { Sim } from './sim'
-import { closeSale, sell } from './trade'
+import { buy, closeSale, sell } from './trade'
 import { UNITS, isWalkable, orderGroupMove, spawnUnit, type UnitType } from './units'
 
 /**
@@ -39,12 +41,18 @@ export type Command =
   | { type: 'assist'; units: number[]; site: number }
   /** Привязать свои грузовики к своей шахте: они будут возить добытое из неё в хранилища, а не работать на заявки зон. */
   | { type: 'haul'; units: number[]; mine: number }
+  /** Послать своих харвестеров копать месторождение с левым верхним тайлом (x, y). */
+  | { type: 'harvest'; units: number[]; x: number; y: number }
   /** Послать своих вооружённых юнитов атаковать чужой юнит или здание: они гонятся за целью, пока она жива. */
   | { type: 'attack'; units: number[]; target: number }
   /** Заявка на продажу до amount единиц ресурса: грузовики свезут его в космопорт из хранилищ его зоны, потом придут кредиты. */
   | { type: 'sell'; port: number; resource: Resource; amount: number }
+  /** Закупить amount единиц ресурса с орбиты через свой космопорт: кредиты сразу, груз — через полёт корабля. */
+  | { type: 'buy'; port: number; resource: Resource; amount: number }
   /** Закрыть заявку раньше срока: корабль улетает с тем, что привезли; если ничего — заявка снимается. */
   | { type: 'closeSale'; port: number }
+  /** Включить или выключить свой завод изделий. */
+  | { type: 'work'; building: number; on: boolean }
   /** Отменить свою стройку и вернуть кредиты; для здания под разбор — отменить разбор. */
   | { type: 'cancelBuild'; site: number }
   /** Назначить своё готовое здание под разбор и послать к нему своих строителей. Отменяется через cancelBuild. */
@@ -95,14 +103,22 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
       if (!Array.isArray(command.units)) return false
       return assignHaulers(sim, player, command.mine as Entity, command.units as Entity[])
     }
+    case 'harvest': {
+      if (!Array.isArray(command.units)) return false
+      return orderHarvest(sim, player, command.units as Entity[], Math.floor(command.x), Math.floor(command.y))
+    }
     case 'attack': {
       if (!Array.isArray(command.units)) return false
       return orderAttack(sim, player, command.units as Entity[], command.target as Entity)
     }
     case 'sell':
       return sell(sim, player, command.port as Entity, command.resource, command.amount)
+    case 'buy':
+      return buy(sim, player, command.port as Entity, command.resource, command.amount)
     case 'closeSale':
       return closeSale(sim, player, command.port as Entity)
+    case 'work':
+      return setWorking(sim, player, command.building as Entity, !!command.on)
     case 'cancelBuild':
       return cancelBuild(sim, player, command.site as Entity)
     case 'demolish': {

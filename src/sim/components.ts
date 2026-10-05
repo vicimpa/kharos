@@ -1,6 +1,6 @@
 import { component } from '../ecs'
 import type { BuildingType } from './buildings'
-import type { Amounts, Good, Resource } from './resources'
+import type { Amounts, Good, Product, Resource } from './resources'
 import type { TurretType } from './turrets'
 import type { UnitType } from './units'
 import type { WeaponType } from './weapons'
@@ -115,14 +115,29 @@ export const Inventory = component('Inventory', () => ({ items: {} as Amounts, c
  * работает со всеми, кто в радиусе, сразу. links — с кем он работал в этот тик: target — чей склад, pulling —
  * забирал он с него или отдавал на него, resource — что переносил.
  */
+/**
+ * Харвестер: сам копает руду из месторождения в кузов и возит её на переработку (доставку ведёт Hauler).
+ * x, y — левый верхний тайл месторождения, где он копает; -1 — ещё не выбрано: тогда он ищет ближайшее сам.
+ * ordered — месторождение назначил игрок; выработается — харвестер снова ищет сам.
+ */
+export const Harvester = component('Harvester', { x: -1, y: -1, ordered: false })
+
 export const Beam = component('Beam', () => ({ radius: 2, rate: 10, give: true, take: true, links: [] as { target: number; pulling: boolean; resource: Good }[] }))
 
 /**
- * Заявка на продажу: есть у космопорта от заявки до денег. resource — что продаётся, wanted — сколько;
- * привезённое лежит в складе космопорта. Когда привезено всё, корабль улетает: left и total — сколько тиков
- * ему лететь; пока товар везут, они нулевые.
+ * Завод изделий: recipe — какое изделие он собирает (задано видом здания, см. BuildingSpec.assembles).
+ * on — включён ли он: новый завод выключен, сырьё не заказывает и не собирает. progress — сколько секунд идёт
+ * нынешняя сборка, при нехватке энергии растёт медленнее; ноль — сборка не начата: сырьё ещё на складе.
  */
-export const Trade = component('Trade', { resource: 'metal' as Resource, wanted: 0, left: 0, total: 0 })
+export const Assembly = component('Assembly', { recipe: 'blocks' as Product, on: false, progress: 0 })
+
+/**
+ * Рейс корабля космопорта. Продажа (buy = false): есть от заявки до денег; resource — что продаётся, wanted —
+ * сколько; привезённое лежит в складе космопорта. Когда привезено всё, корабль улетает: left и total — сколько
+ * тиков ему лететь; пока товар везут, они нулевые. Закупка (buy = true): оплачена сразу, корабль летит с самого
+ * начала и, прилетев, кладёт wanted единиц в склад космопорта.
+ */
+export const Trade = component('Trade', { resource: 'metal' as Resource, wanted: 0, left: 0, total: 0, buy: false })
 
 /**
  * Вооружённый юнит. target — кого он атакует, -1 — никого. chase — гнаться ли за целью, когда она вне дальности:
@@ -172,4 +187,4 @@ export const Attached = component('Attached', { parent: -1, along: 0, across: 0 
 export const Carrier = component('Carrier', () => ({ turrets: [] as number[] }))
 
 /** Компоненты, которые попадают в сохранение и в сеть. Новый компонент симуляции добавляй сюда. */
-export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Inventory, Beam, Trade, Armed, Shot, Blast]
+export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Harvester, Inventory, Beam, Assembly, Trade, Armed, Shot, Blast]

@@ -12,9 +12,10 @@
  */
 import type { Entity } from '../../src/ecs'
 import {
-  BUILDINGS, BUILDING_TYPES, Builds, Building, DEPOSIT_KINDS, DEPOSIT_TYPES, Inventory, Owner, REFINE_RATE, RESOURCE_SPECS, REWARDS, Site,
-  TRUCK_CAPACITY, Trade, UNITS, Unit, amountOf, buildingSpec, canBuild, canPlace, canSell, creditsOf, depositIn, economyOf, rewardsOf,
-  stockOf, unitSpec, type BuildingType, type DepositSpot, type Resource, type Sim, type UnitType,
+  BUILDINGS, BUILDING_TYPES, Builds, Building, DEPOSIT_KINDS, DEPOSIT_TYPES, Inventory, Owner, PRODUCTS, PRODUCT_SPECS, REFINE_RATE, RESOURCE_SPECS,
+  REWARDS, Site, TRUCK_CAPACITY, TURRETS, Trade, UNITS, Unit, WEAPONS, amountOf, buildingSpec, canBuild, canPlace, canSell, creditsOf, cycleSeconds,
+  depositIn, economyOf, entriesOf, isProduct, rewardsOf, stockOf, totalOf, unitSpec,
+  type Amounts, type BuildingType, type DepositSpot, type Resource, type Sim, type TurretSpec, type UnitType, type WeaponSpec,
 } from '../../src/sim'
 import { placeBuilding } from '../../src/sim/buildings'
 import { STARTING_CREDITS, addCredits } from '../../src/sim/economy'
@@ -25,7 +26,7 @@ import { TICK, clock, newSim, placeableNear, printTable, rectOf, rectsApart, rin
 const TICKS = Math.round(1 / TICK)
 
 /** Цена линии добычи: шахта на месторождении, грузовик к ней и переработка, которая делает из руды товар. */
-const LINE_COST = BUILDINGS.mine.cost + UNITS.truck.cost + BUILDINGS.refinery.cost
+const LINE_COST = BUILDINGS.mine.cost + UNITS.truck.cost + BUILDINGS.smelter.cost
 
 /** 1. Потолок по описаниям: добыча месторождения, цена продажи, окупаемость линии и сколько шахт кормит завод. */
 function printLineMath() {
@@ -41,7 +42,7 @@ function printLineMath() {
       ]
     }),
   )
-  console.log(`  линия — шахта (${BUILDINGS.mine.cost}), грузовик (${UNITS.truck.cost}) и переработка (${BUILDINGS.refinery.cost}) = ${LINE_COST} кр`)
+  console.log(`  линия — шахта (${BUILDINGS.mine.cost}), грузовик (${UNITS.truck.cost}) и переработка (${BUILDINGS.smelter.cost}) = ${LINE_COST} кр`)
   console.log(`  переработка принимает ${REFINE_RATE} руды/с: столько шахт она держит; вторая шахта на том же заводе — ${BUILDINGS.mine.cost + UNITS.truck.cost} кр`)
   console.log('  запас — сколько даёт одно месторождение')
 }
@@ -78,7 +79,7 @@ function mineScene(freeTrucks = FREE_TRUCKS): Mine {
     const cy = spot.y + 1
     const core = placeNearMine(sim, spot, 'command', cx + 7, cy)
     const silo = placeNearMine(sim, spot, 'silo', cx + 4, cy + 6)
-    const refinery = placeNearMine(sim, spot, 'refinery', cx + 4, cy - 4)
+    const refinery = placeNearMine(sim, spot, 'smelter', cx + 4, cy - 4)
     const port = placeNearMine(sim, spot, 'spaceport', cx + 8, cy + 5)
     const generator = placeNearMine(sim, spot, 'generator', cx + 6, cy - 5)
     const generator2 = placeNearMine(sim, spot, 'generator', cx + 8, cy - 5)
@@ -133,7 +134,7 @@ function measureMine(): number {
   runMine({ sim, port }, 180, firstSale)
   const measured = (creditsOf(sim, 1) - before) / 180
   const line = Math.max(0, measured - passive)
-  const invested = BUILDINGS.mine.cost + (FREE_TRUCKS + 1) * UNITS.truck.cost + BUILDINGS.silo.cost + BUILDINGS.refinery.cost + BUILDINGS.spaceport.cost + 2 * BUILDINGS.generator.cost
+  const invested = BUILDINGS.mine.cost + (FREE_TRUCKS + 1) * UNITS.truck.cost + BUILDINGS.silo.cost + BUILDINGS.smelter.cost + BUILDINGS.spaceport.cost + 2 * BUILDINGS.generator.cost
 
   console.log(`\nРудник в симуляции: шахта, ${FREE_TRUCKS + 1} грузовика, переработка, хранилище и космопорт; продажа металла, 5 минут`)
   console.log(`  первая продажа         ${firstSale ? clock(firstSale) : 'не дождались'}`)
@@ -185,6 +186,18 @@ function printTrucks() {
   console.log('  и готовое из переработки в хранилища: без свободного грузовика готовое остаётся на заводе')
 }
 
+/** Материалы в сырых ресурсах: изделия раскладываются по рецепту цеха на то, из чего их собирают. */
+function rawOf(materials: Amounts): Partial<Record<Resource, number>> {
+  const raw: Partial<Record<Resource, number>> = {}
+  for (const [good, amount] of entriesOf(materials)) {
+    if (isProduct(good)) {
+      const { recipe, yield: made } = PRODUCT_SPECS[good]
+      for (const [resource, need] of entriesOf(recipe)) raw[resource as Resource] = (raw[resource as Resource] ?? 0) + (need * amount) / made
+    } else raw[good as Resource] = (raw[good as Resource] ?? 0) + amount
+  }
+  return raw
+}
+
 /** 3. Что тратит производство и сколько линий его кормят. */
 function printProduction(lineRate: number) {
   const feed = Math.max(lineRate, 0.1)
@@ -194,23 +207,64 @@ function printProduction(lineRate: number) {
     for (const unit of buildingSpec(type).produces ?? []) {
       const info = unitSpec(unit)
       const burn = info.cost / info.buildTime
-      const share = (resource: Resource) => (info.materials?.[resource] ?? 0) / info.buildTime
+      const raw = rawOf(info.materials ?? {})
+      const share = (resource: Resource) => (raw[resource] ?? 0) / info.buildTime
       const lines = (['metal', 'silicon', 'fuel', 'kharite'] as Resource[]).reduce(
         (sum, resource) => sum + share(resource) / DEPOSIT_KINDS[resource].rate,
         0,
       )
       const show = (value: number) => (value > 0 ? round(value, 2) : '—')
+      // Материалы по цене продажи: столько кредитов игрок не выручил, пустив сырьё на юнит.
+      const value = entriesOf(raw).reduce((sum, [resource, amount]) => sum + amount * RESOURCE_SPECS[resource as Resource].price, 0)
       rows.push([
         type, unit, info.cost, round(info.buildTime, 0), round(burn, 1),
         show(share('metal')), show(share('silicon')), show(share('fuel')), show(share('kharite')),
-        round(lines, 1), round(burn / feed, 1),
+        round(lines, 1), round(burn / feed, 1), value ? `${Math.round((value / (value + info.cost)) * 100)}%` : '—',
       ])
     }
   }
-  printTable(['здание', 'юнит', 'цена', 'время', 'кр/с', 'м/с', 'к/с', 'т/с', 'х/с', 'линий', 'по деньгам'], rows, 12, 8)
-  console.log('  кр/с — кредитов в секунду; м/к/т/х — материалов в секунду;')
+  printTable(['здание', 'юнит', 'цена', 'время', 'кр/с', 'м/с', 'к/с', 'т/с', 'х/с', 'линий', 'по деньгам', 'материалы'], rows, 12, 8)
+  console.log('  кр/с — кредитов в секунду; м/к/т/х — материалов в секунду, изделия разложены по рецепту цеха;')
+  console.log('  материалы — доля сырья по цене продажи в полной цене юнита (кредиты плюс сырьё), цель 25–40%;')
   console.log(`  линий — столько шахт с грузовиками нужно на материалы, и каждая кормится переработкой (завод держит ${REFINE_RATE} руды/с);`)
   console.log(`  по деньгам — на кредиты при выручке ${round(feed, 1)} кр/с`)
+}
+
+/** Сколько боеприпасов в секунду тратит непрерывно стреляющая турель каждого вида. */
+function ammoBurn() {
+  return BUILDING_TYPES.filter((type) => buildingSpec(type).ammo).map((type) => {
+    const turret: TurretSpec = TURRETS[buildingSpec(type).mounts![0].turret]
+    const weapon: WeaponSpec = WEAPONS[turret.weapon!]
+    return { type, burn: (weapon.ammo ?? 0) / weapon.reload, capacity: buildingSpec(type).inventory ?? 0 }
+  })
+}
+
+/**
+ * 4. Производные: что ест цех на каждом рецепте, сколько линий его кормят и сколько он даёт; сколько турелей
+ * держит одна линия металла через цех на патронах (§3.7 design.md: цель — 2–4 турели под огнём).
+ */
+function printProducts() {
+  console.log('\nСборочный цех: рецепт, что он ест и что даёт, работая без остановки')
+  const rows: (string | number)[][] = []
+  for (const product of PRODUCTS) {
+    const { recipe, yield: made, stock } = PRODUCT_SPECS[product]
+    const seconds = cycleSeconds(product)
+    const show = (resource: Resource) => ((recipe as Partial<Record<Resource, number>>)[resource] ? round((recipe as Record<Resource, number>)[resource] / seconds, 2) : '—')
+    const lines = entriesOf(recipe).reduce((sum, [resource, need]) => sum + need / seconds / DEPOSIT_KINDS[resource as Resource].rate, 0)
+    rows.push([product, round(made / seconds, 2), show('metal'), show('silicon'), show('kharite'), round(lines, 2), stock])
+  }
+  printTable(['изделие', 'штук/с', 'м/с', 'к/с', 'х/с', 'линий', 'норма'], rows)
+  console.log(`  линий — сколько линий добычи цех съедает, работая без остановки; встаёт он, набрав норму у зоны`)
+
+  const ammoPerLine = (PRODUCT_SPECS.ammo.yield / totalOf(PRODUCT_SPECS.ammo.recipe)) * DEPOSIT_KINDS.metal.rate
+  console.log('\nБоеприпасы: что тратит турель под непрерывным огнём и сколько их держит одна линия металла')
+  printTable(
+    ['турель', 'патр/с', 'запас', 'хватает', 'на линию'],
+    ammoBurn().map(({ type, burn, capacity }) => [type, round(burn, 2), capacity, `${Math.round(capacity / burn)} с`, round(ammoPerLine / burn, 1)]),
+    14,
+    10,
+  )
+  console.log(`  линия металла через цех даёт ${round(ammoPerLine, 1)} патронов/с; хватает — сколько турель стреляет на своём запасе`)
 }
 
 /** Состояние разгона: что уже построено и кто свободен. */
@@ -307,7 +361,7 @@ function makeSteps(opening: Opening, core: { x: number; y: number }, deposit: De
     // Второй грузовик — свободный: привязанный к шахте руду на переработку возит, а космопорту нужен металл.
     produce('второй грузовик', 'truck', 2),
     // Переработка идёт до космопорта: продавать нечего, пока руда не станет металлом.
-    build('переработка', 'refinery', 1, core.x + 5, core.y + 4),
+    build('переработка', 'smelter', 1, core.x + 5, core.y + 4),
     build('космопорт', 'spaceport', 1, core.x + 8, core.y + 4),
     build('вторая электростанция', 'generator', 2, core.x - 5, core.y - 4),
     build('второй генератор материи', 'matter', 2, core.x - 2, core.y - 4),
@@ -439,5 +493,6 @@ export function runEconomy() {
   printLineMath()
   const lineRate = measureMine()
   printProduction(lineRate)
+  printProducts()
   printOpening()
 }
