@@ -1,9 +1,21 @@
-import { shownTo, spawnStartingUnits, type Command, type Sim } from '../sim'
-import { SAVED } from '../sim/components'
+import { Terrain, terrainAt } from '../map/terrain'
+import { isWalkable, shownTo, spawnStartingUnits, type Command, type Sim } from '../sim'
+import { Owner, Position, SAVED } from '../sim/components'
 import type { Trace } from '../sim/traces'
 import type { ServerMessage } from './protocol'
 
-/** На каком расстоянии от начала мира появляются игроки, в тайлах. */
+/**
+ * Где появляется новый игрок: в случайной точке карты, на скале, где хватит места под базу, и не ближе SPAWN_APART
+ * тайлов к чужим юнитам и зданиям. Не нашлось за SPAWN_TRIES попыток — требование к расстоянию слабеет вдвое.
+ */
+const SPAWN_APART = 96
+const SPAWN_TRIES = 400
+/** Сколько тайлов скалы должно быть в квадрате SPAWN_AREA вокруг точки появления: MCV есть где развернуться. */
+const SPAWN_AREA = 6
+const SPAWN_ROCK = 100
+/** Отступ точки появления от края карты. */
+const SPAWN_MARGIN = 16
+/** Запасной круг: если случайной точки не нашлось совсем, игроки встают на нём вокруг начала мира. */
 const SPAWN_RADIUS = 24
 /** Раз во сколько тиков хост ищет для игроков старые следы, а не только новые. */
 const SWEEP_TICKS = 5
@@ -84,9 +96,35 @@ export function createHost(first: Sim, player?: number): Host {
     return text
   }
 
-  /** Новый игрок: стартовый набор на круге вокруг начала мира. */
+  /** Случайная точка появления: на скале, просторная и подальше от других игроков; undefined — не нашлась. */
+  const spawnPoint = () => {
+    const others: { x: number; y: number }[] = []
+    for (const [, position, owner] of sim.world.query(Position, Owner)) if (owner.player) others.push(position)
+    const half = Math.floor(sim.options.size / 2) - SPAWN_MARGIN
+    for (let apart = SPAWN_APART; apart >= 8; apart /= 2) {
+      for (let attempt = 0; attempt < SPAWN_TRIES; attempt++) {
+        const x = Math.floor((Math.random() * 2 - 1) * half)
+        const y = Math.floor((Math.random() * 2 - 1) * half)
+        if (terrainAt(sim.land, x, y) !== Terrain.Rock || !isWalkable(sim, x, y)) continue
+        if (others.some((other) => Math.hypot(other.x - x, other.y - y) < apart)) continue
+        let rock = 0
+        for (let dy = -SPAWN_AREA; dy <= SPAWN_AREA; dy++) {
+          for (let dx = -SPAWN_AREA; dx <= SPAWN_AREA; dx++) if (terrainAt(sim.land, x + dx, y + dy) === Terrain.Rock) rock++
+        }
+        if (rock >= SPAWN_ROCK) return { x, y }
+      }
+    }
+    return undefined
+  }
+
+  /** Новый игрок: стартовый набор в случайном месте, см. spawnPoint; не нашлось — на круге вокруг начала мира. */
   const addPlayer = () => {
     const player = nextPlayer++
+    const point = spawnPoint()
+    if (point) {
+      spawnStartingUnits(sim, player, point.x, point.y)
+      return player
+    }
     const slot = player - 1
     const radius = SPAWN_RADIUS * (1 + Math.floor(slot / SPAWN_SLOTS))
     const angle = (slot / SPAWN_SLOTS) * Math.PI * 2
