@@ -3,9 +3,13 @@ import { createLand } from '../map/terrain'
 import { DEFAULT_RULES, boundsOf, type Command, type Sim } from '../sim'
 import { createOccupancy } from '../sim/buildings'
 import { createVision } from '../sim/vision'
-import { SAVED } from '../sim/components'
+import { BUILDINGS, type BuildingType } from '../sim/buildings'
+import { Ghost, SAVED } from '../sim/components'
 import { SAVE_VERSION, type SimSave } from '../sim/sim'
 import type { ClientMessage, ServerMessage } from './protocol'
+
+/** Из чего собираются призраки: сохраняемое и метка призрака. */
+const REMEMBERED = [...SAVED, Ghost]
 
 /** Копия чужой симуляции: выглядит как Sim, но сама игру не считает. */
 export interface Replica extends Sim {
@@ -27,10 +31,24 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
   const time: Time = { tick: 0, step: welcome.step, elapsed: 0, delta: 0, alpha: 0 }
   let pending: Extract<ServerMessage, { type: 'state' }> | null = null
   let failure: string | null = null
+  let player = welcome.player
+  /** Чужие здания и месторождения, увиденные раньше: какими их видели последний раз. */
+  const memory = new Map<number, Record<string, object>>()
+  /** Снесено ли запомненное: его место сейчас в обзоре, а хост его не прислал. */
+  const gone = (data: Record<string, object>) => {
+    const at = data.Position as { x: number; y: number } | undefined
+    if (!at) return true
+    const type = (data.Building as { type: BuildingType } | undefined)?.type
+    const { width, height } = type ? BUILDINGS[type] : { width: 1, height: 1 }
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (replica.vision.sees(player, at.x + x, at.y + y)) return true
+    return false
+  }
 
   const occupancy = createOccupancy(world)
   /** Мир по приветствию: при первом подключении и когда хост начинает мир заново. */
-  const meet = ({ options, step }: Extract<ServerMessage, { type: 'welcome' }>) => {
+  const meet = ({ options, step, player: own }: Extract<ServerMessage, { type: 'welcome' }>) => {
+    player = own
+    memory.clear()
     const generator = replica.options?.generator
     replica.options = options
     replica.bounds = boundsOf(options.size)
@@ -70,6 +88,19 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
       world.restore(pending.world, SAVED)
       world.flush()
       time.tick = pending.tick
+      // Чужое здание, ушедшее в туман, остаётся на карте призраком, пока его место не окажется в обзоре.
+      const present = new Set<number>()
+      for (const [id, data] of pending.world.entities) {
+        present.add(id)
+        const owner = (data.Owner as { player: number } | undefined)?.player
+        if (('Building' in data || 'Deposit' in data) && owner !== player) memory.set(id, data)
+      }
+      for (const [id, data] of memory) {
+        if (present.has(id)) continue
+        if (gone(data)) memory.delete(id)
+        else world.insert(id, { ...data, Ghost: {} }, REMEMBERED)
+      }
+      world.flush()
       time.elapsed = time.tick * time.step
       time.alpha = 0
       pending = null

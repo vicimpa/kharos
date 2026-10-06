@@ -1,6 +1,7 @@
 import type { Entity, World } from '../ecs'
 import { BUILDINGS, buildingSpec } from './buildings'
-import { Attached, Building, Owner, Position, Site, Unit } from './components'
+import { Attached, Building, Owner, Player, Position, Shot, Site, Unit } from './components'
+import type { Sim } from './sim'
 import type { Bounds } from './sim'
 import { TURRETS } from './turrets'
 import { unitSpec, type UnitType } from './units'
@@ -163,4 +164,27 @@ export function createVision(world: World, bounds: Bounds, tick: () => number): 
     },
   }
   return vision
+}
+
+/**
+ * Узнаёт ли игрок о сущности: так хост решает, что слать клиенту. Своё — всегда; чужого игрока — его счёт — никогда;
+ * выстрел — если виден снаряд, стрелок или место попадания: по выстрелу из тумана видно, откуда бьют. Остальное
+ * с местом на карте — пока оно в обзоре; без места — всегда.
+ */
+export function shownTo(sim: Sim, player: number, entity: Entity) {
+  const { world, vision } = sim
+  const owner = world.get(entity, Player)
+  if (owner) return owner.id === player
+  const shot = world.get(entity, Shot)
+  if (shot) {
+    const at = world.get(entity, Position)
+    return (
+      shot.player === player ||
+      vision.sees(player, shot.fromX, shot.fromY) ||
+      vision.sees(player, shot.toX, shot.toY) ||
+      (at !== undefined && vision.sees(player, at.x, at.y))
+    )
+  }
+  if (!world.has(entity, Position)) return true
+  return vision.seesEntity(player, entity)
 }

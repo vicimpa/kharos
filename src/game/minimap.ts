@@ -27,7 +27,14 @@ const NEUTRAL = '#c8c8c8'
  * Мини-карта: местность всей карты, месторождения, здания и юниты точками и рамка того, что видно на экране.
  * Местность считается по кусочку за кадр, чтобы не подвесить игру: карта проявляется сверху вниз.
  */
+/** Насколько тёмен туман на мини-карте, 0–255: не разведано, разведано, видно. */
+const FOG_ALPHA = [235, 120, 0]
+
 export function createMinimap(scene: Scene) {
+  const fog = new ImageData(MINIMAP_SIZE, MINIMAP_SIZE)
+  const fogCanvas = new OffscreenCanvas(MINIMAP_SIZE, MINIMAP_SIZE)
+  let fogChanged = -1
+  let fogCells: Uint8Array | null = null
   let sim: Sim | null = null
   let terrain: ImageData | null = null
   let canvas: OffscreenCanvas | null = null
@@ -87,9 +94,24 @@ export function createMinimap(scene: Scene) {
       context.drawImage(canvas!, 0, 0)
 
       for (const { x, y, color } of deposits) {
+        if (!scene.sim.vision.explored(scene.player, x, y)) continue
         context.fillStyle = color
         context.fillRect(toX(x) - 1, toY(y) - 1, 2, 2)
       }
+      // Туман: как на карте, только пиксель — несколько тайлов.
+      const { cells, changed } = scene.sim.vision.cells(scene.player)
+      if (changed !== fogChanged || cells !== fogCells) {
+        fogChanged = changed
+        fogCells = cells
+        const width = bounds.right - bounds.left
+        for (let y = 0; y < MINIMAP_SIZE; y++) {
+          const row = Math.floor(y / scale) * width
+          for (let x = 0; x < MINIMAP_SIZE; x++) fog.data[(y * MINIMAP_SIZE + x) * 4 + 3] = FOG_ALPHA[cells[row + Math.floor(x / scale)]]
+        }
+        fogCanvas.getContext('2d')!.putImageData(fog, 0, 0)
+      }
+      context.drawImage(fogCanvas, 0, 0)
+
       const colorOf = (player: number) => (player === scene.player ? OWN : player === 0 ? NEUTRAL : FOE)
       for (const [entity, position, owner] of world.query(Position, Owner)) {
         const type = world.get(entity, Building)?.type ?? world.get(entity, Site)?.type

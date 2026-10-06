@@ -3,7 +3,8 @@ import { DEFAULT_CONFIG } from '../src/map/terrain'
 import { createHost, type Host } from '../src/net/host'
 import type { ServerMessage } from '../src/net/protocol'
 import { createReplica, type Replica } from '../src/net/replica'
-import { Owner, Position, Unit, createSim } from '../src/sim'
+import { Building, Ghost, Owner, Player, Position, Unit, createSim } from '../src/sim'
+import { placeBuilding } from '../src/sim/buildings'
 
 const STEP = 1 / 20
 
@@ -29,8 +30,27 @@ test('клиент получает мир сразу после подключ�
   const { peer, sim } = join(host)
   sim.advance(0)
   expect(peer.player).toBe(1)
+  expect(unitsOf(sim, 1).length).toBe(unitsOf(host.sim as never, 1).length)
   expect(unitsOf(sim, 1).length).toBeGreaterThan(0)
-  expect(sim.world.size).toBe(host.sim.world.size)
+})
+
+test('клиент получает только то, что видит: чужую базу вдали — нет, а подошедшего врага — да', () => {
+  const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: 256 }))
+  const first = join(host)
+  const second = join(host)
+  host.advance(STEP)
+  first.sim.advance(STEP)
+  expect(unitsOf(first.sim, 2)).toEqual([])
+  // Игрок 2 подогнал юнита вплотную к юниту игрока 1.
+  const [own] = unitsOf(first.sim, 1)
+  const [foe] = unitsOf(host.sim as never, 2)
+  Object.assign(host.sim.world.get(foe as never, Position)!, first.sim.world.get(own, Position)!)
+  host.advance(STEP)
+  first.sim.advance(STEP)
+  expect(unitsOf(first.sim, 2)).toEqual([foe])
+  // Счёт чужого игрока не приходит никогда.
+  expect(second.peer.player).toBe(2)
+  expect([...first.sim.world.query(Player)].map(([, player]) => player.id)).toEqual([1])
 })
 
 test('приказ клиента выполняет сервер, а клиент видит результат', () => {
@@ -60,8 +80,11 @@ test('чужими юнитами клиент не командует', () => {
   const second = join(host)
   expect(second.peer.player).toBe(2)
   second.sim.advance(0)
-  const [unit] = unitsOf(second.sim, 1)
-  const from = { ...second.sim.world.get(unit, Position)! }
+  // Юнитов первого игрока второй не видит — они далеко, — но номер юнита можно и угадать.
+  expect(unitsOf(second.sim, 1)).toEqual([])
+  first.sim.advance(0)
+  const [unit] = unitsOf(first.sim, 1)
+  const from = { ...first.sim.world.get(unit, Position)! }
 
   second.sim.send(2, { type: 'move', units: [unit], x: Math.floor(from.x) + 3, y: Math.floor(from.y) })
   for (let i = 0; i < 20; i++) host.advance(STEP)
@@ -98,4 +121,38 @@ test('между тиками копия ведёт alpha, а пропавшее
   expect(sim.time.alpha).toBe(1)
   sim.fail('обрыв')
   expect(() => sim.advance(STEP)).toThrow('обрыв')
+})
+
+test('чужое здание, ушедшее в туман, остаётся призраком, пока место не увидят снова', () => {
+  const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: 256 }))
+  const first = join(host)
+  join(host)
+  host.advance(STEP)
+  // Все юниты игрока 1 ходят вместе: сдвинуть его глаза — значит сдвинуть их всех.
+  const eyes = unitsOf(host.sim as never, 1).map((entity) => host.sim.world.get(entity as never, Position)!)
+  const shift = (dx: number) => eyes.forEach((position) => (position.x += dx))
+  const { x, y } = eyes[0]
+  const yard = placeBuilding(host.sim.world, 'khariteVault', Math.floor(x) + 2, Math.floor(y), 2)
+  const step = () => {
+    host.advance(STEP)
+    first.sim.advance(STEP)
+  }
+  step()
+  expect(first.sim.world.has(yard, Building)).toBe(true)
+  expect(first.sim.world.has(yard, Ghost)).toBe(false)
+
+  // Юниты ушли — хост здание больше не шлёт, а клиент его помнит.
+  shift(-60)
+  step()
+  step()
+  expect(first.sim.world.has(yard, Ghost)).toBe(true)
+
+  // Здание снесли в тумане: клиент узнаёт об этом, только вернувшись.
+  host.sim.world.destroy(yard as never)
+  step()
+  expect(first.sim.world.has(yard, Ghost)).toBe(true)
+  shift(60)
+  step()
+  step()
+  expect(first.sim.world.alive(yard)).toBe(false)
 })

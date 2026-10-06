@@ -188,4 +188,10 @@ export const Attached = component('Attached', { parent: -1, along: 0, across: 0 
 export const Carrier = component('Carrier', () => ({ turrets: [] as number[] }))
 
 /** Компоненты, которые попадают в сохранение и в сеть. Новый компонент симуляции добавляй сюда. */
+/**
+ * Призрак: чужое здание или месторождение, каким клиент видел его последний раз. Живёт только в клиенте: хост
+ * о нём не знает и не шлёт, пока место в тумане. Пропадает, когда место снова в обзоре, а здания там нет.
+ */
+export const Ghost = component('Ghost', {})
+
 export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Harvester, Inventory, Beam, Assembly, Trade, Armed, Shot, Blast]

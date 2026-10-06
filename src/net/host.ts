@@ -1,4 +1,5 @@
-import { spawnStartingUnits, type Command, type Sim } from '../sim'
+import { shownTo, spawnStartingUnits, type Command, type Sim } from '../sim'
+import { SAVED } from '../sim/components'
 import type { ServerMessage } from './protocol'
 
 /** На каком расстоянии от начала мира появляются игроки, в тайлах. */
@@ -21,7 +22,7 @@ export interface Host {
   replace(sim: Sim): void
   /** Сколько клиентов сейчас подключено. */
   readonly peers: number
-  /** Размер последнего разосланного снимка мира в символах. */
+  /** Размер самого большого из последних разосланных снимков мира в символах. */
   readonly stateSize: number
   /**
    * Подключает клиента. send отправляет ему текст сообщения. token — то, по чему хост узнаёт вернувшегося игрока:
@@ -46,7 +47,16 @@ export function createHost(first: Sim, player?: number): Host {
   let nextPlayer = 1
   let stateSize = 0
 
-  const state = () => JSON.stringify({ type: 'state', tick: sim.time.tick, world: sim.save().world } satisfies ServerMessage)
+  /** Мир глазами игрока: только то, что он видит. Вкладки одного игрока получают один и тот же текст. */
+  const state = (player: number, cache?: Map<number, string>) => {
+    let text = cache?.get(player)
+    if (text === undefined) {
+      const world = sim.world.snapshot(SAVED, (entity) => shownTo(sim, player, entity))
+      text = JSON.stringify({ type: 'state', tick: sim.time.tick, world } satisfies ServerMessage)
+      cache?.set(player, text)
+    }
+    return text
+  }
 
   /** Новый игрок: стартовый набор на круге вокруг начала мира. */
   const addPlayer = () => {
@@ -69,10 +79,10 @@ export function createHost(first: Sim, player?: number): Host {
     replace(next) {
       sim.destroy()
       sim = next
-      const text = state()
+      const cache = new Map<number, string>()
       for (const [send, player] of peers) {
         send(welcome(player))
-        send(text)
+        send(state(player, cache))
       }
     },
     get peers() {
@@ -91,7 +101,7 @@ export function createHost(first: Sim, player?: number): Host {
       peers.set(send, joined)
       send(welcome(joined))
       // Мир сразу, не дожидаясь тика: иначе клиент начал бы с пустого экрана.
-      send(state())
+      send(state(joined))
       return {
         player: joined,
         receive(text) {
@@ -115,9 +125,13 @@ export function createHost(first: Sim, player?: number): Host {
     advance(seconds) {
       const ticks = sim.advance(seconds)
       if (ticks && peers.size) {
-        const text = state()
-        stateSize = text.length
-        for (const send of peers.keys()) send(text)
+        const cache = new Map<number, string>()
+        stateSize = 0
+        for (const [send, player] of peers) {
+          const text = state(player, cache)
+          stateSize = Math.max(stateSize, text.length)
+          send(text)
+        }
       }
       return ticks
     },

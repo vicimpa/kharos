@@ -14,6 +14,7 @@ import { Camera } from './camera'
 import { createControls } from './controls'
 import { createCursorPass } from './cursorPass'
 import { createDecalsPass } from './decalsPass'
+import { createFogPass } from './fogPass'
 import { createShake } from './shake'
 import { createSoundscape } from './soundscape'
 import { createDepositsPass } from './depositsPass'
@@ -114,6 +115,8 @@ export function createGame(canvas: HTMLCanvasElement, settings: MapSettings, onE
         createPrecipitationPass(gl, scene, landWindow),
         combat.lights,
         createLightingPass(gl, scene, [units.ground, buildings, units.emplacements]),
+        // Туман — над миром и его светом, под зонами, выделением и курсором.
+        createFogPass(gl, scene),
         createPowerPass(gl, scene),
         combat.effects,
         createSelectionPass(gl, scene),

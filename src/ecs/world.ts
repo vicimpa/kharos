@@ -306,11 +306,13 @@ export class World {
 
   /**
    * Снимок перечисленных компонентов. Сущности, у которых нет ни одного из них, в снимок не попадают:
-   * так в нём не оказывается то, что живёт только на клиенте.
+   * так в нём не оказывается то, что живёт только на клиенте. keep — какие сущности брать: так хост шлёт
+   * игроку только то, что тот видит.
    */
-  snapshot(components: Component<any>[]): WorldSnapshot {
+  snapshot(components: Component<any>[], keep?: (entity: Entity) => boolean): WorldSnapshot {
     const entities: WorldSnapshot['entities'] = []
     for (const entity of this.entities) {
+      if (keep && !keep(entity)) continue
       const data: Record<string, object> = {}
       let found = false
       for (const component of components) {
@@ -332,16 +334,24 @@ export class World {
     if (this.iterating) throw new Error('Нельзя восстанавливать мир во время обхода запроса')
     this.clear()
     const byKey = new Map(components.map((component) => [component.key, component]))
-    for (const [id, data] of snapshot.entities) {
-      const entity = id as Entity
-      this.entities.add(entity)
-      for (const key in data) {
-        const component = byKey.get(key)
-        if (component) this.add(entity, component(copy(data[key])))
-      }
-      if (id >= this.nextEntity) this.nextEntity = id + 1
-    }
+    for (const [id, data] of snapshot.entities) this.insert(id, data, byKey)
     if (snapshot.next > this.nextEntity) this.nextEntity = snapshot.next
+  }
+
+  /**
+   * Добавляет одну сущность из снимка под её прежним номером, не трогая остальные. Так клиент дополняет
+   * присланный мир тем, что помнит сам.
+   */
+  insert(id: number, data: Record<string, object>, components: Component<any>[] | Map<string, Component<any>>) {
+    if (this.iterating) throw new Error('Нельзя добавлять сущности во время обхода запроса')
+    const byKey = components instanceof Map ? components : new Map(components.map((component) => [component.key, component]))
+    const entity = id as Entity
+    this.entities.add(entity)
+    for (const key in data) {
+      const component = byKey.get(key)
+      if (component) this.add(entity, component(copy(data[key])))
+    }
+    if (id >= this.nextEntity) this.nextEntity = id + 1
   }
 
   private mark(entity: Entity, component: Component<any>) {
