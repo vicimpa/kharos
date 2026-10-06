@@ -27,6 +27,19 @@ npm run server   # пробный сервер для сетевой игры, w
 bun test         # тесты
 ```
 
+## Сервер
+
+Готовые сборки лежат в [релизах](https://github.com/vicimpa/kharos/releases/latest). Свежая сборка из `main` скачивается напрямую:
+
+- [Linux x64](https://github.com/vicimpa/kharos/releases/latest/download/kharos-server-linux-x64) и [Linux arm64](https://github.com/vicimpa/kharos/releases/latest/download/kharos-server-linux-arm64): Bun для них не нужен.
+- [main.js](https://github.com/vicimpa/kharos/releases/latest/download/main.js): для машины, где стоит Bun.
+
+```bash
+curl -LO https://github.com/vicimpa/kharos/releases/latest/download/kharos-server-linux-x64
+chmod +x kharos-server-linux-x64
+PORT=8787 ./kharos-server-linux-x64
+```
+
 ## Стек
 
 TypeScript, Vite, Preact, собственный ECS и собственный рендер на WebGL 2. Сервер работает на Bun.

@@ -3,14 +3,17 @@ name: Сервер
 on:
   push:
     branches: [main]
-    tags: ['v*']
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: server-release
+  cancel-in-progress: false
+
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,11 +24,29 @@ jobs:
       - run: bun build server/main.ts --target=bun --minify --outfile out/main.js
       - run: bun build server/main.ts --compile --minify --target=bun-linux-x64 --outfile out/kharos-server-linux-x64
       - run: bun build server/main.ts --compile --minify --target=bun-linux-arm64 --outfile out/kharos-server-linux-arm64
-      - uses: actions/upload-artifact@v4
+      # Версия протокола в имени релиза: по ней видно, к каким клиентам сервер подходит.
+      - id: version
+        run: |
+          protocol=$(grep -oP 'PROTOCOL_VERSION = \K\d+' src/net/protocol.ts)
+          echo "protocol=$protocol" >> "$GITHUB_OUTPUT"
+          echo "tag=server-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+      - uses: softprops/action-gh-release@v2
         with:
-          name: kharos-server
-          path: out/*
-      - if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Сервер №${{ github.run_number }} (протокол ${{ steps.version.outputs.protocol }})
+          make_latest: true
+          generate_release_notes: true
+          body: |
+            Сборка из ${{ github.sha }}. Клиент на GitHub Pages собран из того же коммита.
+
+            - `kharos-server-linux-x64`, `kharos-server-linux-arm64` — запускаются без Bun: `PORT=8787 ./kharos-server-linux-x64`
+            - `main.js` — для машины с Bun: `PORT=8787 bun main.js`
           files: out/*
+      # Хранятся последние десять сборок сервера, старые релизы уходят вместе с тегами.
+      - run: |
+          gh release list --limit 100 --json tagName --jq '.[].tagName | select(startswith("server-"))' \
+            | sort -t- -k2 -n -r | tail -n +11 \
+            | xargs -r -n1 gh release delete --yes --cleanup-tag
+        env:
+          GH_TOKEN: ${{ github.token }}
