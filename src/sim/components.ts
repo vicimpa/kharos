@@ -123,7 +123,8 @@ export const Inventory = component('Inventory', () => ({ items: {} as Amounts, c
  * Ищет он честно: среди разведанных игроком, а не найдя — разведывает сам. Выработается — ищет того же вида.
  * parked — стоит и ждёт команды: новый харвестер, уведённый приказом идти или не нашедший ничего.
  */
-export const Harvester = component('Harvester', { x: -1, y: -1, ordered: false, parked: true, seek: '' as DepositKind | 'any' | '' })
+/** scoutX, scoutY — откуда начат поиск: разведка идёт кольцами вокруг этой точки; -1 — поиск не начат. */
+export const Harvester = component('Harvester', { x: -1, y: -1, ordered: false, parked: true, seek: '' as DepositKind | 'any' | '', scoutX: -1, scoutY: -1 })
 
 export const Beam = component('Beam', () => ({ radius: 2, rate: 10, give: true, take: true, links: [] as { target: number; pulling: boolean; resource: Good }[] }))
 

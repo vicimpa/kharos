@@ -109,7 +109,7 @@ export function orderSeek(sim: Sim, player: number, units: Entity[], kind: Depos
   for (const entity of new Set(units)) {
     const harvester = sim.world.get(entity, Harvester)
     if (!harvester || !isOwn(sim, player, entity)) continue
-    Object.assign(harvester, { x: NONE, y: NONE, ordered: false, parked: false, seek: kind })
+    Object.assign(harvester, { x: NONE, y: NONE, ordered: false, parked: false, seek: kind, scoutX: NONE, scoutY: NONE })
     sim.world.remove(entity, Path)
     ordered = true
   }
@@ -174,9 +174,13 @@ export function harvest(sim: Sim) {
       spot = nearestDeposit(sim, owner.player, position.x, position.y, refined.get(owner.player)!, kind) ?? null
       if (!spot) {
         harvester.x = harvester.y = NONE
+        // Разведка — вокруг места, где начат поиск, а не вокруг себя: иначе ближайшее неразведанное всё время
+        // впереди, и харвестер уезжает по прямой на край карты.
+        // Проверка «не ≥ 0» — и для старых сохранений, где поля нет.
+        if (!(harvester.scoutX >= 0)) Object.assign(harvester, { scoutX: position.x, scoutY: position.y })
         // Известного нет — разведывает; едущего не дёргают, пока не доедет.
         if (world.has(entity, Path)) continue
-        const target = scoutTarget(sim, owner.player, entity, position.x, position.y)
+        const target = scoutTarget(sim, owner.player, entity, harvester.scoutX, harvester.scoutY)
         if (target) moves.push({ entity, x: target.x, y: target.y, near: 0 })
         // Вокруг всё разведано, а искомого нет — ждёт команды.
         else Object.assign(harvester, { ordered: false, parked: true })
@@ -184,7 +188,7 @@ export function harvest(sim: Sim) {
       }
       // Нашёл, пока ехал на разведку: разворачивается к месторождению.
       world.remove(entity, Path)
-      Object.assign(harvester, { x: spot.x, y: spot.y, ordered: false })
+      Object.assign(harvester, { x: spot.x, y: spot.y, ordered: false, scoutX: NONE, scoutY: NONE })
     }
     const center = centerOf(spot)
     if (Math.hypot(center.x - position.x, center.y - position.y) > HARVEST_REACH) {

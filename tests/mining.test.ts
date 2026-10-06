@@ -517,3 +517,18 @@ test('выработав месторождение, харвестер ищет
   const { x, y } = sim.world.get(harvester, Harvester)!
   expect(depositAt(sim, x, y)!.kind).toBe(spot.kind)
 })
+
+test('ищущий руду харвестер разведывает вокруг места, где начал поиск, а не уезжает по прямой на край карты', () => {
+  const { sim, spot } = start()
+  const harvester = spawnUnit(sim, 'harvester', 1, spot.x - 1, spot.y)
+  const from = { ...sim.world.get(harvester, Position)! }
+  // Ищет то, чего рядом может и не быть: ни одного вида, кроме редкого.
+  sim.send(1, { type: 'seek', units: [harvester], kind: DEPOSIT_TYPES[DEPOSIT_TYPES.length - 1] })
+  let farthest = 0
+  for (let i = 0; i < 240; i++) {
+    seconds(sim, 1)
+    const position = sim.world.get(harvester, Position)!
+    farthest = Math.max(farthest, Math.hypot(position.x - from.x, position.y - from.y))
+  }
+  expect(farthest).toBeLessThan(2 * 60 + 10)
+})
