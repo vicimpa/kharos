@@ -28,6 +28,8 @@ export interface BuildingSpec {
   hp?: number
   /** Турели на здании: каждая — отдельная прикреплённая сущность, см. turrets.ts. */
   mounts?: MountSpec[]
+  /** Сколько тайлов от центра видит готовое здание; без поля — на BUILDING_SIGHT от края. См. vision.ts. */
+  sight?: number
   /** Энергия: больше нуля — вырабатывает, меньше — потребляет. */
   power?: number
   /**
@@ -135,7 +137,7 @@ export const SAND_DURABILITY = 0.7
 export const BUILDINGS = {
   // Доход главного здания не даёт остаться без кредитов совсем: на генератор он копит долго, но копит.
   // Своего склада у главного здания нет: всё готовое лежит в хранилищах своего вида.
-  command: { width: 3, height: 3, cost: 2000, income: 0.2, zone: 12, produces: ['builder', 'truck', 'harvester'] },
+  command: { width: 3, height: 3, cost: 2000, income: 0.2, zone: 12, sight: 10, produces: ['builder', 'truck', 'harvester'] },
   // Переработка — по зданию на руду: каждое принимает только свою руду и выдаёт её ресурс, один передел
   // (§4.3 шаг 5). Приём 1,5 руды/с — примерно полторы шахты металла: где поставить завод между шахтами
   // и хранилищем, решает игрок. Руду держит про запас на кузов, готовое отдаёт по общим заявкам.
@@ -155,7 +157,7 @@ export const BUILDINGS = {
   // дальше теснота делает каждый следующий всё дороже. Он страховка на случай, когда линий добычи нет (§4.3 шаг 3):
   // одной электростанции хватает на два генератора.
   matter: { width: 2, height: 2, cost: 250, power: -3, income: 1.5, crowding: true },
-  radar: { width: 2, height: 2, cost: 400 },
+  radar: { width: 2, height: 2, cost: 400, sight: 18 },
   windtrap: { width: 2, height: 2, cost: 300 },
   barracks: { width: 3, height: 2, cost: 250, power: -2, produces: ['infantry', 'rocketeer'] },
   // Шахта энергии не просит и начинает свою зону: тянуть к месторождению цепочку зданий не нужно.

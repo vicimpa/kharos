@@ -42,6 +42,8 @@ export interface UnitSpec {
   beam?: BeamSpec
   /** Харвестер: копает руду сам, столько в секунду, и возит её на переработку. См. harvesting.ts. */
   harvest?: number
+  /** Сколько тайлов от центра юнит видит; без поля — по классу, и не меньше дальности оружия. См. vision.ts. */
+  sight?: number
 }
 
 /**
@@ -49,21 +51,21 @@ export interface UnitSpec {
  * Как это выглядит на деле — видно прогоном `bun run balance`: он считает урон в секунду и проводит бои.
  */
 export const UNITS = {
-  mcv: { speed: 2.5, turn: 2.2, radius: 0.8, cost: 2000, buildTime: 30, kind: 'heavy', hp: 800 },
-  builder: { speed: 4, turn: 5, radius: 0.45, cost: 120, buildTime: 5, kind: 'vehicle', hp: 100, repair: 5 },
+  mcv: { speed: 2.5, turn: 2.2, radius: 0.8, cost: 2000, buildTime: 30, kind: 'heavy', hp: 800, sight: 9 },
+  builder: { speed: 4, turn: 5, radius: 0.45, cost: 120, buildTime: 5, kind: 'vehicle', hp: 100, repair: 5, sight: 6 },
   infantry: { speed: 3, turn: 10, radius: 0.3, cost: 60, buildTime: 3, kind: 'infantry', hp: 50, weapon: 'rifle' },
   // Грузовик возит добытое из шахты в хранилище и заказанное по зонам: см. hauling.ts. Своим лучом он и забирает груз,
   // и сгружает его: зданиям лучи не нужны.
   // Харвестер — шахта на колёсах: копает медленнее шахты, зато сам и где угодно, и сам возит руду на
   // переработку. Тяжелее грузовика: его ловят в поле, и он должен пережить первый налёт.
-  harvester: { speed: 3, turn: 3, radius: 0.55, cost: 400, buildTime: 10, kind: 'vehicle', hp: 300, inventory: 30, harvest: 0.75, beam: { radius: 2, rate: 10, give: true, take: true } },
-  truck: { speed: 3.5, turn: 4, radius: 0.45, cost: 150, buildTime: 8, kind: 'vehicle', hp: 150, inventory: 25, beam: { radius: 2, rate: 10, give: true, take: true } },
+  harvester: { speed: 3, turn: 3, radius: 0.55, cost: 400, buildTime: 10, kind: 'vehicle', hp: 300, sight: 6, inventory: 30, harvest: 0.75, beam: { radius: 2, rate: 10, give: true, take: true } },
+  truck: { speed: 3.5, turn: 4, radius: 0.45, cost: 150, buildTime: 8, kind: 'vehicle', hp: 150, sight: 6, inventory: 25, beam: { radius: 2, rate: 10, give: true, take: true } },
   // Пехота.
   rocketeer: { speed: 2.6, turn: 10, radius: 0.3, cost: 120, buildTime: 5, kind: 'infantry', hp: 40, weapon: 'launcher' },
   // Машинки: быстрые и хрупкие.
-  // Багги: за водителем сидит пассажир с миниганом и стреляет во все стороны.
+  // Багги: за водителем сидит пассажир с миниганом и стреляет во все стороны. Она же разведчик: видит дальше всех на земле.
   buggy: {
-    speed: 6, turn: 5, radius: 0.45, cost: 250, buildTime: 7, kind: 'vehicle', hp: 150, materials: { metal: 6 },
+    speed: 6, turn: 5, radius: 0.45, cost: 250, buildTime: 7, kind: 'vehicle', hp: 150, materials: { metal: 6 }, sight: 11,
     mounts: [{ turret: 'gunner', along: -0.16, across: 0 }],
   },
   // Лазеру нужен кремний.

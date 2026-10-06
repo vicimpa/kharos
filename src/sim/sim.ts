@@ -15,6 +15,7 @@ import { moveUnits } from './movement'
 import { produceUnits } from './production'
 import { refine } from './refining'
 import { followCarriers, restTurrets } from './turrets'
+import { createVision, type Vision } from './vision'
 
 /** Границы карты в тайлах. Правая и нижняя — не включая. */
 export interface Bounds {
@@ -71,6 +72,8 @@ export interface Sim {
   readonly world: World
   readonly land: Land
   readonly occupancy: Occupancy
+  /** Что видит каждый игрок: по ней хост решает, что слать клиенту, а клиент рисует туман. */
+  readonly vision: Vision
   /** Правила. Поля можно менять на ходу: со следующего тика симуляция считает по новым. */
   readonly rules: Rules
   /** Время симуляции. alpha — доля тика, прошедшая после последнего: ею клиент сглаживает движение. */
@@ -139,6 +142,7 @@ export function createSim(source: SimOptions | SimSave): Sim {
     world,
     land: createLand(options.generator),
     occupancy: createOccupancy(world),
+    vision: createVision(world, bounds, () => loop.time.tick),
     rules,
     time: loop.time,
     send(player, command) {
