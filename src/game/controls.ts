@@ -168,7 +168,8 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
       // Харвестеры по месторождению — копают его, если на нём нет шахты.
       const harvesters = units.some((entity) => sim.world.has(entity, Harvester))
       const found = harvesters ? depositNear(sim, point.x, point.y, DEPOSIT_SIZE) : null
-      const deposit = found && !hasMine(sim, found) ? found : null
+      const known = found && sim.vision.exploredIn(scene.player, found.x, found.y, DEPOSIT_SIZE, DEPOSIT_SIZE)
+      const deposit = found && known && !hasMine(sim, found) ? found : null
       const onDeposit = deposit && x >= deposit.x && x < deposit.x + DEPOSIT_SIZE && y >= deposit.y && y < deposit.y + DEPOSIT_SIZE
       // Грузовики по своей шахте — привязываются к ней и возят добытое.
       if (fighters && enemy !== undefined && canAttack(sim, scene.player, enemy)) {

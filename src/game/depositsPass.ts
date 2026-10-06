@@ -87,7 +87,8 @@ export function createDepositsPass(gl: WebGL2RenderingContext, scene: Scene): Pa
       for (let cellY = top; cellY <= bottom; cellY++) {
         for (let cellX = left; cellX <= right; cellX++) {
           const spot = depositIn(sim, cellX, cellY)
-          if (!spot) continue
+          // Не найденное игроком не видно и сквозь туман.
+          if (!spot || !sim.vision.exploredIn(scene.player, spot.x, spot.y, DEPOSIT_SIZE, DEPOSIT_SIZE)) continue
           const alpha = reserveLeft(sim, spot.x, spot.y) > 0 ? 1 : SPENT_ALPHA
           const frame = frames.get(spot.kind)!
           sprites.push(

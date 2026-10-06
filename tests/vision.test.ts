@@ -48,3 +48,18 @@ test('чужое видно, только пока оно в обзоре: зд�
   // Своё видно всегда.
   expect(sim.vision.seesEntity(2, far)).toBe(true)
 })
+
+test('разведанное переживает сохранение, а видимое — нет: после загрузки видно только то, что видят юниты', () => {
+  const sim = createSim(options)
+  const scout = spawnUnit(sim, 'infantry', 1, 0, 0)
+  sim.advance(TICK)
+  sim.world.get(scout, Position)!.x = 60
+  sim.advance(TICK)
+  expect(sim.vision.explored(1, 0, 0)).toBe(true)
+
+  const loaded = createSim(JSON.parse(JSON.stringify(sim.save())))
+  expect(loaded.vision.explored(1, 0, 0)).toBe(true)
+  expect(loaded.vision.sees(1, 0, 0)).toBe(false)
+  expect(loaded.vision.sees(1, 60, 0)).toBe(true)
+  expect(loaded.vision.explored(1, -60, 0)).toBe(false)
+})

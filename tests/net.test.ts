@@ -156,3 +156,18 @@ test('чужое здание, ушедшее в туман, остаётся п
   step()
   expect(first.sim.world.alive(yard)).toBe(false)
 })
+
+test('вернувшийся игрок получает карту, разведанную раньше', () => {
+  const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: 256 }))
+  const first = join(host, 'a')
+  host.advance(STEP)
+  first.sim.advance(STEP)
+  const [unit] = unitsOf(first.sim, 1)
+  const { x, y } = first.sim.world.get(unit, Position)!
+  first.peer.leave()
+
+  const again = join(host, 'a')
+  // Ещё ни одного мира от хоста, а разведанное уже есть.
+  expect(again.sim.vision.explored(1, x, y)).toBe(true)
+  expect(again.sim.vision.explored(1, x + 100, y)).toBe(false)
+})

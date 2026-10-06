@@ -70,6 +70,7 @@ export function createHost(first: Sim, player?: number): Host {
     return player
   }
 
+  const explored = (player: number) => JSON.stringify({ type: 'explored', map: sim.vision.map(player) } satisfies ServerMessage)
   const welcome = (player: number) => JSON.stringify({ type: 'welcome', player, options: sim.options, step: sim.time.step } satisfies ServerMessage)
 
   return {
@@ -82,6 +83,7 @@ export function createHost(first: Sim, player?: number): Host {
       const cache = new Map<number, string>()
       for (const [send, player] of peers) {
         send(welcome(player))
+        send(explored(player))
         send(state(player, cache))
       }
     },
@@ -100,6 +102,7 @@ export function createHost(first: Sim, player?: number): Host {
       const joined = own
       peers.set(send, joined)
       send(welcome(joined))
+      send(explored(joined))
       // Мир сразу, не дожидаясь тика: иначе клиент начал бы с пустого экрана.
       send(state(joined))
       return {

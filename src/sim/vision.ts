@@ -57,6 +57,22 @@ export interface Vision {
    * Для отрисовки тумана; changed растёт, когда что-то в них поменялось.
    */
   cells(player: number): { cells: Uint8Array; changed: number }
+  /** Разведано ли хоть что-то в прямоугольнике тайлов: так скрывают месторождения, которых игрок не нашёл. */
+  exploredIn(player: number, x: number, y: number, width: number, height: number): boolean
+  /**
+   * Разведанное игроком — длины чередующихся отрезков «не разведано», «разведано» по тайлам построчно. Его кладут
+   * в сохранение и шлют клиенту при подключении: карта, раз открытая, остаётся открытой.
+   */
+  map(player: number): number[]
+  /** Отмечает разведанным всё, что разведано в map. */
+  explore(player: number, map: number[]): void
+  /** Игроки, для которых что-то считалось. */
+  players(): number[]
+  /**
+   * Пересчитывает обзор всех, у кого что-то есть на карте. Последняя система тика: так разведанное копится
+   * и у игроков, которые сейчас не подключены.
+   */
+  update(): void
   /** Забывает всё: разведанное в том числе. */
   reset(): void
 }
@@ -158,6 +174,43 @@ export function createVision(world: World, bounds: Bounds, tick: () => number): 
     cells(player) {
       const { cells, changed } = sightOf(player)
       return { cells, changed }
+    },
+    exploredIn(player, x, y, w, h) {
+      for (let tileY = Math.floor(y); tileY < y + h; tileY++) for (let tileX = Math.floor(x); tileX < x + w; tileX++) if (vision.explored(player, tileX, tileY)) return true
+      return false
+    },
+    map(player) {
+      const { cells } = sightOf(player)
+      const runs: number[] = []
+      let value = 0
+      let run = 0
+      for (let i = 0; i < cells.length; i++) {
+        const next = cells[i] === HIDDEN ? 0 : 1
+        if (next !== value) {
+          runs.push(run)
+          value = next
+          run = 0
+        }
+        run++
+      }
+      runs.push(run)
+      return runs
+    },
+    explore(player, map) {
+      const { cells } = sightOf(player)
+      let index = 0
+      map.forEach((run, i) => {
+        const end = Math.min(cells.length, index + run)
+        if (i % 2) for (let j = index; j < end; j++) if (cells[j] === HIDDEN) cells[j] = EXPLORED
+        index = end
+      })
+      sights.get(player)!.changed++
+    },
+    players: () => [...sights.keys()],
+    update() {
+      const players = new Set<number>()
+      for (const [, owner] of world.query(Owner, Position)) if (owner.player) players.add(owner.player)
+      for (const player of players) sightOf(player)
     },
     reset() {
       sights.clear()

@@ -59,6 +59,8 @@ export interface SimSave extends SimOptions {
   version: typeof SAVE_VERSION
   tick: number
   world: WorldSnapshot
+  /** Разведанное каждым игроком, см. Vision.map. В старых сохранениях его нет: там карта начинается закрытой. */
+  explored?: Record<string, number[]>
 }
 
 /**
@@ -134,6 +136,7 @@ export function createSim(source: SimOptions | SimSave): Sim {
       () => restTurrets(sim),
       () => recover(sim),
       () => earn(sim),
+      () => sim.vision.update(),
     ],
   })
   const sim: Sim = {
@@ -149,7 +152,13 @@ export function createSim(source: SimOptions | SimSave): Sim {
       queue.push({ player, command })
     },
     advance: (seconds) => loop.advance(seconds),
-    save: () => ({ version: SAVE_VERSION, ...options, tick: loop.time.tick, world: world.snapshot(SAVED) }),
+    save: () => ({
+      version: SAVE_VERSION,
+      ...options,
+      tick: loop.time.tick,
+      world: world.snapshot(SAVED),
+      explored: Object.fromEntries(sim.vision.players().map((player) => [player, sim.vision.map(player)])),
+    }),
     destroy() {
       sim.occupancy.destroy()
       world.clear()
@@ -159,6 +168,7 @@ export function createSim(source: SimOptions | SimSave): Sim {
   if ('world' in source) {
     world.restore(source.world, SAVED)
     refreshStorage(sim)
+    for (const [player, map] of Object.entries(source.explored ?? {})) sim.vision.explore(Number(player), map)
   }
   return sim
 }

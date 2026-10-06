@@ -23,7 +23,9 @@ export function placementOf(scene: Scene): Placement | null {
   const { width, height, extract }: BuildingSpec = BUILDINGS[type]
   let x = tile.x - Math.floor(width / 2)
   let y = tile.y - Math.floor(height / 2)
-  const deposit = extract && width === DEPOSIT_SIZE ? depositNear(scene.sim, tile.x + 0.5, tile.y + 0.5, SNAP) : null
+  const near = extract && width === DEPOSIT_SIZE ? depositNear(scene.sim, tile.x + 0.5, tile.y + 0.5, SNAP) : null
+  // К месторождению, которого игрок не нашёл, шахта не липнет: иначе выдала бы, где оно.
+  const deposit = near && scene.sim.vision.exploredIn(scene.player, near.x, near.y, DEPOSIT_SIZE, DEPOSIT_SIZE) ? near : null
   if (deposit) {
     x = deposit.x
     y = deposit.y

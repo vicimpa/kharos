@@ -114,6 +114,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     },
     receive(message: ServerMessage) {
       if (message.type === 'state') pending = message
+      else if (message.type === 'explored') replica.vision.explore(player, message.map)
       else {
         meet(message)
         replica.generation++
