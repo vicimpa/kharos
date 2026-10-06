@@ -89,7 +89,7 @@ npm run dev
 Игра по сети — пока проба. Сервер запускается через Bun, клиент подключается к нему параметром в адресе:
 
 ```bash
-npm run server                         # слушает ws://localhost:8787, порт меняется переменной PORT; мир хранится в save.json (переменная SAVE)
+npm run server                         # слушает ws://localhost:8787, порт меняется переменной PORT; настройки в settings.json, мир в save.json
 # в браузере: http://localhost:5173/?server
 ```
 
@@ -158,7 +158,8 @@ Production-сборка создаётся командой `npm run build`: с�
 | `src/net/local.ts`, `local.worker.ts` | Локальная игра: хост в общем воркере, режимы (игра, бой, тестовая карта), сохранение для вкладок |
 | `src/net/replica.ts`, `src/net/connect.ts` | Копия серверной симуляции в клиенте и подключение к серверу по WebSocket |
 | `src/net/protocol.ts` | Сообщения между сервером и клиентом |
-| `server/main.ts` | Сервер на Bun: WebSocket вокруг хоста |
+| `server/main.ts` | Сервер на Bun: WebSocket вокруг хоста, сохранение мира |
+| `server/settings.ts` | Настройки сервера из settings.json |
 | `src/ui/` | Интерфейс на Preact: страница игры, интерфейс игрока и отладочная панель |
 | `src/game/hud.ts` | Состояние интерфейса игрока, собранное из симуляции и выделения |
 | `tests/` | Тесты, запускаются через `npm test` |

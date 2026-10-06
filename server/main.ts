@@ -1,18 +1,34 @@
-import { DEFAULT_CONFIG } from '../src/map/terrain'
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { createHost, type HostSave, type Peer } from '../src/net/host'
+import { PROTOCOL_VERSION, versionMismatch, type ServerMessage } from '../src/net/protocol'
 import { SAVE_VERSION, createSim } from '../src/sim'
-import { DEFAULT_PORT, PROTOCOL_VERSION, versionMismatch, type ServerMessage } from '../src/net/protocol'
+import { defaultSettings, mergeSettings, type ServerSettings } from './settings'
 
-/** Сторона карты сервера в тайлах. */
-const SIZE = 256
 /** Как часто сервер пишет в консоль, что с ним происходит, в секундах. */
 const REPORT_INTERVAL = 5
-
-const port = Number(process.env.PORT) || DEFAULT_PORT
-/** Куда сервер сохраняет мир, и как часто — в секундах. */
-const SAVE_PATH = process.env.SAVE || 'save.json'
+/** Как часто сервер сохраняет мир, в секундах. */
 const SAVE_INTERVAL = 30
+/** Файл настроек; переменная SETTINGS меняет путь. */
+const SETTINGS_PATH = process.env.SETTINGS || 'settings.json'
+
+/** Настройки из файла; нет файла — он создаётся со всеми параметрами по умолчанию, чтобы было что править. */
+function readSettings(): ServerSettings {
+  const defaults = defaultSettings()
+  if (!existsSync(SETTINGS_PATH)) {
+    writeFileSync(SETTINGS_PATH, JSON.stringify(defaults, null, 2) + '\n')
+    console.log(`настройки по умолчанию записаны в ${SETTINGS_PATH}`)
+    return defaults
+  }
+  const warnings: string[] = []
+  const settings = mergeSettings(defaults, JSON.parse(readFileSync(SETTINGS_PATH, 'utf8')), warnings)
+  for (const warning of warnings) console.log(`${SETTINGS_PATH}: ${warning} — пропущено`)
+  return settings
+}
+
+const settings = readSettings()
+// Переменные окружения сильнее файла: так удобнее в docker и systemd.
+const port = Number(process.env.PORT) || settings.port
+const SAVE_PATH = process.env.SAVE || settings.save
 
 /** Мир из сохранения; сохранение другой версии игры откладывается в сторону, и мир начинается заново. */
 function load(): HostSave | undefined {
@@ -34,8 +50,11 @@ function store() {
 }
 
 const saved = load()
-const host = createHost(saved ? createSim(saved.sim) : createSim({ generator: DEFAULT_CONFIG, size: SIZE }), undefined, saved)
+// Карта и погода у сохранённого мира свои, а правила — из настроек: их можно менять между запусками.
+const { generator, size, fog, weather, rules } = settings
+const host = createHost(saved ? createSim({ ...saved.sim, rules }) : createSim({ generator, size, fog, weather, rules }), undefined, saved)
 if (saved) console.log(`мир загружен из ${SAVE_PATH}: тик ${saved.sim.tick}, игроков ${Object.keys(saved.players).length}`)
+else console.log(`новый мир ${size}×${size}, seed ${generator.seed}`)
 
 Bun.serve<{ id?: string; name?: string; version: number; peer?: Peer }>({
   port,
