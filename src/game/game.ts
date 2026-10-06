@@ -2,7 +2,7 @@ import { createAudio } from '../audio/audio'
 import { createLandWindow, minZoom, type LandWindow } from '../map/landWindow'
 import type { MapSettings } from '../map/settings'
 import { createTerrainPass } from '../map/terrainPass'
-import { createRenderer } from '../render/renderer'
+import { createRenderer, type Pass } from '../render/renderer'
 import type { Session } from '../net/connect'
 import { Position, Unit, isOwn, type BuildingType, type Command, type SimOptions, type UnitType } from '../sim'
 import { createLightingPass } from '../weather/lightingPass'
@@ -29,6 +29,24 @@ import { createUnitsPasses } from './units/unitsPass'
 
 /** Как часто вкладка запоминает место камеры, в секундах. */
 const CAMERA_INTERVAL = 10
+/** Витрина: масштаб в пикселях на тайл, как быстро камера догоняет действие и как медленно кружит вокруг него. */
+const SHOWCASE_ZOOM = 28
+const SHOWCASE_FOLLOW = 0.4
+const SHOWCASE_ORBIT = 0.05
+const SHOWCASE_RADIUS = 6
+/** С какой ширины экрана меню стоит слева от действия и сколько пикселей оно занимает. */
+const SHOWCASE_WIDE = 760
+const SHOWCASE_MENU = 400
+
+/**
+ * Как играть на холсте. slot — локальная игра из этого слота сохранений: камера встаёт туда, где была, и место
+ * запоминается в нём же. showcase — витрина для фона меню: ни управления, ни звука, ни тумана, а камера сама
+ * следит за происходящим.
+ */
+export interface GameOptions {
+  slot?: string
+  showcase?: boolean
+}
 
 export interface Game {
   readonly scene: Scene
@@ -66,12 +84,17 @@ export const simOptions = (settings: MapSettings): SimOptions => ({ generator: s
  * Собирает игру на холсте: отрисовку и управление поверх копии мира из session — и запускает кадры.
  * Сам мир считает хост: воркер локальной игры или сервер. Если запустить не удалось (нет WebGL 2, не собрался
  * шейдер), бросает ошибку. onError получает ошибки, случившиеся уже во время игры; игра после них остановлена.
- * resumed — локальная игра продолжает сохранение: тогда камера встаёт туда, где была.
  */
-export function createGame(canvas: HTMLCanvasElement, settings: MapSettings, onError: (error: unknown) => void, session: Session, resumed = false): Game {
+export function createGame(
+  canvas: HTMLCanvasElement,
+  settings: MapSettings,
+  onError: (error: unknown) => void,
+  session: Session,
+  { slot, showcase = false }: GameOptions = {},
+): Game {
   const camera = new Camera()
-  // Камера возвращается туда, где была, только вместе с миром: в новом мире старое место ничего не значит.
-  const view = resumed ? loadCamera() : null
+  // Камера возвращается туда, где была, только вместе с миром: в новом мире слота места ещё нет.
+  const view = slot ? loadCamera(slot) : null
   if (view) {
     camera.x = view.x
     camera.y = view.y
@@ -98,7 +121,8 @@ export function createGame(canvas: HTMLCanvasElement, settings: MapSettings, onE
       const units = createUnitsPasses(gl, scene)
       const buildings = createBuildingsPass(gl, scene)
       const combat = createCombatPasses(gl, scene)
-      // Порядок проходов — порядок отрисовки, снизу вверх.
+      // Порядок проходов — порядок отрисовки, снизу вверх. Витрине не нужны туман, зоны, выделение и курсор.
+      const play = (pass: Pass) => (showcase ? [] : [pass])
       return [
         createTerrainPass(gl, scene, landWindow),
         createDepositsPass(gl, scene),
@@ -116,11 +140,11 @@ export function createGame(canvas: HTMLCanvasElement, settings: MapSettings, onE
         combat.lights,
         createLightingPass(gl, scene, [units.ground, buildings, units.emplacements]),
         // Туман — над миром и его светом, под зонами, выделением и курсором.
-        createFogPass(gl, scene),
-        createPowerPass(gl, scene),
+        ...play(createFogPass(gl, scene)),
+        ...play(createPowerPass(gl, scene)),
         combat.effects,
-        createSelectionPass(gl, scene),
-        createCursorPass(gl, scene),
+        ...play(createSelectionPass(gl, scene)),
+        ...play(createCursorPass(gl, scene)),
       ]
     },
     onError,
@@ -136,17 +160,44 @@ export function createGame(canvas: HTMLCanvasElement, settings: MapSettings, onE
     camera.inset.top = top ? Math.max(0, Math.min(frame.height, top.bottom - frame.top)) : 0
     camera.inset.bottom = bottom ? Math.max(0, Math.min(frame.height, frame.bottom - bottom.top)) : 0
   }
-  const controls = createControls(canvas, scene)
-  const audio = createAudio()
+  const controls = showcase ? null : createControls(canvas, scene)
+  const audio = showcase ? null : createAudio()
   const shake = createShake()
-  const soundscape = createSoundscape(scene, audio, shake)
+  const soundscape = audio && createSoundscape(scene, audio, shake)
 
-  const saveCamera = () => storeCamera(camera)
+  const saveCamera = () => slot && storeCamera(slot, camera)
   let sinceSave = 0
   // Игрок на сервере появляется не в начале мира, а база тестовой карты — у ближайшего месторождения:
   // камера встаёт на его юнит, как только мир готов. Так же — когда хост начал мир заново.
   let centered = view !== null
   let generation = session.sim.generation
+
+  /**
+   * Камера витрины: плавно идёт к середине всех юнитов, медленно кружа вокруг неё, — так в кадре бой или
+   * работающая база, даже когда всё стоит.
+   */
+  let orbit = Math.random() * Math.PI * 2
+  const direct = (seconds: number) => {
+    let x = 0
+    let y = 0
+    let count = 0
+    for (const [, position] of scene.sim.world.query(Position, Unit)) {
+      x += position.x
+      y += position.y
+      count++
+    }
+    if (!count) return
+    // Слева на широком экране — меню: действие держится правее него.
+    camera.inset.left = camera.width >= SHOWCASE_WIDE ? Math.min(camera.width * 0.4, SHOWCASE_MENU) : 0
+    orbit += seconds * SHOWCASE_ORBIT * Math.PI * 2
+    const target = { x: x / count + Math.cos(orbit) * SHOWCASE_RADIUS, y: y / count + Math.sin(orbit) * SHOWCASE_RADIUS }
+    const focus = camera.focus
+    // Первый кадр — сразу на месте, дальше — вдогонку.
+    const follow = centered ? 1 - Math.exp(-seconds * SHOWCASE_FOLLOW) : 1
+    centered = true
+    camera.centerOn(focus.x + (target.x - focus.x) * follow, focus.y + (target.y - focus.y) * follow)
+    camera.zoomTo(SHOWCASE_ZOOM)
+  }
 
   // Мир один на все вкладки, и начинает его заново хост; на сервере — не может никто.
   const restart = () => session.local?.restart(simOptions(scene.settings), scene.settings.battle)
@@ -161,8 +212,9 @@ export function createGame(canvas: HTMLCanvasElement, settings: MapSettings, onE
       scene.spawning = null
       centered = false
     }
-    controls.update(seconds)
-    if (!centered) {
+    controls?.update(seconds)
+    if (showcase) direct(seconds)
+    else if (!centered) {
       for (const [entity, position] of sim.world.query(Position, Unit)) {
         if (!isOwn(sim, scene.player, entity)) continue
         camera.centerOn(position.x, position.y)
@@ -184,7 +236,7 @@ export function createGame(canvas: HTMLCanvasElement, settings: MapSettings, onE
       Math.min(sim.bounds.bottom, Math.max(sim.bounds.top, focus.y)),
     )
 
-    soundscape.update(seconds)
+    soundscape?.update(seconds)
     shake.update(seconds)
 
     sinceSave += seconds
@@ -230,24 +282,24 @@ export function createGame(canvas: HTMLCanvasElement, settings: MapSettings, onE
     },
     minimap: createMinimap(scene),
     lookAt: (x, y) => camera.centerOn(x, y),
-    lookAtSelection: () => controls.lookAtSelection(),
-    narrow: (type, remove) => controls.narrow(type, remove),
+    lookAtSelection: () => controls?.lookAtSelection(),
+    narrow: (type, remove) => controls?.narrow(type, remove),
     moveSelected(x, y) {
       const units = [...scene.selection].filter((entity) => scene.sim.world.has(entity, Unit))
       if (units.length) scene.sim.send(scene.player, { type: 'move', units, x: Math.floor(x), y: Math.floor(y) })
     },
     get muted() {
-      return audio.muted
+      return audio?.muted ?? true
     },
     set muted(value) {
-      audio.muted = value
+      if (audio) audio.muted = value
     },
     destroy() {
       stop()
       window.removeEventListener('pagehide', saveCamera)
       saveCamera()
-      controls.destroy()
-      audio.destroy()
+      controls?.destroy()
+      audio?.destroy()
       scene.sim.destroy()
       renderer.destroy()
       landWindow.destroy()

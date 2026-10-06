@@ -89,3 +89,22 @@ test('показательный бой идёт сам и не сохраняе
   expect(moved).toBe(true)
   expect(saves.length).toBe(0)
 })
+
+test('уходящая вкладка получает последнее сохранение, а без вкладок мир стоит', () => {
+  const server = createLocalServer()
+  const { saves, control } = tab(server)
+  for (let i = 0; i < 2 / STEP; i++) server.advance(STEP)
+  expect(saves.length).toBe(0)
+  control({ type: 'leave' })
+  expect(saves.length).toBe(1)
+  expect(saves[0].tick).toBe(server.host!.sim.time.tick)
+
+  const tick = server.host!.sim.time.tick
+  for (let i = 0; i < 2 / STEP; i++) server.advance(STEP)
+  expect(server.host!.sim.time.tick).toBe(tick)
+  // Вернувшаяся вкладка застаёт мир там, где его оставили, и он идёт дальше.
+  const back = tab(server)
+  expect(back.sim.time.tick).toBe(tick)
+  for (let i = 0; i < 10; i++) server.advance(STEP)
+  expect(server.host!.sim.time.tick).toBeGreaterThan(tick)
+})

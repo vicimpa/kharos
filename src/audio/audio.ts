@@ -16,11 +16,20 @@ export interface Audio {
   destroy(): void
 }
 
-const loadMuted = () => {
+/** Выключен ли звук по выбору игрока. Меню читает и меняет его до того, как звук создан. */
+export const loadMuted = () => {
   try {
     return localStorage.getItem(STORAGE_KEY) === '1'
   } catch {
     return false
+  }
+}
+
+export const storeMuted = (value: boolean) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, value ? '1' : '0')
+  } catch {
+    // Без хранилища выбор живёт до перезагрузки.
   }
 }
 
@@ -92,11 +101,7 @@ export function createAudio(): Audio {
     },
     set muted(value) {
       muted = value
-      try {
-        localStorage.setItem(STORAGE_KEY, value ? '1' : '0')
-      } catch {
-        // Без хранилища выбор живёт до перезагрузки.
-      }
+      storeMuted(value)
       if (master) master.gain.value = value ? 0 : MASTER
     },
     destroy() {

@@ -19,7 +19,8 @@
  * внутрь, а граница — 4: содержимое заходит на фаску, но не на обводку.
  */
 .hud,
-.panel {
+.panel,
+.menu__window {
   border: 4px solid transparent;
   border-image: var(--skin-panel) 4 fill / 8px;
   border-radius: 0;
@@ -28,6 +29,7 @@
 
 .hud button,
 .panel button,
+.menu button,
 .game__error button {
   border: 4px solid transparent;
   border-image: var(--skin-button) 4 fill / 8px;
@@ -41,19 +43,23 @@
 
 .hud button:hover:not(:disabled),
 .panel button:hover,
+.menu button:hover:not(:disabled),
 .game__error button:hover {
   border-image-source: var(--skin-button-hover);
   background: none;
 }
 
 .hud button:active:not(:disabled),
-.hud button.is-active {
+.hud button.is-active,
+.menu button:active:not(:disabled),
+.menu button.is-active {
   border-image-source: var(--skin-button-active);
   background: none;
   color: #e4f4ff;
 }
 
-.hud button:disabled {
+.hud button:disabled,
+.menu button:disabled {
   border-image-source: var(--skin-button-disabled);
   opacity: 0.6;
   cursor: default;
@@ -750,4 +756,234 @@ body {
 
 .tip small {
   color: #8fa9c2;
+}
+
+.game__actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Фон меню: слайды симуляции под затемнением; между слайдами экран уходит в темноту. */
+.showcase {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.showcase__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.showcase__veil {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, rgba(8, 17, 28, 0.1) 30%, rgba(8, 17, 28, 0.75));
+  transition: background-color 1.2s;
+}
+
+.showcase__veil.is-dark {
+  background-color: #08111c;
+}
+
+/* Главное меню: логотип и окно над слайдами. */
+.menu {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 16px;
+  overflow-y: auto;
+  /* Действие витрины — правее меню; на узком экране меню посередине. */
+  background: linear-gradient(90deg, rgba(8, 17, 28, 0.55), transparent 420px);
+  color: #d6e6f5;
+  font-size: 12px;
+  user-select: none;
+}
+
+.menu__logo {
+  margin: 0;
+  color: #e4f4ff;
+  font-family: var(--font-title);
+  font-size: 40px;
+  font-weight: 400;
+  letter-spacing: 8px;
+  text-shadow: 4px 4px 0 #0b111b, 0 0 24px rgba(90, 169, 255, 0.5);
+}
+
+.menu__window {
+  width: min(280px, 100%);
+  padding: 14px;
+}
+
+.menu__window--wide {
+  width: min(560px, 100%);
+}
+
+.menu__title {
+  margin: 0 0 12px;
+  color: #9bb9d1;
+  font-family: var(--font-title);
+  font-size: 20px;
+  font-weight: 400;
+  text-align: center;
+  text-shadow: 2px 2px 0 #0b111b;
+}
+
+.menu__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.menu button {
+  min-height: 30px;
+  padding: 4px 12px;
+}
+
+.menu__primary {
+  color: #f0c95a !important;
+}
+
+.menu__danger {
+  color: #ff6b5a !important;
+}
+
+.menu__form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.menu__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #9bb9d1;
+}
+
+.menu__field--slider {
+  display: grid;
+  grid-template-columns: 150px 1fr 48px;
+  align-items: center;
+  gap: 8px;
+}
+
+.menu__field output {
+  color: #d6e6f5;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.menu__field input:not([type='range']) {
+  min-width: 0;
+  flex: 1;
+  padding: 6px 8px;
+  border: 2px solid #1c2b3e;
+  border-radius: 0;
+  background: #070d15;
+  color: #d6e6f5;
+  font: inherit;
+  user-select: text;
+}
+
+.menu input[type='range'],
+.menu input[type='checkbox'] {
+  min-width: 0;
+  accent-color: #5aa9ff;
+}
+
+.menu__inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.menu__inline input {
+  flex: 1;
+}
+
+.menu__check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.menu__group {
+  margin: 6px 0 0;
+  color: #6184a3;
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: uppercase;
+}
+
+.menu__note {
+  margin: 0;
+  color: #6184a3;
+}
+
+.menu__error {
+  margin: 8px 0;
+  color: #ff6b5a;
+}
+
+.menu__saves {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 50vh;
+  margin: 0 0 10px;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.menu__save {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  border: 4px solid transparent;
+  border-image: var(--skin-well) 4 fill / 8px;
+}
+
+.menu__save-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.menu__save-info small {
+  color: #6184a3;
+}
+
+.menu__footer {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+/* На широком экране меню — слева, а действие витрины — правее него. */
+@media (min-width: 760px) {
+  .menu {
+    align-items: flex-start;
+    padding-left: 56px;
+  }
+
+  .menu__window:not(.menu__window--wide),
+  .menu__logo {
+    width: 300px;
+  }
+
+  .menu__logo {
+    text-align: center;
+  }
 }

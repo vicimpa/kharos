@@ -64,16 +64,18 @@ export function connect(url: string, lag = 0): Promise<Session> {
 
 /**
  * Подключается к локальной игре в воркере и ждёт приветствия. Воркер общий, если браузер их умеет: тогда все
- * вкладки одного режима играют в один мир. onSave получает сохранения, которые воркер присылает сам.
+ * вкладки с одним name играют в один мир. shared: false — свой воркер только для этой вкладки: его мир никто
+ * больше не видит, и с концом игры воркер останавливается. onSave получает сохранения, которые воркер присылает
+ * сам, — в том числе последнее, когда вкладка уходит из игры.
  */
-export function connectLocal(setup: LocalSetup, onSave: (save: SimSave) => void): Promise<Session> {
+export function connectLocal(setup: LocalSetup, onSave: (save: SimSave) => void, name: string, shared = true): Promise<Session> {
   return new Promise((resolve) => {
     let port: MessagePort | Worker
-    if (typeof SharedWorker !== 'undefined') {
-      const worker = new SharedWorker(new URL('./local.worker.ts', import.meta.url), { type: 'module', name: `kharos-${setup.mode}` })
-      port = worker.port
+    let worker: Worker | null = null
+    if (shared && typeof SharedWorker !== 'undefined') {
+      port = new SharedWorker(new URL('./local.worker.ts', import.meta.url), { type: 'module', name }).port
     } else {
-      port = new Worker(new URL('./local.worker.ts', import.meta.url), { type: 'module' })
+      port = worker = new Worker(new URL('./local.worker.ts', import.meta.url), { type: 'module', name })
     }
     const control = (message: LocalControl) => port.postMessage(message)
     const leave = () => control({ type: 'leave' })
@@ -87,6 +89,8 @@ export function connectLocal(setup: LocalSetup, onSave: (save: SimSave) => void)
       sim = createReplica(message, (text) => port.postMessage(text), () => {
         leave()
         window.removeEventListener('pagehide', leave)
+        // Свой воркер больше никому не нужен; общий живёт, пока его держит хоть одна вкладка.
+        worker?.terminate()
       })
       resolve({
         sim,

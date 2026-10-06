@@ -29,7 +29,8 @@ export interface LocalSetup {
 /**
  * Что вкладка шлёт воркеру локальной игры, кроме текста протокола (его — как серверу, строкой).
  * start — подключиться: первая вкладка заводит мир, остальные получают уже идущий; restart — начать мир заново;
- * rules — поменять правила на ходу; leave — вкладку закрывают.
+ * rules — поменять правила на ходу; leave — вкладку закрывают или она уходит в меню: обычной игре воркер
+ * тогда шлёт последнее сохранение.
  */
 export type LocalControl =
   | ({ type: 'start' } & LocalSetup)
@@ -112,6 +113,8 @@ export function createLocalServer(): LocalServer {
         } else if (control.type === 'rules' && host) {
           Object.assign(host.sim.rules, control.rules)
         } else if (control.type === 'leave') {
+          // Уходящая вкладка уносит мир как есть: в меню список сохранений покажет его свежим.
+          if (peer && host && setup?.mode === 'play') port.postMessage({ type: 'saved', save: host.sim.save() } satisfies LocalNotice)
           peer?.leave()
           peer = null
           ports.delete(port)
@@ -119,7 +122,8 @@ export function createLocalServer(): LocalServer {
       }
     },
     advance(seconds) {
-      if (!host || !setup) return
+      // Без вкладок мир стоит: в него никто не играет, а воркер может жить, пока открыта страница.
+      if (!host || !setup || !ports.size) return
       if (setup.mode === 'battle') {
         sinceOrders += seconds
         if (battleOver) {

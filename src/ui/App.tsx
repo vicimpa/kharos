@@ -1,163 +1,59 @@
-import { useEffect, useRef, useState } from 'preact/hooks'
-import { createGame, simOptions, type Game } from '../game/game'
-import { loadSave, storeSave } from '../game/storage'
+import { useEffect, useState } from 'preact/hooks'
 import { loadSettings, saveSettings } from '../map/settings'
-import { connect, connectLocal } from '../net/connect'
-import type { GameMode } from '../net/local'
-import { DEFAULT_PORT } from '../net/protocol'
-import type { HudState } from '../game/hud'
-import { GeneratorPanel } from './GeneratorPanel'
-import { DebugSpawn } from './DebugSpawn'
-import { Hud } from './Hud'
+import { GameView } from './GameView'
+import { launchFromAddress, type Launch } from './launch'
+import { Menu } from './Menu'
+import { Showcase } from './Showcase'
 
-/** Как часто интерфейс сверяется с игрой, в миллисекундах. */
-const HUD_INTERVAL = 100
+const PANEL_KEY = 'kharos.panel'
 
-/**
- * Адрес сервера из адресной строки: ?server=ws://host:port, а просто ?server — сервер на этой же машине.
- * Без параметра игра одиночная. ?lag=100 добавляет задержку в миллисекундах в каждую сторону.
- */
-function serverAddress() {
-  const query = new URLSearchParams(location.search)
-  const server = query.get('server')
-  if (server === null) return null
-  return { url: server || `ws://${location.hostname}:${DEFAULT_PORT}`, lag: Number(query.get('lag')) || 0 }
+/** Отладочная панель генератора: включается в настройках или параметром ?panel в адресной строке. */
+function loadPanel() {
+  if (new URLSearchParams(location.search).has('panel')) return true
+  try {
+    return localStorage.getItem(PANEL_KEY) === '1'
+  } catch {
+    return false
+  }
 }
 
-/** Отладочная панель генератора скрыта; открывается параметром ?panel в адресной строке. */
-const SHOW_PANEL = new URLSearchParams(location.search).has('panel')
-
 /**
- * Во что играют: параметр ?battle в адресной строке — показательный бой, ?sandbox — тестовая карта,
- * без них — обычная игра. Бой и тестовая карта сохранение не трогают.
+ * Страница: главное меню над слайдами симуляции или сама игра. Игра, заданная адресной строкой (?server,
+ * ?battle, ?sandbox), открывается сразу, минуя меню.
  */
-const MODES = ['battle', 'sandbox'] as const
-const MODE: GameMode = MODES.find((mode) => new URLSearchParams(location.search).has(mode)) ?? 'play'
-
-/** Переходит в другой режим игры: меняет параметр в адресной строке и перезагружает страницу. */
-function openMode(mode: GameMode) {
-  const query = new URLSearchParams(location.search)
-  for (const other of MODES) query.delete(other)
-  if (mode !== 'play') query.set(mode, '')
-  location.search = query.toString()
-}
-
-/** Страница игры: холст, на котором живёт сама игра, и интерфейс поверх него. */
 export function App() {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const gameRef = useRef<Game | null>(null)
   const [settings, setSettings] = useState(loadSettings)
-  const [error, setError] = useState<unknown>(null)
-  const [hud, setHud] = useState<HudState | null>(null)
-  const [muted, setMuted] = useState(false)
-  const [debug, setDebug] = useState(false)
+  const [panel, setPanel] = useState(loadPanel)
+  const [launch, setLaunch] = useState<Launch | null>(launchFromAddress)
 
-  // Игра создаётся один раз; дальше она получает только новые настройки.
+  useEffect(() => saveSettings(settings), [settings])
   useEffect(() => {
-    const server = serverAddress()
-    let closed = false
-    const start = async () => {
-      // Без сервера игра локальная: её считает воркер, а сохранение он присылает вкладке, и та кладёт его в браузер.
-      const save = server || MODE !== 'play' ? null : loadSave(simOptions(settings))
-      const session = server
-        ? await connect(server.url, server.lag)
-        : await connectLocal({ options: simOptions(settings), mode: MODE, battle: settings.battle, save }, storeSave)
-      if (closed) return session.sim.destroy()
-      gameRef.current = createGame(canvasRef.current!, settings, setError, session, save !== null)
-      setMuted(gameRef.current.muted)
+    try {
+      localStorage.setItem(PANEL_KEY, panel ? '1' : '0')
+    } catch {
+      // Выбор просто не запомнится.
     }
-    start().catch(setError)
-    return () => {
-      closed = true
-      gameRef.current?.destroy()
-      gameRef.current = null
-    }
-  }, [])
+  }, [panel])
 
-  // Интерфейс не подписывается на каждую сущность, а раз в HUD_INTERVAL спрашивает у игры готовое состояние
-  // и перерисовывается, только если оно изменилось.
-  useEffect(() => {
-    let last = ''
-    const timer = setInterval(() => {
-      const game = gameRef.current
-      if (!game) return
-      const next = game.hud()
-      const key = JSON.stringify(next)
-      if (key === last) return
-      last = key
-      setHud(next)
-    }, HUD_INTERVAL)
-    return () => clearInterval(timer)
-  }, [])
-
-  useEffect(() => {
-    gameRef.current?.setSettings(settings)
-    saveSettings(settings)
-  }, [settings])
-
+  if (launch) {
+    return (
+      <GameView
+        launch={launch}
+        settings={settings}
+        setSettings={setSettings}
+        panel={panel}
+        exit={() => {
+          // Из игры, открытой адресной строкой, меню возвращает без параметров: иначе перезагрузка снова откроет её.
+          if (location.search) history.replaceState(null, '', location.pathname)
+          setLaunch(null)
+        }}
+      />
+    )
+  }
   return (
     <main class="game">
-      <canvas ref={canvasRef} class="game__canvas" />
-      {hud && error === null && gameRef.current && (
-        <Hud
-          state={hud}
-          send={(command) => gameRef.current?.send(command)}
-          place={(building) => gameRef.current?.place(building)}
-          minimap={gameRef.current.minimap}
-          lookAt={(x, y) => gameRef.current?.lookAt(x, y)}
-          lookAtSelection={() => gameRef.current?.lookAtSelection()}
-          narrow={(type, remove) => gameRef.current?.narrow(type, remove)}
-          moveSelected={(x, y) => gameRef.current?.moveSelected(x, y)}
-          menu={
-            <>
-              {!serverAddress() &&
-                (MODE === 'play' ? (
-                  <>
-                    <button onClick={() => openMode('battle')}>Случайный бой</button>
-                    <button onClick={() => openMode('sandbox')}>Тестовая карта</button>
-                  </>
-                ) : (
-                  <>
-                    <button onClick={() => gameRef.current?.restart()}>{MODE === 'battle' ? 'Новый бой' : 'Заново'}</button>
-                    <button onClick={() => openMode('play')}>В игру</button>
-                  </>
-                ))}
-              <button
-                class={debug ? 'is-active' : undefined}
-                data-tip="Отладочный спавн: поставить здание, свой юнит или врага, куда щёлкнешь"
-                onClick={() => {
-                  if (debug) gameRef.current?.spawn(null)
-                  setDebug(!debug)
-                }}
-              >
-                Отладка
-              </button>
-              <button
-                data-tip={muted ? 'Включить звук' : 'Выключить звук'}
-                onClick={() => {
-                  const game = gameRef.current
-                  if (!game) return
-                  game.muted = !muted
-                  setMuted(game.muted)
-                }}
-              >
-                {muted ? 'Звук выкл' : 'Звук вкл'}
-              </button>
-            </>
-          }
-        />
-      )}
-      {hud && error === null && debug && <DebugSpawn spawning={hud.spawning} spawn={(spawn) => gameRef.current?.spawn(spawn)} />}
-      {SHOW_PANEL && (
-        <GeneratorPanel settings={settings} onChange={setSettings} onRestart={() => gameRef.current?.restart()} />
-      )}
-      {error !== null && (
-        <div class="game__error" role="alert">
-          <strong>Игра остановилась</strong>
-          <pre>{error instanceof Error ? error.message : String(error)}</pre>
-          <button onClick={() => location.reload()}>Перезагрузить</button>
-        </div>
-      )}
+      <Showcase settings={settings} />
+      <Menu settings={settings} setSettings={setSettings} panel={panel} setPanel={setPanel} play={setLaunch} />
     </main>
   )
 }
