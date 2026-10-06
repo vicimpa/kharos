@@ -198,3 +198,14 @@ test('грузу некуда деться — грузовик везёт ег�
   until(sim, () => cargo() < 1e-9, 60)
   expect(oreIn(sim, smelter, 'metal')).toBeGreaterThan(0)
 })
+
+test('машинный завод строит MCV из стройблоков и металла, и тот разворачивается в новую базу', () => {
+  const { sim, x, y, stash, buildings } = base(['factory'])
+  const [factory] = buildings
+  stash({ blocks: 40, metal: 40 })
+  spawnUnit(sim, 'truck', 1, x + 5, y + 4)
+  sim.send(1, { type: 'produce', producer: factory, unit: 'mcv' })
+  const mcvs = () => [...sim.world.query(Unit)].filter(([, unit]) => unit.type === 'mcv').map(([entity]) => entity)
+  until(sim, () => mcvs().length > 0)
+  expect(sim.world.has(mcvs()[0], Producer)).toBe(true)
+})

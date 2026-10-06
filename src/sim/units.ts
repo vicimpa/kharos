@@ -51,7 +51,7 @@ export interface UnitSpec {
  * Как это выглядит на деле — видно прогоном `bun run balance`: он считает урон в секунду и проводит бои.
  */
 export const UNITS = {
-  mcv: { speed: 2.5, turn: 2.2, radius: 0.8, cost: 2000, buildTime: 30, kind: 'heavy', hp: 800, sight: 9 },
+  mcv: { speed: 2.5, turn: 2.2, radius: 0.8, cost: 2000, buildTime: 30, kind: 'heavy', hp: 800, sight: 9, materials: { blocks: 20, metal: 20 } },
   builder: { speed: 4, turn: 5, radius: 0.45, cost: 120, buildTime: 5, kind: 'vehicle', hp: 100, repair: 5, sight: 6 },
   infantry: { speed: 3, turn: 10, radius: 0.3, cost: 60, buildTime: 3, kind: 'infantry', hp: 50, weapon: 'rifle' },
   // Грузовик возит добытое из шахты в хранилище и заказанное по зонам: см. hauling.ts. Своим лучом он и забирает груз,

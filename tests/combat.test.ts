@@ -287,7 +287,7 @@ test('пехоту выпускают казармы, технику — маш�
   }
   const [, barracks, factory, port, plant, spare] = layout.map(([type, dx]) => placeBuilding(sim.world, type, spot!.x + dx, spot!.y, 1))
   expect(producibleBy(sim, barracks)).toEqual(['infantry', 'rocketeer'])
-  expect(producibleBy(sim, factory)).toEqual(['buggy', 'lancer', 'tank', 'tesla', 'carrier'])
+  expect(producibleBy(sim, factory)).toEqual(['buggy', 'lancer', 'tank', 'tesla', 'carrier', 'mcv'])
   expect(producibleBy(sim, port)).toEqual(['drone', 'gunship'])
   // Потребляют 2 + 5 + 5 из 20.
   expect(zoneEconomies(sim, 1)[0]).toMatchObject({ produced: 20, demand: 12 })

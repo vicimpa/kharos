@@ -150,7 +150,7 @@ export const BUILDINGS = {
   ammoPlant: plant('ammo'),
   partsPlant: plant('parts'),
   // Машинный завод: машинки и тяжёлая техника. Строится из стройблоков: военная промышленность требует цеха.
-  factory: { width: 3, height: 3, cost: 450, power: -5, materials: { blocks: 10 }, produces: ['buggy', 'lancer', 'tank', 'tesla', 'carrier'] },
+  factory: { width: 3, height: 3, cost: 450, power: -5, materials: { blocks: 10 }, produces: ['buggy', 'lancer', 'tank', 'tesla', 'carrier', 'mcv'] },
   // Электростанция.
   generator: { width: 2, height: 2, cost: 300, power: 10 },
   // Генератор материи — базовый доход: превращает энергию в кредиты. Первая электростанция окупает его быстро,
