@@ -2,7 +2,7 @@ import { Terrain, terrainAt } from '../map/terrain'
 import { isWalkable, shownTo, spawnStartingUnits, type Command, type Sim } from '../sim'
 import { Owner, Position, SAVED } from '../sim/components'
 import type { Trace } from '../sim/traces'
-import type { ServerMessage } from './protocol'
+import { cleanName, type PlayerInfo, type ServerMessage } from './protocol'
 
 /**
  * Где появляется новый игрок: в случайной точке карты, на скале, где хватит места под базу, и не ближе SPAWN_APART
@@ -40,10 +40,11 @@ export interface Host {
   /** Размер самого большого из последних разосланных снимков мира в символах. */
   readonly stateSize: number
   /**
-   * Подключает клиента. send отправляет ему текст сообщения. token — то, по чему хост узнаёт вернувшегося игрока:
-   * с прежним token клиент получает прежнего игрока, а не новый стартовый набор.
+   * Подключает клиента. send отправляет ему текст сообщения. id — то, по чему хост узнаёт вернувшегося игрока: его
+   * выдаёт сам хост в приветствии; с прежним id клиент получает прежнего игрока, а не новый стартовый набор.
+   * Неизвестный или пустой id — новый игрок с новым id. name — ник; пустой — «Игрок N».
    */
-  join(send: (text: string) => void, token?: string): Peer
+  join(send: (text: string) => void, id?: string, name?: string): Peer
   /** Продвигает игру на seconds реального времени и рассылает мир, если прошёл хотя бы один тик. */
   advance(seconds: number): number
 }
@@ -81,8 +82,21 @@ export function createHost(first: Sim, player?: number): Host {
     }
     return found
   }
+  /** Номер игрока по id, который ему выдал хост. */
   const players = new Map<string, number>()
   let nextPlayer = 1
+  /** Ники игроков по номеру. */
+  const names = new Map<number, string>()
+  const roster = () => {
+    const online = new Set(peers.values())
+    const list: PlayerInfo[] = [...names].map(([player, name]) => ({ player, name, online: online.has(player) }))
+    return JSON.stringify({ type: 'players', players: list } satisfies ServerMessage)
+  }
+  /** Сообщает всем подключённым, кто сейчас в игре. */
+  const announce = () => {
+    const text = roster()
+    for (const send of peers.keys()) send(text)
+  }
   let stateSize = 0
 
   /** Мир глазами игрока: только то, что он видит. Вкладки одного игрока получают один и тот же текст. */
@@ -135,7 +149,7 @@ export function createHost(first: Sim, player?: number): Host {
   }
 
   const explored = (player: number) => JSON.stringify({ type: 'explored', map: sim.vision.map(player) } satisfies ServerMessage)
-  const welcome = (player: number) => JSON.stringify({ type: 'welcome', player, options: sim.options, step: sim.time.step } satisfies ServerMessage)
+  const welcome = (player: number, id?: string) => JSON.stringify({ type: 'welcome', player, options: sim.options, step: sim.time.step, id } satisfies ServerMessage)
 
   return {
     get sim() {
@@ -151,6 +165,7 @@ export function createHost(first: Sim, player?: number): Host {
         send(state(player, cache))
         shown.set(send, new Set())
       }
+      announce()
     },
     get peers() {
       return peers.size
@@ -158,19 +173,27 @@ export function createHost(first: Sim, player?: number): Host {
     get stateSize() {
       return stateSize
     },
-    join(send, token) {
-      let own = player ?? (token === undefined ? undefined : players.get(token))
+    join(send, id, name) {
+      let own = player
+      // У локальной игры игрок один, и узнавать его не нужно.
       if (own === undefined) {
-        own = addPlayer()
-        if (token !== undefined) players.set(token, own)
-      }
+        own = id ? players.get(id) : undefined
+        if (own === undefined) {
+          own = addPlayer()
+          id = crypto.randomUUID()
+          players.set(id, own)
+        }
+      } else id = undefined
       const joined = own
+      const nick = cleanName(name ?? '')
+      if (nick || !names.has(joined)) names.set(joined, nick || `Игрок ${joined}`)
       peers.set(send, joined)
       shown.set(send, new Set())
-      send(welcome(joined))
+      send(welcome(joined, id))
       send(explored(joined))
       // Мир сразу, не дожидаясь тика: иначе клиент начал бы с пустого экрана.
       send(state(joined))
+      announce()
       return {
         player: joined,
         receive(text) {
@@ -189,6 +212,7 @@ export function createHost(first: Sim, player?: number): Host {
         leave() {
           peers.delete(send)
           shown.delete(send)
+          announce()
         },
       }
     },

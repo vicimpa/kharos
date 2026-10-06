@@ -17,27 +17,38 @@ export interface Session {
   }
 }
 
-const TOKEN_KEY = 'kharos.token'
+const IDS_KEY = 'kharos.ids'
 
-/** Случайная строка, по которой сервер узнаёт этот браузер после перезагрузки страницы. */
-function token() {
+/** id, которые выдали серверы, по адресу сервера: у каждого сервера свой. */
+function loadIds(): Record<string, string> {
   try {
-    let value = localStorage.getItem(TOKEN_KEY)
-    if (!value) localStorage.setItem(TOKEN_KEY, (value = crypto.randomUUID()))
-    return value
+    const ids = JSON.parse(localStorage.getItem(IDS_KEY) ?? '{}') as unknown
+    return typeof ids === 'object' && ids !== null ? (ids as Record<string, string>) : {}
   } catch {
-    return crypto.randomUUID()
+    return {}
+  }
+}
+
+/** Запоминает id, под которым сервер url знает этот браузер: с ним клиент вернётся за своего игрока. */
+function storeId(url: string, id: string) {
+  try {
+    localStorage.setItem(IDS_KEY, JSON.stringify({ ...loadIds(), [url]: id }))
+  } catch {
+    // Без хранилища после перезагрузки сервер выдаст нового игрока.
   }
 }
 
 /**
- * Подключается к серверу по WebSocket и ждёт приветствия.
+ * Подключается к серверу по WebSocket и ждёт приветствия. С сервером, где уже играл, — с прежним id, и сервер
+ * отдаёт прежнего игрока; id из приветствия запоминается. name — ник.
  * lag — отладка: искусственная задержка в миллисекундах в каждую сторону, чтобы почувствовать плохую сеть.
  */
-export function connect(url: string, lag = 0): Promise<Session> {
+export function connect(url: string, lag = 0, name = ''): Promise<Session> {
   return new Promise((resolve, reject) => {
     const address = new URL(url)
-    address.searchParams.set('token', token())
+    const id = loadIds()[url]
+    if (id) address.searchParams.set('id', id)
+    if (name) address.searchParams.set('name', name)
     const socket = new WebSocket(address)
     const delayed = (action: () => void) => (lag > 0 ? void setTimeout(action, lag) : action())
     let sim: Replica | undefined
@@ -47,6 +58,7 @@ export function connect(url: string, lag = 0): Promise<Session> {
         const message = JSON.parse(event.data as string) as ServerMessage
         if (sim) return sim.receive(message)
         if (message.type !== 'welcome') return
+        if (message.id) storeId(url, message.id)
         sim = createReplica(
           message,
           (text) => delayed(() => socket.readyState === WebSocket.OPEN && socket.send(text)),

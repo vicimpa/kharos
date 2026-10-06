@@ -286,6 +286,28 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Игроки сервера: свой выделен, отключённые приглушены. */
+.hud__players {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  overflow: hidden;
+  color: #9bb9d1;
+  white-space: nowrap;
+}
+
+.hud__players .is-own {
+  color: #e8f1f8;
+}
+
+.hud__players .is-away {
+  opacity: 0.45;
+}
+
+.hud__players + .hud__clock {
+  margin-left: 0;
+}
+
 .hud .hud__menu button {
   padding: 0 10px;
   white-space: nowrap;

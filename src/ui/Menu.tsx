@@ -6,7 +6,8 @@ import { DEFAULT_SETTINGS } from '../map/settings'
 import { DEFAULT_CONFIG, type GeneratorConfig } from '../map/terrain'
 import { DEFAULT_WEATHER } from '../sim'
 import { GENERATOR_GROUPS, Groups } from './GeneratorPanel'
-import { localServerUrl, type Launch } from './launch'
+import { NAME_LENGTH, cleanName } from '../net/protocol'
+import { lastLaunch, localServerUrl, type Launch } from './launch'
 import { MapPreview } from './MapPreview'
 
 /** Симуляция идёт 20 тиков в секунду. */
@@ -42,10 +43,14 @@ const date = (time: number) => new Date(time).toLocaleString('ru', { day: 'numer
 
 function loadServer() {
   try {
-    const saved = JSON.parse(localStorage.getItem(SERVER_KEY) ?? 'null') as { url?: unknown; lag?: unknown } | null
-    return { url: typeof saved?.url === 'string' ? saved.url : localServerUrl(), lag: typeof saved?.lag === 'number' ? saved.lag : 0 }
+    const saved = JSON.parse(localStorage.getItem(SERVER_KEY) ?? 'null') as { url?: unknown; lag?: unknown; name?: unknown } | null
+    return {
+      url: typeof saved?.url === 'string' ? saved.url : localServerUrl(),
+      lag: typeof saved?.lag === 'number' ? saved.lag : 0,
+      name: typeof saved?.name === 'string' ? saved.name : '',
+    }
   } catch {
-    return { url: localServerUrl(), lag: 0 }
+    return { url: localServerUrl(), lag: 0, name: '' }
   }
 }
 
@@ -82,7 +87,8 @@ export function Menu({ panel, setPanel, play }: MenuProps) {
   const [saves, setSaves] = useState(listSaves)
   const refresh = () => setSaves(listSaves())
   const home = () => setScreen('main')
-  const last = saves[0]
+  const [last] = useState(lastLaunch)
+  const lastTitle = !last ? undefined : last.kind === 'save' ? `${last.slot.name} — ${playtime(last.slot.tick)}` : last.kind === 'server' ? `Сервер ${last.url}` : undefined
 
   return (
     <div class="menu">
@@ -90,7 +96,7 @@ export function Menu({ panel, setPanel, play }: MenuProps) {
       {screen === 'main' && (
         <Window title="Главное меню">
           <nav class="menu__list">
-            <button disabled={!last} title={last ? `${last.name} — ${playtime(last.tick)}` : undefined} onClick={() => last && play({ kind: 'save', slot: last })}>
+            <button disabled={!last} title={lastTitle} onClick={() => last && play(last)}>
               Продолжить
             </button>
             <button onClick={() => setScreen('new')}>Новая игра</button>
@@ -435,9 +441,18 @@ function Network({ back, play }: { back(): void; play(launch: Launch): void }) {
           } catch {
             // Адрес просто не запомнится.
           }
-          play({ kind: 'server', ...server })
+          play({ kind: 'server', ...server, name: cleanName(server.name) })
         }}
       >
+        <label class="menu__field">
+          <span>Ник</span>
+          <input
+            value={server.name}
+            maxLength={NAME_LENGTH}
+            placeholder="Как вас увидят другие"
+            onInput={(event) => setServer({ ...server, name: event.currentTarget.value })}
+          />
+        </label>
         <label class="menu__field">
           <span>Адрес сервера</span>
           <input value={server.url} placeholder="ws://host:port" onInput={(event) => setServer({ ...server, url: event.currentTarget.value.trim() })} />

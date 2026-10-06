@@ -11,7 +11,7 @@ import { DEFAULT_PORT } from '../net/protocol'
 export type Launch =
   | { kind: 'save'; slot: SaveSlot }
   | { kind: 'battle' | 'sandbox' }
-  | { kind: 'server'; url: string; lag: number }
+  | { kind: 'server'; url: string; lag: number; name?: string }
 
 /** Адрес сервера на этой же машине. */
 export const localServerUrl = () => `ws://${location.hostname}:${DEFAULT_PORT}`
@@ -44,14 +44,43 @@ export function rememberLaunch(launch: Launch | null) {
   }
 }
 
+const LAST_KEY = 'kharos.last'
+
+/** Во что играли последним: сохранение или сервер. Его открывает «Продолжить»; бой и тестовая карта не в счёт. */
+export function rememberLast(launch: Launch) {
+  if (launch.kind !== 'save' && launch.kind !== 'server') return
+  try {
+    localStorage.setItem(LAST_KEY, JSON.stringify(launch.kind === 'save' ? { kind: 'save', slot: launch.slot.id } : launch))
+  } catch {
+    // «Продолжить» откроет самое свежее сохранение.
+  }
+}
+
+/** Последняя игра для «Продолжить»: сервер или слот, взятый свежим из списка; иначе — самое свежее сохранение. */
+export function lastLaunch(): Launch | null {
+  try {
+    const last = parseLaunch(localStorage.getItem(LAST_KEY))
+    if (last) return last
+  } catch {
+    // Тогда — самое свежее сохранение.
+  }
+  const slot = listSaves()[0]
+  return slot ? { kind: 'save', slot } : null
+}
+
+/** Игра из сохранённого текста: слот — по id из нынешнего списка, удалённый — null. */
+function parseLaunch(text: string | null): Launch | null {
+  const saved = JSON.parse(text ?? 'null') as (Omit<Launch, 'slot'> & { slot?: string }) | null
+  if (!saved) return null
+  if (saved.kind !== 'save') return saved as Launch
+  const slot = listSaves().find((other) => other.id === saved.slot)
+  return slot ? { kind: 'save', slot } : null
+}
+
 /** Игра, в которой вкладка была до перезагрузки; слот берётся свежим из списка, удалённый — забыт. */
 export function recallLaunch(): Launch | null {
   try {
-    const saved = JSON.parse(sessionStorage.getItem(CURRENT_KEY) ?? 'null') as (Omit<Launch, 'slot'> & { slot?: string }) | null
-    if (!saved) return null
-    if (saved.kind !== 'save') return saved as Launch
-    const slot = listSaves().find((other) => other.id === saved.slot)
-    return slot ? { kind: 'save', slot } : null
+    return parseLaunch(sessionStorage.getItem(CURRENT_KEY))
   } catch {
     return null
   }
@@ -62,7 +91,7 @@ export function recallLaunch(): Launch | null {
  * слот, играют в один мир. Новый слот ещё пуст — его мир заводится по зерну и размеру слота.
  */
 export function startSession(launch: Launch, settings: MapSettings): Promise<Session> {
-  if (launch.kind === 'server') return connect(launch.url, launch.lag)
+  if (launch.kind === 'server') return connect(launch.url, launch.lag, launch.name)
   const options = simOptions(settings)
   if (launch.kind !== 'save') return connectLocal({ options, mode: launch.kind, battle: settings.battle, save: null }, () => {}, `kharos-${launch.kind}`)
   const { slot } = launch

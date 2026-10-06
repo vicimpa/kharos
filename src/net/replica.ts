@@ -7,7 +7,7 @@ import { createVision } from '../sim/vision'
 import { BUILDINGS, type BuildingType } from '../sim/buildings'
 import { Ghost, SAVED } from '../sim/components'
 import { SAVE_VERSION, type SimSave } from '../sim/sim'
-import type { ClientMessage, ServerMessage } from './protocol'
+import type { ClientMessage, PlayerInfo, ServerMessage } from './protocol'
 
 /** Из чего собираются призраки: сохраняемое и метка призрака. */
 const REMEMBERED = [...SAVED, Ghost]
@@ -20,6 +20,8 @@ export interface Replica extends Sim {
   fail(reason: string): void
   /** Растёт, когда хост начинает мир заново: по нему клиент сбрасывает выделение и камеру. */
   readonly generation: number
+  /** Кто играет на хосте, как его прислал хост; пусто, пока не прислал. */
+  readonly players: readonly PlayerInfo[]
 }
 
 /**
@@ -69,6 +71,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     land: undefined as unknown as Replica['land'],
     rules: undefined as unknown as Replica['rules'],
     generation: 0,
+    players: [] as PlayerInfo[],
     world,
     occupancy,
     vision: undefined as unknown as Replica['vision'],
@@ -120,6 +123,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
       if (message.type === 'state') pending = message
       else if (message.type === 'explored') replica.vision.explore(player, message.map)
       else if (message.type === 'traces') replica.traces.receive(message.traces)
+      else if (message.type === 'players') replica.players = message.players
       else {
         meet(message)
         replica.generation++

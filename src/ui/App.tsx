@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks'
 import { loadSettings, saveSettings } from '../map/settings'
 import { GameView } from './GameView'
-import { launchFromAddress, recallLaunch, rememberLaunch, type Launch } from './launch'
+import { launchFromAddress, recallLaunch, rememberLast, rememberLaunch, type Launch } from './launch'
 import { Menu } from './Menu'
 import { Showcase } from './Showcase'
 
@@ -28,7 +28,10 @@ export function App() {
 
   useEffect(() => saveSettings(settings), [settings])
   // Перезагрузка страницы возвращает в ту же игру, а не в меню.
-  useEffect(() => rememberLaunch(launch), [launch])
+  useEffect(() => {
+    rememberLaunch(launch)
+    if (launch) rememberLast(launch)
+  }, [launch])
   useEffect(() => {
     try {
       localStorage.setItem(PANEL_KEY, panel ? '1' : '0')

@@ -120,7 +120,7 @@ export function GameView({ launch, settings, setSettings, panel, exit }: GameVie
           <pre>{error instanceof Error ? error.message : String(error)}</pre>
           <div class="game__actions">
             <button onClick={exit}>В меню</button>
-            <button onClick={() => location.reload()}>Перезагрузить</button>
+            <button onClick={() => location.reload()}>{launch.kind === 'server' ? 'Переподключиться' : 'Перезагрузить'}</button>
           </div>
         </div>
       )}

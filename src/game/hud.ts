@@ -1,3 +1,4 @@
+import type { Replica } from '../net/replica'
 import { knownReserve } from './knownReserve'
 import type { Entity } from '../ecs'
 import {
@@ -22,6 +23,8 @@ export interface HudState {
   /** Время суток в мире, «чч:мм», и идёт ли непогода. */
   clock: string
   storm: boolean
+  /** Кто ещё на сервере: ники, свой ли, подключён ли. Пусто в локальной игре. */
+  players: { name: string; own: boolean; online: boolean }[]
   /** Пришёл ли мир от хоста: до этого наград ноль не потому, что их нет, а потому, что мира ещё нет. */
   loaded: boolean
   /** Доход в кредитах в секунду. */
@@ -329,6 +332,8 @@ export function readHud(scene: Scene): HudState {
     // Минуты — десятками: интерфейс перерисовывается, только когда состояние изменилось.
     clock: `${String(Math.floor(scene.weather.hour)).padStart(2, '0')}:${Math.floor((scene.weather.hour % 1) * 6)}0`,
     storm: scene.weather.precipitation > 0.05,
+    // Список игроков есть только у копии мира с сервера.
+    players: 'players' in sim ? (sim as Replica).players.map(({ player, name, online }) => ({ name, own: player === scene.player, online })) : [],
     income: round(economyOf(sim, player).income),
     power,
     health,

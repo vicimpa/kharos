@@ -474,6 +474,13 @@ export function Hud({ state, send, place, minimap, lookAt, lookAtSelection, narr
             {state.stock.items.length === 0 && <span class="hud__res">хранилища пусты</span>}
           </span>
         )}
+        {state.players.length > 1 && (
+          <span class="hud__players" data-tip={state.players.map(({ name, online }) => `${name}${online ? '' : ' — не в сети'}`).join('\n')}>
+            {state.players.map(({ name, own, online }) => (
+              <span class={own ? 'is-own' : online ? undefined : 'is-away'}>{name}</span>
+            ))}
+          </span>
+        )}
         <span class="hud__clock" data-tip={state.storm ? 'Время суток; идёт непогода' : 'Время суток'}>
           {state.clock}
           {state.storm && ' · непогода'}

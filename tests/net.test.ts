@@ -9,14 +9,21 @@ import { placeBuilding } from '../src/sim/buildings'
 const STEP = 1 / 20
 
 /** Клиент, подключённый к хосту напрямую, без сокета: сообщения ходят так же, текстом. */
-function join(host: Host, token?: string) {
+function join(host: Host, id?: string, name?: string) {
   let replica: Replica | undefined
-  const peer = host.join((text) => {
-    const message = JSON.parse(text) as ServerMessage
-    if (message.type === 'welcome') replica = createReplica(message, (reply) => peer.receive(reply), () => peer.leave())
-    else replica!.receive(message)
-  }, token)
-  return { peer, sim: replica! }
+  let issued: string | undefined
+  const peer = host.join(
+    (text) => {
+      const message = JSON.parse(text) as ServerMessage
+      if (message.type === 'welcome') {
+        issued = message.id
+        replica = createReplica(message, (reply) => peer.receive(reply), () => peer.leave())
+      } else replica!.receive(message)
+    },
+    id,
+    name,
+  )
+  return { peer, sim: replica!, id: issued! }
 }
 
 const unitsOf = (sim: Replica, player: number) => {
@@ -94,7 +101,7 @@ test('чужими юнитами клиент не командует', () => {
 
 test('вернувшийся игрок получает прежние юниты, а мусор из сети сервер не роняет', () => {
   const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: 256 }))
-  const first = join(host, 'a')
+  const first = join(host)
   first.peer.receive('не JSON')
   first.peer.receive('null')
   first.peer.receive('{"type":"command","command":{"type":"move","units":"все"}}')
@@ -104,10 +111,14 @@ test('вернувшийся игрок получает прежние юнит
   first.peer.leave()
   expect(host.peers).toBe(0)
 
-  const again = join(host, 'a')
+  const again = join(host, first.id)
   expect(again.peer.player).toBe(1)
+  expect(again.id).toBe(first.id)
   expect(host.sim.world.size).toBe(size)
-  expect(join(host, 'b').peer.player).toBe(2)
+  // Чужой id хост не знает: это новый игрок со своим id.
+  const stranger = join(host, 'выдуманный')
+  expect(stranger.peer.player).toBe(2)
+  expect(stranger.id).not.toBe('выдуманный')
 })
 
 test('между тиками копия ведёт alpha, а пропавшее соединение останавливает игру', () => {
@@ -159,15 +170,31 @@ test('чужое здание, ушедшее в туман, остаётся п
 
 test('вернувшийся игрок получает карту, разведанную раньше', () => {
   const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: 256 }))
-  const first = join(host, 'a')
+  const first = join(host)
   host.advance(STEP)
   first.sim.advance(STEP)
   const [unit] = unitsOf(first.sim, 1)
   const { x, y } = first.sim.world.get(unit, Position)!
   first.peer.leave()
 
-  const again = join(host, 'a')
+  const again = join(host, first.id)
   // Ещё ни одного мира от хоста, а разведанное уже есть.
   expect(again.sim.vision.explored(1, x, y)).toBe(true)
   expect(again.sim.vision.explored(1, x + 100, y)).toBe(false)
+})
+
+test('игроки видят ники друг друга и кто из них в сети', () => {
+  const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: 256 }))
+  const first = join(host, undefined, '  Вася\u0007 ')
+  const second = join(host)
+  expect(first.sim.players).toEqual([
+    { player: 1, name: 'Вася', online: true },
+    { player: 2, name: 'Игрок 2', online: true },
+  ])
+  second.peer.leave()
+  expect(first.sim.players[1].online).toBe(false)
+  // Вернулся без ника — ник прежний.
+  const back = join(host, second.id, 'Петя')
+  expect(back.sim.players[1]).toEqual({ player: 2, name: 'Петя', online: true })
+  expect(join(host, first.id).sim.players[0].name).toBe('Вася')
 })
