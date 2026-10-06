@@ -72,10 +72,10 @@ const add = (map: Map<Entity, Amounts>, entity: Entity, resource: Good, amount: 
  * Что сейчас везут грузовики. Набравший груз везёт то, что в кузове; ещё не набравший обещал привезти и забрать
  * столько, сколько в его работе.
  */
-function flowsOf(sim: Sim): Flows {
+function flowsOf(sim: Sim, except = NONE as Entity): Flows {
   const flows: Flows = { incoming: new Map(), outgoing: new Map() }
-  for (const [, hauler, cargo] of sim.world.query(Hauler, Inventory)) {
-    if (hauler.from === NONE && hauler.to === NONE) continue
+  for (const [truck, hauler, cargo] of sim.world.query(Hauler, Inventory)) {
+    if (truck === except || (hauler.from === NONE && hauler.to === NONE)) continue
     const carried = amountOf(cargo, hauler.resource)
     if (hauler.to !== NONE) add(flows.incoming, hauler.to as Entity, hauler.resource, hauler.full ? carried : Math.max(carried, hauler.amount))
     if (hauler.from !== NONE && !hauler.full) add(flows.outgoing, hauler.from as Entity, hauler.resource, hauler.amount - carried)
@@ -240,14 +240,24 @@ export interface Job {
   amount: number
 }
 
-/** Ближайшее к грузовику своё хранилище, куда поместится груз; NONE — места нет нигде. */
+/**
+ * Сколько груза ещё поместится на склад для этого грузовика: место за вычетом того, что туда уже везут другие.
+ * Иначе грузовики, глядя на одно свободное место, набрали бы каждый по кузову и остались с грузом, который некуда деть.
+ */
+export function spaceFor(sim: Sim, truck: Entity, to: Entity, resource: Good, flows = flowsOf(sim, truck)) {
+  const inventory = sim.world.get(to, Inventory)
+  return inventory ? roomFor(inventory, resource) - (flows.incoming.get(to)?.[resource] ?? 0) : 0
+}
+
+/** Ближайшее к грузовику своё хранилище, куда поместится груз с учётом едущего туда; NONE — места нет нигде. */
 export function storeFor(sim: Sim, truck: Entity, resource: Good, except: Entity = NONE as Entity): Entity {
   const player = sim.world.get(truck, Owner)?.player ?? 0
+  const flows = flowsOf(sim, truck)
   let best = NONE as Entity
   let bestDistance = Infinity
-  for (const [entity, inventory] of sim.world.query(Inventory, Building)) {
+  for (const [entity] of sim.world.query(Inventory, Building)) {
     if (entity === except || !isStore(sim, entity) || !isReady(sim, player, entity) || sim.world.has(entity, Converting)) continue
-    if (roomFor(inventory, resource) <= 1e-9) continue
+    if (spaceFor(sim, truck, entity, resource, flows) <= 1e-9) continue
     const far = distance(sim, truck, entity)
     if (far < bestDistance) {
       best = entity
@@ -257,14 +267,15 @@ export function storeFor(sim: Sim, truck: Entity, resource: Good, except: Entity
   return best
 }
 
-/** Ближайшая к грузовику своя переработка этой руды, куда она поместится; NONE — такой нет. */
+/** Ближайшая к грузовику своя переработка этой руды, куда она поместится с учётом едущего туда; NONE — такой нет. */
 export function refineryFor(sim: Sim, truck: Entity, ore: Ore, except: Entity = NONE as Entity): Entity {
   const player = sim.world.get(truck, Owner)?.player ?? 0
+  const flows = flowsOf(sim, truck)
   let best = NONE as Entity
   let bestDistance = Infinity
-  for (const [entity, inventory, building] of sim.world.query(Inventory, Building)) {
+  for (const [entity, , building] of sim.world.query(Inventory, Building)) {
     if (entity === except || buildingSpec(building.type).refines !== ore || !isReady(sim, player, entity) || sim.world.has(entity, Converting)) continue
-    if (roomFor(inventory, ore) <= 1e-9) continue
+    if (spaceFor(sim, truck, entity, ore, flows) <= 1e-9) continue
     const far = distance(sim, truck, entity)
     if (far < bestDistance) {
       best = entity

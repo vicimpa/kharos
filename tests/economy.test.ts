@@ -11,6 +11,7 @@ import { addCredits } from '../src/sim/economy'
 import { Hauler } from '../src/sim/components'
 import { NONE } from '../src/sim/common'
 import { spawnUnit } from '../src/sim/units'
+import { refineryFor, spaceFor } from '../src/sim/logistics'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
 const TICK = 1 / 20
@@ -197,4 +198,23 @@ test('машинный завод строит MCV из стройблоков �
   const mcvs = () => [...sim.world.query(Unit)].filter(([, unit]) => unit.type === 'mcv').map(([entity]) => entity)
   until(sim, () => mcvs().length > 0)
   expect(sim.world.has(mcvs()[0], Producer)).toBe(true)
+})
+
+test('груз, который уже везут на переработку, занимает её место: второй грузовик туда не едет и не набирает руду', () => {
+  const { sim, x, y, buildings: [smelter] } = base(['smelter'])
+  const inventory = sim.world.get(smelter, Inventory)!
+  const room = 6
+  inventory.items.metalOre = inventory.limits.metalOre! - room
+  const [first, second] = [0, 2].map((dx) => spawnUnit(sim, 'truck', 1, x + dx, y + 5))
+  expect(refineryFor(sim, first, 'metalOre')).toBe(smelter)
+  const hauler = sim.world.get(first, Hauler)!
+  hauler.to = smelter
+  hauler.resource = 'metalOre'
+  hauler.amount = room
+  sim.world.get(first, Inventory)!.items.metalOre = room
+  hauler.full = true
+  expect(spaceFor(sim, second, smelter, 'metalOre')).toBeLessThanOrEqual(1e-9)
+  expect(refineryFor(sim, second, 'metalOre')).toBe(NONE)
+  // Свой груз грузовик у себя же места не отнимает.
+  expect(spaceFor(sim, first, smelter, 'metalOre')).toBe(room)
 })

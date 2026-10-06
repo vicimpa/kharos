@@ -5,7 +5,7 @@ import { Beam, Building, Converting, Hauler, Harvester, Inventory, Owner, Path, 
 import { DEPOSIT_KINDS, reserveLeft, takeReserve } from './deposits'
 import { amountOf, approach, beamFor, put, reaches, resetBeams, roomFor, transfer } from './inventory'
 import { isStore } from './trade'
-import { acceptsDelivery, deliveryFor, dispatch, mineOre, offersPickup, refineryFor, requestsOf } from './logistics'
+import { acceptsDelivery, deliveryFor, dispatch, mineOre, offersPickup, refineryFor, requestsOf, spaceFor } from './logistics'
 import { GOODS, resourceOf, type Good } from './resources'
 import type { Sim } from './sim'
 import { UNITS } from './units'
@@ -170,11 +170,15 @@ export function haul(sim: Sim) {
           released.push(entity)
           continue
         }
-        // Руду, которую некуда везти, не берёт: ждёт у шахты, пока на переработке не освободится место.
-        if (!retry || refineryFor(sim, entity, ore) === NONE) continue
+        // Руду, которую некуда везти, не берёт: ждёт у шахты, пока на переработке не освободится место. Место
+        // бронирует сразу и набирает не больше него: иначе все грузовики шахты набрали бы по кузову на одно место.
+        if (!retry) continue
+        const to = refineryFor(sim, entity, ore)
+        if (to === NONE) continue
         hauler.from = hauler.mine
+        hauler.to = to
         hauler.resource = ore
-        hauler.amount = cargo.capacity
+        hauler.amount = Math.min(cargo.capacity, spaceFor(sim, entity, to, ore))
         hauler.full = false
       } else {
         // Свободный и пустой ждёт работы от диспетчера.
