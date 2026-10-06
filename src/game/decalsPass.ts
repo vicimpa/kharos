@@ -1,28 +1,22 @@
-import type { Entity } from '../ecs'
 import { createProgram, createQuads, setBlend } from '../gl'
 import { Terrain, terrainAt } from '../map/terrain'
 import { createAtlas, type AtlasFrame } from '../render/atlas'
 import { Pixmap } from '../render/pixmap'
 import type { Pass } from '../render/renderer'
-import { Blast, Position, Shot, TURN, UNITS, UNIT_TYPES, Unit, WEAPONS, flies, unitSpec, type UnitType, type WeaponSpec } from '../sim'
+import { TURN, UNIT_TYPES, unitSpec, type UnitType } from '../sim'
+import { TRACE_LIFE } from '../sim/traces'
 import type { Scene } from './scene'
 import { TEAMS, TURRET_ART, UNIT_ART, UNIT_FRAME, UNIT_GAITS, UNIT_TRACES } from './units/unitArt'
-import { drawnFacing, drawnPosition } from './units/unitsPass'
 
-/** Через сколько тайлов пути юнит кладёт новый кусок колеи, а пехотинец — новый отпечаток ступни. */
-const TRACE_STEP = 0.15
+/** Через сколько тайлов пути пехотинец оставляет отпечаток ступни. */
 const STEP_LENGTH = 0.3
 /** Длина отпечатка ступни в тайлах. */
 const FOOTPRINT = 0.1
 
-/**
- * Сколько секунд живут колеи, отметины от попаданий и взрывов и остовы техники. С доли срока FADE_FROM они
- * растворяются: пиксель за пикселем, каждый в свой случайный момент.
- */
-const TRACE_LIFE = 90
-const MARK_LIFE = 240
-const WRECK_LIFE = 600
+/** С какой доли срока следы растворяются: пиксель за пикселем, каждый в свой случайный момент. Сроки — TRACE_LIFE. */
 const FADE_FROM = 0.25
+/** Точки пути одного юнита дальше этого друг от друга — не шаг, а скачок: колея между ними не тянется. */
+const TRACK_LINK = 1.5
 /** Больше разом не бывает: самые старые уступают место новым. */
 const TRACE_LIMIT = 12000
 const MARK_LIMIT = 3000
@@ -210,6 +204,16 @@ void main() {
  * Что лежит на земле: отрезок в тайлах мира, ширина в тайлах, кадр атласа, цвет и непрозрачность, плотность
  * пикселей, возраст и срок в секундах.
  */
+/** Точка пути юнита, как её прислал хост. foot — какой ногой пехотинец шагнёт от неё. */
+interface TrackPoint {
+  tick: number
+  x: number
+  y: number
+  facing: number
+  type: UnitType
+  foot: number
+}
+
 interface Decal {
   fromX: number
   fromY: number
@@ -252,13 +256,16 @@ export function createDecalsPass(gl: WebGL2RenderingContext, scene: Scene): Pass
   const quads = createQuads(gl, program, { aLine: 4, aWidth: 1, aFrame: 4, aTint: 4, aFade: 3 })
   const cameraPixels = new Float32Array(2)
 
+  let watched = scene.sim
   const traces: Decal[] = []
   const marks: Decal[] = []
   const remains: Decal[] = []
+  /** Возраст следа, который сейчас разбирается: он мог быть оставлен задолго до того, как его увидели. */
+  let age = 0
   const add = (list: Decal[], limit: number, decal: Omit<Decal, 'age' | 'seed'>) => {
-    if (decal.opacity <= 0) return
+    if (decal.opacity <= 0 || age >= decal.life) return
     if (list.length >= limit) list.shift()
-    list.push({ ...decal, age: 0, seed: Math.random() * 1000 })
+    list.push({ ...decal, age, seed: Math.random() * 1000 })
   }
   /** Картинка size × size пикселей с серединой в (x, y), ровно по сетке пикселей мира. */
   const stamp = (list: Decal[], limit: number, x: number, y: number, size: number, frame: AtlasFrame, opacity: number, life: number) => {
@@ -275,133 +282,108 @@ export function createDecalsPass(gl: WebGL2RenderingContext, scene: Scene): Pass
   }
 
   /** Отметина от взрыва размера size: гарь, а от пули — щербинки. */
-  const scar = (x: number, y: number, size: number) => {
+  const scar = (x: number, y: number, size: number, variant: number) => {
     if (!onGround(x, y)) return
-    const variant = Math.floor(Math.random() * VARIANTS)
     if (size < POCK_SIZE) {
-      stamp(marks, MARK_LIMIT, x, y, 6, pockFrame(variant), MARK_OPACITY, MARK_LIFE)
+      stamp(marks, MARK_LIMIT, x, y, 6, pockFrame(variant), MARK_OPACITY, TRACE_LIFE.scar)
       return
     }
     const pixels = size * SCORCH_SCALE * 16
     let index = 0
     for (let i = 1; i < SCORCH_SIZES.length; i++) if (Math.abs(SCORCH_SIZES[i] - pixels) < Math.abs(SCORCH_SIZES[index] - pixels)) index = i
-    stamp(marks, MARK_LIMIT, x, y, SCORCH_SIZES[index], scorchFrame(index, variant), MARK_OPACITY, MARK_LIFE)
+    stamp(marks, MARK_LIMIT, x, y, SCORCH_SIZES[index], scorchFrame(index, variant), MARK_OPACITY, TRACE_LIFE.scar)
   }
 
-  // Слежка за симуляцией: что было в прошлом кадре, чтобы заметить новые взрывы, лучи и погибших.
-  let units = new Map<Entity, { type: UnitType; x: number; y: number; facing: number }>()
-  let blasts = new Map<Entity, number>()
-  let beams = new Set<Entity>()
-
-  /** Новые отметины и остовы этого кадра: по всему миру, а не только на экране. */
-  const watch = () => {
-    const { world } = scene.sim
-    const fresh: { x: number; y: number; size: number }[] = []
-    const nextBlasts = new Map<Entity, number>()
-    for (const [entity, blast, position] of world.query(Blast, Position)) {
-      // Новый взрыв — которого не было или который моложе прежнего с тем же номером.
-      const age = blasts.get(entity)
-      if (age === undefined || blast.age < age) fresh.push({ x: position.x, y: position.y, size: blast.size })
-      nextBlasts.set(entity, blast.age)
-    }
-    blasts = nextBlasts
-
-    const current = new Map<Entity, { type: UnitType; x: number; y: number; facing: number }>()
-    const air: { x: number; y: number }[] = []
-    for (const [entity, position, unit] of world.query(Position, Unit)) {
-      current.set(entity, { type: unit.type, x: position.x, y: position.y, facing: unit.facing })
-      if (flies(unit.type)) air.push(position)
-    }
-    // Погибший юнит исчезает, а на его месте встаёт взрыв поперечником в два его радиуса.
-    const dead = new Set<(typeof fresh)[number]>()
-    for (const [entity, last] of units) {
-      if (current.has(entity)) continue
-      const size = UNITS[last.type].radius * 2
-      const blast = fresh.find((item) => Math.abs(item.size - size) < 1e-6 && Math.hypot(item.x - last.x, item.y - last.y) < 1)
-      if (!blast || !onGround(blast.x, blast.y)) continue
-      dead.add(blast)
-      scar(blast.x, blast.y, size)
-      // От пехоты остаётся только гарь, остов — от техники.
-      if (UNIT_GAITS[last.type] === 'legs') continue
-      const direction = ((Math.round((last.facing / TURN) * WRECK_DIRECTIONS) % WRECK_DIRECTIONS) + WRECK_DIRECTIONS) % WRECK_DIRECTIONS
-      stamp(remains, WRECK_LIMIT, blast.x, blast.y, UNIT_FRAME, wreckFrame(last.type, direction), 1, WRECK_LIFE)
-    }
-    units = current
-    // Попадание в летающего земли не касается.
-    for (const blast of fresh) {
-      if (dead.has(blast) || air.some((at) => Math.hypot(at.x - blast.x, at.y - blast.y) < 0.4)) continue
-      scar(blast.x, blast.y, blast.size)
-    }
-
-    // Лазер и разряд прожигают землю там, куда попали.
-    const nextBeams = new Set<Entity>()
-    for (const [entity, shot] of world.query(Shot)) {
-      if ((WEAPONS[shot.weapon] as WeaponSpec).speed) continue
-      nextBeams.add(entity)
-      if (beams.has(entity)) continue
-      const target = world.get(shot.target as Entity, Unit)
-      if (target && flies(target.type)) continue
-      if (!onGround(shot.toX, shot.toY)) continue
-      stamp(marks, MARK_LIMIT, shot.toX, shot.toY, 8, scorchFrame(0, Math.floor(Math.random() * VARIANTS)), MARK_OPACITY, MARK_LIFE)
-    }
-    beams = nextBeams
-  }
-
-  /** Где каждый юнит положил прошлый кусок следа: от этих точек тянется следующий. foot — какой ногой шагнёт пехотинец. */
-  const walkers = new Map<Entity, { x: number; y: number; ends: { x: number; y: number }[]; foot: number; seen: number }>()
-  let frame = 0
   const opacityAt = (x: number, y: number) => TRACE_OPACITY[terrainAt(scene.sim.land, Math.floor(x), Math.floor(y))]
 
-  /** Новые колеи и отпечатки этого кадра от юнитов на экране. */
-  const leave = (camera: { x: number; y: number }, halfWidth: number, halfHeight: number) => {
-    const { world, time } = scene.sim
-    frame++
-    for (const [entity, position, unit] of world.query(Position, Unit)) {
-      const trace = UNIT_TRACES[unit.type]
-      if (!trace) continue
-      const { x, y } = drawnPosition(position, unit, time.alpha)
-      if (Math.abs(x - camera.x) > halfWidth || Math.abs(y - camera.y) > halfHeight) continue
-      const facing = drawnFacing(unit, time.alpha)
-      const acrossX = -Math.sin(facing) / 16
-      const acrossY = Math.cos(facing) / 16
-      const ends = trace.sides.map((side) => ({ x: x + acrossX * side, y: y + acrossY * side }))
-      const last = walkers.get(entity)
-      // Новый юнит или вернувшийся издалека начинает след с места.
-      if (!last || Math.hypot(x - last.x, y - last.y) > 1) {
-        walkers.set(entity, { x, y, ends, foot: 0, seen: frame })
-        continue
-      }
-      last.seen = frame
-      const legs = UNIT_GAITS[unit.type] === 'legs'
-      if (Math.hypot(x - last.x, y - last.y) < (legs ? STEP_LENGTH / 2 : TRACE_STEP)) continue
-      const width = trace.width / 16
-      const base = { width, frame: whiteFrame, color: TRACE_COLOR, density: TRACE_DENSITY, life: TRACE_LIFE }
-      if (legs) {
-        // Ноги шагают по очереди: отпечаток ступни вдоль хода.
-        const end = ends[last.foot % ends.length]
-        const alongX = (Math.cos(facing) * FOOTPRINT) / 2
-        const alongY = (Math.sin(facing) * FOOTPRINT) / 2
-        add(traces, TRACE_LIMIT, { ...base, fromX: end.x - alongX, fromY: end.y - alongY, toX: end.x + alongX, toY: end.y + alongY, opacity: opacityAt(end.x, end.y) })
-        last.foot++
-      } else {
-        ends.forEach((end, i) => {
-          const from = last.ends[i]
-          add(traces, TRACE_LIMIT, { ...base, fromX: from.x, fromY: from.y, toX: end.x, toY: end.y, opacity: opacityAt(end.x, end.y) })
-        })
-      }
-      last.x = x
-      last.y = y
-      last.ends = ends
+  /** Колея или шаги от точки пути from до to одного юнита. */
+  const walk = (from: TrackPoint, to: TrackPoint) => {
+    const trace = UNIT_TRACES[to.type]
+    if (!trace) return
+    const base = { width: trace.width / 16, frame: whiteFrame, color: TRACE_COLOR, density: TRACE_DENSITY, life: TRACE_LIFE.track }
+    const endsOf = (point: TrackPoint) => {
+      const acrossX = -Math.sin(point.facing) / 16
+      const acrossY = Math.cos(point.facing) / 16
+      return trace.sides.map((side) => ({ x: point.x + acrossX * side, y: point.y + acrossY * side }))
     }
-    if (frame % 120 === 0) for (const [entity, walker] of walkers) if (frame - walker.seen > 120) walkers.delete(entity)
+    const ends = endsOf(to)
+    if (UNIT_GAITS[to.type] !== 'legs') {
+      endsOf(from).forEach((start, i) => {
+        const end = ends[i]
+        add(traces, TRACE_LIMIT, { ...base, fromX: start.x, fromY: start.y, toX: end.x, toY: end.y, opacity: opacityAt(end.x, end.y) })
+      })
+      return
+    }
+    // Ноги шагают по очереди: отпечатки ступней вдоль хода, через полшага, то одной, то другой.
+    const length = Math.hypot(to.x - from.x, to.y - from.y)
+    const alongX = (Math.cos(to.facing) * FOOTPRINT) / 2
+    const alongY = (Math.sin(to.facing) * FOOTPRINT) / 2
+    const acrossX = -Math.sin(to.facing) / 16
+    const acrossY = Math.cos(to.facing) / 16
+    for (let step = 0; step * (STEP_LENGTH / 2) < length; step++) {
+      const share = (step * (STEP_LENGTH / 2)) / length
+      const side = trace.sides[(from.foot + step) % trace.sides.length]
+      const x = from.x + (to.x - from.x) * share + acrossX * side
+      const y = from.y + (to.y - from.y) * share + acrossY * side
+      add(traces, TRACE_LIMIT, { ...base, fromX: x - alongX, fromY: y - alongY, toX: x + alongX, toY: y + alongY, opacity: opacityAt(x, y) })
+      to.foot = from.foot + step + 1
+    }
+  }
+
+  /** Точки пути каждого юнита, по времени: новая точка соединяется с соседними по времени, если те рядом. */
+  const paths = new Map<number, TrackPoint[]>()
+  let cursor = 0
+
+  /** Разбирает следы, пришедшие с прошлого кадра. */
+  const consume = () => {
+    const { sim } = scene
+    const found = sim.traces.since(cursor)
+    cursor = found.cursor
+    for (const trace of found.traces) {
+      age = (sim.time.tick - trace.tick) * sim.time.step
+      const variant = trace.id % VARIANTS
+      if (trace.kind === 'scar') scar(trace.x, trace.y, trace.size, variant)
+      else if (trace.kind === 'burn') {
+        if (onGround(trace.x, trace.y)) stamp(marks, MARK_LIMIT, trace.x, trace.y, 8, scorchFrame(0, variant), MARK_OPACITY, TRACE_LIFE.burn)
+      } else if (trace.kind === 'wreck') {
+        const direction = ((Math.round((trace.facing / TURN) * WRECK_DIRECTIONS) % WRECK_DIRECTIONS) + WRECK_DIRECTIONS) % WRECK_DIRECTIONS
+        stamp(remains, WRECK_LIMIT, trace.x, trace.y, UNIT_FRAME, wreckFrame(trace.type, direction), 1, TRACE_LIFE.wreck)
+      } else {
+        const point: TrackPoint = { tick: trace.tick, x: trace.x, y: trace.y, facing: trace.facing, type: trace.type, foot: 0 }
+        let path = paths.get(trace.entity)
+        if (!path) paths.set(trace.entity, (path = []))
+        let at = path.length
+        while (at > 0 && path[at - 1].tick > point.tick) at--
+        const before = path[at - 1]
+        const after = path[at]
+        path.splice(at, 0, point)
+        if (before && Math.hypot(point.x - before.x, point.y - before.y) <= TRACK_LINK) walk(before, point)
+        if (after && Math.hypot(after.x - point.x, after.y - point.y) <= TRACK_LINK) walk(point, after)
+      }
+    }
+    age = 0
+    // Точки, чей след уже растворился, больше ни с чем не соединятся.
+    const oldest = sim.time.tick - TRACE_LIFE.track / sim.time.step
+    for (const [entity, path] of paths) {
+      let drop = 0
+      while (drop < path.length && path[drop].tick < oldest) drop++
+      if (drop === path.length) paths.delete(entity)
+      else if (drop) path.splice(0, drop)
+    }
   }
 
   return {
     draw({ camera, width, height, delta, view }) {
       const halfWidth = width / 2 / camera.zoom + 2
       const halfHeight = height / 2 / camera.zoom + 2
-      watch()
-      leave(camera, halfWidth, halfHeight)
+      if (scene.sim !== watched) {
+        // Мир начали заново: прежние следы — из другого мира.
+        watched = scene.sim
+        cursor = 0
+        paths.clear()
+        traces.length = marks.length = remains.length = 0
+      }
+      consume()
       quads.clear()
       // Снизу вверх: колеи, отметины, остовы.
       for (const list of [traces, marks, remains]) {

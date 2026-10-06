@@ -2,6 +2,7 @@ import { World, type Time } from '../ecs'
 import { createLand } from '../map/terrain'
 import { DEFAULT_RULES, boundsOf, type Command, type Sim } from '../sim'
 import { createOccupancy } from '../sim/buildings'
+import { createReceivedTraces } from '../sim/traces'
 import { createVision } from '../sim/vision'
 import { BUILDINGS, type BuildingType } from '../sim/buildings'
 import { Ghost, SAVED } from '../sim/components'
@@ -56,6 +57,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     replica.rules = { ...DEFAULT_RULES, ...options.rules }
     // Разведанное в новом мире ничего не значит.
     replica.vision = createVision(world, replica.bounds, () => time.tick)
+    replica.traces = createReceivedTraces(() => time.tick, step)
     world.clear()
     world.flush()
     Object.assign(time, { tick: 0, step, elapsed: 0, delta: 0, alpha: 0 })
@@ -70,6 +72,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     world,
     occupancy,
     vision: undefined as unknown as Replica['vision'],
+    traces: undefined as unknown as ReturnType<typeof createReceivedTraces>,
     time,
     send(_player: number, command: Command) {
       // Игрока сервер знает по соединению; номеру из сообщения он бы и не поверил.
@@ -101,6 +104,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
         else world.insert(id, { ...data, Ghost: {} }, REMEMBERED)
       }
       world.flush()
+      replica.traces.update()
       time.elapsed = time.tick * time.step
       time.alpha = 0
       pending = null
@@ -115,6 +119,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     receive(message: ServerMessage) {
       if (message.type === 'state') pending = message
       else if (message.type === 'explored') replica.vision.explore(player, message.map)
+      else if (message.type === 'traces') replica.traces.receive(message.traces)
       else {
         meet(message)
         replica.generation++

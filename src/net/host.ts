@@ -4,6 +4,8 @@ import type { ServerMessage } from './protocol'
 
 /** На каком расстоянии от начала мира появляются игроки, в тайлах. */
 const SPAWN_RADIUS = 24
+/** Раз во сколько тиков хост ищет для игроков старые следы, а не только новые. */
+const SWEEP_TICKS = 10
 /** Сколько игроков помещается на круге появления; следующие встают на круг шире. */
 const SPAWN_SLOTS = 8
 
@@ -43,6 +45,22 @@ export function createHost(first: Sim, player?: number): Host {
   let sim = first
   /** Подключённые: как отправить и за кого играет. */
   const peers = new Map<(text: string) => void, number>()
+  /** Какие следы каждое подключение уже получило. */
+  const shown = new Map<(text: string) => void, Set<number>>()
+  let sinceSweep = 0
+
+  /**
+   * Следы, которые подключение видит, а ещё не получало. Новые проверяются каждый тик, все — раз в SWEEP_TICKS:
+   * так находятся старые следы там, куда игрок только что пришёл.
+   */
+  const traces = (send: (text: string) => void, player: number, sweep: boolean) => {
+    const known = shown.get(send)!
+    const found = (sweep ? sim.traces.all() : sim.traces.fresh()).filter(
+      (trace) => !known.has(trace.id) && ((trace.kind === 'track' && trace.player === player) || sim.vision.sees(player, trace.x, trace.y)),
+    )
+    for (const trace of found) known.add(trace.id)
+    return found
+  }
   const players = new Map<string, number>()
   let nextPlayer = 1
   let stateSize = 0
@@ -85,6 +103,7 @@ export function createHost(first: Sim, player?: number): Host {
         send(welcome(player))
         send(explored(player))
         send(state(player, cache))
+        shown.set(send, new Set())
       }
     },
     get peers() {
@@ -101,6 +120,7 @@ export function createHost(first: Sim, player?: number): Host {
       }
       const joined = own
       peers.set(send, joined)
+      shown.set(send, new Set())
       send(welcome(joined))
       send(explored(joined))
       // Мир сразу, не дожидаясь тика: иначе клиент начал бы с пустого экрана.
@@ -122,6 +142,7 @@ export function createHost(first: Sim, player?: number): Host {
         },
         leave() {
           peers.delete(send)
+          shown.delete(send)
         },
       }
     },
@@ -130,7 +151,15 @@ export function createHost(first: Sim, player?: number): Host {
       if (ticks && peers.size) {
         const cache = new Map<number, string>()
         stateSize = 0
+        sinceSweep += ticks
+        const sweep = sinceSweep >= SWEEP_TICKS
+        if (sweep) sinceSweep = 0
+        const expired = sim.traces.expired()
         for (const [send, player] of peers) {
+          const known = shown.get(send)!
+          for (const id of expired) known.delete(id)
+          const found = traces(send, player, sweep)
+          if (found.length) send(JSON.stringify({ type: 'traces', traces: found } satisfies ServerMessage))
           const text = state(player, cache)
           stateSize = Math.max(stateSize, text.length)
           send(text)

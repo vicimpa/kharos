@@ -231,7 +231,8 @@ export function fight(sim: Sim) {
   const { world, time } = sim
   const marks = collectMarks(sim)
   const dead = new Set<Entity>()
-  const blasts: { x: number; y: number; size: number }[] = []
+  /** Взрывы тика. ground — пришёлся в землю, а не в летающего: такой оставляет гарь. */
+  const blasts: { x: number; y: number; size: number; ground: boolean }[] = []
 
   const canHit = (weapon: WeaponSpec, player: number, mark: Mark) =>
     hostile(player, mark.player) && (weapon.air || !mark.air) && !dead.has(mark.entity)
@@ -329,7 +330,8 @@ export function fight(sim: Sim) {
   }
   for (const { entity, weapon, player, source, target, x, y, blocked } of landed) {
     impact(weapon, player, source, target, x, y, blocked)
-    blasts.push({ x, y, size: weapon.splash ?? 0.2 })
+    // Попадание в летающего земли не касается.
+    blasts.push({ x, y, size: weapon.splash ?? 0.2, ground: !marks.get(target)?.air })
     gone.push(entity)
   }
   for (const entity of gone) world.destroy(entity)
@@ -435,6 +437,7 @@ export function fight(sim: Sim) {
     // Луч стены не обходит: лазер бьёт в неё, а не в цель за ней. Разряду стена не помеха — он бьёт через неё.
     if (wall) {
       world.spawn(Position({ x: fromX, y: fromY }), Shot({ ...shot, target: wall.wall, toX: hitX, toY: hitY, life: BEAM_TICKS }))
+      sim.traces.add({ kind: 'burn', x: hitX, y: hitY })
       const mark = marks.get(wall.wall)
       if (mark) hit(mark, weapon.damage, weapon, carrier)
       continue
@@ -452,6 +455,8 @@ export function fight(sim: Sim) {
         Shot({ ...shot, fromX: from.x, fromY: from.y, target: current.entity, toX: current.x, toY: current.y, life: BEAM_TICKS }),
       )
       hit(current, damage, weapon, carrier)
+      // Луч прожигает землю там, куда попал.
+      if (!current.air) sim.traces.add({ kind: 'burn', x: current.x, y: current.y })
       damage *= CHAIN_DECAY
       from = current
       next = undefined
@@ -468,11 +473,17 @@ export function fight(sim: Sim) {
 
   for (const entity of dead) {
     const mark = marks.get(entity)!
-    blasts.push({ x: mark.x, y: mark.y, size: mark.radius ? mark.radius * 2 : Math.max(mark.width, mark.height) * 0.7 })
+    blasts.push({ x: mark.x, y: mark.y, size: mark.radius ? mark.radius * 2 : Math.max(mark.width, mark.height) * 0.7, ground: !mark.air })
+    // От техники остаётся остов, от пехоты — только гарь.
+    const unit = world.get(entity, Unit)
+    if (unit && !mark.air && unitSpec(unit.type).kind !== 'infantry') {
+      sim.traces.add({ kind: 'wreck', type: unit.type, facing: unit.facing, x: mark.x, y: mark.y })
+    }
     releaseHauler(sim, entity)
     world.destroy(entity)
   }
-  for (const { x, y, size } of blasts) {
+  for (const { x, y, size, ground } of blasts) {
     world.spawn(Position({ x, y }), Blast({ size, life: Math.round((0.25 + size * 0.2) / time.step) }))
+    if (ground) sim.traces.add({ kind: 'scar', x, y, size })
   }
 }

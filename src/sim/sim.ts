@@ -15,6 +15,7 @@ import { moveUnits } from './movement'
 import { produceUnits } from './production'
 import { refine } from './refining'
 import { followCarriers, restTurrets } from './turrets'
+import { createTraces, type Traces } from './traces'
 import { createVision, type Vision } from './vision'
 
 /** Границы карты в тайлах. Правая и нижняя — не включая. */
@@ -76,6 +77,8 @@ export interface Sim {
   readonly occupancy: Occupancy
   /** Что видит каждый игрок: по ней хост решает, что слать клиенту, а клиент рисует туман. */
   readonly vision: Vision
+  /** Следы на земле: колеи, гарь, остовы. См. traces.ts. */
+  readonly traces: Traces
   /** Правила. Поля можно менять на ходу: со следующего тика симуляция считает по новым. */
   readonly rules: Rules
   /** Время симуляции. alpha — доля тика, прошедшая после последнего: ею клиент сглаживает движение. */
@@ -136,6 +139,7 @@ export function createSim(source: SimOptions | SimSave): Sim {
       () => restTurrets(sim),
       () => recover(sim),
       () => earn(sim),
+      () => sim.traces.update(),
       () => sim.vision.update(),
     ],
   })
@@ -146,6 +150,7 @@ export function createSim(source: SimOptions | SimSave): Sim {
     land: createLand(options.generator),
     occupancy: createOccupancy(world),
     vision: createVision(world, bounds, () => loop.time.tick),
+    traces: createTraces(world, () => loop.time.tick, loop.time.step),
     rules,
     time: loop.time,
     send(player, command) {
