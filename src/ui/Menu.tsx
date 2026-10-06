@@ -1,6 +1,6 @@
 import type { ComponentChildren } from 'preact'
 import { useState } from 'preact/hooks'
-import { loadMuted, storeMuted } from '../audio/audio'
+import { loadMuted, loadVolume, storeMuted, storeVolume } from '../audio/audio'
 import { createSlot, deleteSave, exportSave, importSave, listSaves, renameSave, type SaveSlot } from '../game/storage'
 import { DEFAULT_SETTINGS } from '../map/settings'
 import { DEFAULT_CONFIG, type GeneratorConfig } from '../map/terrain'
@@ -27,8 +27,6 @@ const SERVER_KEY = 'kharos.server'
 type Screen = 'main' | 'new' | 'saves' | 'network' | 'settings'
 
 interface MenuProps {
-  panel: boolean
-  setPanel(panel: boolean): void
   play(launch: Launch): void
 }
 
@@ -82,7 +80,7 @@ function Window({ title, back, children, wide }: { title: string; back?: () => v
  * Главное меню поверх слайдов симуляции: продолжить последнюю игру, начать новую, загрузить сохранение, подключиться
  * к серверу, настроить игру.
  */
-export function Menu({ panel, setPanel, play }: MenuProps) {
+export function Menu({ play }: MenuProps) {
   const [screen, setScreen] = useState<Screen>('main')
   const [saves, setSaves] = useState(listSaves)
   const refresh = () => setSaves(listSaves())
@@ -116,7 +114,7 @@ export function Menu({ panel, setPanel, play }: MenuProps) {
       {screen === 'new' && <NewGame back={home} play={play} count={saves.length} />}
       {screen === 'saves' && <Saves back={home} saves={saves} refresh={refresh} play={play} />}
       {screen === 'network' && <Network back={home} play={play} />}
-      {screen === 'settings' && <Settings back={home} panel={panel} setPanel={setPanel} />}
+      {screen === 'settings' && <Settings back={home} />}
     </div>
   )
 }
@@ -517,13 +515,12 @@ function Network({ back, play }: { back(): void; play(launch: Launch): void }) {
 
 interface SettingsProps {
   back(): void
-  panel: boolean
-  setPanel(panel: boolean): void
 }
 
 /** Настройки самого игрока. Всё, что относится к миру (погода, размер, зерно), задаётся при создании игры. */
-function Settings({ back, panel, setPanel }: SettingsProps) {
+function Settings({ back }: SettingsProps) {
   const [muted, setMuted] = useState(loadMuted)
+  const [volume, setVolume] = useState(loadVolume)
   return (
     <Window title="Настройки" back={back}>
       <div class="menu__form">
@@ -539,10 +536,21 @@ function Settings({ back, panel, setPanel }: SettingsProps) {
           />
           Звук в игре
         </label>
-        <h3 class="menu__group">Отладка</h3>
-        <label class="menu__check">
-          <input type="checkbox" checked={panel} onChange={(event) => setPanel(event.currentTarget.checked)} />
-          Панель генератора в игре
+        <label class="menu__field menu__field--slider">
+          <span>Громкость</span>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={volume}
+            disabled={muted}
+            onInput={(event) => {
+              storeVolume(Number(event.currentTarget.value))
+              setVolume(Number(event.currentTarget.value))
+            }}
+          />
+          <output>{Math.round(volume * 100)}%</output>
         </label>
       </div>
     </Window>

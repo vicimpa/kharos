@@ -5,17 +5,8 @@ import { launchFromAddress, recallLaunch, rememberLast, rememberLaunch, type Lau
 import { Menu } from './Menu'
 import { Showcase } from './Showcase'
 
-const PANEL_KEY = 'kharos.panel'
-
-/** Отладочная панель генератора: включается в настройках или параметром ?panel в адресной строке. */
-function loadPanel() {
-  if (new URLSearchParams(location.search).has('panel')) return true
-  try {
-    return localStorage.getItem(PANEL_KEY) === '1'
-  } catch {
-    return false
-  }
-}
+/** Отладочная панель генератора: только по параметру ?panel в адресной строке, в настройках её нет. */
+const loadPanel = () => new URLSearchParams(location.search).has('panel')
 
 /**
  * Страница: главное меню над слайдами симуляции или сама игра. Игра, заданная адресной строкой (?server,
@@ -23,7 +14,7 @@ function loadPanel() {
  */
 export function App() {
   const [settings, setSettings] = useState(loadSettings)
-  const [panel, setPanel] = useState(loadPanel)
+  const [panel] = useState(loadPanel)
   const [launch, setLaunch] = useState<Launch | null>(() => launchFromAddress() ?? recallLaunch())
 
   useEffect(() => saveSettings(settings), [settings])
@@ -32,13 +23,6 @@ export function App() {
     rememberLaunch(launch)
     if (launch) rememberLast(launch)
   }, [launch])
-  useEffect(() => {
-    try {
-      localStorage.setItem(PANEL_KEY, panel ? '1' : '0')
-    } catch {
-      // Выбор просто не запомнится.
-    }
-  }, [panel])
 
   if (launch) {
     return (
@@ -58,7 +42,7 @@ export function App() {
   return (
     <main class="game">
       <Showcase settings={settings} />
-      <Menu panel={panel} setPanel={setPanel} play={setLaunch} />
+      <Menu play={setLaunch} />
     </main>
   )
 }

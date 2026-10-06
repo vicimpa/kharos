@@ -7,12 +7,15 @@ const MASTER = 0.6
 /** На сколько звук случайно выше или ниже: одинаковые выстрелы подряд не звучат как запись. */
 const DETUNE = 0.08
 const STORAGE_KEY = 'kharos.muted'
+const VOLUME_KEY = 'kharos.volume'
 
 export interface Audio {
   /** Звучит звук name громкостью volume (0..1) и в стороне pan: -1 — слева, 1 — справа. */
   play(name: SoundName, volume: number, pan: number): void
   /** Включён ли звук: выбор игрока хранится в браузере. */
   muted: boolean
+  /** Громкость от 0 до 1, тоже из браузера. */
+  volume: number
   destroy(): void
 }
 
@@ -33,6 +36,24 @@ export const storeMuted = (value: boolean) => {
   }
 }
 
+/** Громкость по выбору игрока, от 0 до 1. */
+export const loadVolume = () => {
+  try {
+    const value = Number(localStorage.getItem(VOLUME_KEY) ?? 1)
+    return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 1
+  } catch {
+    return 1
+  }
+}
+
+export const storeVolume = (value: number) => {
+  try {
+    localStorage.setItem(VOLUME_KEY, String(value))
+  } catch {
+    // Без хранилища выбор живёт до перезагрузки.
+  }
+}
+
 /**
  * Звук игры. Браузер не даёт играть звук, пока игрок ничего не нажал, поэтому всё готовится при первом его
  * действии: тогда же синтезируются звуки (см. synth.ts). До этого play ничего не делает.
@@ -43,6 +64,8 @@ export function createAudio(): Audio {
   const buffers = new Map<SoundName, AudioBuffer[]>()
   let voices = 0
   let muted = loadMuted()
+  let volume = loadVolume()
+  const level = () => (muted ? 0 : MASTER * volume)
 
   const start = () => {
     if (context) {
@@ -58,7 +81,7 @@ export function createAudio(): Audio {
     compressor.ratio.value = 6
     compressor.connect(context.destination)
     master = context.createGain()
-    master.gain.value = muted ? 0 : MASTER
+    master.gain.value = level()
     master.connect(compressor)
     for (const name of SOUND_NAMES) {
       buffers.set(
@@ -102,7 +125,15 @@ export function createAudio(): Audio {
     set muted(value) {
       muted = value
       storeMuted(value)
-      if (master) master.gain.value = value ? 0 : MASTER
+      if (master) master.gain.value = level()
+    },
+    get volume() {
+      return volume
+    },
+    set volume(value) {
+      volume = value
+      storeVolume(value)
+      if (master) master.gain.value = level()
     },
     destroy() {
       for (const event of events) window.removeEventListener(event, start)
