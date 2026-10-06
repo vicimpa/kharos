@@ -331,7 +331,7 @@ const isIdle = (sim: Sim, truck: Entity) => {
  * Раздаёт работу свободным грузовикам. Каждому — лучшая из заявок его игрока: важнее и ближе (путь до склада,
  * откуда брать, и оттуда до заказчика). Готовое берётся в хранилищах зоны заказчика, руда — в шахтах игрока,
  * где бы они ни стояли. Если заявок, которые можно выполнить, нет — грузовик увозит готовое из переработки
- * и цехов по хранилищам; руду без заявки не возит никто.
+ * и цехов в ближайшее хранилище с местом; нет места нигде — не берёт ничего. Руду без заявки не возит никто.
  */
 export function dispatch(sim: Sim) {
   const { world } = sim
@@ -396,7 +396,12 @@ export function dispatch(sim: Sim) {
             if (available < (leftover ? 1e-9 : Math.min(PUSH_MIN, room, holds * PUSH_SHARE))) continue
             const score = -distance(sim, truck, source)
             if (best && score <= best.score) continue
-            best = { from: source, to: NONE as Entity, resource, amount: Math.min(available, room), score }
+            // Груз, который некуда везти, не берут: куда — решается сразу, и берут не больше, чем там поместится.
+            const to = deliveryFor(sim, truck, resource, source)
+            if (to === NONE) continue
+            const space = roomFor(world.get(to, Inventory)!, resource) - (flows.incoming.get(to)?.[resource] ?? 0)
+            if (space <= 1e-9) continue
+            best = { from: source, to, resource, amount: Math.min(available, room, space), score }
           }
         }
       }

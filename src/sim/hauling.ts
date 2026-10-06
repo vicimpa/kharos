@@ -4,7 +4,7 @@ import { NONE, isOwn, onTurn } from './common'
 import { Beam, Building, Converting, Hauler, Harvester, Inventory, Owner, Path, Position, Site } from './components'
 import { DEPOSIT_KINDS, reserveLeft, takeReserve } from './deposits'
 import { amountOf, approach, beamFor, put, reaches, resetBeams, roomFor, transfer } from './inventory'
-import { acceptsDelivery, deliveryFor, dispatch, mineOre, offersPickup } from './logistics'
+import { acceptsDelivery, deliveryFor, dispatch, mineOre, offersPickup, refineryFor } from './logistics'
 import { GOODS, resourceOf, type Good } from './resources'
 import type { Sim } from './sim'
 import { UNITS } from './units'
@@ -145,6 +145,8 @@ export function haul(sim: Sim) {
           released.push(entity)
           continue
         }
+        // Руду, которую некуда везти, не берёт: ждёт у шахты, пока на переработке не освободится место.
+        if (!retry || refineryFor(sim, entity, ore) === NONE) continue
         hauler.from = hauler.mine
         hauler.resource = ore
         hauler.amount = cargo.capacity
