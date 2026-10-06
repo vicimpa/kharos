@@ -19,12 +19,15 @@ const float PERIOD = float(WINDOW);
 const float TEXELS_PER_TILE = 16.0;
 
 // Что выпадает в каждом биоме: эрг, солончаки, красные пустоши, топи.
-// В пустынях ветер несёт пыль цвета местного песка, в топях идёт дождь и стоит туман.
+// В пустынях ветер несёт пыль цвета местного песка, на солончаках идёт снег, в топях — дождь и стоит туман.
 const vec3 DUST_COLOR[4] = vec3[4](
-  vec3(0.80, 0.65, 0.31), vec3(0.90, 0.88, 0.80), vec3(0.70, 0.36, 0.16), vec3(0.0)
+  vec3(0.80, 0.65, 0.31), vec3(0.0), vec3(0.70, 0.36, 0.16), vec3(0.0)
 );
-const vec4 DUST_AMOUNT = vec4(1.0, 0.6, 1.0, 0.0);
+const vec4 DUST_AMOUNT = vec4(1.0, 0.0, 1.0, 0.0);
 const vec4 RAIN_AMOUNT = vec4(0.0, 0.0, 0.0, 1.0);
+const vec4 SNOW_AMOUNT = vec4(0.0, 1.0, 0.0, 0.0);
+const vec3 SNOW_COLOR = vec3(0.96, 0.97, 1.0);
+const vec3 SNOW_HAZE = vec3(0.82, 0.86, 0.92);
 const vec3 FOG_COLOR = vec3(0.30, 0.37, 0.40);
 const vec3 RAIN_COLOR = vec3(0.75, 0.85, 0.95);
 // Непрозрачность капель и дымки под дождём.
@@ -133,6 +136,25 @@ float rainDrops(ivec2 texel, float amount) {
   return alpha;
 }
 
+// Снег: три слоя хлопьев, дальние мельче и медленнее. Хлопья падают вниз экрана, покачиваясь, и плывут по ветру.
+// Сетки слоёв делят окно мира нацело, чтобы снос по uDrift не давал скачков.
+float snowFlakes(ivec2 texel, float amount) {
+  float alpha = 0.0;
+  for (int layer = 0; layer < 3; layer++) {
+    float depth = float(layer);
+    float size = layer == 2 ? 16.0 : 8.0;
+    float sway = sin(uTime * (0.6 + depth * 0.25) + depth * 2.1) * (2.0 + depth);
+    vec2 fall = vec2(sway, uTime * (4.0 + depth * 3.0));
+    vec2 q = vec2(texel) + 0.5 - fall - uDrift * TEXELS_PER_TILE * (0.6 + depth * 0.2);
+    vec2 cell = floor(q / size);
+    vec2 id = mod(cell, PERIOD * TEXELS_PER_TILE / size) + depth * 17.31;
+    if (hash(id) > amount * (0.35 + depth * 0.15)) continue;
+    vec2 flake = (cell + 0.2 + 0.6 * vec2(hash(id + 3.1), hash(id + 7.7))) * size;
+    if (length(q - flake) < 0.6 + depth * 0.35) alpha = max(alpha, 0.55 + depth * 0.2);
+  }
+  return alpha;
+}
+
 void over(inout vec4 result, vec3 color, float alpha) {
   result = vec4(result.rgb * (1.0 - alpha) + color * alpha, result.a * (1.0 - alpha) + alpha);
 }
@@ -150,6 +172,7 @@ void main() {
   vec4 biomes = biomeWeights(p);
   float dust = dot(biomes, DUST_AMOUNT);
   float rain = dot(biomes, RAIN_AMOUNT);
+  float snow = dot(biomes, SNOW_AMOUNT);
 
   // Клубы плывут по ветру; мелкий слой идёт вдвое быстрее крупного. Множители целые, чтобы шум не терял период.
   float clouds = noise(p - uDrift, 0.125) * 0.6 + noise(p - uDrift * 2.0, 1.0) * 0.4;
@@ -160,6 +183,10 @@ void main() {
   if (rain > 0.001) {
     over(result, FOG_COLOR, stepped((0.15 + cover * 0.3) * uPrecipitation * rain * FOG_ALPHA, dither));
     over(result, RAIN_COLOR, rainDrops(texel, uPrecipitation * rain) * detail * RAIN_ALPHA);
+  }
+  if (snow > 0.001) {
+    over(result, SNOW_HAZE, stepped((0.1 + cover * 0.45) * uPrecipitation * snow * 0.7, dither));
+    over(result, SNOW_COLOR, snowFlakes(texel, uPrecipitation * snow) * detail);
   }
   if (dust > 0.001) {
     vec3 color = (biomes.x * DUST_AMOUNT.x * DUST_COLOR[0] + biomes.y * DUST_AMOUNT.y * DUST_COLOR[1]

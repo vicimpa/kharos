@@ -5,7 +5,7 @@ import type { Pass } from '../render/renderer'
 import fragment from './weather.frag?raw'
 
 /**
- * Проход осадков: пыль и дождь по биомам. Биомы берёт из того же окна местности, что и шейдер карты.
+ * Проход осадков по биомам: пыль в пустынях, снег на солончаках, дождь в топях. Биомы берёт из того же окна местности, что и шейдер карты.
  * Ставить выше игровых слоёв, но ниже освещения: ночью осадки темнеют вместе со всем остальным.
  */
 export function createPrecipitationPass(gl: WebGL2RenderingContext, scene: Scene, landWindow: LandWindow): Pass {
