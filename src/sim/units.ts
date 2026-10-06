@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { isPassable, terrainAt, tileKey } from '../map/terrain'
+import { Terrain, isPassable, terrainAt, tileKey } from '../map/terrain'
 import { isOwn } from './common'
 import { Armed, Converting, Hauler, Harvester, Health, Owner, Repair, Path, Position, Producer, Unit } from './components'
 import { STARTING_CREDITS, addCredits } from './economy'
@@ -129,6 +129,19 @@ const STARTING_UNITS: UnitType[] = ['mcv', 'builder', 'builder', 'infantry', 'in
 export function isWalkable(sim: Sim, x: number, y: number) {
   if (!inBounds(sim, x, y)) return false
   return isPassable(terrainAt(sim.land, x, y)) && sim.occupancy.at(x, y) === undefined
+}
+
+/** Медленнее этой доли скорости местность не замедляет: иначе юнит застрял бы навсегда. */
+const SLOWEST = 0.05
+
+/** Доля полной скорости юнита type на тайле (x, y): по скале и в воздухе — 1, песок и болото замедляют, см. Rules. */
+export function terrainSpeed(sim: Sim, type: UnitType, x: number, y: number) {
+  const { kind } = UNITS[type]
+  if (kind === 'air') return 1
+  const terrain = terrainAt(sim.land, x, y)
+  if (terrain === Terrain.Sand) return Math.max(SLOWEST, 1 - sim.rules[`${kind}Sand`])
+  if (terrain === Terrain.Swamp) return Math.max(SLOWEST, 1 - sim.rules[`${kind}Swamp`])
+  return 1
 }
 
 /** Набор тайлов, про который можно только спросить, входит ли в него тайл; ключ — tileKey. */
@@ -261,8 +274,10 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
     if (tileX === fromX && tileY === fromY) return true
     return isWalkable(sim, tileX, tileY) && !taken.has(tileKey(tileX, tileY))
   }
+  // Шаг по тайлу стоит столько, сколько по нему ехать: медленные пески и болота путь объезжает, если выходит быстрее.
+  const slowness = (tileX: number, tileY: number) => 1 / terrainSpeed(sim, type, tileX, tileY)
   // Подход на расстояние ищется недолго: не вышло обойти — юнит встанет поближе и попробует оттуда.
-  const tiles = findPath(walkable, fromX, fromY, x, y, near, near ? APPROACH_LIMIT : limit)
+  const tiles = findPath(walkable, fromX, fromY, x, y, near, near ? APPROACH_LIMIT : limit, slowness)
   // Уже достаточно близко, а идти всё равно велят: значит, надо подойти вплотную. Цель рядом — и искать недолго.
   if (near && !tiles.length && (fromX - x) ** 2 + (fromY - y) ** 2 <= near * near) return orderMove(sim, entity, x, y, ignore, tries, 0, APPROACH_LIMIT)
   // Юнит идёт по центрам тайлов.
@@ -271,6 +286,7 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
     position.x,
     position.y,
     tiles.map((value) => value + 0.5),
+    slowness,
   )
   if (points.length) world.add(entity, Path({ points, goalX: x, goalY: y, tries, near }))
   else world.remove(entity, Path)

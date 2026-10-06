@@ -1,5 +1,5 @@
 import type { Entity, World } from '../ecs'
-import { Terrain, isBuildable, isPassable, terrainAt, tileKey } from '../map/terrain'
+import { Terrain, isBuildable, terrainAt, tileKey } from '../map/terrain'
 import { isOwn } from './common'
 import { Assembly, Building, Health, Inventory, Repair, Owner, Position, Producer, Site } from './components'
 import { equipStorage, put, type BeamSpec } from './inventory'
@@ -256,7 +256,7 @@ export function canPlace(sim: Sim, type: BuildingType, x: number, y: number, gap
   const { width, height } = spec
   const { bounds } = sim
   if (x < bounds.left || y < bounds.top || x + width > bounds.right || y + height > bounds.bottom) return false
-  const accepts = spec.defense ? isPassable : isBuildable
+  const accepts = spec.defense ? (terrain: Terrain) => terrain === Terrain.Sand || isBuildable(terrain) : isBuildable
   for (let tileY = y; tileY < y + height; tileY++) {
     for (let tileX = x; tileX < x + width; tileX++) {
       if (!accepts(terrainAt(sim.land, tileX, tileY))) return false

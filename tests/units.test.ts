@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
+import { isBuildable, terrainAt } from '../src/map/terrain'
 import { Owner, Path, Position, UNITS, Unit, canPlace, createSim, isWalkable, spawnStartingUnits, type Sim, type UnitType } from '../src/sim'
 import { findPath, isClear, smoothPath } from '../src/sim/path'
 import { spawnUnit } from '../src/sim/units'
@@ -146,11 +147,13 @@ test('юнит поворачивает плавно: за тик не боль�
   expect(tileOf(sim, mcv)).toEqual([x + 6, y - 10])
 })
 
-/** Ровная проходимая площадка 30×9 тайлов: её левый верхний тайл. */
+/** Ровная проходимая площадка 30×9 тайлов скалы — местность нигде не замедляет: её левый верхний тайл. */
 function field(sim: Sim) {
   for (let y = -200; y < 200; y += 3) {
     search: for (let x = -200; x < 200; x += 3) {
-      for (let dy = 0; dy < 9; dy++) for (let dx = 0; dx < 30; dx++) if (!isWalkable(sim, x + dx, y + dy)) continue search
+      for (let dy = 0; dy < 9; dy++) {
+        for (let dx = 0; dx < 30; dx++) if (!isWalkable(sim, x + dx, y + dy) || !isBuildable(terrainAt(sim.land, x + dx, y + dy))) continue search
+      }
       return { x, y }
     }
   }

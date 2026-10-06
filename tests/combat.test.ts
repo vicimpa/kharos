@@ -562,7 +562,7 @@ test('скорость и цена ремонта берутся из прави
   expect(repaired(0)).toBe(0)
 
   const sim = createSim({ ...options, rules: { repairCost: 1 } })
-  expect(sim.rules).toEqual({ repairSpeed: 2, repairCost: 1, repairPause: 3 })
+  expect(sim.rules).toMatchObject({ repairSpeed: 2, repairCost: 1, repairPause: 3 })
   expect(createSim(JSON.parse(JSON.stringify(sim.save()))).rules.repairCost).toBe(1)
 })
 

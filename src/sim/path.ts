@@ -1,5 +1,9 @@
 /** Можно ли юниту находиться в тайле. */
 export type Walkable = (x: number, y: number) => boolean
+/** Во сколько раз шаг по тайлу дороже шага по ровному: 1 — ровное, больше — медленная местность. Не меньше 1. */
+export type Slowness = (x: number, y: number) => number
+
+const EVEN: Slowness = () => 1
 
 /** Сколько тайлов поиск осматривает, прежде чем сдаться и повести к ближайшему найденному, если не сказано иначе. */
 const SEARCH_LIMIT = 20000
@@ -88,21 +92,22 @@ let generation = 0
  * но не наискось мимо угла препятствия. Возвращает тайлы пути подряд: x, y, x, y… — без начального.
  * Если до цели не дойти, ведёт к ближайшему к ней тайлу, до которого дойти можно.
  * near — на сколько тайлов достаточно подойти к цели: путь кончается в первом найденном тайле не дальше этого.
- * limit — сколько тайлов поиск осматривает, прежде чем сдаться.
+ * limit — сколько тайлов поиск осматривает, прежде чем сдаться. slowness — цена шага по тайлу: путь ищется самый быстрый,
+ * а не самый короткий.
  */
-export function findPath(walkable: Walkable, fromX: number, fromY: number, toX: number, toY: number, near = 0, limit = SEARCH_LIMIT): number[] {
+export function findPath(walkable: Walkable, fromX: number, fromY: number, toX: number, toY: number, near = 0, limit = SEARCH_LIMIT, slowness = EVEN): number[] {
   if (Math.abs(toX - fromX) < HALF - 1 && Math.abs(toY - fromY) < HALF - 1) {
-    const path = findNearPath(walkable, fromX, fromY, toX, toY, near, limit)
+    const path = findNearPath(walkable, fromX, fromY, toX, toY, near, limit, slowness)
     if (path) return path
   }
-  return findFarPath(walkable, fromX, fromY, toX, toY, near, limit)
+  return findFarPath(walkable, fromX, fromY, toX, toY, near, limit, slowness)
 }
 
 /**
  * Поиск пути внутри окна вокруг старта. Возвращает null, если цель не найдена, а поиск упёрся в край окна:
  * тогда путь, возможно, лежит за ним, и искать надо без окна.
  */
-function findNearPath(walkable: Walkable, fromX: number, fromY: number, toX: number, toY: number, near: number, limit: number): number[] | null {
+function findNearPath(walkable: Walkable, fromX: number, fromY: number, toX: number, toY: number, near: number, limit: number, slowness: Slowness): number[] | null {
   if (!stamps) {
     stamps = new Uint32Array(WINDOW * WINDOW)
     costs = new Float64Array(WINDOW * WINDOW)
@@ -164,7 +169,7 @@ function findNearPath(walkable: Walkable, fromX: number, fromY: number, toX: num
       const next = nextLocalY * WINDOW + nextLocalX
       if (!free(next, x + dx, y + dy)) continue
       if (dx && dy && (!free(at + dx, x + dx, y) || !free(at + dy * WINDOW, x, y + dy))) continue
-      const total = reached + price
+      const total = reached + price * slowness(x + dx, y + dy)
       if (total >= costs[next]) continue
       costs[next] = total
       parents[next] = at
@@ -190,7 +195,7 @@ function findNearPath(walkable: Walkable, fromX: number, fromY: number, toX: num
 }
 
 /** То же, что findPath, но без окна: тайлы хранятся в словарях. Медленнее, зато годится для пути любой длины. */
-function findFarPath(walkable: Walkable, fromX: number, fromY: number, toX: number, toY: number, near: number, limit: number): number[] {
+function findFarPath(walkable: Walkable, fromX: number, fromY: number, toX: number, toY: number, near: number, limit: number, slowness: Slowness): number[] {
   // Тайлы нумеруются относительно старта: поиск не уходит дальше SEARCH_LIMIT шагов, этого окна хватает.
   const SPAN = 1 << 15
   const key = (x: number, y: number) => (y - fromY + SPAN / 2) * SPAN + (x - fromX + SPAN / 2)
@@ -226,7 +231,7 @@ function findFarPath(walkable: Walkable, fromX: number, fromY: number, toX: numb
       if (!walkable(nextX, nextY)) continue
       if (dx && dy && (!walkable(nextX, y) || !walkable(x, nextY))) continue
       const next = key(nextX, nextY)
-      const total = reached + price
+      const total = reached + price * slowness(nextX, nextY)
       if (total >= (cost.get(next) ?? Infinity)) continue
       cost.set(next, total)
       parent.set(next, current)
@@ -247,8 +252,11 @@ function findFarPath(walkable: Walkable, fromX: number, fromY: number, toX: numb
   return path.reverse()
 }
 
-/** Свободен ли прямой путь между двумя точками (в тайлах, дробных) с запасом по бокам. */
-export function isClear(walkable: Walkable, fromX: number, fromY: number, toX: number, toY: number) {
+/**
+ * Свободен ли прямой путь между двумя точками (в тайлах, дробных) с запасом по бокам. Со slowness прямая годится,
+ * только если на ней нет тайлов медленнее концов: спрямление не должно срезать угол через болото.
+ */
+export function isClear(walkable: Walkable, fromX: number, fromY: number, toX: number, toY: number, slowness = EVEN) {
   const dx = toX - fromX
   const dy = toY - fromY
   const length = Math.hypot(dx, dy)
@@ -256,11 +264,13 @@ export function isClear(walkable: Walkable, fromX: number, fromY: number, toX: n
   const sideX = (-dy / length) * CLEARANCE
   const sideY = (dx / length) * CLEARANCE
   const steps = Math.ceil(length / 0.2)
+  const slowest = Math.max(slowness(Math.floor(fromX), Math.floor(fromY)), slowness(Math.floor(toX), Math.floor(toY)))
   for (let i = 0; i <= steps; i++) {
     const x = fromX + (dx * i) / steps
     const y = fromY + (dy * i) / steps
     if (!walkable(Math.floor(x + sideX), Math.floor(y + sideY))) return false
     if (!walkable(Math.floor(x - sideX), Math.floor(y - sideY))) return false
+    if (slowness(Math.floor(x), Math.floor(y)) > slowest) return false
   }
   return true
 }
@@ -269,7 +279,7 @@ export function isClear(walkable: Walkable, fromX: number, fromY: number, toX: n
  * Спрямляет путь: выбрасывает точки, мимо которых можно пройти по прямой. Точки — дробные, x, y подряд;
  * (fromX, fromY) — откуда путь начинается. Без этого юнит ходил бы по сетке лесенкой.
  */
-export function smoothPath(walkable: Walkable, fromX: number, fromY: number, points: number[]) {
+export function smoothPath(walkable: Walkable, fromX: number, fromY: number, points: number[], slowness = EVEN) {
   const result: number[] = []
   let anchorX = fromX
   let anchorY = fromY
@@ -277,7 +287,7 @@ export function smoothPath(walkable: Walkable, fromX: number, fromY: number, poi
   while (at < points.length) {
     // Идём вперёд, пока очередная точка видна из опорной; последняя видимая становится новой опорной.
     let next = at
-    while (next + 2 < points.length && isClear(walkable, anchorX, anchorY, points[next + 2], points[next + 3])) next += 2
+    while (next + 2 < points.length && isClear(walkable, anchorX, anchorY, points[next + 2], points[next + 3], slowness)) next += 2
     anchorX = points[next]
     anchorY = points[next + 1]
     result.push(anchorX, anchorY)

@@ -76,6 +76,17 @@ const RULES_GROUPS: Group<RulesConfig>[] = [
       { key: 'repairPause', label: 'Пауза после попадания, с', min: 0, max: 10, step: 0.5 },
     ],
   },
+  {
+    title: 'Замедление по местности, доля скорости',
+    fields: [
+      { key: 'vehicleSand', label: 'Колёсные: песок', min: 0, max: 0.95, step: 0.05 },
+      { key: 'vehicleSwamp', label: 'Колёсные: болото', min: 0, max: 0.95, step: 0.05 },
+      { key: 'heavySand', label: 'Гусеничные: песок', min: 0, max: 0.95, step: 0.05 },
+      { key: 'heavySwamp', label: 'Гусеничные: болото', min: 0, max: 0.95, step: 0.05 },
+      { key: 'infantrySand', label: 'Пехота: песок', min: 0, max: 0.95, step: 0.05 },
+      { key: 'infantrySwamp', label: 'Пехота: болото', min: 0, max: 0.95, step: 0.05 },
+    ],
+  },
 ]
 
 const share = (key: 'infantry' | 'rocketeer' | 'buggy' | 'lancer' | 'tank' | 'tesla' | 'carrier' | 'drone' | 'gunship'): Field<BattleConfig> => ({

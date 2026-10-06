@@ -35,9 +35,29 @@ export interface Rules {
   repairCost: number
   /** Сколько секунд после попадания цель не чинится: ремонт — между боями, а не под огнём. Ноль — чинят и под огнём. */
   repairPause: number
+  /**
+   * Замедление наземных юнитов по местности, доля скорости от 0 до 1: колёсная техника (vehicle), гусеничная
+   * (heavy) и пехота — на песке и на болоте. По скале все идут в полную силу, летающим местность не мешает.
+   */
+  vehicleSand: number
+  vehicleSwamp: number
+  heavySand: number
+  heavySwamp: number
+  infantrySand: number
+  infantrySwamp: number
 }
 
-export const DEFAULT_RULES: Rules = { repairSpeed: REPAIR_SPEED, repairCost: REPAIR_COST, repairPause: REPAIR_PAUSE }
+export const DEFAULT_RULES: Rules = {
+  repairSpeed: REPAIR_SPEED,
+  repairCost: REPAIR_COST,
+  repairPause: REPAIR_PAUSE,
+  vehicleSand: 0.1,
+  vehicleSwamp: 0.8,
+  heavySand: 0,
+  heavySwamp: 0.5,
+  infantrySand: 0,
+  infantrySwamp: 0.5,
+}
 
 export interface SimOptions {
   generator: GeneratorConfig

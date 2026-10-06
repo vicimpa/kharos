@@ -114,8 +114,9 @@ export function isBuildable(terrain: Terrain): boolean {
   return terrain === Terrain.Rock
 }
 
+/** Пройти по тайлу может наземный юнит: всюду, кроме гор. Болото и песок замедляют, см. Rules. */
 export function isPassable(terrain: Terrain): boolean {
-  return terrain === Terrain.Sand || terrain === Terrain.Rock
+  return terrain !== Terrain.Mountain
 }
 
 /** Случайное число от 0 до 1, одно и то же для одних и тех же координат и сида. */

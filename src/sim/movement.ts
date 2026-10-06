@@ -4,7 +4,7 @@ import { ownerOf, turnToward, wrap } from './common'
 import { Path, Position, Unit } from './components'
 import { searchedTiles } from './path'
 import type { Sim } from './sim'
-import { UNITS, canStand, flies, orderMove, stepAside } from './units'
+import { UNITS, canStand, flies, orderMove, stepAside, terrainSpeed } from './units'
 
 /** Сколько тиков юнит ждёт, не в силах сдвинуться, прежде чем проложить путь заново. */
 const WAIT_TICKS = 20
@@ -156,7 +156,8 @@ export function moveUnits(sim: Sim, time: Time) {
 
     // Чем сильнее юнит смотрит в сторону, тем медленнее едет; развернувшись больше чем на четверть оборота, крутится на месте.
     const askew = Math.abs(wrap(heading - unit.facing))
-    let move = speed * time.step * Math.max(0, Math.cos(askew))
+    // Песок и болото замедляют наземных: см. terrainSpeed.
+    let move = speed * terrainSpeed(sim, unit.type, Math.floor(position.x), Math.floor(position.y)) * time.step * Math.max(0, Math.cos(askew))
     // Точка внутри круга, который юнит описывает на полном ходу: в неё не попасть, сколько ни кружи.
     // Тогда он доворачивает на месте. Запас — на то, что поворот идёт шагами.
     if (direct && distance < ((2 * speed) / turn) * Math.sin(Math.min(askew, Math.PI / 2)) * ORBIT_MARGIN) move = 0
