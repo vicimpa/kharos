@@ -1,4 +1,3 @@
-import type { WorldSnapshot } from '../ecs'
 import type { Command, SimOptions } from '../sim'
 import type { Trace } from '../sim/traces'
 
@@ -7,7 +6,7 @@ import type { Trace } from '../sim/traces'
  * из тех же компонентов и правил, что у сервера. Поднимай её при каждом изменении протокола, компонентов из SAVED
  * или симуляции, которое меняет то, что видит клиент.
  */
-export const PROTOCOL_VERSION = 1
+export const PROTOCOL_VERSION = 2
 
 /** Почему сервер не пустил клиента другой версии: текст для игрока. */
 export function versionMismatch(server: number, client: number) {
@@ -29,8 +28,12 @@ export type ServerMessage =
   | { type: 'players'; players: PlayerInfo[] }
   /** Сервер не пускает клиента — например, другой версии, см. PROTOCOL_VERSION — и закрывает соединение. */
   | { type: 'refused'; reason: string }
-  /** Мир после тика tick. Пока это снимок целиком; позже — только видимая область и только изменения. */
-  | { type: 'state'; tick: number; world: WorldSnapshot }
+  /**
+   * Мир после тика tick — только то, что поменялось с прошлого сообщения в том, что игрок видит. set — новые сущности
+   * целиком и поменявшиеся компоненты остальных, unset — снятые компоненты, remove — сущности, которых игрок больше
+   * не видит или которых не стало. Первое после приветствия приносит весь видимый мир.
+   */
+  | { type: 'delta'; tick: number; set: [number, Record<string, object>][]; unset: [number, string[]][]; remove: number[] }
   /** Сразу после приветствия: что игрок разведал раньше, см. Vision.map. Открытая карта остаётся открытой. */
   | { type: 'explored'; map: number[] }
   /** Следы, которые игрок только что увидел: каждый приходит один раз, дальше клиент держит его сам до конца срока. */

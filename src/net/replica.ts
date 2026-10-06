@@ -1,4 +1,4 @@
-import { World, type Time } from '../ecs'
+import { World, type Component, type Entity, type Time } from '../ecs'
 import { createLand } from '../map/terrain'
 import { DEFAULT_RULES, boundsOf, type Command, type Sim } from '../sim'
 import { createOccupancy } from '../sim/buildings'
@@ -11,6 +11,10 @@ import type { ClientMessage, PlayerInfo, ServerMessage } from './protocol'
 
 /** Из чего собираются призраки: сохраняемое и метка призрака. */
 const REMEMBERED = [...SAVED, Ghost]
+/** Компоненты, которые присылает хост, по имени. */
+const BY_KEY = new Map<string, Component<any>>(SAVED.map((component) => [component.key, component]))
+
+type Delta = Extract<ServerMessage, { type: 'delta' }>
 
 /** Копия чужой симуляции: выглядит как Sim, но сама игру не считает. */
 export interface Replica extends Sim {
@@ -32,7 +36,10 @@ export interface Replica extends Sim {
 export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' }>, send: (text: string) => void, close: () => void): Replica {
   const world = new World()
   const time: Time = { tick: 0, step: welcome.step, elapsed: 0, delta: 0, alpha: 0 }
-  let pending: Extract<ServerMessage, { type: 'state' }> | null = null
+  /** Пришедшие изменения мира, ещё не применённые: применяются все и по порядку. */
+  let pending: Delta[] = []
+  /** Что хост прислал и что игрок сейчас видит: сущность целиком, как её собрали из изменений. */
+  const mirror = new Map<number, Record<string, object>>()
   let failure: string | null = null
   let player = welcome.player
   /** Чужие здания и месторождения, увиденные раньше: какими их видели последний раз. */
@@ -62,8 +69,54 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     replica.traces = createReceivedTraces(() => time.tick, step, (x, y) => replica.vision.sees(player, x, y))
     world.clear()
     world.flush()
+    mirror.clear()
     Object.assign(time, { tick: 0, step, elapsed: 0, delta: 0, alpha: 0 })
-    pending = null
+    pending = []
+  }
+
+  /** Накладывает изменения на мир на месте: незатронутые сущности и их наблюдатели не трогаются. */
+  const apply = ({ set, unset, remove }: Delta) => {
+    for (const id of remove) {
+      mirror.delete(id)
+      // Запомненное здание остаётся и станет призраком, остальное исчезает.
+      if (!memory.has(id)) world.destroy(id as Entity)
+    }
+    for (const [id, data] of set) {
+      const entity = id as Entity
+      let entry = mirror.get(id)
+      if (!entry) {
+        // Новая для игрока сущность приходит целиком — в том числе вместо своего призрака.
+        world.destroy(entity)
+        entry = { ...data }
+        mirror.set(id, entry)
+        world.insert(id, data, BY_KEY)
+      } else {
+        Object.assign(entry, data)
+        for (const key in data) {
+          const component = BY_KEY.get(key)
+          if (!component) continue
+          const current = world.get(entity, component)
+          if (!current) {
+            world.add(entity, component(data[key]))
+            continue
+          }
+          // Компонент приходит целиком: поля, которых в нём больше нет, обнуляются.
+          const patch: Record<string, unknown> = { ...data[key] }
+          for (const field in current) if (!(field in patch)) patch[field] = undefined
+          world.set(entity, component, patch)
+        }
+      }
+      const owner = (entry.Owner as { player: number } | undefined)?.player
+      if (('Building' in entry || 'Deposit' in entry) && owner !== player) memory.set(id, entry)
+    }
+    for (const [id, keys] of unset) {
+      const entry = mirror.get(id)
+      for (const key of keys) {
+        if (entry) delete entry[key]
+        const component = BY_KEY.get(key)
+        if (component) world.remove(id as Entity, component)
+      }
+    }
   }
   const replica = {
     options: undefined as unknown as Replica['options'],
@@ -84,33 +137,34 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     advance(seconds: number) {
       if (failure !== null) throw new Error(failure)
       time.delta = seconds
-      if (!pending) {
+      if (!pending.length) {
         // Следующий тик опаздывает: юниты доезжают до последнего известного места и ждут.
         time.alpha = Math.min(1, time.alpha + seconds / time.step)
         return 0
       }
-      // Пришло несколько снимков — нужен только последний: где юнит был тик назад, в нём уже записано.
-      const ticks = pending.tick - time.tick
-      world.restore(pending.world, SAVED)
+      // Изменения идут одно за другим, поэтому применяются все пришедшие.
+      const last = pending[pending.length - 1]!
+      const ticks = last.tick - time.tick
+      for (const delta of pending) apply(delta)
       world.flush()
-      time.tick = pending.tick
+      time.tick = last.tick
       // Чужое здание, ушедшее в туман, остаётся на карте призраком, пока его место не окажется в обзоре.
-      const present = new Set<number>()
-      for (const [id, data] of pending.world.entities) {
-        present.add(id)
-        const owner = (data.Owner as { player: number } | undefined)?.player
-        if (('Building' in data || 'Deposit' in data) && owner !== player) memory.set(id, data)
-      }
       for (const [id, data] of memory) {
-        if (present.has(id)) continue
-        if (gone(data)) memory.delete(id)
-        else world.insert(id, { ...data, Ghost: {} }, REMEMBERED)
+        if (mirror.has(id)) continue
+        const entity = id as Entity
+        if (gone(data)) {
+          memory.delete(id)
+          world.destroy(entity)
+        } else if (!world.has(entity, Ghost)) {
+          if (world.alive(entity)) world.add(entity, Ghost)
+          else world.insert(id, { ...data, Ghost: {} }, REMEMBERED)
+        }
       }
       world.flush()
       replica.traces.update()
       time.elapsed = time.tick * time.step
       time.alpha = 0
-      pending = null
+      pending = []
       return ticks
     },
     save: (): SimSave => ({ version: SAVE_VERSION, ...replica.options, tick: time.tick, world: world.snapshot(SAVED) }),
@@ -120,7 +174,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
       world.clear()
     },
     receive(message: ServerMessage) {
-      if (message.type === 'state') pending = message
+      if (message.type === 'delta') pending.push(message)
       else if (message.type === 'explored') replica.vision.explore(player, message.map)
       else if (message.type === 'traces') replica.traces.receive(message.traces)
       else if (message.type === 'players') replica.players = message.players

@@ -22,6 +22,9 @@ const SWEEP_TICKS = 5
 /** Сколько игроков помещается на круге появления; следующие встают на круг шире. */
 const SPAWN_SLOTS = 8
 
+/** Мир, каким его видит игрок: по сущности — JSON каждого её компонента. */
+type View = Map<number, Map<string, string>>
+
 /** Подключённый игрок с точки зрения хоста. */
 export interface Peer {
   readonly player: number
@@ -37,7 +40,7 @@ export interface Host {
   replace(sim: Sim): void
   /** Сколько клиентов сейчас подключено. */
   readonly peers: number
-  /** Размер самого большого из последних разосланных снимков мира в символах. */
+  /** Размер самого большого из последних разосланных изменений мира в символах. */
   readonly stateSize: number
   /**
    * Подключает клиента. send отправляет ему текст сообщения. id — то, по чему хост узнаёт вернувшегося игрока: его
@@ -72,6 +75,8 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
   const peers = new Map<(text: string) => void, number>()
   /** Какие следы каждое подключение уже получило. */
   const shown = new Map<(text: string) => void, Set<number>>()
+  /** Какой мир каждое подключение уже получило: по сущности — JSON каждого её компонента. */
+  const sent = new Map<(text: string) => void, View>()
   let sinceSweep = 0
 
   /**
@@ -110,15 +115,46 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
   }
   let stateSize = 0
 
-  /** Мир глазами игрока: только то, что он видит. Вкладки одного игрока получают один и тот же текст. */
-  const state = (player: number, cache?: Map<number, string>) => {
-    let text = cache?.get(player)
-    if (text === undefined) {
-      const world = sim.world.snapshot(SAVED, (entity) => shownTo(sim, player, entity))
-      text = JSON.stringify({ type: 'state', tick: sim.time.tick, world } satisfies ServerMessage)
-      cache?.set(player, text)
+  /** Мир глазами игрока: только то, что он видит. Вкладки одного игрока смотрят на один и тот же. */
+  const view = (player: number, cache?: Map<number, View>) => {
+    let found = cache?.get(player)
+    if (found === undefined) {
+      found = new Map()
+      for (const [id, data] of sim.world.snapshot(SAVED, (entity) => shownTo(sim, player, entity)).entities) {
+        found.set(id, new Map(Object.entries(data).map(([key, value]) => [key, JSON.stringify(value)])))
+      }
+      cache?.set(player, found)
     }
-    return text
+    return found
+  }
+
+  /**
+   * Что поменялось в мире подключения с прошлого раза: сравнивается JSON компонентов, так что неподвижное здание
+   * не уходит в сеть каждый тик. Текст собирается из готовых кусков JSON, чтобы не сериализовать всё второй раз.
+   */
+  const delta = (send: (text: string) => void, player: number, cache?: Map<number, View>) => {
+    const before = sent.get(send)!
+    const now = view(player, cache)
+    const set: string[] = []
+    const unset: [number, string[]][] = []
+    const remove: number[] = []
+    for (const [id, components] of now) {
+      const old = before.get(id)
+      const parts: string[] = []
+      for (const [key, json] of components) if (old?.get(key) !== json) parts.push(`${JSON.stringify(key)}:${json}`)
+      if (parts.length) set.push(`[${id},{${parts.join(',')}}]`)
+      if (old) {
+        const dropped = [...old.keys()].filter((key) => !components.has(key))
+        if (dropped.length) unset.push([id, dropped])
+      }
+      before.set(id, components)
+    }
+    for (const id of before.keys()) {
+      if (now.has(id)) continue
+      remove.push(id)
+      before.delete(id)
+    }
+    return `{"type":"delta","tick":${sim.time.tick},"set":[${set.join(',')}],"unset":${JSON.stringify(unset)},"remove":${JSON.stringify(remove)}}`
   }
 
   /** Случайная точка появления: на скале, просторная и подальше от других игроков; undefined — не нашлась. */
@@ -169,11 +205,12 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
     replace(next) {
       sim.destroy()
       sim = next
-      const cache = new Map<number, string>()
+      const cache = new Map<number, View>()
       for (const [send, player] of peers) {
         send(welcome(player))
         send(explored(player))
-        send(state(player, cache))
+        sent.set(send, new Map())
+        send(delta(send, player, cache))
         shown.set(send, new Set())
       }
       announce()
@@ -200,10 +237,11 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
       if (nick || !names.has(joined)) names.set(joined, nick || `Игрок ${joined}`)
       peers.set(send, joined)
       shown.set(send, new Set())
+      sent.set(send, new Map())
       send(welcome(joined, id))
       send(explored(joined))
       // Мир сразу, не дожидаясь тика: иначе клиент начал бы с пустого экрана.
-      send(state(joined))
+      send(delta(send, joined))
       announce()
       return {
         player: joined,
@@ -223,6 +261,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
         leave() {
           peers.delete(send)
           shown.delete(send)
+          sent.delete(send)
           announce()
         },
       }
@@ -233,7 +272,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
     advance(seconds) {
       const ticks = sim.advance(seconds)
       if (ticks && peers.size) {
-        const cache = new Map<number, string>()
+        const cache = new Map<number, View>()
         stateSize = 0
         sinceSweep += ticks
         const sweep = sinceSweep >= SWEEP_TICKS
@@ -244,7 +283,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
           for (const id of expired) known.delete(id)
           const found = traces(send, player, sweep)
           if (found.length) send(JSON.stringify({ type: 'traces', traces: found } satisfies ServerMessage))
-          const text = state(player, cache)
+          const text = delta(send, player, cache)
           stateSize = Math.max(stateSize, text.length)
           send(text)
         }

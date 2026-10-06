@@ -3,7 +3,8 @@ import { DEFAULT_CONFIG } from '../src/map/terrain'
 import { createHost, type Host, type HostSave } from '../src/net/host'
 import type { ServerMessage } from '../src/net/protocol'
 import { createReplica, type Replica } from '../src/net/replica'
-import { Building, Ghost, Owner, Player, Position, Unit, createSim } from '../src/sim'
+import { Building, Ghost, Owner, Player, Position, Unit, createSim, shownTo } from '../src/sim'
+import { SAVED } from '../src/sim/components'
 import { placeBuilding } from '../src/sim/buildings'
 
 const STEP = 1 / 20
@@ -226,4 +227,30 @@ test('сохранённый сервер после перезапуска уз
     { player: 2, name: 'Петя', online: false },
   ])
   expect(join(restarted).peer.player).toBe(3)
+})
+
+test('мир клиента, собранный из изменений, совпадает с тем, что игрок видит на хосте', () => {
+  const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: 256 }))
+  const first = join(host)
+  const second = join(host)
+  first.sim.advance(0)
+  second.sim.advance(0)
+  // Юниты обоих едут навстречу друг другу: появляются в обзоре, двигаются, уходят, стреляют.
+  const target = host.sim.world.get(unitsOf(host.sim as never, 2)[0]! as never, Position)!
+  const start = host.sim.world.get(unitsOf(host.sim as never, 1)[0]! as never, Position)!
+  first.sim.send(1, { type: 'move', units: unitsOf(first.sim, 1), x: Math.floor(target.x), y: Math.floor(target.y) })
+  second.sim.send(2, { type: 'move', units: unitsOf(second.sim, 2), x: Math.floor(start.x), y: Math.floor(start.y) })
+  const seen = (sim: Replica) =>
+    JSON.parse(JSON.stringify(sim.world.snapshot(SAVED, (entity) => !sim.world.has(entity, Ghost)).entities.sort(([a], [b]) => a - b)))
+  const truth = (player: number) =>
+    JSON.parse(JSON.stringify(host.sim.world.snapshot(SAVED, (entity) => shownTo(host.sim, player, entity)).entities.sort(([a], [b]) => a - b)))
+  for (let tick = 1; tick <= 600; tick++) {
+    host.advance(STEP)
+    // Первый клиент применяет каждое изменение, второй — пачками по несколько.
+    first.sim.advance(STEP)
+    if (tick % 7 === 0) second.sim.advance(STEP)
+    if (tick % 50 === 0) expect(seen(first.sim)).toEqual(truth(1))
+  }
+  second.sim.advance(STEP)
+  expect(seen(second.sim)).toEqual(truth(2))
 })
