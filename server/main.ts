@@ -1,5 +1,6 @@
 import { DEFAULT_CONFIG } from '../src/map/terrain'
 import { createHost, type Peer } from '../src/net/host'
+import { createSim } from '../src/sim'
 import { DEFAULT_PORT } from '../src/net/protocol'
 
 /** Сторона карты сервера в тайлах. */
@@ -8,7 +9,7 @@ const SIZE = 256
 const REPORT_INTERVAL = 5
 
 const port = Number(process.env.PORT) || DEFAULT_PORT
-const host = createHost({ generator: DEFAULT_CONFIG, size: SIZE })
+const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: SIZE }))
 
 Bun.serve<{ token?: string; peer?: Peer }>({
   port,

@@ -3,7 +3,7 @@ import { DEFAULT_CONFIG } from '../src/map/terrain'
 import { createHost, type Host } from '../src/net/host'
 import type { ServerMessage } from '../src/net/protocol'
 import { createReplica, type Replica } from '../src/net/replica'
-import { Owner, Position, Unit } from '../src/sim'
+import { Owner, Position, Unit, createSim } from '../src/sim'
 
 const STEP = 1 / 20
 
@@ -25,7 +25,7 @@ const unitsOf = (sim: Replica, player: number) => {
 }
 
 test('клиент получает мир сразу после подключения', () => {
-  const host = createHost({ generator: DEFAULT_CONFIG, size: 256 })
+  const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: 256 }))
   const { peer, sim } = join(host)
   sim.advance(0)
   expect(peer.player).toBe(1)
@@ -34,7 +34,7 @@ test('клиент получает мир сразу после подключ�
 })
 
 test('приказ клиента выполняет сервер, а клиент видит результат', () => {
-  const host = createHost({ generator: DEFAULT_CONFIG, size: 256 })
+  const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: 256 }))
   const { sim } = join(host)
   sim.advance(0)
   const [unit] = unitsOf(sim, 1)
@@ -55,7 +55,7 @@ test('приказ клиента выполняет сервер, а клиен
 })
 
 test('чужими юнитами клиент не командует', () => {
-  const host = createHost({ generator: DEFAULT_CONFIG, size: 256 })
+  const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: 256 }))
   const first = join(host)
   const second = join(host)
   expect(second.peer.player).toBe(2)
@@ -70,7 +70,7 @@ test('чужими юнитами клиент не командует', () => {
 })
 
 test('вернувшийся игрок получает прежние юниты, а мусор из сети сервер не роняет', () => {
-  const host = createHost({ generator: DEFAULT_CONFIG, size: 256 })
+  const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: 256 }))
   const first = join(host, 'a')
   first.peer.receive('не JSON')
   first.peer.receive('null')
@@ -88,7 +88,7 @@ test('вернувшийся игрок получает прежние юнит
 })
 
 test('между тиками копия ведёт alpha, а пропавшее соединение останавливает игру', () => {
-  const host = createHost({ generator: DEFAULT_CONFIG, size: 256 })
+  const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: 256 }))
   const { sim } = join(host)
   sim.advance(0)
   expect(sim.time.alpha).toBe(0)

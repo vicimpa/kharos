@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { createGame, type Game, type GameMode } from '../game/game'
+import { createGame, simOptions, type Game } from '../game/game'
+import { loadSave, storeSave } from '../game/storage'
 import { loadSettings, saveSettings } from '../map/settings'
-import { connect } from '../net/connect'
+import { connect, connectLocal } from '../net/connect'
+import type { GameMode } from '../net/local'
 import { DEFAULT_PORT } from '../net/protocol'
 import type { HudState } from '../game/hud'
 import { GeneratorPanel } from './GeneratorPanel'
@@ -55,9 +57,13 @@ export function App() {
     const server = serverAddress()
     let closed = false
     const start = async () => {
-      const session = server ? await connect(server.url, server.lag) : undefined
-      if (closed) return session?.sim.destroy()
-      gameRef.current = createGame(canvasRef.current!, settings, setError, session, MODE)
+      // Без сервера игра локальная: её считает воркер, а сохранение он присылает вкладке, и та кладёт его в браузер.
+      const save = server || MODE !== 'play' ? null : loadSave(simOptions(settings))
+      const session = server
+        ? await connect(server.url, server.lag)
+        : await connectLocal({ options: simOptions(settings), mode: MODE, battle: settings.battle, save }, storeSave)
+      if (closed) return session.sim.destroy()
+      gameRef.current = createGame(canvasRef.current!, settings, setError, session, save !== null)
       setMuted(gameRef.current.muted)
     }
     start().catch(setError)

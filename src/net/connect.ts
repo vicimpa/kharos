@@ -1,10 +1,20 @@
+import type { BattleConfig } from '../map/settings'
+import type { Rules, SimOptions, SimSave } from '../sim'
+import type { LocalControl, LocalNotice, LocalSetup } from './local'
 import type { ServerMessage } from './protocol'
 import { createReplica, type Replica } from './replica'
 
-/** Игра на сервере: копия его симуляции и номер игрока, которого сервер выдал этому клиенту. */
+/**
+ * Игра на хосте: копия его симуляции и номер игрока, которого хост выдал этому клиенту. local — управление
+ * локальной игрой; у сервера его нет: мир там один на всех, и начать его заново клиент не может.
+ */
 export interface Session {
   sim: Replica
   player: number
+  local?: {
+    restart(options: SimOptions, battle: BattleConfig): void
+    rules(rules: Rules): void
+  }
 }
 
 const TOKEN_KEY = 'kharos.token'
@@ -49,5 +59,46 @@ export function connect(url: string, lag = 0): Promise<Session> {
       if (sim) sim.fail('Соединение с сервером потеряно')
       else reject(new Error(`Не удалось подключиться к серверу ${url}`))
     }
+  })
+}
+
+/**
+ * Подключается к локальной игре в воркере и ждёт приветствия. Воркер общий, если браузер их умеет: тогда все
+ * вкладки одного режима играют в один мир. onSave получает сохранения, которые воркер присылает сам.
+ */
+export function connectLocal(setup: LocalSetup, onSave: (save: SimSave) => void): Promise<Session> {
+  return new Promise((resolve) => {
+    let port: MessagePort | Worker
+    if (typeof SharedWorker !== 'undefined') {
+      const worker = new SharedWorker(new URL('./local.worker.ts', import.meta.url), { type: 'module', name: `kharos-${setup.mode}` })
+      port = worker.port
+    } else {
+      port = new Worker(new URL('./local.worker.ts', import.meta.url), { type: 'module' })
+    }
+    const control = (message: LocalControl) => port.postMessage(message)
+    const leave = () => control({ type: 'leave' })
+    let sim: Replica | undefined
+
+    port.onmessage = ({ data }: MessageEvent) => {
+      if (typeof data !== 'string') return onSave((data as LocalNotice).save)
+      const message = JSON.parse(data) as ServerMessage
+      if (sim) return sim.receive(message)
+      if (message.type !== 'welcome') return
+      sim = createReplica(message, (text) => port.postMessage(text), () => {
+        leave()
+        window.removeEventListener('pagehide', leave)
+      })
+      resolve({
+        sim,
+        player: message.player,
+        local: {
+          restart: (options, battle) => control({ type: 'restart', options, battle }),
+          rules: (rules) => control({ type: 'rules', rules }),
+        },
+      })
+    }
+    // Закрытую вкладку воркер должен забыть: иначе слал бы мир в никуда.
+    window.addEventListener('pagehide', leave)
+    control({ type: 'start', ...setup })
   })
 }
