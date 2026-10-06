@@ -44,6 +44,8 @@ export interface SimOptions {
   size: number
   /** Правила; чего нет — по умолчанию. */
   rules?: Partial<Rules>
+  /** Туман войны; false — каждый видит всю карту и всё на ней. По умолчанию включён. */
+  fog?: boolean
 }
 
 /** Сохранение симуляции. Обычные данные: их можно положить в JSON, на диск или отправить по сети. */
@@ -101,7 +103,7 @@ export function boundsOf(size: number): Bounds {
 export function createSim(source: SimOptions | SimSave): Sim {
   const rules: Rules = { ...DEFAULT_RULES, ...source.rules }
   // Правила в сохранение попадают такими, какие они на момент сохранения.
-  const options: SimOptions = { generator: source.generator, size: source.size, rules }
+  const options: SimOptions = { generator: source.generator, size: source.size, rules, ...(source.fog === false && { fog: false }) }
   const bounds = boundsOf(options.size)
 
   const world = new World()
@@ -149,7 +151,7 @@ export function createSim(source: SimOptions | SimSave): Sim {
     world,
     land: createLand(options.generator),
     occupancy: createOccupancy(world),
-    vision: createVision(world, bounds, () => loop.time.tick),
+    vision: createVision(world, bounds, () => loop.time.tick, options.fog !== false),
     traces: createTraces(world, () => loop.time.tick, loop.time.step),
     rules,
     time: loop.time,

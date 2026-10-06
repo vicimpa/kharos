@@ -56,7 +56,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     if (JSON.stringify(generator) !== JSON.stringify(options.generator)) replica.land = createLand(options.generator)
     replica.rules = { ...DEFAULT_RULES, ...options.rules }
     // Разведанное в новом мире ничего не значит.
-    replica.vision = createVision(world, replica.bounds, () => time.tick)
+    replica.vision = createVision(world, replica.bounds, () => time.tick, options.fog !== false)
     replica.traces = createReceivedTraces(() => time.tick, step, (x, y) => replica.vision.sees(player, x, y))
     world.clear()
     world.flush()

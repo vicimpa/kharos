@@ -63,3 +63,16 @@ test('разведанное переживает сохранение, а ви�
   expect(loaded.vision.sees(1, 60, 0)).toBe(true)
   expect(loaded.vision.explored(1, -60, 0)).toBe(false)
 })
+
+test('без тумана войны видно всё, и параметр переживает сохранение', () => {
+  const sim = createSim({ ...options, fog: false })
+  spawnUnit(sim, 'infantry', 1, 0, 0)
+  const far = spawnUnit(sim, 'tank', 2, 0, 80)
+  sim.advance(TICK)
+  expect(sim.vision.sees(1, 100, -100)).toBe(true)
+  expect(sim.vision.seesEntity(1, far)).toBe(true)
+  // У игрока, у которого на карте ничего нет, — тоже.
+  expect(sim.vision.sees(3, 0, 0)).toBe(true)
+  expect(createSim(JSON.parse(JSON.stringify(sim.save()))).vision.sees(1, 100, -100)).toBe(true)
+  expect(createSim(options).options.fog).toBeUndefined()
+})

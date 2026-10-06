@@ -89,7 +89,8 @@ interface Sight {
   changed: number
 }
 
-export function createVision(world: World, bounds: Bounds, tick: () => number): Vision {
+/** fog: false — тумана нет: каждому игроку видна вся карта, и считать обзор не нужно. */
+export function createVision(world: World, bounds: Bounds, tick: () => number, fog = true): Vision {
   const width = bounds.right - bounds.left
   const height = bounds.bottom - bounds.top
   const sights = new Map<number, Sight>()
@@ -122,6 +123,11 @@ export function createVision(world: World, bounds: Bounds, tick: () => number): 
       sights.set(player, sight)
     }
     const now = tick()
+    if (!fog) {
+      if (sight.tick < 0) sight.cells.fill(VISIBLE)
+      sight.tick = now
+      return sight
+    }
     if (sight.tick === now) return sight
     sight.tick = now
     const before = sight.lit

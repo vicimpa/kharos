@@ -4,7 +4,7 @@ import type { MapSettings } from '../map/settings'
 import { createTerrainPass } from '../map/terrainPass'
 import { createRenderer, type Pass } from '../render/renderer'
 import type { Session } from '../net/connect'
-import { Position, Unit, isOwn, type BuildingType, type Command, type SimOptions, type UnitType } from '../sim'
+import { Building, Position, Unit, isOwn, type BuildingType, type Command, type Sim, type SimOptions, type UnitType } from '../sim'
 import { createLightingPass } from '../weather/lightingPass'
 import { createPrecipitationPass } from '../weather/precipitationPass'
 import { createBoundsPass } from './boundsPass'
@@ -43,6 +43,12 @@ const SHOWCASE_MENU = 400
  * запоминается в нём же. showcase — витрина для фона меню: ни управления, ни звука, ни тумана, а камера сама
  * следит за происходящим.
  */
+/**
+ * Что игра показывает: обычно копию мира хоста (Session), а витрина меню — симуляцию, которую считает сама
+ * вкладка; у неё нет поколений мира — она не начинается заново из-под игры.
+ */
+export type GameSession = Omit<Session, 'sim'> & { sim: Sim & { readonly generation?: number } }
+
 export interface GameOptions {
   slot?: string
   showcase?: boolean
@@ -89,7 +95,7 @@ export function createGame(
   canvas: HTMLCanvasElement,
   settings: MapSettings,
   onError: (error: unknown) => void,
-  session: Session,
+  session: GameSession,
   { slot, showcase = false }: GameOptions = {},
 ): Game {
   const camera = new Camera()
@@ -173,7 +179,7 @@ export function createGame(
   let generation = session.sim.generation
 
   /**
-   * Камера витрины: плавно идёт к середине всех юнитов, медленно кружа вокруг неё, — так в кадре бой или
+   * Камера витрины: плавно идёт к середине всех юнитов и зданий, медленно кружа вокруг неё, — так в кадре бой или
    * работающая база, даже когда всё стоит.
    */
   let orbit = Math.random() * Math.PI * 2
@@ -181,10 +187,13 @@ export function createGame(
     let x = 0
     let y = 0
     let count = 0
-    for (const [, position] of scene.sim.world.query(Position, Unit)) {
-      x += position.x
-      y += position.y
-      count++
+    // Здания — тоже действие: у стройки и обороны оно вокруг них.
+    for (const component of [Unit, Building]) {
+      for (const [, position] of scene.sim.world.query(Position, component)) {
+        x += position.x
+        y += position.y
+        count++
+      }
     }
     if (!count) return
     // Слева на широком экране — меню: действие держится правее него.
