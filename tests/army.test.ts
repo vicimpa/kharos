@@ -1,6 +1,8 @@
 import { expect, test } from 'bun:test'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { BUILDINGS, Producer, UNIT_TYPES, canPlace, createSim, missingRequirements, unitSpec } from '../src/sim'
+import { BUILDINGS, Health, Producer, UNIT_TYPES, WEAPONS, canPlace, createSim, missingRequirements, unitSpec } from '../src/sim'
+import { TOWER_RANGE } from '../src/sim/combat'
+import { spawnUnit } from '../src/sim/units'
 import { placeBuilding } from '../src/sim/buildings'
 import { addCredits } from '../src/sim/economy'
 
@@ -46,4 +48,26 @@ test('тяжёлую технику не заказать без техцент�
   expect(other.world.get(more[3], Producer)!.queue).toEqual(['tank'])
   // Чужой техцентр не в счёт.
   expect(missingRequirements(other, 2, 'tank')).toEqual(['techCenter'])
+})
+
+const seconds = (sim: ReturnType<typeof createSim>, time: number) => {
+  for (let i = 0; i < time * 20; i++) sim.advance(1 / 20)
+}
+
+test('артиллерия бьёт дальше любой турели и разносит её, не получив ответа', () => {
+  expect(WEAPONS.artillery.range).toBeGreaterThan(Math.max(WEAPONS.cannon.range, WEAPONS.launcher.range, WEAPONS.machinegun.range) + TOWER_RANGE)
+  const sim = createSim(options)
+  const turret = placeBuilding(sim.world, 'cannonTurret', 0, 0, 2)
+  const gun = spawnUnit(sim, 'artillery', 1, 11, 0)
+  seconds(sim, 60)
+  expect(sim.world.alive(turret)).toBe(false)
+  expect(sim.world.get(gun, Health)!.value).toBe(1)
+})
+
+test('в мёртвой зоне артиллерия молчит', () => {
+  const sim = createSim(options)
+  const foe = spawnUnit(sim, 'infantry', 2, 0, 0)
+  spawnUnit(sim, 'artillery', 1, 2, 0)
+  seconds(sim, 10)
+  expect(sim.world.get(foe, Health)!.value).toBe(1)
 })

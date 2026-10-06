@@ -376,7 +376,7 @@ export function fight(sim: Sim) {
       for (const mark of marks.values()) {
         if (!canHit(weapon, self.player, mark)) continue
         const distance = distanceTo(mark, self.x, self.y)
-        if (distance > range) continue
+        if (distance > range || distance < (weapon.minRange ?? 0)) continue
         const order = distance + (mark.armor === 'building' ? range : 0)
         if (order >= best) continue
         best = order
@@ -407,6 +407,11 @@ export function fight(sim: Sim) {
       }
       continue
     }
+    // В мёртвой зоне оружие молчит. Сам выбранную цель стрелок бросает: найдёт другую, подальше.
+    if (distanceTo(target, self.x, self.y) < (weapon.minRange ?? 0)) {
+      if (!armed.chase) armed.target = NONE
+      continue
+    }
     // На выстреле: гнавшийся встаёт. Идущий по приказу игрока не стреляет — цели у него нет; турель на едущем
     // по приказу носителе стреляет, но носитель не останавливает.
     if (moving && (!mounted || armed.chase)) world.remove(mover, Path)
@@ -424,7 +429,7 @@ export function fight(sim: Sim) {
     const fromY = self.y + Math.sin(aimer.facing) * turner.radius
     const shot = { weapon: weaponType, player: self.player, source: carrier, fromX, fromY, prevX: fromX, prevY: fromY }
     // Стена на линии огня принимает выстрел на себя: за ней укрытие. Турели зданий стоят выше стены и бьют поверх.
-    const wall = !world.has(carrier, Building) && STOPS_AT_WALL[weapon.shot] ? wallOnPath(sim, self.player, self.x, self.y, target.x, target.y) : undefined
+    const wall = !world.has(carrier, Building) && STOPS_AT_WALL[weapon.shot] && !weapon.lob ? wallOnPath(sim, self.player, self.x, self.y, target.x, target.y) : undefined
     const hitX = wall ? wall.x : target.x
     const hitY = wall ? wall.y : target.y
     if (weapon.speed) {

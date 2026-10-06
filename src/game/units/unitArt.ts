@@ -35,7 +35,7 @@ export type UnitArt = (g: Pixmap, angle: number, team: TeamColors, phase: number
 export type Gait = 'tracks' | 'wheels' | 'legs' | 'air'
 export const UNIT_GAITS: Record<UnitType, Gait> = {
   mcv: 'tracks', harvester: 'tracks', builder: 'wheels', infantry: 'legs', truck: 'wheels', rocketeer: 'legs', buggy: 'wheels',
-  lancer: 'wheels', tank: 'tracks', tesla: 'tracks', carrier: 'wheels', drone: 'air', gunship: 'air',
+  lancer: 'wheels', tank: 'tracks', artillery: 'wheels', tesla: 'tracks', carrier: 'wheels', drone: 'air', gunship: 'air',
 }
 /**
  * Кадров анимации хода у наземного юнита; у летающего кадр один. Протектор и звенья гусениц повторяются
@@ -62,6 +62,7 @@ export const UNIT_TRACES: Partial<Record<UnitType, { sides: number[]; width: num
   buggy: { sides: [-4.5, 4.5], width: 3 },
   lancer: { sides: [-4.5, 4.5], width: 3 },
   tank: { sides: [-7.5, 7.5], width: 4 },
+  artillery: { sides: [-6, 6], width: 3 },
   tesla: { sides: [-7.5, 7.5], width: 4 },
   carrier: { sides: [-9, 9], width: 3.2 },
 }
@@ -299,6 +300,38 @@ const tank: UnitArt = (g, angle, team, phase) => {
   p.dot(-1, 0, 5.6, STEEL[0])
 }
 
+/**
+ * Артиллерия: гаубица на колёсном лафете. Две пары колёс, станины с сошниками назад, щит расчёта и длинный ствол
+ * с дульным тормозом вперёд — ствол длиннее корпуса, видно издалека.
+ */
+const artillery: UnitArt = (g, angle, team, phase) => {
+  const p = pen(g, angle)
+  // Станины расходятся назад, на концах — сошники.
+  p.line(-1, -3, -12, -6, 2.4, INK)
+  p.line(-1, 3, -12, 6, 2.4, INK)
+  p.line(-1, -3, -11.5, -5.8, 1, IRON[2])
+  p.line(-1, 3, -11.5, 5.8, 1, IRON[2])
+  p.beam(-12, -7.5, -4.5, 1.6, IRON[3])
+  p.beam(-12, 4.5, 7.5, 1.6, IRON[3])
+  for (const along of [-3, 3]) for (const across of [-6, 6]) tire(p, along, across, 2.2, 3, phase)
+  // Лафет.
+  p.bar(-6, 5, 0, 9, INK)
+  p.bar(-5, 4, 0, 7, STEEL[1])
+  p.bar(-5, 4, -2.8, 1, STEEL[3])
+  p.bar(-5, -3, 0, 7, team[0])
+  // Щит расчёта.
+  p.beam(2.5, -5, 5, 2, INK)
+  p.beam(2.5, -4.5, 4.5, 1, STEEL[3])
+  // Ствол с дульным тормозом.
+  p.bar(-2, 14, 0, 3.4, INK)
+  p.bar(-1, 13, 0, 1.8, IRON[3])
+  p.bar(-1, 13, -0.6, 0.6, IRON[4])
+  p.bar(12.5, 15, 0, 4.2, INK)
+  p.bar(13, 14.5, 0, 2.6, IRON[2])
+  p.dot(-1.5, 0, 2.6, INK)
+  p.dot(-1.5, 0, 1.8, team[1])
+}
+
 /** Разрядник: тяжёлое шасси с погоном и кожухами питания. Катушка — отдельная турель, её рисует arcTurret поверх. */
 const tesla: UnitArt = (g, angle, team, phase) => {
   const p = pen(g, angle)
@@ -415,6 +448,10 @@ export const UNIT_LIGHTS: Record<UnitType, UnitLights> = {
     lamps: [{ along: 10, across: -4, glow: 2.5 }, { along: 10, across: 4, glow: 2.5 }],
     beam: { along: 15, length: 60, near: 6, spread: 0.3, level: 1 },
   },
+  artillery: {
+    lamps: [{ along: 6, across: -3, glow: 2 }, { along: 6, across: 3, glow: 2 }],
+    beam: { along: 9, length: 52, near: 4, spread: 0.3, level: 1 },
+  },
   tesla: {
     lamps: [{ along: 10, across: -4, glow: 2.5 }, { along: 10, across: 4, glow: 2.5 }],
     beam: { along: 13, length: 60, near: 6, spread: 0.3, level: 1 },
@@ -433,7 +470,7 @@ export const UNIT_LIGHTS: Record<UnitType, UnitLights> = {
   },
 }
 
-export const UNIT_ART = { mcv, builder, infantry, truck, harvester, rocketeer, buggy, lancer, tank, tesla, carrier, drone, gunship } satisfies Record<UnitType, UnitArt>
+export const UNIT_ART = { mcv, builder, infantry, truck, harvester, rocketeer, buggy, lancer, tank, artillery, tesla, carrier, drone, gunship } satisfies Record<UnitType, UnitArt>
 
 /** Сторона кадра турели в пикселях: два тайла, чтобы влез длинный ствол. */
 export const TURRET_FRAME = 32

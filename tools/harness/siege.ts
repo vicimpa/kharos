@@ -48,6 +48,8 @@ const SQUADS: Squad[] = [
   { name: '2 танка', units: Array<UnitType>(2).fill('tank') },
   { name: '4 танка', units: Array<UnitType>(4).fill('tank') },
   { name: '8 танков', units: Array<UnitType>(8).fill('tank') },
+  { name: '3 артиллерии', units: Array<UnitType>(3).fill('artillery') },
+  { name: '3 артиллерии и 4 багги', units: [...Array<UnitType>(3).fill('artillery'), ...Array<UnitType>(4).fill('buggy')] },
   { name: '2 носителя', units: Array<UnitType>(2).fill('carrier') },
   { name: '4 винтокрыла', units: Array<UnitType>(4).fill('gunship') },
 ]

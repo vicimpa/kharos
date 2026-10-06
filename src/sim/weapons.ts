@@ -23,6 +23,10 @@ export interface WeaponSpec {
   splash?: number
   /** Разряд перескакивает на столько соседних врагов, слабея с каждым прыжком. */
   chain?: number
+  /** Мёртвая зона: ближе стольких тайлов оружие не стреляет. Нет — стреляет в упор. */
+  minRange?: number
+  /** Навесной выстрел: снаряд перелетает стены. */
+  lob?: boolean
   /** Достаёт ли до летающих. */
   air: boolean
   /** Во сколько раз урон по такой цели отличается от обычного; чего нет — единица. */
@@ -49,6 +53,9 @@ export const WEAPONS = {
   launcher: { shot: 'rocket', range: 6.5, damage: 36, reload: 2, speed: 8, splash: 0.7, air: true, vs: { infantry: 0.3, heavy: 0.8, air: 1.5 }, ammo: 6 },
   // Лазер попадает сразу и всегда и лучше всех пробивает тяжёлую броню: это оружие против танков.
   laser: { shot: 'laser', range: 7.5, damage: 28, reload: 1.1, air: true, vs: { heavy: 1.6, building: 0.5 } },
+  // Гаубица: навесом через стены и дальше турелей, тяжёлым снарядом по площади, вдвое сильнее по зданиям.
+  // Вблизи — мёртвая зона: до подошедшего врага ей не достать. Осадное оружие.
+  artillery: { shot: 'shell', range: 11, minRange: 3, damage: 70, reload: 4, speed: 8, splash: 1.8, lob: true, air: false, vs: { building: 2, infantry: 0.6, vehicle: 0.4, heavy: 0.5 } },
   // Разряд бьёт цель и перескакивает на соседей: против толпы.
   arc: { shot: 'arc', range: 4.5, damage: 46, reload: 2, chain: 2, air: false, vs: { infantry: 1.5, building: 0.4 } },
 } satisfies Record<string, WeaponSpec>

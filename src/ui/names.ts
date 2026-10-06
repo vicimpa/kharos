@@ -11,6 +11,7 @@ export const UNIT_NAMES: Record<UnitType, string> = {
   buggy: 'Багги',
   lancer: 'Лазерная машина',
   tank: 'Танк',
+  artillery: 'Артиллерия',
   tesla: 'Разрядник',
   drone: 'Дрон',
   gunship: 'Штурмовик',
