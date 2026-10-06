@@ -80,7 +80,7 @@ function Window({ title, back, children, wide }: { title: string; back?: () => v
 
 /**
  * Главное меню поверх слайдов симуляции: продолжить последнюю игру, начать новую, загрузить сохранение, подключиться
- * к серверу, сыграть показательный бой или тестовую карту, настроить игру.
+ * к серверу, настроить игру.
  */
 export function Menu({ panel, setPanel, play }: MenuProps) {
   const [screen, setScreen] = useState<Screen>('main')
@@ -109,8 +109,6 @@ export function Menu({ panel, setPanel, play }: MenuProps) {
               Сохранения
             </button>
             <button onClick={() => setScreen('network')}>Сетевая игра</button>
-            <button onClick={() => play({ kind: 'battle' })}>Случайный бой</button>
-            <button onClick={() => play({ kind: 'sandbox' })}>Тестовая карта</button>
             <button onClick={() => setScreen('settings')}>Настройки</button>
           </nav>
         </Window>
