@@ -1,6 +1,7 @@
 import type { Entity } from '../ecs'
 import { setWorking } from './assembly'
-import { orderHarvest } from './harvesting'
+import type { DepositKind } from './deposits'
+import { orderHarvest, orderSeek } from './harvesting'
 import { BUILDINGS, canPlace, durabilityOf, placeBuilding, type BuildingType } from './buildings'
 import { TRAINING_PLAYER, orderAttack, stopAttack } from './combat'
 import { NONE, isOwn } from './common'
@@ -43,6 +44,8 @@ export type Command =
   | { type: 'haul'; units: number[]; mine: number }
   /** Послать своих харвестеров копать месторождение с левым верхним тайлом (x, y). */
   | { type: 'harvest'; units: number[]; x: number; y: number }
+  /** Велеть своим харвестерам искать месторождение вида kind или любое (any): среди разведанных, а нет — разведать. */
+  | { type: 'seek'; units: number[]; kind: DepositKind | 'any' }
   /** Послать своих вооружённых юнитов атаковать чужой юнит или здание: они гонятся за целью, пока она жива. */
   | { type: 'attack'; units: number[]; target: number }
   /** Заявка на продажу до amount единиц ресурса: грузовики свезут его в космопорт из хранилищ его зоны, потом придут кредиты. */
@@ -87,7 +90,7 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
       for (const entity of units) {
         sim.world.remove(entity, Builds)
         const harvester = sim.world.get(entity, Harvester)
-        if (harvester) Object.assign(harvester, { x: NONE, y: NONE, ordered: false, parked: true })
+        if (harvester) Object.assign(harvester, { x: NONE, y: NONE, ordered: false, parked: true, seek: '' })
         releaseHauler(sim, entity)
         stopAttack(sim, entity)
       }
@@ -109,6 +112,10 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
     case 'harvest': {
       if (!Array.isArray(command.units)) return false
       return orderHarvest(sim, player, command.units as Entity[], Math.floor(command.x), Math.floor(command.y))
+    }
+    case 'seek': {
+      if (!Array.isArray(command.units)) return false
+      return orderSeek(sim, player, command.units as Entity[], command.kind)
     }
     case 'attack': {
       if (!Array.isArray(command.units)) return false

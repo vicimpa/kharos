@@ -59,8 +59,10 @@ export interface HudState {
     yield: number
     seconds: number
   } | null
-  /** Харвестеры среди выбранных: сколько их и что они сейчас копают; null — копать пока нечего. */
-  harvest: { count: number; kind: DepositKind | null } | null
+  /**
+   * Свои харвестеры среди выбранных: кто они, что копают, что ищут (общее у всех, иначе null) и стоят ли все без дела.
+   */
+  harvest: { units: number[]; kind: DepositKind | null; seek: DepositKind | 'any' | null; parked: boolean } | null
   /** Боеприпасы выбранной турели: сколько есть и сколько помещается. */
   ammo: { have: number; capacity: number } | null
   /**
@@ -234,10 +236,13 @@ export function readHud(scene: Scene): HudState {
     }
     if (ready && spec!.refines) refinery = { ore: spec!.refines, intake: REFINE_RATE }
     const digging = world.get(entity, Harvester)
-    if (digging) {
-      harvest ??= { count: 0, kind: null }
-      harvest.count++
+    if (digging && isOwn(sim, player, entity)) {
+      const first: boolean = !harvest
+      harvest ??= { units: [], kind: null, seek: digging.seek || null, parked: true }
+      harvest.units.push(entity)
       if (digging.x >= 0) harvest.kind = depositAt(sim, digging.x, digging.y)?.kind ?? harvest.kind
+      if (!first && harvest.seek !== (digging.seek || null)) harvest.seek = null
+      harvest.parked &&= digging.parked
     }
     if (ready && spec!.ammo && inventory) ammo = { have: Math.floor(amountOf(inventory, 'ammo')), capacity: inventory.capacity }
     const assembling = ready ? world.get(entity, Assembly) : undefined

@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import type { Entity } from '../src/ecs'
 import {
-  BUILDINGS, Beam, DEPOSIT_CELL, DEPOSIT_KINDS, DEPOSIT_TYPES, Deposit, Hauler, Harvester, Inventory, REFINE_RATE, REFINE_RATIO, RESOURCE_SPECS, SELL_SECONDS, TRUCK_CAPACITY, Trade, amountOf, canBuild, deliveredTo, gapBetween, canSell, isWalkable, stockOf, canPlace, createSim, creditsOf, depositAt, depositIn, depositNear, reserveLeft, rewardsOf,
+  BUILDINGS, Beam, Position, DEPOSIT_CELL, DEPOSIT_KINDS, DEPOSIT_TYPES, Deposit, Hauler, Harvester, Inventory, REFINE_RATE, REFINE_RATIO, RESOURCE_SPECS, SELL_SECONDS, TRUCK_CAPACITY, Trade, amountOf, canBuild, deliveredTo, gapBetween, canSell, isWalkable, stockOf, canPlace, createSim, creditsOf, depositAt, depositIn, depositNear, reserveLeft, rewardsOf,
   zonesOf, type BuildingType, type DepositSpot, type Good, type Sim,
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
@@ -395,7 +395,7 @@ test('здания можно ставить вплотную к шахте, а 
   expect(canBuild(sim, 1, 'mine', spot.x, spot.y)).toBe(false)
 })
 
-test('харвестер сам находит месторождение, копает в кузов, отвозит руду своей переработке и возвращается', () => {
+test('новый харвестер стоит; по приказу искать находит месторождение, копает, отвозит руду и возвращается', () => {
   const { sim, spot, mine, truck } = base()
   sim.world.destroy(mine)
   sim.world.destroy(truck)
@@ -404,7 +404,13 @@ test('харвестер сам находит месторождение, ко�
   const capacity = sim.world.get(harvester, Inventory)!.capacity
   const reserve = reserveLeft(sim, spot.x, spot.y)
 
-  // Копает рядом сам — приказывать не нужно — и, набрав полный кузов, везёт его в плавильню.
+  // Сам ничего не ищет: месторождение под боком, а он стоит.
+  seconds(sim, 5)
+  expect(oreIn(sim, harvester)).toBe(0)
+  expect(sim.world.get(harvester, Harvester)!.parked).toBe(true)
+
+  // Велели искать любое — находит то, что рядом, и, набрав полный кузов, везёт его в плавильню.
+  sim.send(1, { type: 'seek', units: [harvester], kind: 'any' })
   until(sim, () => oreIn(sim, harvester) > 0)
   expect(sim.world.get(harvester, Harvester)!).toMatchObject({ x: spot.x, y: spot.y, ordered: false })
   until(sim, () => metalIn(sim, smelter) + oreIn(sim, smelter) >= capacity - 1e-6)
@@ -412,14 +418,37 @@ test('харвестер сам находит месторождение, ко�
   // Разгрузился — снова копает.
   until(sim, () => oreIn(sim, harvester) > 1)
 
-  // Чужому месторождение не назначить; своему — можно, и он едет туда.
+  // Чужому месторождение не назначить; своему — можно, но только найденное: о неразведанном игрок не знает.
   const other = depositNear(sim, spot.x + 60, spot.y, 50)!
+  sim.send(1, { type: 'harvest', units: [harvester], x: other.x, y: other.y })
+  sim.advance(TICK)
+  expect(sim.world.get(harvester, Harvester)!.x).toBe(spot.x)
+  // Разведал всю карту — теперь можно.
+  sim.vision.explore(1, [0, 1e9])
   sim.send(2, { type: 'harvest', units: [harvester], x: other.x, y: other.y })
   sim.advance(TICK)
   expect(sim.world.get(harvester, Harvester)!.x).toBe(spot.x)
   sim.send(1, { type: 'harvest', units: [harvester], x: other.x, y: other.y })
   sim.advance(TICK)
   expect(sim.world.get(harvester, Harvester)!).toMatchObject({ x: other.x, y: other.y, ordered: true })
+})
+
+test('харвестер не знает о неразведанных месторождениях: ищет их, разведывая сам', () => {
+  const { sim, spot, mine, truck } = base()
+  sim.world.destroy(mine)
+  sim.world.destroy(truck)
+  refineryAt(sim, spot)
+  // Харита рядом не видно: месторождение ему придётся открыть самому.
+  const harvester = spawnUnit(sim, 'harvester', 1, spot.x - 1, spot.y)
+  sim.advance(TICK)
+  const start = { ...sim.world.get(harvester, Position)! }
+  sim.send(1, { type: 'seek', units: [harvester], kind: 'kharite' })
+  until(sim, () => sim.world.get(harvester, Harvester)!.x !== -1, 600)
+  const { x, y } = sim.world.get(harvester, Harvester)!
+  expect(depositAt(sim, x, y)!.kind).toBe('kharite')
+  // Разведано по-честному: месторождение открыто, и харвестер к нему ехал.
+  expect(sim.vision.exploredIn(1, x, y, 2, 2)).toBe(true)
+  expect(Math.hypot(sim.world.get(harvester, Position)!.x - start.x, sim.world.get(harvester, Position)!.y - start.y)).toBeGreaterThan(3)
 })
 
 test('несколько харвестеров на одном месторождении копают все', () => {
@@ -432,6 +461,7 @@ test('несколько харвестеров на одном месторож
     spawnUnit(sim, 'harvester', 1, spot.x - 12, spot.y + 1),
     spawnUnit(sim, 'harvester', 1, spot.x - 13, spot.y),
   ]
+  sim.send(1, { type: 'seek', units: harvesters, kind: 'any' })
   seconds(sim, 30)
   const loads = harvesters.map((harvester) => oreIn(sim, harvester))
   for (const load of loads) expect(load).toBeGreaterThan(0)
@@ -457,6 +487,7 @@ test('харвестер, уведённый приказом идти, стои
   sim.world.destroy(truck)
   refineryAt(sim, spot)
   const harvester = spawnUnit(sim, 'harvester', 1, spot.x - 1, spot.y)
+  sim.send(1, { type: 'seek', units: [harvester], kind: 'any' })
   until(sim, () => oreIn(sim, harvester) > 0)
   sim.send(1, { type: 'move', units: [harvester], x: spot.x - 6, y: spot.y })
   seconds(sim, 15)
@@ -470,18 +501,19 @@ test('харвестер, уведённый приказом идти, стои
   expect(sim.world.get(harvester, Harvester)!.parked).toBe(false)
 })
 
-test('выработав месторождение, харвестер едет на ближайшее того же вида', () => {
+test('выработав месторождение, харвестер ищет такое же: среди известных, а нет — разведывает', () => {
   const { sim, spot, mine, truck } = base()
   sim.world.destroy(mine)
   sim.world.destroy(truck)
   refineryAt(sim, spot)
   const harvester = spawnUnit(sim, 'harvester', 1, spot.x - 1, spot.y)
+  sim.send(1, { type: 'harvest', units: [harvester], x: spot.x, y: spot.y })
   until(sim, () => oreIn(sim, harvester) > 0)
   for (const [, deposit] of sim.world.query(Deposit)) deposit.mined = spot.reserve
   until(sim, () => {
     const { x, y } = sim.world.get(harvester, Harvester)!
     return x !== -1 && (x !== spot.x || y !== spot.y)
-  })
+  }, 600)
   const { x, y } = sim.world.get(harvester, Harvester)!
   expect(depositAt(sim, x, y)!.kind).toBe(spot.kind)
 })

@@ -310,10 +310,16 @@ function Info({ state, lookAtSelection, narrow }: { state: HudState; lookAtSelec
               <>
                 Копает <Res resource={state.harvest.kind} /> {goodName(state.harvest.kind).toLowerCase()} и везёт на переработку.{' '}
               </>
+            ) : state.harvest.parked ? (
+              'Стоит и ждёт команды. '
+            ) : state.harvest.seek && state.harvest.seek !== 'any' ? (
+              <>
+                Ищет <Res resource={state.harvest.seek} /> {goodName(state.harvest.seek).toLowerCase()}: среди найденных, а нет — разведывает.{' '}
+              </>
             ) : (
-              'Ищет месторождение поблизости. '
+              'Ищет месторождение: среди найденных, а нет — разведывает. '
             )}
-            Правый щелчок по месторождению — копать там
+            Правый щелчок по найденному месторождению — копать там
           </div>
         )}
         {state.ammo && (

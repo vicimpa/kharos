@@ -3,6 +3,7 @@ import { BUILDINGS, buildingSpec, canPlace, placeBuilding, type BuildingType } f
 import { Inventory } from './components'
 import { depositIn, type DepositSpot } from './deposits'
 import { addCredits } from './economy'
+import { orderSeek } from './harvesting'
 import { assignHaulers } from './hauling'
 import { put } from './inventory'
 import { entriesOf, type Amounts } from './resources'
@@ -109,6 +110,8 @@ export function spawnSandbox(sim: Sim, player: number) {
     const type = i < SANDBOX_TRUCKS ? 'truck' : SANDBOX_UNITS[i - SANDBOX_TRUCKS]
     const unit = spawnUnit(sim, type, player, tiles[i * 2], tiles[i * 2 + 1])
     if (type === 'truck') trucks.push(unit)
+    // Харвестер сам не ищет: здесь ему сразу велено искать любое месторождение.
+    if (type === 'harvester') orderSeek(sim, player, [unit], 'any')
   }
   assignHaulers(sim, player, mine, trucks.slice(0, 1))
   return { x: at.x, y: at.y }

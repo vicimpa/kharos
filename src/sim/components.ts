@@ -4,6 +4,7 @@ import type { Amounts, Good, Product, Resource } from './resources'
 import type { TurretType } from './turrets'
 import type { UnitType } from './units'
 import type { WeaponType } from './weapons'
+import type { DepositKind } from './deposits'
 
 /** Место на карте в тайлах. У здания — левый верхний тайл основания, у юнита — его центр. */
 export const Position = component('Position', { x: 0, y: 0 })
@@ -116,12 +117,13 @@ export const Inventory = component('Inventory', () => ({ items: {} as Amounts, c
  * забирал он с него или отдавал на него, resource — что переносил.
  */
 /**
- * Харвестер: сам копает руду из месторождения в кузов и возит её на переработку (доставку ведёт Hauler).
- * x, y — левый верхний тайл месторождения, где он копает; -1 — ещё не выбрано: тогда он ищет ближайшее сам.
- * ordered — месторождение назначил игрок. Выработается — харвестер сам ищет ближайшее того же вида.
- * parked — игрок увёл его приказом идти: стоит и ждёт команды, сам месторождение не ищет.
+ * Харвестер: копает руду из месторождения в кузов и возит её на переработку (доставку ведёт Hauler).
+ * x, y — левый верхний тайл месторождения, где он копает; -1 — ещё не выбрано: тогда он ищет его сам.
+ * ordered — месторождение назначил игрок. seek — что искать: вид месторождения, any — любое, пусто — ничего.
+ * Ищет он честно: среди разведанных игроком, а не найдя — разведывает сам. Выработается — ищет того же вида.
+ * parked — стоит и ждёт команды: новый харвестер, уведённый приказом идти или не нашедший ничего.
  */
-export const Harvester = component('Harvester', { x: -1, y: -1, ordered: false, parked: false })
+export const Harvester = component('Harvester', { x: -1, y: -1, ordered: false, parked: true, seek: '' as DepositKind | 'any' | '' })
 
 export const Beam = component('Beam', () => ({ radius: 2, rate: 10, give: true, take: true, links: [] as { target: number; pulling: boolean; resource: Good }[] }))
 

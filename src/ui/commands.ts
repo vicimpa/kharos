@@ -1,5 +1,5 @@
 import type { HudState, Stack } from '../game/hud'
-import type { BuildingType, Command, Good } from '../sim'
+import { DEPOSIT_TYPES, type BuildingType, type Command, type DepositKind, type Good } from '../sim'
 import { BUILDING_NAMES, RESOURCE_NAMES, UNIT_NAMES } from './names'
 
 /** Клавиши ячеек сетки команд по порядку: три ряда по четыре, как на клавиатуре, справа от WASD. */
@@ -128,6 +128,22 @@ export function commandsOf(state: HudState, page: Page, { send, place, open }: A
       const cancel = conversion.cancel
       slots[CANCEL] = { label: 'Отменить', run: () => send(cancel) }
     }
+  }
+
+  const { harvest } = state
+  if (harvest && page === 'root') {
+    // Поиск месторождения: любого или своего вида, по столбцу на вид.
+    const seek = (kind: DepositKind | 'any') => send({ type: 'seek', units: harvest.units, kind })
+    slots[0] = { label: 'Искать любое', active: harvest.seek === 'any' && !harvest.parked, title: 'Ближайшее найденное месторождение; нет — разведать', run: () => seek('any') }
+    DEPOSIT_TYPES.forEach((kind, i) => {
+      slots[1 + i] = {
+        label: `Искать: ${RESOURCE_NAMES[kind].toLowerCase()}`,
+        good: kind,
+        active: harvest.seek === kind && !harvest.parked,
+        title: 'Ближайшее найденное месторождение этого вида; нет — разведать',
+        run: () => seek(kind),
+      }
+    })
   }
 
   if (assembly) {
