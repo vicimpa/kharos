@@ -7,7 +7,7 @@ import { DEFAULT_CONFIG, type GeneratorConfig } from '../map/terrain'
 import { DEFAULT_WEATHER } from '../sim'
 import { GENERATOR_GROUPS, Groups } from './GeneratorPanel'
 import { NAME_LENGTH, cleanName } from '../net/protocol'
-import { lastLaunch, localServerUrl, type Launch } from './launch'
+import { forgetServer, lastLaunch, localServerUrl, recentServers, type Launch } from './launch'
 import { MapPreview } from './MapPreview'
 
 /** Симуляция идёт 20 тиков в секунду. */
@@ -430,18 +430,54 @@ function Saves({ back, saves, refresh, play }: { back(): void; saves: SaveSlot[]
 
 function Network({ back, play }: { back(): void; play(launch: Launch): void }) {
   const [server, setServer] = useState(loadServer)
+  const [recent, setRecent] = useState(recentServers)
+  const join = (target: typeof server) => {
+    try {
+      localStorage.setItem(SERVER_KEY, JSON.stringify(target))
+    } catch {
+      // Адрес просто не запомнится.
+    }
+    play({ kind: 'server', ...target, name: cleanName(target.name) })
+  }
   return (
     <Window title="Сетевая игра" back={back}>
+      {recent.length > 0 && (
+        <>
+          <h3 class="menu__subtitle">Недавние серверы</h3>
+          <ul class="menu__saves">
+            {recent.map((item) => (
+              <li key={item.url} class="menu__save">
+                <div class="menu__save-info">
+                  <strong>{item.url}</strong>
+                  <small>
+                    {date(item.played)}
+                    {item.name && ` · ${item.name}`}
+                  </small>
+                </div>
+                <span class="menu__inline">
+                  <button class="menu__primary" onClick={() => join({ ...server, url: item.url, name: server.name || item.name })}>
+                    Играть
+                  </button>
+                  <button
+                    title="Убрать из списка"
+                    onClick={() => {
+                      forgetServer(item.url)
+                      setRecent(recentServers())
+                    }}
+                  >
+                    ✕
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       <form
         class="menu__form"
         onSubmit={(event) => {
           event.preventDefault()
-          try {
-            localStorage.setItem(SERVER_KEY, JSON.stringify(server))
-          } catch {
-            // Адрес просто не запомнится.
-          }
-          play({ kind: 'server', ...server, name: cleanName(server.name) })
+          join(server)
         }}
       >
         <label class="menu__field">

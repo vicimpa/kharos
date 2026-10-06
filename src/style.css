@@ -286,26 +286,50 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Игроки сервера: свой выделен, отключённые приглушены. */
-.hud__players {
-  display: flex;
-  gap: 8px;
-  margin-left: auto;
-  overflow: hidden;
+/* Список игроков сервера по Tab: поверх карты, по центру сверху. */
+.roster {
+  position: fixed;
+  top: 64px;
+  left: 50%;
+  z-index: 20;
+  width: min(420px, calc(100vw - 32px));
+  padding: 12px 16px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.roster h2 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: normal;
   color: #9bb9d1;
-  white-space: nowrap;
 }
 
-.hud__players .is-own {
+.roster ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.roster li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 0;
+  border-top: 1px solid rgba(155, 185, 209, 0.15);
+}
+
+.roster small {
+  color: #6f8ca3;
+}
+
+.roster .is-own span {
   color: #e8f1f8;
+  font-weight: bold;
 }
 
-.hud__players .is-away {
+.roster .is-away {
   opacity: 0.45;
-}
-
-.hud__players + .hud__clock {
-  margin-left: 0;
 }
 
 .hud .hud__menu button {
@@ -1023,6 +1047,13 @@ body {
   font-size: 12px;
   font-weight: 400;
   text-transform: uppercase;
+}
+
+.menu__subtitle {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: normal;
+  color: #9bb9d1;
 }
 
 .menu__note {

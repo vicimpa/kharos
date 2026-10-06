@@ -460,8 +460,42 @@ export function Hud({ state, send, place, minimap, lookAt, lookAtSelection, narr
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // Список игроков сервера — пока зажат Tab.
+  const [roster, setRoster] = useState(false)
+  useEffect(() => {
+    const toggle = (shown: boolean) => (event: KeyboardEvent) => {
+      if (event.code !== 'Tab' || event.target instanceof HTMLInputElement) return
+      event.preventDefault()
+      setRoster(shown)
+    }
+    const down = toggle(true)
+    const up = toggle(false)
+    const hide = () => setRoster(false)
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    window.addEventListener('blur', hide)
+    return () => {
+      window.removeEventListener('keydown', down)
+      window.removeEventListener('keyup', up)
+      window.removeEventListener('blur', hide)
+    }
+  }, [])
+
   return (
     <>
+      {roster && state.players.length > 0 && (
+        <section class="hud roster" aria-label="Игроки">
+          <h2>Игроки · {state.players.filter(({ online }) => online).length} в сети</h2>
+          <ul>
+            {state.players.map(({ name, own, online }) => (
+              <li class={own ? 'is-own' : online ? undefined : 'is-away'}>
+                <span>{name}</span>
+                <small>{own ? 'вы' : online ? 'в сети' : 'не в сети'}</small>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <header class="hud hud--top">
         <span class="hud--credits" data-tip="Кредиты">
           <span class="hud__coin" />
@@ -472,13 +506,6 @@ export function Hud({ state, send, place, minimap, lookAt, lookAtSelection, narr
           <span class="hud__stock" data-tip={`Запас в хранилищах; всего помещается ${state.stock.capacity}`}>
             <Stacks items={state.stock.items} />
             {state.stock.items.length === 0 && <span class="hud__res">хранилища пусты</span>}
-          </span>
-        )}
-        {state.players.length > 1 && (
-          <span class="hud__players" data-tip={state.players.map(({ name, online }) => `${name}${online ? '' : ' — не в сети'}`).join('\n')}>
-            {state.players.map(({ name, own, online }) => (
-              <span class={own ? 'is-own' : online ? undefined : 'is-away'}>{name}</span>
-            ))}
           </span>
         )}
         <span class="hud__clock" data-tip={state.storm ? 'Время суток; идёт непогода' : 'Время суток'}>

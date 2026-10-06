@@ -1,7 +1,7 @@
 import type { BattleConfig } from '../map/settings'
 import type { Rules, SimOptions, SimSave } from '../sim'
 import type { LocalControl, LocalNotice, LocalSetup } from './local'
-import type { ServerMessage } from './protocol'
+import { PROTOCOL_VERSION, type ServerMessage } from './protocol'
 import { createReplica, type Replica } from './replica'
 
 /**
@@ -49,6 +49,8 @@ export function connect(url: string, lag = 0, name = ''): Promise<Session> {
     const id = loadIds()[url]
     if (id) address.searchParams.set('id', id)
     if (name) address.searchParams.set('name', name)
+    address.searchParams.set('version', String(PROTOCOL_VERSION))
+    let refused: string | undefined
     const socket = new WebSocket(address)
     const delayed = (action: () => void) => (lag > 0 ? void setTimeout(action, lag) : action())
     let sim: Replica | undefined
@@ -56,6 +58,12 @@ export function connect(url: string, lag = 0, name = ''): Promise<Session> {
     socket.onmessage = (event) => {
       delayed(() => {
         const message = JSON.parse(event.data as string) as ServerMessage
+        if (message.type === 'refused') {
+          refused = message.reason
+          if (sim) sim.fail(message.reason)
+          else reject(new Error(message.reason))
+          return
+        }
         if (sim) return sim.receive(message)
         if (message.type !== 'welcome') return
         if (message.id) storeId(url, message.id)
@@ -68,6 +76,7 @@ export function connect(url: string, lag = 0, name = ''): Promise<Session> {
       })
     }
     socket.onclose = () => {
+      if (refused) return
       if (sim) sim.fail('Соединение с сервером потеряно')
       else reject(new Error(`Не удалось подключиться к серверу ${url}`))
     }

@@ -124,6 +124,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
       else if (message.type === 'explored') replica.vision.explore(player, message.map)
       else if (message.type === 'traces') replica.traces.receive(message.traces)
       else if (message.type === 'players') replica.players = message.players
+      else if (message.type === 'refused') replica.fail(message.reason)
       else {
         meet(message)
         replica.generation++

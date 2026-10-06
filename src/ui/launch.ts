@@ -45,10 +45,50 @@ export function rememberLaunch(launch: Launch | null) {
 }
 
 const LAST_KEY = 'kharos.last'
+const SERVERS_KEY = 'kharos.servers'
+/** Сколько недавних серверов помнится. */
+const RECENT_SERVERS = 8
 
-/** Во что играли последним: сохранение или сервер. Его открывает «Продолжить»; бой и тестовая карта не в счёт. */
+/** Сервер, на котором уже играли: адрес, с каким ником и когда последний раз, мс от эпохи. */
+export interface RecentServer {
+  url: string
+  name: string
+  played: number
+}
+
+/** Недавние серверы, свежие первыми. */
+export function recentServers(): RecentServer[] {
+  try {
+    const list = JSON.parse(localStorage.getItem(SERVERS_KEY) ?? '[]') as unknown
+    return Array.isArray(list) ? list.filter((item): item is RecentServer => typeof item?.url === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+/** Убирает сервер из недавних. */
+export function forgetServer(url: string) {
+  storeServers(recentServers().filter((server) => server.url !== url))
+}
+
+function storeServers(list: RecentServer[]) {
+  try {
+    localStorage.setItem(SERVERS_KEY, JSON.stringify(list.slice(0, RECENT_SERVERS)))
+  } catch {
+    // Список просто не запомнится.
+  }
+}
+
+/**
+ * Во что играли последним: сохранение или сервер. Его открывает «Продолжить»; бой и тестовая карта не в счёт.
+ * Сервер к тому же встаёт первым в недавние.
+ */
 export function rememberLast(launch: Launch) {
   if (launch.kind !== 'save' && launch.kind !== 'server') return
+  if (launch.kind === 'server') {
+    const { url, name = '' } = launch
+    storeServers([{ url, name, played: Date.now() }, ...recentServers().filter((server) => server.url !== url)])
+  }
   try {
     localStorage.setItem(LAST_KEY, JSON.stringify(launch.kind === 'save' ? { kind: 'save', slot: launch.slot.id } : launch))
   } catch {

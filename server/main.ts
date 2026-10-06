@@ -1,7 +1,7 @@
 import { DEFAULT_CONFIG } from '../src/map/terrain'
 import { createHost, type Peer } from '../src/net/host'
 import { createSim } from '../src/sim'
-import { DEFAULT_PORT } from '../src/net/protocol'
+import { DEFAULT_PORT, PROTOCOL_VERSION, versionMismatch, type ServerMessage } from '../src/net/protocol'
 
 /** Сторона карты сервера в тайлах. */
 const SIZE = 256
@@ -11,15 +11,24 @@ const REPORT_INTERVAL = 5
 const port = Number(process.env.PORT) || DEFAULT_PORT
 const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: SIZE }))
 
-Bun.serve<{ id?: string; name?: string; peer?: Peer }>({
+Bun.serve<{ id?: string; name?: string; version: number; peer?: Peer }>({
   port,
   fetch(request, server) {
     const query = new URL(request.url).searchParams
-    if (server.upgrade(request, { data: { id: query.get('id') ?? undefined, name: query.get('name') ?? undefined } })) return undefined
+    const data = { id: query.get('id') ?? undefined, name: query.get('name') ?? undefined, version: Number(query.get('version')) || 0 }
+    if (server.upgrade(request, { data })) return undefined
     return new Response('Kharos: сюда подключаются по WebSocket\n', { status: 426 })
   },
   websocket: {
     open(socket) {
+      // Клиент другой версии собрал бы мир не так, как сервер: его не пускают, но говорят почему.
+      if (socket.data.version !== PROTOCOL_VERSION) {
+        const reason = versionMismatch(PROTOCOL_VERSION, socket.data.version)
+        socket.send(JSON.stringify({ type: 'refused', reason } satisfies ServerMessage))
+        socket.close(1008, 'version')
+        console.log(`× клиент версии ${socket.data.version}`)
+        return
+      }
       socket.data.peer = host.join((text) => socket.send(text), socket.data.id, socket.data.name)
       console.log(`+ игрок ${socket.data.peer.player} ${socket.data.name ?? ''}`)
     },
@@ -27,8 +36,9 @@ Bun.serve<{ id?: string; name?: string; peer?: Peer }>({
       if (typeof text === 'string') socket.data.peer?.receive(text)
     },
     close(socket) {
-      socket.data.peer?.leave()
-      console.log(`- игрок ${socket.data.peer?.player}`)
+      if (!socket.data.peer) return
+      socket.data.peer.leave()
+      console.log(`- игрок ${socket.data.peer.player}`)
     },
   },
 })

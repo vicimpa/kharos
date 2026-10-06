@@ -2,6 +2,19 @@ import type { WorldSnapshot } from '../ecs'
 import type { Command, SimOptions } from '../sim'
 import type { Trace } from '../sim/traces'
 
+/**
+ * Версия сетевой игры. Клиент и сервер играют вместе, только если она у них одна: копия мира у клиента собирается
+ * из тех же компонентов и правил, что у сервера. Поднимай её при каждом изменении протокола, компонентов из SAVED
+ * или симуляции, которое меняет то, что видит клиент.
+ */
+export const PROTOCOL_VERSION = 1
+
+/** Почему сервер не пустил клиента другой версии: текст для игрока. */
+export function versionMismatch(server: number, client: number) {
+  const fix = client < server ? 'обновите страницу' : 'сервер старее клиента, его нужно обновить'
+  return `Версии не совпадают: у сервера ${server}, у вас ${client} — ${fix}`
+}
+
 /** Порт сервера по умолчанию. */
 export const DEFAULT_PORT = 8787
 
@@ -14,6 +27,8 @@ export type ServerMessage =
   | { type: 'welcome'; player: number; options: SimOptions; step: number; id?: string }
   /** Кто играет на хосте: ники и кто сейчас подключён. Приходит после приветствия и при каждом изменении. */
   | { type: 'players'; players: PlayerInfo[] }
+  /** Сервер не пускает клиента — например, другой версии, см. PROTOCOL_VERSION — и закрывает соединение. */
+  | { type: 'refused'; reason: string }
   /** Мир после тика tick. Пока это снимок целиком; позже — только видимая область и только изменения. */
   | { type: 'state'; tick: number; world: WorldSnapshot }
   /** Сразу после приветствия: что игрок разведал раньше, см. Vision.map. Открытая карта остаётся открытой. */
