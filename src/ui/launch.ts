@@ -11,7 +11,7 @@ import { DEFAULT_PORT } from '../net/protocol'
 export type Launch =
   | { kind: 'save'; slot: SaveSlot }
   | { kind: 'battle' | 'sandbox' }
-  | { kind: 'server'; url: string; lag: number; name?: string }
+  | { kind: 'server'; url: string; lag: number; name?: string; password?: string }
 
 /** Адрес сервера на этой же машине. */
 export const localServerUrl = () => `ws://${location.hostname}:${DEFAULT_PORT}`
@@ -38,7 +38,8 @@ const CURRENT_KEY = 'kharos.current'
 export function rememberLaunch(launch: Launch | null) {
   try {
     if (!launch) sessionStorage.removeItem(CURRENT_KEY)
-    else sessionStorage.setItem(CURRENT_KEY, JSON.stringify(launch.kind === 'save' ? { kind: 'save', slot: launch.slot.id } : launch))
+    // Пароль не хранится и здесь: с ним сервер уже пустил, и connect() помнит его сам.
+    else sessionStorage.setItem(CURRENT_KEY, JSON.stringify(launch.kind === 'save' ? { kind: 'save', slot: launch.slot.id } : { ...launch, password: undefined }))
   } catch {
     // Без хранилища перезагрузка просто откроет меню.
   }
@@ -131,7 +132,7 @@ export function recallLaunch(): Launch | null {
  * слот, играют в один мир. Новый слот ещё пуст — его мир заводится по зерну и размеру слота.
  */
 export function startSession(launch: Launch, settings: MapSettings): Promise<Session> {
-  if (launch.kind === 'server') return connect(launch.url, launch.lag, launch.name)
+  if (launch.kind === 'server') return connect(launch.url, launch.lag, launch.name, launch.password)
   const options = simOptions(settings)
   if (launch.kind !== 'save') return connectLocal({ options, mode: launch.kind, battle: settings.battle, save: null }, () => {}, `kharos-${launch.kind}`)
   const { slot } = launch

@@ -7,6 +7,8 @@ import { DEFAULT_TLS, type TlsSettings } from './tls'
 /** Настройки сервера из settings.json. */
 export interface ServerSettings {
   port: number
+  /** Пароль на вход; пустой — заходит кто угодно. */
+  password: string
   /** Файл сохранения мира. */
   save: string
   /** Сторона карты в тайлах. Как и generator, fog и weather, действует только на новый мир. */
@@ -24,6 +26,7 @@ export interface ServerSettings {
 /** Настройки по умолчанию; seed у каждого нового сервера свой. */
 export const defaultSettings = (): ServerSettings => ({
   port: DEFAULT_PORT,
+  password: '',
   save: 'save.json',
   size: 256,
   fog: true,

@@ -7,6 +7,7 @@ import { DEFAULT_CONFIG, type GeneratorConfig } from '../map/terrain'
 import { DEFAULT_WEATHER } from '../sim'
 import { GENERATOR_GROUPS, Groups } from './GeneratorFields'
 import { NAME_LENGTH, PROTOCOL_VERSION, cleanName } from '../net/protocol'
+import { savedPassword } from '../net/connect'
 import { forgetServer, lastLaunch, localServerUrl, recentServers, type Launch } from './launch'
 import { MapPreview } from './MapPreview'
 
@@ -436,14 +437,15 @@ function Saves({ back, saves, refresh, play }: { back(): void; saves: SaveSlot[]
 
 function Network({ back, play }: { back(): void; play(launch: Launch): void }) {
   const [server, setServer] = useState(loadServer)
+  const [password, setPassword] = useState(() => savedPassword(server.url))
   const [recent, setRecent] = useState(recentServers)
-  const join = (target: typeof server) => {
+  const join = (target: typeof server, password?: string) => {
     try {
       localStorage.setItem(SERVER_KEY, JSON.stringify(target))
     } catch {
       // Адрес просто не запомнится.
     }
-    play({ kind: 'server', ...target, name: cleanName(target.name) })
+    play({ kind: 'server', ...target, name: cleanName(target.name), password })
   }
   return (
     <Window title="Сетевая игра" back={back}>
@@ -483,7 +485,7 @@ function Network({ back, play }: { back(): void; play(launch: Launch): void }) {
         class="menu__form"
         onSubmit={(event) => {
           event.preventDefault()
-          join(server)
+          join(server, password)
         }}
       >
         <label class="menu__field">
@@ -497,7 +499,19 @@ function Network({ back, play }: { back(): void; play(launch: Launch): void }) {
         </label>
         <label class="menu__field">
           <span>Адрес сервера</span>
-          <input value={server.url} placeholder="ws://host:port" onInput={(event) => setServer({ ...server, url: event.currentTarget.value.trim() })} />
+          <input
+            value={server.url}
+            placeholder="ws://host:port"
+            onInput={(event) => {
+              const url = event.currentTarget.value.trim()
+              setServer({ ...server, url })
+              setPassword(savedPassword(url))
+            }}
+          />
+        </label>
+        <label class="menu__field">
+          <span>Пароль</span>
+          <input type="password" value={password} placeholder="Если сервер закрыт паролем" onInput={(event) => setPassword(event.currentTarget.value)} />
         </label>
         <label class="menu__field">
           <span>Задержка, мс</span>
@@ -511,7 +525,13 @@ function Network({ back, play }: { back(): void; play(launch: Launch): void }) {
         </label>
         <p class="menu__note">На сервере мир один на всех: его не начать заново и не сохранить у себя.</p>
         <span class="menu__inline">
-          <button type="button" onClick={() => setServer({ ...server, url: localServerUrl() })}>
+          <button
+            type="button"
+            onClick={() => {
+              setServer({ ...server, url: localServerUrl() })
+              setPassword(savedPassword(localServerUrl()))
+            }}
+          >
             Этот компьютер
           </button>
           <button type="submit" class="menu__primary" disabled={!/^wss?:\/\/./.test(server.url)}>

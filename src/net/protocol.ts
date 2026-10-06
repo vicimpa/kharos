@@ -26,8 +26,11 @@ export type ServerMessage =
   | { type: 'welcome'; player: number; options: SimOptions; step: number; id?: string }
   /** Кто играет на хосте: ники и кто сейчас подключён. Приходит после приветствия и при каждом изменении. */
   | { type: 'players'; players: PlayerInfo[] }
-  /** Сервер не пускает клиента — например, другой версии, см. PROTOCOL_VERSION — и закрывает соединение. */
-  | { type: 'refused'; reason: string }
+  /**
+   * Сервер не пускает клиента — например, другой версии, см. PROTOCOL_VERSION, — и закрывает соединение. password —
+   * дело в пароле: его нет или он не тот.
+   */
+  | { type: 'refused'; reason: string; password?: boolean }
   /**
    * Мир после тика tick — только то, что поменялось с прошлого сообщения в том, что игрок видит. set — новые сущности
    * целиком и поменявшиеся компоненты остальных, unset — снятые компоненты, remove — сущности, которых игрок больше

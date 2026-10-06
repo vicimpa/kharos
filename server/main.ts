@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { createHost, type HostSave, type Peer } from '../src/net/host'
 import { PROTOCOL_VERSION, versionMismatch, type ServerMessage } from '../src/net/protocol'
@@ -57,7 +58,11 @@ const host = createHost(saved ? createSim({ ...saved.sim, rules }) : createSim({
 if (saved) console.log(`мир загружен из ${SAVE_PATH}: тик ${saved.sim.tick}, игроков ${Object.keys(saved.players).length}`)
 else console.log(`новый мир ${size}×${size}, seed ${generator.seed}`)
 
-type SocketData = { id?: string; name?: string; version: number; peer?: Peer }
+type SocketData = { id?: string; name?: string; password: string; version: number; peer?: Peer }
+
+/** Совпадает ли пароль; сравнение за одно и то же время, чтобы его нельзя было подбирать по задержке ответа. */
+const digest = (text: string) => createHash('sha256').update(text).digest()
+const passwordOk = (password: string) => !settings.password || timingSafeEqual(digest(password), digest(settings.password))
 
 const { tls } = settings
 if (!TLS_MODES.includes(tls.mode)) throw new Error(`tls.mode: ${tls.mode}? ожидалось ${TLS_MODES.join(', ')}`)
@@ -70,7 +75,7 @@ const listen = (certificate?: Certificate) => Bun.serve<SocketData>({
   tls: certificate,
   fetch(request, server) {
     const query = new URL(request.url).searchParams
-    const data = { id: query.get('id') ?? undefined, name: query.get('name') ?? undefined, version: Number(query.get('version')) || 0 }
+    const data = { id: query.get('id') ?? undefined, name: query.get('name') ?? undefined, password: query.get('password') ?? '', version: Number(query.get('version')) || 0 }
     if (server.upgrade(request, { data })) return undefined
     return new Response('Kharos: сюда подключаются по WebSocket\n', { status: 426 })
   },
@@ -84,6 +89,13 @@ const listen = (certificate?: Certificate) => Bun.serve<SocketData>({
         socket.send(JSON.stringify({ type: 'refused', reason } satisfies ServerMessage))
         socket.close(1008, 'version')
         console.log(`× клиент версии ${socket.data.version}`)
+        return
+      }
+      if (!passwordOk(socket.data.password)) {
+        const reason = socket.data.password ? 'Неверный пароль' : 'Сервер закрыт паролем'
+        socket.send(JSON.stringify({ type: 'refused', reason, password: true } satisfies ServerMessage))
+        socket.close(1008, 'password')
+        console.log(`× ${reason.toLowerCase()}`)
         return
       }
       socket.data.peer = host.join((text) => socket.send(text), socket.data.id, socket.data.name)

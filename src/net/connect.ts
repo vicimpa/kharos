@@ -17,37 +17,47 @@ export interface Session {
 }
 
 const IDS_KEY = 'kharos.ids'
+const PASSWORDS_KEY = 'kharos.passwords'
 
-/** id, которые выдали серверы, по адресу сервера: у каждого сервера свой. */
-function loadIds(): Record<string, string> {
+/** Что запомнено по адресу сервера: у каждого сервера своё. */
+function loadByUrl(key: string): Record<string, string> {
   try {
-    const ids = JSON.parse(localStorage.getItem(IDS_KEY) ?? '{}') as unknown
-    return typeof ids === 'object' && ids !== null ? (ids as Record<string, string>) : {}
+    const items = JSON.parse(localStorage.getItem(key) ?? '{}') as unknown
+    return typeof items === 'object' && items !== null ? (items as Record<string, string>) : {}
   } catch {
     return {}
   }
 }
 
-/** Запоминает id, под которым сервер url знает этот браузер: с ним клиент вернётся за своего игрока. */
-function storeId(url: string, id: string) {
+/** Запоминает значение для сервера url; undefined — забывает. */
+function storeByUrl(key: string, url: string, value: string | undefined) {
   try {
-    localStorage.setItem(IDS_KEY, JSON.stringify({ ...loadIds(), [url]: id }))
+    const items = loadByUrl(key)
+    if (value === undefined) delete items[url]
+    else items[url] = value
+    localStorage.setItem(key, JSON.stringify(items))
   } catch {
-    // Без хранилища после перезагрузки сервер выдаст нового игрока.
+    // Без хранилища после перезагрузки сервер выдаст нового игрока, а пароль придётся ввести снова.
   }
 }
 
+/** Пароль, с которым на сервер url уже пускали. */
+export const savedPassword = (url: string) => loadByUrl(PASSWORDS_KEY)[url] ?? ''
+
 /**
  * Подключается к серверу по WebSocket и ждёт приветствия. С сервером, где уже играл, — с прежним id, и сервер
- * отдаёт прежнего игрока; id из приветствия запоминается. name — ник.
+ * отдаёт прежнего игрока; id из приветствия запоминается. name — ник. password — пароль сервера; пустой — тот, с
+ * которым сюда уже пускали. Пароль, с которым пустили, запоминается, не подошедший — забывается.
  * lag — отладка: искусственная задержка в миллисекундах в каждую сторону, чтобы почувствовать плохую сеть.
  */
-export function connect(url: string, lag = 0, name = ''): Promise<Session> {
+export function connect(url: string, lag = 0, name = '', password = ''): Promise<Session> {
   return new Promise((resolve, reject) => {
     const address = new URL(url)
-    const id = loadIds()[url]
+    const id = loadByUrl(IDS_KEY)[url]
     if (id) address.searchParams.set('id', id)
     if (name) address.searchParams.set('name', name)
+    password ||= savedPassword(url)
+    if (password) address.searchParams.set('password', password)
     address.searchParams.set('version', String(PROTOCOL_VERSION))
     let refused: string | undefined
     const socket = new WebSocket(address)
@@ -58,14 +68,16 @@ export function connect(url: string, lag = 0, name = ''): Promise<Session> {
       delayed(() => {
         const message = JSON.parse(event.data as string) as ServerMessage
         if (message.type === 'refused') {
-          refused = message.reason
-          if (sim) sim.fail(message.reason)
-          else reject(new Error(message.reason))
+          refused = message.password ? `${message.reason}: введите пароль в меню «Сетевая игра»` : message.reason
+          if (message.password) storeByUrl(PASSWORDS_KEY, url, undefined)
+          if (sim) sim.fail(refused)
+          else reject(new Error(refused))
           return
         }
         if (sim) return sim.receive(message)
         if (message.type !== 'welcome') return
-        if (message.id) storeId(url, message.id)
+        if (message.id) storeByUrl(IDS_KEY, url, message.id)
+        if (password) storeByUrl(PASSWORDS_KEY, url, password)
         sim = createReplica(
           message,
           (text) => delayed(() => socket.readyState === WebSocket.OPEN && socket.send(text)),
