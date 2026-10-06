@@ -89,7 +89,7 @@ npm run dev
 Игра по сети — пока проба. Сервер запускается через Bun, клиент подключается к нему параметром в адресе:
 
 ```bash
-npm run server                         # слушает ws://localhost:8787, порт меняется переменной PORT
+npm run server                         # слушает ws://localhost:8787, порт меняется переменной PORT; мир хранится в save.json (переменная SAVE)
 # в браузере: http://localhost:5173/?server
 ```
 

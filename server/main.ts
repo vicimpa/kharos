@@ -1,6 +1,7 @@
 import { DEFAULT_CONFIG } from '../src/map/terrain'
-import { createHost, type Peer } from '../src/net/host'
-import { createSim } from '../src/sim'
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { createHost, type HostSave, type Peer } from '../src/net/host'
+import { SAVE_VERSION, createSim } from '../src/sim'
 import { DEFAULT_PORT, PROTOCOL_VERSION, versionMismatch, type ServerMessage } from '../src/net/protocol'
 
 /** Сторона карты сервера в тайлах. */
@@ -9,7 +10,32 @@ const SIZE = 256
 const REPORT_INTERVAL = 5
 
 const port = Number(process.env.PORT) || DEFAULT_PORT
-const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: SIZE }))
+/** Куда сервер сохраняет мир, и как часто — в секундах. */
+const SAVE_PATH = process.env.SAVE || 'save.json'
+const SAVE_INTERVAL = 30
+
+/** Мир из сохранения; сохранение другой версии игры откладывается в сторону, и мир начинается заново. */
+function load(): HostSave | undefined {
+  if (!existsSync(SAVE_PATH)) return undefined
+  // Битый файл сервер не перезаписывает: молча начать новый мир значило бы потерять старый.
+  const save = JSON.parse(readFileSync(SAVE_PATH, 'utf8')) as HostSave
+  if (save.sim?.version === SAVE_VERSION) return save
+  const aside = `${SAVE_PATH}.v${save.sim?.version ?? 0}`
+  renameSync(SAVE_PATH, aside)
+  console.log(`сохранение другой версии игры отложено в ${aside}, мир начинается заново`)
+  return undefined
+}
+
+/** Пишет во временный файл и подменяет им сохранение: упавший посреди записи сервер не оставит половину файла. */
+function store() {
+  const temporary = `${SAVE_PATH}.tmp`
+  writeFileSync(temporary, JSON.stringify(host.save()))
+  renameSync(temporary, SAVE_PATH)
+}
+
+const saved = load()
+const host = createHost(saved ? createSim(saved.sim) : createSim({ generator: DEFAULT_CONFIG, size: SIZE }), undefined, saved)
+if (saved) console.log(`мир загружен из ${SAVE_PATH}: тик ${saved.sim.tick}, игроков ${Object.keys(saved.players).length}`)
 
 Bun.serve<{ id?: string; name?: string; version: number; peer?: Peer }>({
   port,
@@ -45,6 +71,7 @@ Bun.serve<{ id?: string; name?: string; version: number; peer?: Peer }>({
 
 let last = performance.now()
 let sinceReport = 0
+let sinceSave = 0
 let ticks = 0
 let busy = 0
 setInterval(() => {
@@ -53,6 +80,12 @@ setInterval(() => {
   last = now
   ticks += host.advance(seconds)
   busy += performance.now() - now
+
+  sinceSave += seconds
+  if (sinceSave >= SAVE_INTERVAL) {
+    sinceSave = 0
+    store()
+  }
 
   sinceReport += seconds
   if (sinceReport < REPORT_INTERVAL) return
@@ -65,5 +98,13 @@ setInterval(() => {
   ticks = 0
   busy = 0
 }, host.sim.time.step * 1000)
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, () => {
+    store()
+    console.log(`мир сохранён в ${SAVE_PATH}`)
+    process.exit(0)
+  })
+}
 
 console.log(`Kharos слушает ws://localhost:${port}`)

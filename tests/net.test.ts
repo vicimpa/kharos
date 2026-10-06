@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { DEFAULT_CONFIG } from '../src/map/terrain'
-import { createHost, type Host } from '../src/net/host'
+import { createHost, type Host, type HostSave } from '../src/net/host'
 import type { ServerMessage } from '../src/net/protocol'
 import { createReplica, type Replica } from '../src/net/replica'
 import { Building, Ghost, Owner, Player, Position, Unit, createSim } from '../src/sim'
@@ -207,4 +207,23 @@ test('игроки видят ники друг друга и кто из них
   const back = join(host, second.id, 'Петя')
   expect(back.sim.players[1]).toEqual({ player: 2, name: 'Петя', online: true })
   expect(join(host, first.id).sim.players[0].name).toBe('Вася')
+})
+
+test('сохранённый сервер после перезапуска узнаёт игроков по id, помнит ники и не путает номера новых', () => {
+  const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: 256 }))
+  const first = join(host, undefined, 'Вася')
+  join(host, undefined, 'Петя').peer.leave()
+  host.advance(STEP * 4)
+  const units = unitsOf(first.sim, 1).length
+  const save = JSON.parse(JSON.stringify(host.save())) as HostSave
+
+  const restarted = createHost(createSim(save.sim), undefined, save)
+  const back = join(restarted, first.id)
+  expect(back.peer.player).toBe(1)
+  expect(unitsOf(back.sim, 1).length).toBe(units)
+  expect(back.sim.players).toEqual([
+    { player: 1, name: 'Вася', online: true },
+    { player: 2, name: 'Петя', online: false },
+  ])
+  expect(join(restarted).peer.player).toBe(3)
 })

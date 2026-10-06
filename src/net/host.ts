@@ -1,5 +1,5 @@
 import { Terrain, terrainAt } from '../map/terrain'
-import { isWalkable, shownTo, spawnStartingUnits, type Command, type Sim } from '../sim'
+import { isWalkable, shownTo, spawnStartingUnits, type Command, type Sim, type SimSave } from '../sim'
 import { Owner, Position, SAVED } from '../sim/components'
 import type { Trace } from '../sim/traces'
 import { cleanName, type PlayerInfo, type ServerMessage } from './protocol'
@@ -47,6 +47,17 @@ export interface Host {
   join(send: (text: string) => void, id?: string, name?: string): Peer
   /** Продвигает игру на seconds реального времени и рассылает мир, если прошёл хотя бы один тик. */
   advance(seconds: number): number
+  /** Мир вместе с тем, кого хост знает: по id игроки узнаются и после перезапуска сервера. */
+  save(): HostSave
+}
+
+/** Сохранение сервера: мир, id игроков и их ники. */
+export interface HostSave {
+  sim: SimSave
+  /** Номер игрока по выданному ему id. */
+  players: Record<string, number>
+  /** Ники по номеру игрока. */
+  names: Record<string, string>
 }
 
 /**
@@ -55,7 +66,7 @@ export interface Host {
  * за postMessage. player — все подключения играют за этого игрока, и новых стартовых наборов нет: так вкладки
  * одной локальной игры показывают один мир. Без него каждый новый token — новый игрок.
  */
-export function createHost(first: Sim, player?: number): Host {
+export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, 'sim'>): Host {
   let sim = first
   /** Подключённые: как отправить и за кого играет. */
   const peers = new Map<(text: string) => void, number>()
@@ -83,10 +94,10 @@ export function createHost(first: Sim, player?: number): Host {
     return found
   }
   /** Номер игрока по id, который ему выдал хост. */
-  const players = new Map<string, number>()
-  let nextPlayer = 1
+  const players = new Map<string, number>(Object.entries(saved?.players ?? {}))
+  let nextPlayer = Math.max(0, ...players.values()) + 1
   /** Ники игроков по номеру. */
-  const names = new Map<number, string>()
+  const names = new Map<number, string>(Object.entries(saved?.names ?? {}).map(([player, name]) => [Number(player), name]))
   const roster = () => {
     const online = new Set(peers.values())
     const list: PlayerInfo[] = [...names].map(([player, name]) => ({ player, name, online: online.has(player) }))
@@ -215,6 +226,9 @@ export function createHost(first: Sim, player?: number): Host {
           announce()
         },
       }
+    },
+    save() {
+      return { sim: sim.save(), players: Object.fromEntries(players), names: Object.fromEntries(names) }
     },
     advance(seconds) {
       const ticks = sim.advance(seconds)
