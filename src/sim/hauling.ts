@@ -4,6 +4,7 @@ import { NONE, isOwn, onTurn } from './common'
 import { Beam, Building, Converting, Hauler, Harvester, Inventory, Owner, Path, Position, Site } from './components'
 import { DEPOSIT_KINDS, reserveLeft, takeReserve } from './deposits'
 import { amountOf, approach, beamFor, put, reaches, resetBeams, roomFor, transfer } from './inventory'
+import { isStore } from './trade'
 import { acceptsDelivery, deliveryFor, dispatch, mineOre, offersPickup, refineryFor } from './logistics'
 import { GOODS, resourceOf, type Good } from './resources'
 import type { Sim } from './sim'
@@ -16,6 +17,7 @@ const RETRY_TICKS = 20
 /** Раз во сколько тиков диспетчер раздаёт работу свободным грузовикам. */
 const DISPATCH_TICKS = 10
 const EPSILON = 1e-9
+const owner = (sim: Sim, truck: Entity) => sim.world.get(truck, Owner)?.player ?? 0
 
 const specOf = (sim: Sim, building: Entity): BuildingSpec | undefined => {
   const type = sim.world.get(building, Building)?.type
@@ -228,9 +230,15 @@ export function haul(sim: Sim) {
     hauler.resource = resource
     hauler.full = true
     hauler.waiting = false
-    // Туда, откуда взял, не везёт: остаток едет в другое хранилище или на другую переработку. Другого нет —
-    // везёт обратно: хранилище у каждого груза своё, и единственное нельзя исключать.
-    const other = deliveryFor(sim, truck, resource, hauler.from as Entity)
+    // Взятое из хранилища и ставшее ненужным едет обратно туда же: возить из одного хранилища в другое незачем.
+    const from = hauler.from as Entity
+    if (from !== NONE && isStore(sim, from) && acceptsDelivery(sim, owner(sim, truck), from, resource)) {
+      hauler.to = from
+      continue
+    }
+    // Остальное туда, откуда взял, не везёт: остаток едет в другое хранилище или на другую переработку. Другого
+    // нет — везёт обратно: хранилище у каждого груза своё, и единственное нельзя исключать.
+    const other = deliveryFor(sim, truck, resource, from)
     hauler.to = other === NONE ? deliveryFor(sim, truck, resource) : other
   }
 

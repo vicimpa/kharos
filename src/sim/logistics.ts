@@ -156,9 +156,11 @@ function offersOf(sim: Sim, entity: Entity): readonly Good[] {
   const spec = buildingSpec(type)
   if (spec.stores || spec.refines) return WARES
   // Космопорт отдаёт то, что привезла закупка или осталось после продажи, — кроме товара открытой продажи.
+  // Не отдаёт и материалы своего производства, которые ждут остальных.
   if (spec.trades) {
     const order = sim.world.get(entity, Trade)
-    return order && !order.buy ? WARES.filter((ware) => ware !== order.resource) : WARES
+    const materials = materialsFor(sim, entity) ?? {}
+    return WARES.filter((ware) => !(order && !order.buy && ware === order.resource) && !materials[ware])
   }
   if (spec.assembles) {
     const inputs = inputsOf(sim, entity)
@@ -193,7 +195,8 @@ export function requestsOf(sim: Sim, player: number, flows = flowsOf(sim)): Requ
     const site = world.has(entity, Site)
     if (!site && !world.has(entity, Producer)) continue
     if (!site && (!isReady(sim, player, entity) || world.has(entity, Converting))) continue
-    for (const [resource, amount] of entriesOf(missingFor(sim, entity))) need(entity, resource, amount, site ? PRIORITY.site : PRIORITY.production)
+    // Недостачу заказывают целыми единицами: иначе остаток меньше MIN_JOB не привёз бы никто и заказ встал бы навсегда.
+    for (const [resource, amount] of entriesOf(missingFor(sim, entity))) need(entity, resource, Math.ceil(amount - 1e-6), site ? PRIORITY.site : PRIORITY.production)
   }
   // Переработка: своя руда из своих шахт, в какой бы зоне они ни стояли.
   for (const [entity, owner, inventory, building] of world.query(Owner, Inventory, Building)) {
