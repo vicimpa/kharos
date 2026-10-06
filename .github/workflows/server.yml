@@ -1,0 +1,31 @@
+name: Сервер
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      # Один файл для тех, у кого уже стоит Bun, и самодостаточные бинарники под Linux.
+      - run: bun build server/main.ts --target=bun --minify --outfile out/main.js
+      - run: bun build server/main.ts --compile --minify --target=bun-linux-x64 --outfile out/kharos-server-linux-x64
+      - run: bun build server/main.ts --compile --minify --target=bun-linux-arm64 --outfile out/kharos-server-linux-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kharos-server
+          path: out/*
+      - if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
