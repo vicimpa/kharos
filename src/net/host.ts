@@ -50,13 +50,13 @@ export function createHost(first: Sim, player?: number): Host {
   let sinceSweep = 0
 
   /**
-   * Следы, которые подключение видит, а ещё не получало. Новые проверяются каждый тик, все — раз в SWEEP_TICKS:
+   * Следы, которые подключение видит — они в обзоре его юнитов и зданий прямо сейчас, — а ещё не получало. Новые проверяются каждый тик, все — раз в SWEEP_TICKS:
    * так находятся старые следы там, куда игрок только что пришёл.
    */
   const traces = (send: (text: string) => void, player: number, sweep: boolean) => {
     const known = shown.get(send)!
     const found = (sweep ? sim.traces.all() : sim.traces.fresh()).filter(
-      (trace) => !known.has(trace.id) && ((trace.kind === 'track' && trace.player === player) || sim.vision.sees(player, trace.x, trace.y)),
+      (trace) => !known.has(trace.id) && sim.vision.sees(player, trace.x, trace.y),
     )
     for (const trace of found) known.add(trace.id)
     return found

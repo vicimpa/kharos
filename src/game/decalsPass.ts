@@ -384,6 +384,7 @@ export function createDecalsPass(gl: WebGL2RenderingContext, scene: Scene): Pass
         traces.length = marks.length = remains.length = 0
       }
       consume()
+      const { vision } = scene.sim
       quads.clear()
       // Снизу вверх: колеи, отметины, остовы.
       for (const list of [traces, marks, remains]) {
@@ -393,6 +394,8 @@ export function createDecalsPass(gl: WebGL2RenderingContext, scene: Scene): Pass
           if (decal.age >= decal.life) continue
           list[kept++] = decal
           if (Math.abs(decal.toX - camera.x) > halfWidth || Math.abs(decal.toY - camera.y) > halfHeight) continue
+          // След виден только в обзоре: ушли свои — в тумане его не разглядеть, даже на разведанном.
+          if (!vision.sees(scene.player, decal.toX, decal.toY)) continue
           const share = Math.max(0, (decal.age / decal.life - FADE_FROM) / (1 - FADE_FROM))
           const left = 1 - share * share * (3 - 2 * share)
           const { u, v, width: frameWidth, height: frameHeight } = decal.frame
