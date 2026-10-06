@@ -90,7 +90,7 @@ test('стройка ждёт материалов: без стройблоко�
 })
 
 test('производство ждёт материалов первого заказа и тратит их в начале работы', () => {
-  const { sim, x, y, store, stash, buildings } = base(['factory'])
+  const { sim, x, y, store, stash, buildings } = base(['factory', 'techCenter'])
   const [factory] = buildings
   sim.send(1, { type: 'produce', producer: factory, unit: 'tank' })
   seconds(sim, UNITS.tank.buildTime + 2)
@@ -139,7 +139,7 @@ test('из вставшей переработки грузовик увозит
 })
 
 test('дробный остаток материалов довозят: завод не встаёт на 19,7 из 20', () => {
-  const { sim, x, y, store, stash, buildings } = base(['factory'])
+  const { sim, x, y, store, stash, buildings } = base(['factory', 'techCenter'])
   const [factory] = buildings
   const inventory = sim.world.get(factory, Inventory)!
   inventory.items.metal = UNITS.tank.materials.metal - 0.3
@@ -163,7 +163,7 @@ test('космопорт не отдаёт материалы своего пр�
 })
 
 test('груз, который стал не нужен, грузовик везёт обратно в хранилище, откуда взял', () => {
-  const { sim, x, y, store, stash, buildings } = base(['factory', storeFor('metal')!])
+  const { sim, x, y, store, stash, buildings } = base(['factory', storeFor('metal')!, 'techCenter'])
   const [factory, second] = buildings
   stash({ metal: 40, silicon: 10 })
   sim.send(1, { type: 'produce', producer: factory, unit: 'tank' })

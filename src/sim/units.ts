@@ -36,6 +36,11 @@ export interface UnitSpec {
    * и пока их нет, заказ не начинается. Без них — только кредиты.
    */
   materials?: Amounts
+  /**
+   * Виды зданий (BuildingType), которые должны у игрока стоять готовыми, чтобы юнит можно было заказать: так устроены
+   * тиры. Строки, а не BuildingType: виды зданий сами ссылаются на виды юнитов. Имена сверяет тест.
+   */
+  requires?: readonly string[]
   /** Склад: сколько ресурсов юнит везёт. См. inventory.ts. */
   inventory?: number
   /** Транспортный луч: им юнит отдаёт ресурсы со своего склада или забирает на него. */
@@ -73,17 +78,17 @@ export const UNITS = {
   // Тяжёлые: медленные, крепкие и дорогие.
   // Танк бьёт ядрами из башни: она поворачивается сама, и стрелять можно на ходу.
   tank: {
-    speed: 2.2, turn: 2.5, radius: 0.7, cost: 600, buildTime: 14, kind: 'heavy', hp: 450, materials: { metal: 20, silicon: 4 },
+    speed: 2.2, turn: 2.5, radius: 0.7, cost: 600, buildTime: 14, kind: 'heavy', hp: 450, materials: { metal: 20, silicon: 4 }, requires: ['techCenter'],
     mounts: [{ turret: 'cannon', along: -0.06, across: 0 }],
   },
   // Разрядник: тяжёлое шасси с разрядной башней. Катушку собирают из компонентов: в них харит, и без цеха её не сделать.
   tesla: {
-    speed: 2, turn: 2.5, radius: 0.7, cost: 700, buildTime: 16, kind: 'heavy', hp: 500, materials: { metal: 15, silicon: 6, parts: 3 },
+    speed: 2, turn: 2.5, radius: 0.7, cost: 700, buildTime: 16, kind: 'heavy', hp: 500, materials: { metal: 15, silicon: 6, parts: 3 }, requires: ['techCenter'],
     mounts: [{ turret: 'arc', along: 0, across: 0 }],
   },
   // Носитель: колёсное шасси танка без своего оружия — на нём три ракетные турели и ремонтная. Ремонтной нужен компонент.
   carrier: {
-    speed: 3, turn: 2.5, radius: 0.8, cost: 1200, buildTime: 20, kind: 'vehicle', hp: 700, materials: { metal: 25, silicon: 8, parts: 1 },
+    speed: 3, turn: 2.5, radius: 0.8, cost: 1200, buildTime: 20, kind: 'vehicle', hp: 700, materials: { metal: 25, silicon: 8, parts: 1 }, requires: ['techCenter'],
     mounts: [
       { turret: 'rocket', along: 0.36, across: -0.27 },
       { turret: 'rocket', along: 0.36, across: 0.27 },

@@ -662,6 +662,67 @@ const partsPlant: BuildingArt = {
   },
 }
 
+/**
+ * Техцентр, 3×3: лаборатория под стеклянным куполом, где крутится голограмма чертежа, корпус с рядами окон
+ * и мачта с антенной решёткой. Огни по периметру купола бегут по кругу.
+ */
+const techCenter: BuildingArt = {
+  ...BUILDINGS.techCenter,
+  draw(g, t, light) {
+    slab(g, 0, 2, 48, 46, 3, STEEL)
+    // Двор: дорожка к входу.
+    g.rect(20, 38, 8, 7, IRON[1])
+    g.rect(20, 38, 8, 1, IRON[0])
+
+    // Корпус лаборатории с окнами.
+    slab(g, 3, 14, 42, 26, 6, IRON)
+    windows(g, [6, 11, 33, 38], 30)
+    g.rect(20, 30, 8, 8, INK)
+    g.rect(21, 31, 6, 7, DARK)
+    for (let i = 0; i < 4; i++) bulb(g, light, 20 + i * 2, 27, chase(t, i / 4))
+
+    // Стеклянный купол.
+    const GLASS: Tones = [0x123047, 0x1d4a6b, 0x2f6f96, 0x5aa0c8, 0xb8e2f5]
+    g.circle(24, 14, 13, INK)
+    g.circle(24, 14, 12, GLASS[0])
+    g.circle(23, 13, 10, GLASS[1])
+    // Голограмма: вращающийся каркас куба — два квадрата и рёбра между ними.
+    const angle = t * TURN * 0.25
+    const corner = (k: number, lift: number) => {
+      const a = angle + (k * TURN) / 4
+      return [24 + Math.cos(a) * 5, 15 + Math.sin(a) * 2.2 - lift] as const
+    }
+    const color = TEAM[2]
+    for (let k = 0; k < 4; k++) {
+      const [x1, y1] = corner(k, 0)
+      const [x2, y2] = corner(k + 1, 0)
+      const [x3, y3] = corner(k, 6)
+      const [x4, y4] = corner(k + 1, 6)
+      g.line(x1, y1, x2, y2, 1, color)
+      g.line(x3, y3, x4, y4, 1, color)
+      g.line(x1, y1, x3, y3, 1, TEAM[1])
+    }
+    light(24, 12, 4, 0.6 + 0.4 * pulse(t * 2))
+    // Блик на стекле.
+    g.rect(17, 7, 3, 1, GLASS[4])
+    g.rect(16, 8, 1, 2, GLASS[3])
+    // Огни по кругу купола.
+    const LIGHTS = 8
+    for (let i = 0; i < LIGHTS; i++) {
+      const a = (i / LIGHTS) * TURN
+      bulb(g, light, Math.round(24 + Math.cos(a) * 12) - 1, Math.round(14 + Math.sin(a) * 12) - 1, chase(t, i / LIGHTS))
+    }
+
+    // Мачта с антенной решёткой в углу.
+    tower(g, 41, 12, 2, 10, STEEL)
+    g.rect(37, -3, 9, 1, IRON[3])
+    g.rect(37, -1, 9, 1, IRON[3])
+    g.rect(41, -5, 1, 6, IRON[4])
+    bulb(g, light, 40, -7, pulse(t * 2))
+    lamp(g, light, 6, 8, 2, pulse(t, 0.5))
+  },
+}
+
 /** Радар: мачта с вращающейся тарелкой и аппаратная будка. */
 const radar: BuildingArt = {
   ...BUILDINGS.radar,
@@ -1082,6 +1143,7 @@ const cannonTurret: BuildingArt = {
 }
 
 export const BUILDING_ART = {
+  techCenter,
   command,
   smelter,
   siliconWorks,

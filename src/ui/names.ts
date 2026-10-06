@@ -27,6 +27,7 @@ export const BUILDING_NAMES: Record<BuildingType, string> = {
   ammoPlant: 'Патронный завод',
   partsPlant: 'Сборка компонентов',
   factory: 'Машинный завод',
+  techCenter: 'Техцентр',
   generator: 'Электростанция',
   matter: 'Генератор материи',
   radar: 'Радар',

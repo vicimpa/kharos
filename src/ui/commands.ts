@@ -96,13 +96,15 @@ export function commandsOf(state: HudState, page: Page, { send, place, open }: A
   // Страницы торговли закрывают собой заказ техники и разбор.
   if (production && page === 'root') {
     list(
-      production.options.map(({ unit, cost, affordable, materials }) => ({
+      production.options.map(({ unit, cost, affordable, materials, missing }) => ({
         label: UNIT_NAMES[unit],
         unit,
         cost,
         materials,
-        disabled: !affordable || production.full,
-        title: production.full ? 'Очередь заполнена' : affordable ? undefined : 'Не хватает кредитов',
+        disabled: !affordable || production.full || missing.length > 0,
+        title: missing.length
+          ? `Нужно построить: ${missing.map((type) => BUILDING_NAMES[type]).join(', ')}`
+          : production.full ? 'Очередь заполнена' : affordable ? undefined : 'Не хватает кредитов',
         run: () => send({ type: 'produce', producer: production.producer, unit }),
       })),
     )

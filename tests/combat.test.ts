@@ -292,22 +292,22 @@ test('пехоту выпускают казармы, технику — маш�
   // Потребляют 2 + 5 + 5 из 20.
   expect(zoneEconomies(sim, 1)[0]).toMatchObject({ produced: 20, demand: 12 })
   // Материалы на заказы уже на месте: подвоз проверяется в economy.test.ts.
-  sim.world.get(factory, Inventory)!.items = { ...UNITS.tank.materials }
+  sim.world.get(factory, Inventory)!.items = { ...UNITS.buggy.materials }
   sim.world.get(port, Inventory)!.items = { ...UNITS.drone.materials }
 
-  sim.send(1, { type: 'produce', producer: barracks, unit: 'tank' })
+  sim.send(1, { type: 'produce', producer: barracks, unit: 'buggy' })
   sim.send(1, { type: 'produce', producer: barracks, unit: 'rocketeer' })
-  sim.send(1, { type: 'produce', producer: factory, unit: 'tank' })
+  sim.send(1, { type: 'produce', producer: factory, unit: 'buggy' })
   sim.send(1, { type: 'produce', producer: port, unit: 'drone' })
   sim.send(2, { type: 'produce', producer: port, unit: 'gunship' })
   sim.advance(TICK)
   expect(sim.world.get(barracks, Producer)!.queue).toEqual(['rocketeer'])
-  expect(sim.world.get(factory, Producer)!.queue).toEqual(['tank'])
+  expect(sim.world.get(factory, Producer)!.queue).toEqual(['buggy'])
   expect(sim.world.get(port, Producer)!.queue).toEqual(['drone'])
-  seconds(sim, UNITS.tank.buildTime + 1)
+  seconds(sim, UNITS.buggy.buildTime + 1)
   const made: string[] = []
   for (const [, unit] of sim.world.query(Unit)) made.push(unit.type)
-  expect(made.sort()).toEqual(['drone', 'rocketeer', 'tank'])
+  expect(made.sort()).toEqual(['buggy', 'drone', 'rocketeer'])
 
   // Энергии не хватает: 10 из 12 — производство идёт на 5/6 скорости, над зданием значок нехватки.
   sim.world.destroy(spare)

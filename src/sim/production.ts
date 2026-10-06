@@ -1,6 +1,6 @@
 import type { Entity, Time } from '../ecs'
 import { tileKey } from '../map/terrain'
-import { BUILDINGS, CORE, buildingSpec } from './buildings'
+import { BUILDINGS, CORE, buildingSpec, isReady, type BuildingType } from './buildings'
 import { isOwn, ownerOf } from './common'
 import { Building, Converting, Inventory, Position, Producer, Site, Unit } from './components'
 import { addCredits, pay, reward } from './economy'
@@ -23,6 +23,15 @@ export function producibleBy(sim: Sim, entity: Entity): UnitType[] {
   const type = world.get(entity, Building)?.type ?? (world.get(entity, Unit)?.type === 'mcv' ? CORE : undefined)
   return (type && buildingSpec(type).produces) || NOTHING
 }
+/** Каких зданий из требований юнита у игрока нет готовыми: пусто — заказывать можно. */
+export function missingRequirements(sim: Sim, player: number, unit: UnitType): BuildingType[] {
+  const requires = unitSpec(unit).requires as readonly BuildingType[] | undefined
+  if (!requires?.length) return []
+  const have = new Set<BuildingType>()
+  for (const [entity, building] of sim.world.query(Building)) if (requires.includes(building.type) && isReady(sim, player, entity)) have.add(building.type)
+  return requires.filter((type) => !have.has(type))
+}
+
 /** Сколько заказов помещается в очередь. */
 export const QUEUE_LIMIT = 5
 
@@ -40,6 +49,7 @@ export function orderUnit(sim: Sim, player: number, entity: Entity, unit: UnitTy
   const producer = sim.world.get(entity, Producer)
   if (!producer || !isOwn(sim, player, entity)) return false
   if (!producibleBy(sim, entity).includes(unit) || producer.queue.length >= QUEUE_LIMIT) return false
+  if (missingRequirements(sim, player, unit).length) return false
   if (!pay(sim, player, UNITS[unit].cost)) return false
   producer.queue.push(unit)
   return true
