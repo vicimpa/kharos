@@ -8,6 +8,8 @@ import {
 import { STORES, placeBuilding, storeFor } from '../src/sim/buildings'
 import type { Amounts, Ware } from '../src/sim/resources'
 import { addCredits } from '../src/sim/economy'
+import { Hauler } from '../src/sim/components'
+import { NONE } from '../src/sim/common'
 import { spawnUnit } from '../src/sim/units'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
@@ -171,4 +173,28 @@ test('груз, который стал не нужен, грузовик вез
   until(sim, () => amountOf(sim.world.get(truck, Inventory)!, 'metal') < 1e-9)
   expect(oreIn(sim, second, 'metal')).toBe(0)
   expect(oreIn(sim, store('metal'), 'metal') + oreIn(sim, factory, 'metal')).toBeCloseTo(40)
+})
+
+test('грузу некуда деться — грузовик везёт его заказчику, а нет заказчика — обратно, и снова свободен', () => {
+  const { sim, x, y, store, buildings } = base(['smelter', 'factory'])
+  const [smelter, factory] = buildings
+  const shelf = sim.world.get(store('metal'), Inventory)!
+  shelf.items.metal = shelf.capacity
+  const truck = spawnUnit(sim, 'truck', 1, x + 5, y + 4)
+  const cargo = () => amountOf(sim.world.get(truck, Inventory)!, 'metal')
+  const load = () => {
+    sim.world.get(truck, Inventory)!.items.metal = 10
+    Object.assign(sim.world.get(truck, Hauler)!, { from: smelter, to: NONE, resource: 'metal', amount: 10, full: true })
+  }
+  // Заказчик есть — металл едет на завод.
+  sim.send(1, { type: 'produce', producer: factory, unit: 'buggy' })
+  load()
+  until(sim, () => cargo() < 1e-9, 60)
+  expect(oreIn(sim, factory, 'metal') + (sim.world.get(factory, Producer)!.progress > 0 ? UNITS.buggy.materials.metal : 0)).toBeGreaterThan(0)
+  // Заказчиков нет — обратно в переработку.
+  sim.world.get(factory, Producer)!.queue.length = 0
+  until(sim, () => sim.world.get(factory, Producer)!.queue.length === 0 && !sim.world.get(truck, Hauler)!.full, 60)
+  load()
+  until(sim, () => cargo() < 1e-9, 60)
+  expect(oreIn(sim, smelter, 'metal')).toBeGreaterThan(0)
 })

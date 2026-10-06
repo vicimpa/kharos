@@ -5,7 +5,7 @@ import { Beam, Building, Converting, Hauler, Harvester, Inventory, Owner, Path, 
 import { DEPOSIT_KINDS, reserveLeft, takeReserve } from './deposits'
 import { amountOf, approach, beamFor, put, reaches, resetBeams, roomFor, transfer } from './inventory'
 import { isStore } from './trade'
-import { acceptsDelivery, deliveryFor, dispatch, mineOre, offersPickup, refineryFor } from './logistics'
+import { acceptsDelivery, deliveryFor, dispatch, mineOre, offersPickup, refineryFor, requestsOf } from './logistics'
 import { GOODS, resourceOf, type Good } from './resources'
 import type { Sim } from './sim'
 import { UNITS } from './units'
@@ -67,6 +67,29 @@ export function releaseHauler(sim: Sim, truck: Entity) {
   if (!hauler) return
   hauler.mine = NONE
   dropJob(sim, truck)
+}
+
+/** Можно ли вернуть груз туда, откуда он взят: здание стоит и место под него есть. */
+const returnsTo = (sim: Sim, building: Entity, resource: Good) => {
+  const inventory = sim.world.get(building, Inventory)
+  return !!inventory && sim.world.has(building, Building) && roomFor(inventory, resource) > EPSILON
+}
+
+/** Ближайший к грузовику заказчик этого груза; NONE — его никто не ждёт. */
+function requesterFor(sim: Sim, truck: Entity, resource: Good): Entity {
+  const { x, y } = sim.world.get(truck, Position)!
+  let best = NONE as Entity
+  let bestDistance = Infinity
+  for (const request of requestsOf(sim, owner(sim, truck))) {
+    if (request.resource !== resource) continue
+    const at = sim.world.get(request.to, Position)!
+    const far = Math.hypot(at.x - x, at.y - y)
+    if (far < bestDistance) {
+      best = request.to
+      bestDistance = far
+    }
+  }
+  return best
 }
 
 /** Подводит грузовик к зданию на длину луча, который перенесёт ресурс между ними. */
@@ -160,7 +183,8 @@ export function haul(sim: Sim) {
     }
 
     if (hauler.full) {
-      if (hauler.to === NONE || !acceptsDelivery(sim, owner.player, hauler.to as Entity, hauler.resource)) {
+      const back = hauler.to !== NONE && hauler.to === hauler.from && returnsTo(sim, hauler.to as Entity, hauler.resource)
+      if (hauler.to === NONE || !(back || acceptsDelivery(sim, owner.player, hauler.to as Entity, hauler.resource))) {
         if (retry || hauler.to !== NONE) homeless.push(entity)
         hauler.to = NONE
         continue
@@ -240,6 +264,10 @@ export function haul(sim: Sim) {
     // нет — везёт обратно: хранилище у каждого груза своё, и единственное нельзя исключать.
     const other = deliveryFor(sim, truck, resource, from)
     hauler.to = other === NONE ? deliveryFor(sim, truck, resource) : other
+    // Хранилищ с местом нет — груз едет тому, кто его заказывал, а нет и таких — обратно, откуда взят, если там есть
+    // место. Иначе грузовик так и стоял бы с полным кузовом и не брал работу.
+    if (hauler.to === NONE) hauler.to = requesterFor(sim, truck, resource)
+    if (hauler.to === NONE && from !== NONE && returnsTo(sim, from, resource)) hauler.to = from
   }
 
   if (time.tick % DISPATCH_TICKS === 0) dispatch(sim)
