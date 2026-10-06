@@ -1,3 +1,4 @@
+import { knownReserve } from './knownReserve'
 import type { Entity } from '../ecs'
 import {
   Assembly, Harvester, BUILDABLE, buyPrice, roomFor, BUILDINGS, Building, Converting, Hauler, Health, CORE, GOODS, PRODUCT_SPECS, REFINE_RATE, RESOURCES, RESOURCE_SPECS, buildingSpec, cycleSeconds, isOwn, producibleBy, productStock, Trade, Inventory, amountOf, loadOf, deliveredTo, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit, unitSpec,
@@ -13,7 +14,7 @@ export interface HudState {
    * Месторождение под указателем мыши на карте: что в нём, сколько осталось и где указатель на экране,
    * чтобы подсказка встала рядом. null — указатель не над месторождением.
    */
-  hover: { kind: DepositKind; left: number; x: number; y: number } | null
+  hover: { kind: DepositKind; left: number | null; x: number; y: number } | null
   /** Что ставит отладочный спавн; null — он выключен. */
   spawning: Spawn | null
   /** Награды, которые игрок уже получил, по порядку. */
@@ -165,7 +166,9 @@ function hoverOf(scene: Scene): HudState['hover'] {
   const spot = depositNear(sim, tile.x + 0.5, tile.y + 0.5, DEPOSIT_SIZE)
   const covers = spot && tile.x >= spot.x && tile.x < spot.x + DEPOSIT_SIZE && tile.y >= spot.y && tile.y < spot.y + DEPOSIT_SIZE
   if (!spot || !covers) return null
-  return { kind: spot.kind, left: Math.floor(reserveLeft(sim, spot.x, spot.y)), x: camera.pointer.x, y: camera.pointer.y }
+  // В тумане — остаток, каким его видели в последний раз: чужую добычу сквозь туман не видно.
+  const left = knownReserve(sim, scene.player, spot)
+  return { kind: spot.kind, left: left === null ? null : Math.floor(left), x: camera.pointer.x, y: camera.pointer.y }
 }
 
 /** Собирает состояние интерфейса из симуляции и выделения. */

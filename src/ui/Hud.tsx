@@ -485,7 +485,7 @@ export function Hud({ state, send, place, minimap, lookAt, lookAtSelection, narr
       {state.hover && (
         <div class="hud tip" style={{ left: `${state.hover.x + 16}px`, top: `${state.hover.y + 16}px` }}>
           <Res resource={state.hover.kind} /> Месторождение: {RESOURCE_NAMES[state.hover.kind].toLowerCase()}
-          <small>{state.hover.left > 0 ? `осталось ${state.hover.left}` : 'выработано'}</small>
+          <small>{state.hover.left === null ? 'остаток неизвестен' : state.hover.left > 0 ? `осталось ${state.hover.left}` : 'выработано'}</small>
         </div>
       )}
 

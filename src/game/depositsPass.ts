@@ -1,9 +1,10 @@
+import { knownReserve } from './knownReserve'
 import { setBlend } from '../gl'
 import { createAtlas } from '../render/atlas'
 import { Pixmap } from '../render/pixmap'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites } from '../render/sprites'
-import { DEPOSIT_CELL, DEPOSIT_SIZE, DEPOSIT_TYPES, depositIn, reserveLeft, type DepositKind } from '../sim'
+import { DEPOSIT_CELL, DEPOSIT_SIZE, DEPOSIT_TYPES, depositIn, type DepositKind } from '../sim'
 import type { Scene } from './scene'
 
 /** Пикселей спрайта на тайл, как у местности. */
@@ -89,7 +90,7 @@ export function createDepositsPass(gl: WebGL2RenderingContext, scene: Scene): Pa
           const spot = depositIn(sim, cellX, cellY)
           // Не найденное игроком не видно и сквозь туман.
           if (!spot || !sim.vision.exploredIn(scene.player, spot.x, spot.y, DEPOSIT_SIZE, DEPOSIT_SIZE)) continue
-          const alpha = reserveLeft(sim, spot.x, spot.y) > 0 ? 1 : SPENT_ALPHA
+          const alpha = knownReserve(sim, scene.player, spot) === 0 ? SPENT_ALPHA : 1
           const frame = frames.get(spot.kind)!
           sprites.push(
             spot.x - camera.x, spot.y - camera.y, DEPOSIT_SIZE, DEPOSIT_SIZE,
