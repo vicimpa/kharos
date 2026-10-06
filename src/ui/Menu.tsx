@@ -2,20 +2,27 @@ import type { ComponentChildren } from 'preact'
 import { useState } from 'preact/hooks'
 import { loadMuted, storeMuted } from '../audio/audio'
 import { createSlot, deleteSave, exportSave, importSave, listSaves, renameSave, type SaveSlot } from '../game/storage'
-import { DEFAULT_SETTINGS, type MapSettings } from '../map/settings'
+import { DEFAULT_SETTINGS } from '../map/settings'
+import { DEFAULT_WEATHER } from '../sim'
 import { localServerUrl, type Launch } from './launch'
 
 /** Симуляция идёт 20 тиков в секунду. */
 const TICKS_PER_SECOND = 20
 /** Какой стороны бывает карта новой игры, в тайлах. */
 const MAP_SIZES = [512, 1024, 2048]
+/** Сколько длятся сутки новой игры, в секундах; 0 — время стоит. */
+const DAY_LENGTHS = [
+  { seconds: 600, label: '10 мин' },
+  { seconds: 1200, label: '20 мин' },
+  { seconds: 2400, label: '40 мин' },
+  { seconds: 0, label: 'Стоят' },
+]
+const clock = (hour: number) => `${String(Math.floor(hour)).padStart(2, '0')}:${String(Math.floor((hour % 1) * 60)).padStart(2, '0')}`
 const SERVER_KEY = 'kharos.server'
 
 type Screen = 'main' | 'new' | 'saves' | 'network' | 'settings'
 
 interface MenuProps {
-  settings: MapSettings
-  setSettings(settings: MapSettings): void
   panel: boolean
   setPanel(panel: boolean): void
   play(launch: Launch): void
@@ -67,7 +74,7 @@ function Window({ title, back, children, wide }: { title: string; back?: () => v
  * Главное меню поверх слайдов симуляции: продолжить последнюю игру, начать новую, загрузить сохранение, подключиться
  * к серверу, сыграть показательный бой или тестовую карту, настроить игру.
  */
-export function Menu({ settings, setSettings, panel, setPanel, play }: MenuProps) {
+export function Menu({ panel, setPanel, play }: MenuProps) {
   const [screen, setScreen] = useState<Screen>('main')
   const [saves, setSaves] = useState(listSaves)
   const refresh = () => setSaves(listSaves())
@@ -102,7 +109,7 @@ export function Menu({ settings, setSettings, panel, setPanel, play }: MenuProps
       {screen === 'new' && <NewGame back={home} play={play} count={saves.length} />}
       {screen === 'saves' && <Saves back={home} saves={saves} refresh={refresh} play={play} />}
       {screen === 'network' && <Network back={home} play={play} />}
-      {screen === 'settings' && <Settings back={home} settings={settings} setSettings={setSettings} panel={panel} setPanel={setPanel} />}
+      {screen === 'settings' && <Settings back={home} panel={panel} setPanel={setPanel} />}
     </div>
   )
 }
@@ -111,13 +118,14 @@ function NewGame({ back, play, count }: { back(): void; play(launch: Launch): vo
   const [name, setName] = useState(`Игра ${count + 1}`)
   const [seed, setSeed] = useState(randomSeed)
   const [size, setSize] = useState(DEFAULT_SETTINGS.world.size)
+  const [weather, setWeather] = useState(DEFAULT_WEATHER)
   return (
     <Window title="Новая игра" back={back}>
       <form
         class="menu__form"
         onSubmit={(event) => {
           event.preventDefault()
-          play({ kind: 'save', slot: createSlot(name.trim() || `Игра ${count + 1}`, size, seed) })
+          play({ kind: 'save', slot: createSlot(name.trim() || `Игра ${count + 1}`, size, seed, weather) })
         }}
       >
         <label class="menu__field">
@@ -143,6 +151,25 @@ function NewGame({ back, play, count }: { back(): void; play(launch: Launch): vo
             ))}
           </span>
         </div>
+        <div class="menu__field">
+          <span>Сутки длятся</span>
+          <span class="menu__inline">
+            {DAY_LENGTHS.map(({ seconds, label }) => (
+              <button type="button" key={seconds} class={seconds === weather.dayLength ? 'is-active' : undefined} onClick={() => setWeather({ ...weather, dayLength: seconds })}>
+                {label}
+              </button>
+            ))}
+          </span>
+        </div>
+        <label class="menu__field menu__field--slider">
+          <span>Начальное время</span>
+          <input type="range" min={0} max={23.5} step={0.5} value={weather.startHour} onInput={(event) => setWeather({ ...weather, startHour: Number(event.currentTarget.value) })} />
+          <output>{clock(weather.startHour)}</output>
+        </label>
+        <label class="menu__check">
+          <input type="checkbox" checked={weather.changes} onChange={(event) => setWeather({ ...weather, changes: event.currentTarget.checked })} />
+          Погода меняется: ветер, дожди и бури
+        </label>
         <button type="submit" class="menu__primary">
           Начать
         </button>
@@ -279,25 +306,15 @@ function Network({ back, play }: { back(): void; play(launch: Launch): void }) {
 
 interface SettingsProps {
   back(): void
-  settings: MapSettings
-  setSettings(settings: MapSettings): void
   panel: boolean
   setPanel(panel: boolean): void
 }
 
-function Settings({ back, settings, setSettings, panel, setPanel }: SettingsProps) {
+/** Настройки самого игрока. Всё, что относится к миру (погода, размер, зерно), задаётся при создании игры. */
+function Settings({ back, panel, setPanel }: SettingsProps) {
   const [muted, setMuted] = useState(loadMuted)
-  const { weather, rules } = settings
-  const base = DEFAULT_SETTINGS.rules
-  const slider = (label: string, value: number, min: number, max: number, step: number, change: (value: number) => void, tip?: string) => (
-    <label class="menu__field menu__field--slider" title={tip}>
-      <span>{label}</span>
-      <input type="range" min={min} max={max} step={step} value={value} onInput={(event) => change(Number(event.currentTarget.value))} />
-      <output>{Number(value.toFixed(2))}</output>
-    </label>
-  )
   return (
-    <Window title="Настройки" back={back} wide>
+    <Window title="Настройки" back={back}>
       <div class="menu__form">
         <h3 class="menu__group">Звук</h3>
         <label class="menu__check">
@@ -311,25 +328,11 @@ function Settings({ back, settings, setSettings, panel, setPanel }: SettingsProp
           />
           Звук в игре
         </label>
-        <h3 class="menu__group">Погода</h3>
-        {slider('Освещение', weather.light, 0, 1, 0.05, (light) => setSettings({ ...settings, weather: { ...weather, light } }), '0 — ночь, 1 — полдень')}
-        {slider('Осадки', weather.precipitation, 0, 1, 0.05, (precipitation) => setSettings({ ...settings, weather: { ...weather, precipitation } }), '0 — ясно, 1 — буря')}
-        <h3 class="menu__group">Правила локальной игры</h3>
-        {slider('Скорость ремонта', rules.repairSpeed, 0, base.repairSpeed * 3, base.repairSpeed / 10, (repairSpeed) => setSettings({ ...settings, rules: { ...rules, repairSpeed } }))}
-        {slider('Цена ремонта', rules.repairCost, 0, base.repairCost * 3, base.repairCost / 10, (repairCost) => setSettings({ ...settings, rules: { ...rules, repairCost } }))}
-        {slider('Пауза перед ремонтом', rules.repairPause, 0, base.repairPause * 3, base.repairPause / 10, (repairPause) => setSettings({ ...settings, rules: { ...rules, repairPause } }), 'Сколько секунд здание не чинится после попадания')}
         <h3 class="menu__group">Отладка</h3>
         <label class="menu__check">
           <input type="checkbox" checked={panel} onChange={(event) => setPanel(event.currentTarget.checked)} />
           Панель генератора в игре
         </label>
-        <span class="menu__inline">
-          <button
-            onClick={() => setSettings({ ...settings, weather: DEFAULT_SETTINGS.weather, rules: DEFAULT_SETTINGS.rules })}
-          >
-            Сбросить
-          </button>
-        </span>
       </div>
     </Window>
   )

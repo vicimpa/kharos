@@ -1,4 +1,5 @@
 import { Loop, World, type System, type Time, type WorldSnapshot } from '../ecs'
+import type { WeatherOptions } from './weather'
 import { createLand, type GeneratorConfig, type Land } from '../map/terrain'
 import { buildingSpec, createOccupancy, type Occupancy } from './buildings'
 import { fight, recover } from './combat'
@@ -46,6 +47,8 @@ export interface SimOptions {
   rules?: Partial<Rules>
   /** Туман войны; false — каждый видит всю карту и всё на ней. По умолчанию включён. */
   fog?: boolean
+  /** Смена дня и ночи и непогода; чего нет — по умолчанию. См. weather.ts. */
+  weather?: Partial<WeatherOptions>
 }
 
 /** Сохранение симуляции. Обычные данные: их можно положить в JSON, на диск или отправить по сети. */
@@ -103,7 +106,7 @@ export function boundsOf(size: number): Bounds {
 export function createSim(source: SimOptions | SimSave): Sim {
   const rules: Rules = { ...DEFAULT_RULES, ...source.rules }
   // Правила в сохранение попадают такими, какие они на момент сохранения.
-  const options: SimOptions = { generator: source.generator, size: source.size, rules, ...(source.fog === false && { fog: false }) }
+  const options: SimOptions = { generator: source.generator, size: source.size, rules, ...(source.fog === false && { fog: false }), ...(source.weather && { weather: source.weather }) }
   const bounds = boundsOf(options.size)
 
   const world = new World()

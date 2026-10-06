@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { DEFAULT_SETTINGS, type BattleConfig, type MapSettings, type RenderConfig, type RulesConfig, type WeatherConfig, type WorldConfig } from '../map/settings'
+import { DEFAULT_SETTINGS, type BattleConfig, type MapSettings, type RenderConfig, type RulesConfig, type WorldConfig } from '../map/settings'
 import { PEAK_RADIUS_LIMIT, type GeneratorConfig } from '../map/terrain'
 import { UNIT_NAMES } from './names'
 
@@ -62,18 +62,6 @@ const RENDER_GROUPS: Group<RenderConfig>[] = [
       { key: 'ergDunes', label: 'В эрге', min: 0, max: 1, step: 0.01 },
       { key: 'redDunes', label: 'В пустошах', min: 0, max: 1, step: 0.01 },
       { key: 'duneMargin', label: 'Отступ от зон', min: 0, max: 0.7, step: 0.01 },
-    ],
-  },
-]
-
-const WEATHER_GROUPS: Group<WeatherConfig>[] = [
-  {
-    title: 'Погода',
-    fields: [
-      { key: 'light', label: 'Освещение', min: 0, max: 1, step: 0.01 },
-      { key: 'windX', label: 'Ветер, X', min: -8, max: 8, step: 0.1 },
-      { key: 'windY', label: 'Ветер, Y', min: -8, max: 8, step: 0.1 },
-      { key: 'precipitation', label: 'Осадки', min: 0, max: 1, step: 0.01 },
     ],
   },
 ]
@@ -183,11 +171,6 @@ export function GeneratorPanel({ settings, onChange, onRestart }: GeneratorPanel
       <Groups groups={GENERATOR_GROUPS} values={settings.generator} onChange={setGenerator} />
       <Groups groups={WORLD_GROUPS} values={settings.world} onChange={(world) => onChange({ ...settings, world })} />
       <Groups groups={RENDER_GROUPS} values={settings.render} onChange={(render) => onChange({ ...settings, render })} />
-      <Groups
-        groups={WEATHER_GROUPS}
-        values={settings.weather}
-        onChange={(weather) => onChange({ ...settings, weather })}
-      />
 
       <Groups groups={RULES_GROUPS} values={settings.rules} onChange={(rules) => onChange({ ...settings, rules })} />
 

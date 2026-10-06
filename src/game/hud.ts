@@ -18,6 +18,9 @@ export interface HudState {
   spawning: Spawn | null
   /** Награды, которые игрок уже получил, по порядку. */
   rewards: string[]
+  /** Время суток в мире, «чч:мм», и идёт ли непогода. */
+  clock: string
+  storm: boolean
   /** Пришёл ли мир от хоста: до этого наград ноль не потому, что их нет, а потому, что мира ещё нет. */
   loaded: boolean
   /** Доход в кредитах в секунду. */
@@ -320,6 +323,9 @@ export function readHud(scene: Scene): HudState {
     hover: hoverOf(scene),
     rewards: [...rewardsOf(sim, player)],
     loaded: sim.time.tick > 0,
+    // Минуты — десятками: интерфейс перерисовывается, только когда состояние изменилось.
+    clock: `${String(Math.floor(scene.weather.hour)).padStart(2, '0')}:${Math.floor((scene.weather.hour % 1) * 6)}0`,
+    storm: scene.weather.precipitation > 0.05,
     income: round(economyOf(sim, player).income),
     power,
     health,

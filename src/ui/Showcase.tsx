@@ -15,16 +15,8 @@ const DRIVE_INTERVAL = 500
 const SHOWCASE_SIZE = 128
 const NAMES = Object.keys(SCENES) as SceneName[]
 
-/** Погода слайда: от сумерек до полудня, иногда с осадками. */
-function randomWeather(settings: MapSettings) {
-  return {
-    ...settings.weather,
-    light: 0.3 + Math.random() * 0.7,
-    windX: (Math.random() - 0.5) * 4,
-    windY: (Math.random() - 0.5) * 2,
-    precipitation: Math.random() < 0.3 ? Math.random() * 0.8 : 0,
-  }
-}
+/** Погода слайда: случайный час, чаще днём, и быстрые сутки — за слайд заметно смещается свет. */
+const randomWeather = () => ({ startHour: Math.random() < 0.75 ? 7 + Math.random() * 11 : Math.random() * 24, dayLength: 600, changes: true })
 
 /** Отладка: ?scene=<имя> в адресной строке показывает только эту сценку. */
 const FORCED = NAMES.find((name) => name === new URLSearchParams(location.search).get('scene'))
@@ -37,8 +29,8 @@ const nextScene = (current?: SceneName) => {
 }
 
 /**
- * Фон главного меню: слайды-сценки — добыча, стройка, оборона, бои — на каждый раз новой крошечной местности и в
- * новую погоду. Мир считает сама вкладка, без хоста и тумана войны; камера сама следит за происходящим. Сценка,
+ * Фон главного меню: слайды-сценки — добыча, стройка, оборона, бои — на каждый раз новой крошечной местности, в
+ * случайный час и свою погоду. Мир считает сама вкладка, без хоста и тумана войны; камера сама следит за происходящим. Сценка,
  * которая не встала на этой местности или кончилась раньше времени, сменяется следующей. Если отрисовка не
  * запустилась (нет WebGL 2), фон просто остаётся тёмным.
  */
@@ -58,9 +50,8 @@ export function Showcase({ settings }: { settings: MapSettings }) {
       ...settings,
       generator: { ...settings.generator, seed: Math.floor(Math.random() * 2 ** 31) },
       world: { ...settings.world, size: SHOWCASE_SIZE },
-      weather: randomWeather(settings),
     }
-    const sim = createSim({ ...simOptions(local), fog: false })
+    const sim = createSim({ ...simOptions(local), fog: false, weather: randomWeather() })
     const scene = SCENES[slide.scene]()
     let game: Game | null = null
     if (!scene.create(sim, LOCAL_PLAYER)) {

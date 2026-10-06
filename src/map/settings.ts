@@ -16,25 +16,6 @@ export const DEFAULT_RENDER_CONFIG: RenderConfig = {
   duneMargin: 0.3,
 }
 
-/** Состояние погоды. Только рисуется; на игру пока не влияет. */
-export interface WeatherConfig {
-  /** Уровень освещения: 0 — ночь, 1 — полдень. */
-  light: number
-  /** Вектор ветра в тайлах в секунду: +x — вправо, +y — вниз. */
-  windX: number
-  windY: number
-  /** Уровень осадков: 0 — ясно, 1 — буря. Что именно выпадает, зависит от биома. */
-  precipitation: number
-}
-
-export const DEFAULT_WEATHER_CONFIG: WeatherConfig = {
-  // Ночь: в темноте видны фары, огни зданий и вспышки боя.
-  light: 0.1,
-  windX: 2,
-  windY: 0.5,
-  precipitation: 0,
-}
-
 /** Параметры мира, не относящиеся к генератору местности. Их смена, как и смена генератора, начинает мир заново. */
 export interface WorldConfig {
   /** Сторона карты в тайлах. Временная мера: с окончательным размером мира определимся позже. */
@@ -89,7 +70,6 @@ export interface MapSettings {
   generator: GeneratorConfig
   world: WorldConfig
   render: RenderConfig
-  weather: WeatherConfig
   battle: BattleConfig
   rules: RulesConfig
 }
@@ -98,14 +78,11 @@ export const DEFAULT_SETTINGS: MapSettings = {
   generator: DEFAULT_CONFIG,
   world: DEFAULT_WORLD_CONFIG,
   render: DEFAULT_RENDER_CONFIG,
-  weather: DEFAULT_WEATHER_CONFIG,
   battle: DEFAULT_BATTLE_CONFIG,
   rules: DEFAULT_RULES,
 }
 
 const STORAGE_KEY = 'kharos.mapSettings'
-/** Версия сохранённой погоды. Меняется вместе с погодой по умолчанию: тогда сохранённая один раз отбрасывается. */
-const WEATHER_VERSION = 2
 /** То же для настроек боя: раньше они сохранялись целиком и перекрывали значения из кода. */
 const BATTLE_VERSION = 2
 
@@ -127,7 +104,6 @@ export function loadSettings(): MapSettings {
       generator: merge(DEFAULT_CONFIG, saved?.generator),
       world: merge(DEFAULT_WORLD_CONFIG, saved?.world),
       render: merge(DEFAULT_RENDER_CONFIG, saved?.render),
-      weather: merge(DEFAULT_WEATHER_CONFIG, saved?.weatherVersion === WEATHER_VERSION ? saved.weather : undefined),
       battle: merge(DEFAULT_BATTLE_CONFIG, saved?.battleVersion === BATTLE_VERSION ? saved.battle : undefined),
       rules: merge(DEFAULT_RULES, saved?.rules),
     }
@@ -149,10 +125,8 @@ export function saveSettings(settings: MapSettings) {
       generator: changed(DEFAULT_CONFIG, settings.generator),
       world: changed(DEFAULT_WORLD_CONFIG, settings.world),
       render: changed(DEFAULT_RENDER_CONFIG, settings.render),
-      weather: changed(DEFAULT_WEATHER_CONFIG, settings.weather),
       battle: changed(DEFAULT_BATTLE_CONFIG, settings.battle),
       rules: changed(DEFAULT_RULES, settings.rules),
-      weatherVersion: WEATHER_VERSION,
       battleVersion: BATTLE_VERSION,
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved))

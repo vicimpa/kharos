@@ -1,4 +1,4 @@
-import { SAVE_VERSION, type SimSave } from '../sim'
+import { SAVE_VERSION, type SimSave, type WeatherOptions } from '../sim'
 
 /**
  * Сохранения локальной игры в браузере. Их несколько, у каждого своё место (слот): список с названиями и
@@ -15,6 +15,8 @@ export interface SaveSlot {
   /** Сторона карты и зерно местности — чтобы отличать миры в списке. */
   size: number
   seed: number
+  /** Погода нового мира: пока мир слота не сохранён, он заводится с ней. Дальше она лежит в самом сохранении. */
+  weather?: Partial<WeatherOptions>
 }
 
 const INDEX_KEY = 'kharos.saves'
@@ -68,9 +70,9 @@ export function loadSave(id: string): SimSave | null {
 }
 
 /** Новый пустой слот: мир в него положит первая присланная воркером запись. */
-export function createSlot(name: string, size: number, seed: number): SaveSlot {
+export function createSlot(name: string, size: number, seed: number, weather?: Partial<WeatherOptions>): SaveSlot {
   const now = Date.now()
-  const slot: SaveSlot = { id: crypto.randomUUID(), name, created: now, updated: now, tick: 0, size, seed }
+  const slot: SaveSlot = { id: crypto.randomUUID(), name, created: now, updated: now, tick: 0, size, seed, ...(weather && { weather }) }
   storeIndex([...listSaves(), slot])
   return slot
 }

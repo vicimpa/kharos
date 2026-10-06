@@ -474,6 +474,10 @@ export function Hud({ state, send, place, minimap, lookAt, lookAtSelection, narr
             {state.stock.items.length === 0 && <span class="hud__res">хранилища пусты</span>}
           </span>
         )}
+        <span class="hud__clock" data-tip={state.storm ? 'Время суток; идёт непогода' : 'Время суток'}>
+          {state.clock}
+          {state.storm && ' · непогода'}
+        </span>
         <span class="hud__menu">{menu}</span>
       </header>
 

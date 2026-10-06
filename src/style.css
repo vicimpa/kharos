@@ -278,7 +278,12 @@ body {
 .hud__menu {
   display: flex;
   gap: 6px;
+}
+
+.hud__clock {
   margin-left: auto;
+  color: #9bb9d1;
+  font-variant-numeric: tabular-nums;
 }
 
 .hud .hud__menu button {

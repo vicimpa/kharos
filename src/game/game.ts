@@ -4,7 +4,7 @@ import type { MapSettings } from '../map/settings'
 import { createTerrainPass } from '../map/terrainPass'
 import { createRenderer, type Pass } from '../render/renderer'
 import type { Session } from '../net/connect'
-import { Building, Position, Unit, isOwn, type BuildingType, type Command, type Sim, type SimOptions, type UnitType } from '../sim'
+import { Building, Position, Unit, isOwn, weatherAt, type BuildingType, type Command, type Sim, type SimOptions, type UnitType } from '../sim'
 import { createLightingPass } from '../weather/lightingPass'
 import { createPrecipitationPass } from '../weather/precipitationPass'
 import { createBoundsPass } from './boundsPass'
@@ -116,6 +116,7 @@ export function createGame(
     placing: null,
     spawning: null,
     grid: false,
+    weather: weatherAt(session.sim.options, session.sim.time.elapsed),
   }
 
   // Всё, что живёт на видеокарте, создаётся здесь: после потери контекста рендер вызовет это заново.
@@ -262,6 +263,7 @@ export function createGame(
     camera.y += shakeY
     landWindow.update(sim.land, camera, width, height)
     const { time } = sim
+    scene.weather = weatherAt(sim.options, time.elapsed + time.alpha * time.step)
     renderer.draw(camera, time.elapsed + time.alpha * time.step, seconds)
     camera.x -= shakeX
     camera.y -= shakeY

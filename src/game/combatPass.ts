@@ -555,7 +555,7 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
         const halfHeight = height / 2 / camera.zoom + 2
         emitDust(delta, camera, halfWidth, halfHeight)
         // Пыль быстро тормозит, сносится ветром и тает. Её освещает проход освещения, как землю под ней.
-        const { windX, windY } = scene.settings.weather
+        const { windX, windY } = scene.weather
         const drag = Math.exp(-delta * 3.5)
         dustSprites.clear()
         let kept = 0
@@ -623,7 +623,7 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
 
         emitSmoke()
         // Дым тормозит, набирает скорость ветра и понемногу всплывает; клубы растут и тают.
-        const { windX, windY, light } = scene.settings.weather
+        const { windX, windY, light } = scene.weather
         // Ночью дым темнее и синее, как всё вокруг.
         const day = SMOKE_NIGHT + (1 - SMOKE_NIGHT) * light
         const warm = day * (0.8 + 0.2 * light)

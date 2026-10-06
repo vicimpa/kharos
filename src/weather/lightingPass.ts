@@ -184,7 +184,7 @@ export function createLightingPass(gl: WebGL2RenderingContext, scene: Scene, cas
   return {
     draw(frame) {
       const { camera, view, lights } = frame
-      const { light } = scene.settings.weather
+      const { light } = scene.weather
 
       cut.clear()
       bloom.clear()

@@ -1,6 +1,6 @@
 import type { Entity } from '../ecs'
 import type { MapSettings } from '../map/settings'
-import type { BuildingType, Sim, UnitType } from '../sim'
+import type { BuildingType, Sim, UnitType, Weather } from '../sim'
 import type { Camera } from './camera'
 
 /** Прямоугольник в тайлах, заданный двумя противоположными углами. */
@@ -36,6 +36,8 @@ export interface Scene {
   spawning: Spawn | null
   /** Показывать ли сетку тайлов. */
   grid: boolean
+  /** Погода в этом кадре: её считает симуляция по времени мира, игра обновляет каждый кадр. */
+  weather: Weather
 }
 
 /** Что ставит отладочный спавн. */

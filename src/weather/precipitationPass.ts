@@ -14,7 +14,7 @@ export function createPrecipitationPass(gl: WebGL2RenderingContext, scene: Scene
 
   return {
     draw({ view, delta }) {
-      const weather = scene.settings.weather
+      const weather = scene.weather
       uniforms.uWind[0] = weather.windX
       uniforms.uWind[1] = weather.windY
       // Снос копится здесь, а не считается в шейдере как ветер × время: иначе смена ветра дёргала бы всю пелену.

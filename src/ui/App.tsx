@@ -55,7 +55,7 @@ export function App() {
   return (
     <main class="game">
       <Showcase settings={settings} />
-      <Menu settings={settings} setSettings={setSettings} panel={panel} setPanel={setPanel} play={setLaunch} />
+      <Menu panel={panel} setPanel={setPanel} play={setLaunch} />
     </main>
   )
 }
