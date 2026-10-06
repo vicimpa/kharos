@@ -1,4 +1,5 @@
 import type { Entity } from '../ecs'
+import { isBuildable, terrainAt, tileKey } from '../map/terrain'
 import { buildingSpec, isReady, siteAt } from './buildings'
 import { NONE, isOwn, onTurn } from './common'
 import { Building, Converting, Site, Hauler, Harvester, Inventory, Owner, Path, Position, Unit } from './components'
@@ -90,16 +91,52 @@ function nearestDeposit(sim: Sim, player: number, x: number, y: number, refined:
  */
 function scoutTarget(sim: Sim, player: number, entity: Entity, x: number, y: number) {
   const turn = (entity * 0.618) % 1
-  for (let radius = SCOUT_STEP; radius <= HARVEST_SEARCH; radius += SCOUT_STEP) {
-    for (let i = 0; i < SCOUT_DIRECTIONS; i++) {
-      const angle = ((i + turn) / SCOUT_DIRECTIONS) * Math.PI * 2
-      const tileX = Math.floor(x + Math.cos(angle) * radius)
-      const tileY = Math.floor(y + Math.sin(angle) * radius)
-      if (!inBounds(sim, tileX, tileY) || !isWalkable(sim, tileX, tileY)) continue
-      if (!sim.vision.explored(player, tileX, tileY)) return { x: tileX, y: tileY }
+  // Месторождения лежат только на скале: сперва обшаривается скала, на которой начат поиск, потом — любая.
+  const rock = rockAround(sim, Math.floor(x), Math.floor(y))
+  const onRock = (tileX: number, tileY: number) => isBuildable(terrainAt(sim.land, tileX, tileY))
+  for (const allowed of [(tileX: number, tileY: number) => rock.has(tileKey(tileX, tileY)), onRock]) {
+    for (let radius = SCOUT_STEP; radius <= HARVEST_SEARCH; radius += SCOUT_STEP) {
+      for (let i = 0; i < SCOUT_DIRECTIONS; i++) {
+        const angle = ((i + turn) / SCOUT_DIRECTIONS) * Math.PI * 2
+        const tileX = Math.floor(x + Math.cos(angle) * radius)
+        const tileY = Math.floor(y + Math.sin(angle) * radius)
+        if (!inBounds(sim, tileX, tileY) || !isWalkable(sim, tileX, tileY) || !allowed(tileX, tileY)) continue
+        if (!sim.vision.explored(player, tileX, tileY)) return { x: tileX, y: tileY }
+      }
     }
   }
   return undefined
+}
+
+/**
+ * Тайлы скалы, связной с (x, y), не дальше HARVEST_SEARCH; ключ — tileKey. Здания на скале её не
+ * разрывают. Стоит не на скале — от ближайшего тайла скалы в пределах нескольких шагов.
+ */
+function rockAround(sim: Sim, x: number, y: number) {
+  const rock = (tileX: number, tileY: number) => inBounds(sim, tileX, tileY) && isBuildable(terrainAt(sim.land, tileX, tileY))
+  const tiles = new Set<number>()
+  const queue: number[] = []
+  for (let reach = 0; reach <= 3 && !queue.length; reach++) {
+    for (let dy = -reach; dy <= reach; dy++) {
+      for (let dx = -reach; dx <= reach; dx++) {
+        if (rock(x + dx, y + dy) && !tiles.has(tileKey(x + dx, y + dy))) {
+          tiles.add(tileKey(x + dx, y + dy))
+          queue.push(x + dx, y + dy)
+        }
+      }
+    }
+  }
+  for (let i = 0; i < queue.length; i += 2) {
+    const tileX = queue[i]
+    const tileY = queue[i + 1]
+    for (const [nextX, nextY] of [[tileX + 1, tileY], [tileX - 1, tileY], [tileX, tileY + 1], [tileX, tileY - 1]]) {
+      const key = tileKey(nextX, nextY)
+      if (tiles.has(key) || Math.hypot(nextX - x, nextY - y) > HARVEST_SEARCH || !rock(nextX, nextY)) continue
+      tiles.add(key)
+      queue.push(nextX, nextY)
+    }
+  }
+  return tiles
 }
 
 /** Велит своим харвестерам искать месторождение вида kind или любое: они найдут известное или разведают. */

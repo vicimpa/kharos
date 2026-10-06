@@ -5,6 +5,8 @@ import {
   BUILDINGS, Beam, Position, DEPOSIT_CELL, DEPOSIT_KINDS, DEPOSIT_TYPES, Deposit, Hauler, Harvester, Inventory, REFINE_RATE, REFINE_RATIO, RESOURCE_SPECS, SELL_SECONDS, TRUCK_CAPACITY, Trade, amountOf, canBuild, deliveredTo, gapBetween, canSell, isWalkable, stockOf, canPlace, createSim, creditsOf, depositAt, depositIn, depositNear, reserveLeft, rewardsOf,
   zonesOf, type BuildingType, type DepositSpot, type Good, type Sim,
 } from '../src/sim'
+import { isBuildable, terrainAt } from '../src/map/terrain'
+import { Path } from '../src/sim/components'
 import { placeBuilding } from '../src/sim/buildings'
 import { addCredits } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
@@ -531,4 +533,18 @@ test('ищущий руду харвестер разведывает вокру
     farthest = Math.max(farthest, Math.hypot(position.x - from.x, position.y - from.y))
   }
   expect(farthest).toBeLessThan(2 * 60 + 10)
+})
+
+test('ищущий руду харвестер разведывает скалу, на которой стоит, а не уезжает с неё', () => {
+  const { sim, spot } = start()
+  const harvester = spawnUnit(sim, 'harvester', 1, spot.x - 1, spot.y)
+  sim.send(1, { type: 'seek', units: [harvester], kind: DEPOSIT_TYPES[DEPOSIT_TYPES.length - 1] })
+  const goals: { x: number; y: number }[] = []
+  for (let i = 0; i < 60 * 20; i++) {
+    sim.advance(TICK)
+    const path = sim.world.get(harvester, Path)
+    if (path && sim.world.get(harvester, Harvester)!.x < 0) goals.push({ x: Math.floor(path.goalX), y: Math.floor(path.goalY) })
+  }
+  expect(goals.length).toBeGreaterThan(0)
+  for (const goal of goals) expect(isBuildable(terrainAt(sim.land, goal.x, goal.y))).toBe(true)
 })
