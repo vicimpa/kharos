@@ -102,6 +102,8 @@ export function moveUnits(sim: Sim, time: Time) {
   // Пути меняются после обхода: во время него состав мира трогать нельзя.
   const stopped: Entity[] = []
   const lost: { entity: Entity; x: number; y: number; tries: number; near: number }[] = []
+  /** Дошедшие до конца пути, не дойдя до цели: ищут путь дальше. */
+  const further: { entity: Entity; x: number; y: number; tries: number; near: number; from?: number }[] = []
   const asked: { entity: Entity; by: Entity; x: number; y: number; heading: number; room: number }[] = []
   /** Юнит не может идти дальше: прокладывает путь заново или, если уже пробовал, встаёт. */
   const giveUp = (entity: Entity, path: { goalX: number; goalY: number; tries: number; near: number }) => {
@@ -194,12 +196,36 @@ export function moveUnits(sim: Sim, time: Time) {
     if (left === 0 || (!last && left < REACHED)) {
       points.splice(0, 2)
       path.tries = 0
-      if (!points.length) stopped.push(entity)
+      if (!points.length) {
+        // Поиск пути ограничен, и до далёкой цели путь мог кончиться раньше неё: оттуда юнит ищет дальше.
+        const tileX = Math.floor(position.x)
+        const tileY = Math.floor(position.y)
+        const reached = path.near ? (tileX - path.goalX) ** 2 + (tileY - path.goalY) ** 2 <= path.near ** 2 : tileX === path.goalX && tileY === path.goalY
+        if (reached || air) stopped.push(entity)
+        else further.push({ entity, x: path.goalX, y: path.goalY, tries: 0, near: path.near })
+      }
     }
   }
 
   for (const entity of stopped) world.remove(entity, Path)
   const searchedBefore = searchedTiles()
+  for (const { entity, x, y, near } of further) {
+    // Поиски сверх нормы тика отложены: юнит постоит и поищет в следующий тик.
+    const path = world.get(entity, Path)!
+    if (searchedTiles() - searchedBefore >= LOST_TILES) {
+      const position = world.get(entity, Position)!
+      path.points.push(position.x, position.y)
+      continue
+    }
+    const before = world.get(entity, Position)!
+    const fromX = Math.floor(before.x)
+    const fromY = Math.floor(before.y)
+    orderMove(sim, entity, x, y, undefined, 0, near)
+    // Ближе к цели не подойти — встаёт: иначе искал бы на месте каждый тик.
+    const next = world.get(entity, Path)
+    const end = next?.points.length ? [Math.floor(next.points.at(-2)!), Math.floor(next.points.at(-1)!)] : undefined
+    if (end && end[0] === fromX && end[1] === fromY) world.remove(entity, Path)
+  }
   for (const { entity, x, y, tries, near } of lost) {
     // Не уложившиеся в норму ждут дальше: их путь цел, и в следующий тик они попробуют снова.
     if (searchedTiles() - searchedBefore >= LOST_TILES) break

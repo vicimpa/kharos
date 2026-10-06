@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { isBuildable, terrainAt } from '../src/map/terrain'
 import { Owner, Path, Position, UNITS, Unit, canPlace, createSim, isWalkable, spawnStartingUnits, type Sim, type UnitType } from '../src/sim'
 import { findPath, isClear, smoothPath } from '../src/sim/path'
-import { spawnUnit } from '../src/sim/units'
+import { orderMove, spawnUnit } from '../src/sim/units'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
 const TICK = 1 / 20
@@ -315,4 +315,29 @@ test('юнит попадает в точку сразу за крутым по�
     expect(sim.world.get(unit, Position)).toEqual({ x: x + 8.5, y: y + 5.5 })
     sim.world.destroy(unit)
   }
+})
+
+test('путь, оборванный лимитом поиска, юнит продолжает с конца и доходит до цели', () => {
+  const sim = createSim(options)
+  let x = 0
+  while (!isWalkable(sim, x, 0)) x++
+  const y = 0
+  const buggy = spawnUnit(sim, 'buggy', 1, x, y)
+  // Дальняя достижимая цель: её находит поиск без лимита.
+  let goal: number[] | undefined
+  for (let r = 60; !goal && r < 120; r += 4) {
+    for (const [dx, dy] of [[r, 0], [-r, 0], [0, r], [0, -r]]) {
+      if (!isWalkable(sim, x + dx, y + dy)) continue
+      const tiles = findPath((tx, ty) => isWalkable(sim, tx, ty), x, y, x + dx, y + dy, 0, 1e6)
+      if (tiles.at(-2) === x + dx && tiles.at(-1) === y + dy) {
+        goal = [x + dx, y + dy]
+        break
+      }
+    }
+  }
+  // Первый поиск обрывается на 200 тайлах.
+  orderMove(sim, buggy, goal![0], goal![1], undefined, 0, 0, 200)
+  for (let i = 0; i < 20 * 120 && sim.world.has(buggy, Path); i++) sim.advance(TICK)
+  const [atX, atY] = tileOf(sim, buggy)
+  expect(Math.hypot(atX - goal![0], atY - goal![1])).toBeLessThan(2)
 })
