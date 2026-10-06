@@ -125,6 +125,9 @@ const ROCKET: Color = [0.85, 0.87, 0.9]
 const FLAME: Color = [1, 0.6, 0.2]
 const SHELL: Color = [0.12, 0.12, 0.14]
 const LASER: Color = [1, 0.15, 0.3]
+/** Языки огнемёта: сколько пятен вдоль струи и их второй цвет. */
+const FLAME_TONGUES = 6
+const EMBER: Color = [1, 0.35, 0.08]
 const SPARK: Color = [0.3, 0.6, 1]
 const CORE: Color = [1, 1, 1]
 /** Луч стройки и починки и луч разбора. */
@@ -702,6 +705,19 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
 
           if (!weapon.speed) {
             const left = 1 - ageOf(shot, alpha)
+            if (weapon.shot === 'flame') {
+              // Струя огня: широкая оранжевая у цели, узкая у ствола, и языки, которые дрожат.
+              const seed = entity * 7 + Math.floor(time * ARC_RATE)
+              const dx = shot.toX - shot.fromX
+              const dy = shot.toY - shot.fromY
+              line(glow, shot.fromX, shot.fromY, shot.toX, shot.toY, 5, FLAME, left * 0.6)
+              for (let i = 1; i <= FLAME_TONGUES; i++) {
+                const share = i / FLAME_TONGUES
+                const sway = (noise(seed, i) - 0.5) * 0.5 * share
+                dot(glow, shot.fromX + dx * share - dy * sway, shot.fromY + dy * share + dx * sway, 3 + share * 6, i % 2 ? FLAME : EMBER, left)
+              }
+              continue
+            }
             if (weapon.shot === 'laser') {
               line(glow, shot.fromX, shot.fromY, shot.toX, shot.toY, 6, LASER, left * 0.7)
               line(glow, shot.fromX, shot.fromY, shot.toX, shot.toY, 2, CORE, left)

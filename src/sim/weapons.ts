@@ -4,10 +4,10 @@ export type UnitClass = 'infantry' | 'vehicle' | 'heavy' | 'air'
 export type Armor = UnitClass | 'building'
 
 /**
- * Чем стреляет оружие. Пуля, ракета и ядро летят и бьют, долетев; лазер и разряд бьют мгновенно.
+ * Чем стреляет оружие. Пуля, ракета и ядро летят и бьют, долетев; лазер, разряд и огонь бьют мгновенно.
  * Как это выглядит, знает клиент: см. game/combatPass.ts.
  */
-export type ShotKind = 'bullet' | 'shell' | 'rocket' | 'laser' | 'arc'
+export type ShotKind = 'bullet' | 'shell' | 'rocket' | 'laser' | 'arc' | 'flame'
 
 export interface WeaponSpec {
   shot: ShotKind
@@ -29,6 +29,8 @@ export interface WeaponSpec {
   lob?: boolean
   /** Достаёт ли до летающих. */
   air: boolean
+  /** Бьёт только летающих: по земле и зданиям молчит. */
+  onlyAir?: boolean
   /** Во сколько раз урон по такой цели отличается от обычного; чего нет — единица. */
   vs?: Partial<Record<Armor, number>>
   /**
@@ -59,6 +61,10 @@ export const WEAPONS = {
   // Бомбы: бомбардировщик проходит над целью и сбрасывает тяжёлый груз — по земле и зданиям, через стены, но не
   // по воздуху. Бьёт почти в упор: над целью надо пролететь, а там его ждёт ПВО.
   bomb: { shot: 'shell', range: 1.5, damage: 110, reload: 3, speed: 6, splash: 1.6, lob: true, air: false, vs: { building: 1.6, infantry: 0.7, vehicle: 0.8 } },
+  // Огнемёт: струя бьёт в упор и перекидывается на соседа. Выжигает пехоту и здания, по броне слаб.
+  flame: { shot: 'flame', range: 3, damage: 14, reload: 0.4, chain: 1, air: false, vs: { infantry: 1.5, building: 1.2, vehicle: 0.3, heavy: 0.15 } },
+  // Зенитка: частые разрывы по воздуху, далеко и сильно, по земле не стреляет.
+  flak: { shot: 'bullet', range: 8, damage: 22, reload: 0.5, speed: 30, splash: 0.6, air: true, onlyAir: true },
   // Разряд бьёт цель и перескакивает на соседей: против толпы.
   arc: { shot: 'arc', range: 4.5, damage: 46, reload: 2, chain: 2, air: false, vs: { infantry: 1.5, building: 0.4 } },
 } satisfies Record<string, WeaponSpec>

@@ -15,6 +15,8 @@ const SHOT_SOUNDS: Record<WeaponType, { name: SoundName; volume: number }> = {
   launcher: { name: 'launcher', volume: 0.45 },
   laser: { name: 'laser', volume: 0.35 },
   arc: { name: 'arc', volume: 0.5 },
+  flame: { name: 'arc', volume: 0.3 },
+  flak: { name: 'machinegun', volume: 0.4 },
 }
 /** Взрывы: меньше SMALL_BLAST — попадание пули, оно не звучит; от BIG_BLAST — гибель техники или здания. */
 const SMALL_BLAST = 0.3

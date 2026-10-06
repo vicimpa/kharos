@@ -34,7 +34,7 @@ export type UnitArt = (g: Pixmap, angle: number, team: TeamColors, phase: number
 /** Чем юнит ходит: от этого зависит анимация хода. */
 export type Gait = 'tracks' | 'wheels' | 'legs' | 'air'
 export const UNIT_GAITS: Record<UnitType, Gait> = {
-  mcv: 'tracks', harvester: 'tracks', builder: 'wheels', infantry: 'legs', truck: 'wheels', rocketeer: 'legs', buggy: 'wheels',
+  mcv: 'tracks', harvester: 'tracks', builder: 'wheels', infantry: 'legs', truck: 'wheels', rocketeer: 'legs', flamer: 'legs', buggy: 'wheels', flak: 'wheels',
   lancer: 'wheels', tank: 'tracks', artillery: 'wheels', tesla: 'tracks', carrier: 'wheels', drone: 'air', gunship: 'air', bomber: 'air',
 }
 /**
@@ -60,6 +60,8 @@ export const UNIT_TRACES: Partial<Record<UnitType, { sides: number[]; width: num
   harvester: { sides: [-6, 6], width: 4 },
   rocketeer: { sides: [-1.5, 1.5], width: 1.4 },
   buggy: { sides: [-4.5, 4.5], width: 3 },
+  flamer: { sides: [-1.5, 1.5], width: 1.4 },
+  flak: { sides: [-4.5, 4.5], width: 3 },
   lancer: { sides: [-4.5, 4.5], width: 3 },
   tank: { sides: [-7.5, 7.5], width: 4 },
   artillery: { sides: [-6, 6], width: 3 },
@@ -240,11 +242,48 @@ const rocketeer: UnitArt = (g, angle, team, phase) => {
   p.dot(0.5, 0.5, 1.2, STEEL[4])
 }
 
+/** Огнемётчик: баллоны за спиной, брандспойт в руках и горящий запальник на конце. */
+const flamer: UnitArt = (g, angle, team, phase) => {
+  const p = pen(g, angle)
+  legs(p, phase)
+  // Баллоны за спиной.
+  for (const across of [-1.6, 1.6]) {
+    p.dot(-2.2, across, 1.6, INK)
+    p.dot(-2.2, across, 1, HAZARD[1])
+  }
+  p.beam(0, -3.5, 3.5, 5, INK)
+  p.beam(0, -2.5, 2.5, 3, team[0])
+  // Брандспойт и запальник.
+  p.bar(-1, 6, 1.8, 2.4, INK)
+  p.bar(0, 5, 1.8, 1, IRON[3])
+  p.dot(6.2, 1.8, 1.1, 0xff8a2a)
+  p.dot(0.5, -0.3, 2, INK)
+  p.dot(0.5, -0.3, 1.2, STEEL[4])
+}
+
 /** Колёса лёгкой машины: по два с каждого борта. */
 function wheels(p: Pen, side: number, spread: number, phase: number) {
   for (const across of [-side, side]) {
     for (const wheel of [-spread, spread]) tire(p, wheel, across, 2, 3, phase)
   }
+}
+
+/** Зенитка: лёгкое колёсное шасси с поворотной платформой и спаренной автопушкой, задранной вверх. */
+const flak: UnitArt = (g, angle, team, phase) => {
+  const p = pen(g, angle)
+  wheels(p, 4.5, 4.5, phase)
+  p.bar(-7, 6, 0, 8, INK)
+  p.bar(-6, 5, 0, 6, STEEL[1])
+  p.bar(-6, 5, -2.5, 1, STEEL[3])
+  p.bar(-6, -4, 0, 6, team[0])
+  // Платформа и два ствола.
+  p.dot(-0.5, 0, 3.6, INK)
+  p.dot(-0.5, 0, 2.8, STEEL[2])
+  for (const across of [-1.4, 1.4]) {
+    p.bar(0, 9, across, 1.8, INK)
+    p.bar(1, 8.5, across, 0.8, IRON[4])
+  }
+  p.dot(-0.5, 0, 1.4, team[1])
 }
 
 /** Багги: узкая быстрая машина с дугой безопасности. Пассажира с миниганом рисует gunnerTurret поверх. */
@@ -465,6 +504,14 @@ export const UNIT_LIGHTS: Record<UnitType, UnitLights> = {
     lamps: [{ along: 4, across: 2.5, glow: 1.5 }],
     beam: { along: 7, length: 36, near: 1.5, spread: 0.22, level: 0.9 },
   },
+  flamer: {
+    lamps: [{ along: 6, across: 1.5, glow: 1.5 }],
+    beam: { along: 7, length: 30, near: 1.5, spread: 0.25, level: 0.8 },
+  },
+  flak: {
+    lamps: [{ along: 7, across: -2.5, glow: 2 }, { along: 7, across: 2.5, glow: 2 }],
+    beam: { along: 10, length: 56, near: 4, spread: 0.3, level: 1 },
+  },
   buggy: {
     lamps: [{ along: 7, across: -2, glow: 2 }, { along: 7, across: 2, glow: 2 }],
     beam: { along: 10, length: 60, near: 4, spread: 0.28, level: 1 },
@@ -503,7 +550,7 @@ export const UNIT_LIGHTS: Record<UnitType, UnitLights> = {
   },
 }
 
-export const UNIT_ART = { mcv, builder, infantry, truck, harvester, rocketeer, buggy, lancer, tank, artillery, tesla, carrier, drone, gunship, bomber } satisfies Record<UnitType, UnitArt>
+export const UNIT_ART = { mcv, builder, infantry, truck, harvester, rocketeer, flamer, buggy, flak, lancer, tank, artillery, tesla, carrier, drone, gunship, bomber } satisfies Record<UnitType, UnitArt>
 
 /** Сторона кадра турели в пикселях: два тайла, чтобы влез длинный ствол. */
 export const TURRET_FRAME = 32

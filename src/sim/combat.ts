@@ -45,7 +45,7 @@ const SPLASH_EDGE = 0.5
  * Что стена останавливает. Ракета летит поверх неё, разряд бьёт через неё: от электричества и ракет стена не укрывает.
  * Остальное — пули, ядро, лазер — в стену и попадает, а не в того, кто за ней.
  */
-const STOPS_AT_WALL: Record<ShotKind, boolean> = { bullet: true, shell: true, laser: true, rocket: false, arc: false }
+const STOPS_AT_WALL: Record<ShotKind, boolean> = { bullet: true, shell: true, laser: true, rocket: false, arc: false, flame: true }
 /** Учебный противник: игрок, за которого никто не играет. Его юнитов создаёт отладочная команда spawnUnit. */
 export const TRAINING_PLAYER = 9999
 
@@ -190,11 +190,12 @@ export function orderAttack(sim: Sim, player: number, units: Entity[], target: E
   const aim = (entity: Entity) => {
     const armed = world.get(entity, Armed)
     const weapon = weaponOf(sim, entity)
-    if (!armed || !weapon || (air && !WEAPONS[weapon].air)) return 0
+    const spec: WeaponSpec | undefined = weapon && WEAPONS[weapon]
+    if (!armed || !spec || (air ? !spec.air : spec.onlyAir)) return 0
     armed.target = target
     armed.chase = true
     armed.stuck = 0
-    return WEAPONS[weapon].range
+    return spec.range
   }
   let ordered = false
   for (const entity of new Set(units)) {
@@ -236,7 +237,7 @@ export function fight(sim: Sim) {
   const blasts: { x: number; y: number; size: number; ground: boolean }[] = []
 
   const canHit = (weapon: WeaponSpec, player: number, mark: Mark) =>
-    hostile(player, mark.player) && (weapon.air || !mark.air) && !dead.has(mark.entity)
+    hostile(player, mark.player) && (mark.air ? weapon.air : !weapon.onlyAir) && !dead.has(mark.entity)
 
   /** Наносит урон. source — кто стрелял: уцелевший свободный юнит отвечает ему огнём. */
   const hit = (mark: Mark, amount: number, weapon: WeaponSpec, source: Entity) => {
@@ -448,7 +449,7 @@ export function fight(sim: Sim) {
       if (mark) hit(mark, weapon.damage, weapon, carrier)
       continue
     }
-    // Лазер и разряд бьют сразу; разряд перескакивает дальше на ближайших врагов.
+    // Лазер, разряд и огонь бьют сразу; разряд и огонь перескакивают дальше на ближайших врагов.
     let damage = weapon.damage
     let from = { x: fromX, y: fromY }
     let next: Mark | undefined = target

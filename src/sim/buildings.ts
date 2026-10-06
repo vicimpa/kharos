@@ -150,7 +150,7 @@ export const BUILDINGS = {
   ammoPlant: plant('ammo'),
   partsPlant: plant('parts'),
   // Машинный завод: машинки и тяжёлая техника. Строится из стройблоков: военная промышленность требует цеха.
-  factory: { width: 3, height: 3, cost: 450, power: -5, materials: { blocks: 10 }, produces: ['buggy', 'lancer', 'tank', 'artillery', 'tesla', 'carrier', 'mcv'] },
+  factory: { width: 3, height: 3, cost: 450, power: -5, materials: { blocks: 10 }, produces: ['buggy', 'flak', 'lancer', 'tank', 'artillery', 'tesla', 'carrier', 'mcv'] },
   // Техцентр открывает второй тир: тяжёлую технику, артиллерию и бомбардировщик. Строится из стройблоков:
   // до него игрок должен наладить цех.
   techCenter: { width: 3, height: 3, cost: 1000, power: -6, materials: { blocks: 15 }, sight: 8 },
@@ -164,7 +164,7 @@ export const BUILDINGS = {
   matter: { width: 2, height: 2, cost: 250, power: -3, income: 1.5, crowding: true },
   radar: { width: 2, height: 2, cost: 400, sight: 18 },
   windtrap: { width: 2, height: 2, cost: 300 },
-  barracks: { width: 3, height: 2, cost: 250, power: -2, produces: ['infantry', 'rocketeer'] },
+  barracks: { width: 3, height: 2, cost: 250, power: -2, produces: ['infantry', 'rocketeer', 'flamer'] },
   // Шахта энергии не просит и начинает свою зону: тянуть к месторождению цепочку зданий не нужно.
   // Добытое копится в шахте, пока его не выкачают грузовики.
   mine: { width: 2, height: 2, cost: 300, zone: 7, extract: true, inventory: 60 },

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { BUILDINGS, Health, Producer, UNIT_TYPES, WEAPONS, canPlace, createSim, missingRequirements, unitSpec } from '../src/sim'
-import { TOWER_RANGE } from '../src/sim/combat'
+import { TOWER_RANGE, orderAttack } from '../src/sim/combat'
 import { spawnUnit } from '../src/sim/units'
 import { placeBuilding } from '../src/sim/buildings'
 import { addCredits } from '../src/sim/economy'
@@ -82,4 +82,25 @@ test('бомбардировщик сносит здание, а по летаю
   expect(sim.world.alive(target)).toBe(false)
   // Дрон бомбардировщика клюёт, а тот ему не отвечает.
   expect(sim.world.get(drone, Health)!.value).toBe(1)
+})
+
+test('зенитка сбивает летающих, а по земле не стреляет', () => {
+  const sim = createSim(options)
+  const flak = spawnUnit(sim, 'flak', 1, 0, 0)
+  const ground = spawnUnit(sim, 'infantry', 2, 5, 0)
+  const drone = spawnUnit(sim, 'drone', 2, 0, 6)
+  seconds(sim, 8)
+  expect(sim.world.alive(drone)).toBe(false)
+  expect(sim.world.get(ground, Health)!.value).toBe(1)
+  expect(orderAttack(sim, 1, [flak], ground)).toBe(false)
+})
+
+test('огнемётчик выжигает пехоту, и огонь перекидывается на соседа', () => {
+  const sim = createSim(options)
+  spawnUnit(sim, 'flamer', 1, 0, 0)
+  const first = spawnUnit(sim, 'infantry', 2, 2, 0)
+  const second = spawnUnit(sim, 'infantry', 2, 3, 1)
+  seconds(sim, 1)
+  expect(sim.world.get(first, Health)!.value).toBeLessThan(1)
+  expect(sim.world.get(second, Health)!.value).toBeLessThan(1)
 })

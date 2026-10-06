@@ -66,6 +66,8 @@ export const UNITS = {
   harvester: { speed: 3, turn: 3, radius: 0.55, cost: 400, buildTime: 10, kind: 'vehicle', hp: 300, sight: 6, inventory: 30, harvest: 0.75, beam: { radius: 2, rate: 10, give: true, take: true } },
   truck: { speed: 3.5, turn: 4, radius: 0.45, cost: 150, buildTime: 8, kind: 'vehicle', hp: 150, sight: 6, inventory: 25, beam: { radius: 2, rate: 10, give: true, take: true } },
   // Пехота.
+  // Огнемётчик: штурмовик ближнего боя — выжигает пехоту в окопах и здания, к броне ему не подойти.
+  flamer: { speed: 3.4, turn: 10, radius: 0.3, cost: 140, buildTime: 5, kind: 'infantry', hp: 90, weapon: 'flame' },
   rocketeer: { speed: 2.6, turn: 10, radius: 0.3, cost: 120, buildTime: 5, kind: 'infantry', hp: 40, weapon: 'launcher' },
   // Машинки: быстрые и хрупкие.
   // Багги: за водителем сидит пассажир с миниганом и стреляет во все стороны. Она же разведчик: видит дальше всех на земле.
@@ -73,6 +75,8 @@ export const UNITS = {
     speed: 6, turn: 5, radius: 0.45, cost: 250, buildTime: 7, kind: 'vehicle', hp: 150, materials: { metal: 6 }, sight: 11,
     mounts: [{ turret: 'gunner', along: -0.16, across: 0 }],
   },
+  // Зенитка: быстрая машина со спаренной автопушкой, бьёт только по воздуху — далеко и сильно.
+  flak: { speed: 5, turn: 4.5, radius: 0.5, cost: 350, buildTime: 8, kind: 'vehicle', hp: 170, weapon: 'flak', materials: { metal: 8 }, sight: 10 },
   // Лазеру нужен кремний.
   lancer: { speed: 4.5, turn: 4.5, radius: 0.45, cost: 350, buildTime: 9, kind: 'vehicle', hp: 180, weapon: 'laser', materials: { metal: 8, silicon: 4 } },
   // Тяжёлые: медленные, крепкие и дорогие.
