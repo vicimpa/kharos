@@ -22,7 +22,7 @@ const biomeFields = (prefix: 'salt' | 'red' | 'marsh'): Field<GeneratorConfig>[]
   { key: `${prefix}PeakFactor`, label: 'Гор, раз', min: 0, max: 4, step: 0.1 },
 ]
 
-const GENERATOR_GROUPS: Group<GeneratorConfig>[] = [
+export const GENERATOR_GROUPS: Group<GeneratorConfig>[] = [
   {
     title: 'Зоны',
     fields: [
@@ -108,7 +108,7 @@ interface GroupsProps<T> {
   onChange: (values: T) => void
 }
 
-function Groups<T extends object>({ groups, values, onChange }: GroupsProps<T>) {
+export function Groups<T extends object>({ groups, values, onChange }: GroupsProps<T>) {
   return groups.map((group) => (
     <fieldset key={group.title} class="panel__group">
       <legend>{group.title}</legend>

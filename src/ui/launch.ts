@@ -68,7 +68,7 @@ export function startSession(launch: Launch, settings: MapSettings): Promise<Ses
   const { slot } = launch
   return connectLocal(
     {
-      options: { ...options, generator: { ...options.generator, seed: slot.seed }, size: slot.size, weather: slot.weather },
+      options: { ...options, generator: { ...options.generator, ...slot.generator, seed: slot.seed }, size: slot.size, weather: slot.weather },
       mode: 'play',
       battle: settings.battle,
       save: loadSave(slot.id),

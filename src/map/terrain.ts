@@ -289,6 +289,15 @@ function sandDepth(elevation: number, levels: { swamp: number; rock: number }): 
   return Math.max(0, Math.min(1, margin / ((levels.rock - levels.swamp) / 2)))
 }
 
+/**
+ * Зона и биом тайла (x, y) без чанков и гор: дёшево для схемы всей карты, например для предпросмотра в меню.
+ * Совпадает с местностью мира везде, кроме самих гор — они слишком малы для схемы.
+ */
+export function sampleTerrain(config: GeneratorConfig, x: number, y: number): { terrain: Terrain; biome: Biome } {
+  const weights = biomeWeights(x, y, config)
+  return { terrain: classify(elevationAt(x, y, config), zoneLevels(weights, config)), biome: (packBiome(weights) >> 6) as Biome }
+}
+
 function generateChunk(config: GeneratorConfig, chunkX: number, chunkY: number): Uint8Array {
   const tiles = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE * TILE_BYTES)
 

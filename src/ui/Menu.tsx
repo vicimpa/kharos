@@ -3,8 +3,11 @@ import { useState } from 'preact/hooks'
 import { loadMuted, storeMuted } from '../audio/audio'
 import { createSlot, deleteSave, exportSave, importSave, listSaves, renameSave, type SaveSlot } from '../game/storage'
 import { DEFAULT_SETTINGS } from '../map/settings'
+import { DEFAULT_CONFIG, type GeneratorConfig } from '../map/terrain'
 import { DEFAULT_WEATHER } from '../sim'
+import { GENERATOR_GROUPS, Groups } from './GeneratorPanel'
 import { localServerUrl, type Launch } from './launch'
+import { MapPreview } from './MapPreview'
 
 /** Симуляция идёт 20 тиков в секунду. */
 const TICKS_PER_SECOND = 20
@@ -114,65 +117,224 @@ export function Menu({ panel, setPanel, play }: MenuProps) {
   )
 }
 
+/** Ползунок местности для человека: t от 0 до 1 переводится в параметр генератора и обратно. */
+interface Knob {
+  key: keyof GeneratorConfig
+  label: string
+  title: string
+  from: number
+  to: number
+}
+
+const KNOBS: Knob[] = [
+  // Чем ниже уровень скал, тем их больше: ползунок «больше» вправо.
+  {
+    key: 'rockLevel',
+    label: 'Скалы',
+    title: 'Сколько скал: на них строят, на них лежит руда',
+    from: 0.75,
+    to: 0.45,
+  },
+  {
+    key: 'swampLevel',
+    label: 'Болота',
+    title: 'Сколько болот: по ним не проехать',
+    from: 0.2,
+    to: 0.5,
+  },
+  {
+    key: 'zoneScale',
+    label: 'Размер зон',
+    title: 'Крупные плато и пустыни или мелкая мозаика',
+    from: 24,
+    to: 120,
+  },
+  {
+    key: 'zoneWarp',
+    label: 'Изрезанность',
+    title: 'Округлые пятна или рваные края',
+    from: 0,
+    to: 80,
+  },
+  {
+    key: 'biomeScale',
+    label: 'Размер биомов',
+    title: 'Как далеко тянутся солончаки, красные пустоши и топи',
+    from: 80,
+    to: 600,
+  },
+  {
+    key: 'peakChance',
+    label: 'Горы',
+    title: 'Сколько гор на скалах: сквозь них не проехать и не построить',
+    from: 0,
+    to: 1,
+  },
+]
+
+/** Готовые местности: отличия от генератора по умолчанию. */
+const PRESETS: { label: string; generator: Partial<GeneratorConfig> }[] = [
+  { label: 'Обычная', generator: {} },
+  {
+    label: 'Скалистая',
+    generator: { rockLevel: 0.5, swampLevel: 0.3, peakChance: 0.5 },
+  },
+  {
+    label: 'Пустыня',
+    generator: { rockLevel: 0.68, swampLevel: 0.25, zoneScale: 80 },
+  },
+  {
+    label: 'Болота',
+    generator: { rockLevel: 0.62, swampLevel: 0.46, zoneWarp: 50 },
+  },
+  {
+    label: 'Острова',
+    generator: { rockLevel: 0.6, swampLevel: 0.5, zoneScale: 40, zoneWarp: 10 },
+  },
+]
+
+const knobValue = (knob: Knob, config: GeneratorConfig) => Math.max(0, Math.min(1, ((config[knob.key] as number) - knob.from) / (knob.to - knob.from)))
+
+/** Отличия местности от генератора по умолчанию, без зерна: их и хранит слот. */
+function generatorChanges(config: GeneratorConfig) {
+  const changes: Partial<GeneratorConfig> = {}
+  for (const key of Object.keys(DEFAULT_CONFIG) as (keyof GeneratorConfig)[]) if (key !== 'seed' && config[key] !== DEFAULT_CONFIG[key]) changes[key] = config[key]
+  return changes
+}
+
 function NewGame({ back, play, count }: { back(): void; play(launch: Launch): void; count: number }) {
   const [name, setName] = useState(`Игра ${count + 1}`)
-  const [seed, setSeed] = useState(randomSeed)
   const [size, setSize] = useState(DEFAULT_SETTINGS.world.size)
   const [weather, setWeather] = useState(DEFAULT_WEATHER)
+  const [generator, setGenerator] = useState<GeneratorConfig>(() => ({
+    ...DEFAULT_CONFIG,
+    seed: randomSeed(),
+  }))
+  const setSeed = (seed: number) => setGenerator({ ...generator, seed })
+  const preset = PRESETS.find((preset) => {
+    const changes = generatorChanges(generator)
+    return Object.keys(changes).length === Object.keys(preset.generator).length && Object.entries(preset.generator).every(([key, value]) => changes[key as keyof GeneratorConfig] === value)
+  })
   return (
-    <Window title="Новая игра" back={back}>
+    <Window title="Новая игра" back={back} wide>
       <form
-        class="menu__form"
+        class="menu__setup"
         onSubmit={(event) => {
           event.preventDefault()
-          play({ kind: 'save', slot: createSlot(name.trim() || `Игра ${count + 1}`, size, seed, weather) })
+          const changes = generatorChanges(generator)
+          play({
+            kind: 'save',
+            slot: createSlot(name.trim() || `Игра ${count + 1}`, size, generator.seed, weather, Object.keys(changes).length ? changes : undefined),
+          })
         }}
       >
-        <label class="menu__field">
-          <span>Название</span>
-          <input value={name} maxLength={40} onInput={(event) => setName(event.currentTarget.value)} />
-        </label>
-        <label class="menu__field">
-          <span>Зерно карты</span>
-          <span class="menu__inline">
-            <input type="number" value={seed} onInput={(event) => setSeed(Math.floor(Number(event.currentTarget.value)) || 0)} />
-            <button type="button" title="Другая случайная местность" onClick={() => setSeed(randomSeed())}>
-              Случайно
-            </button>
-          </span>
-        </label>
-        <div class="menu__field">
-          <span>Размер карты</span>
-          <span class="menu__inline">
-            {MAP_SIZES.map((option) => (
-              <button type="button" key={option} class={option === size ? 'is-active' : undefined} onClick={() => setSize(option)}>
-                {option}
+        <div class="menu__form">
+          <label class="menu__field">
+            <span>Название</span>
+            <input value={name} maxLength={40} onInput={(event) => setName(event.currentTarget.value)} />
+          </label>
+          <label class="menu__field">
+            <span>Зерно карты</span>
+            <span class="menu__inline">
+              <input type="number" value={generator.seed} onInput={(event) => setSeed(Math.floor(Number(event.currentTarget.value)) || 0)} />
+              <button type="button" title="Другая случайная местность с теми же настройками" onClick={() => setSeed(randomSeed())}>
+                Случайно
               </button>
-            ))}
-          </span>
+            </span>
+          </label>
+          <div class="menu__field">
+            <span>Размер карты</span>
+            <span class="menu__inline">
+              {MAP_SIZES.map((option) => (
+                <button type="button" key={option} class={option === size ? 'is-active' : undefined} onClick={() => setSize(option)}>
+                  {option}
+                </button>
+              ))}
+            </span>
+          </div>
+          <div class="menu__field">
+            <span>Местность</span>
+            <span class="menu__inline">
+              {PRESETS.map((option) => (
+                <button
+                  type="button"
+                  key={option.label}
+                  class={option === preset ? 'is-active' : undefined}
+                  onClick={() =>
+                    setGenerator({
+                      ...DEFAULT_CONFIG,
+                      ...option.generator,
+                      seed: generator.seed,
+                    })
+                  }
+                >
+                  {option.label}
+                </button>
+              ))}
+            </span>
+          </div>
+          {KNOBS.map((knob) => (
+            <label key={knob.key} class="menu__field menu__field--slider" title={knob.title}>
+              <span>{knob.label}</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={knobValue(knob, generator)}
+                onInput={(event) => {
+                  const value = knob.from + Number(event.currentTarget.value) * (knob.to - knob.from)
+                  setGenerator({
+                    ...generator,
+                    [knob.key]: Math.round(value * 1000) / 1000,
+                  })
+                }}
+              />
+              <output>{Math.round(knobValue(knob, generator) * 100)}</output>
+            </label>
+          ))}
+          <details class="menu__more">
+            <summary>Тонкая настройка местности</summary>
+            <Groups groups={GENERATOR_GROUPS} values={generator} onChange={setGenerator} />
+          </details>
+          <div class="menu__field">
+            <span>Сутки длятся</span>
+            <span class="menu__inline">
+              {DAY_LENGTHS.map(({ seconds, label }) => (
+                <button type="button" key={seconds} class={seconds === weather.dayLength ? 'is-active' : undefined} onClick={() => setWeather({ ...weather, dayLength: seconds })}>
+                  {label}
+                </button>
+              ))}
+            </span>
+          </div>
+          <label class="menu__field menu__field--slider">
+            <span>Начальное время</span>
+            <input
+              type="range"
+              min={0}
+              max={23.5}
+              step={0.5}
+              value={weather.startHour}
+              onInput={(event) =>
+                setWeather({
+                  ...weather,
+                  startHour: Number(event.currentTarget.value),
+                })
+              }
+            />
+            <output>{clock(weather.startHour)}</output>
+          </label>
+          <label class="menu__check">
+            <input type="checkbox" checked={weather.changes} onChange={(event) => setWeather({ ...weather, changes: event.currentTarget.checked })} />
+            Погода меняется: ветер, дожди и бури
+          </label>
         </div>
-        <div class="menu__field">
-          <span>Сутки длятся</span>
-          <span class="menu__inline">
-            {DAY_LENGTHS.map(({ seconds, label }) => (
-              <button type="button" key={seconds} class={seconds === weather.dayLength ? 'is-active' : undefined} onClick={() => setWeather({ ...weather, dayLength: seconds })}>
-                {label}
-              </button>
-            ))}
-          </span>
+        <div class="menu__aside">
+          <MapPreview config={generator} size={size} />
+          <button type="submit" class="menu__primary">
+            Начать
+          </button>
         </div>
-        <label class="menu__field menu__field--slider">
-          <span>Начальное время</span>
-          <input type="range" min={0} max={23.5} step={0.5} value={weather.startHour} onInput={(event) => setWeather({ ...weather, startHour: Number(event.currentTarget.value) })} />
-          <output>{clock(weather.startHour)}</output>
-        </label>
-        <label class="menu__check">
-          <input type="checkbox" checked={weather.changes} onChange={(event) => setWeather({ ...weather, changes: event.currentTarget.checked })} />
-          Погода меняется: ветер, дожди и бури
-        </label>
-        <button type="submit" class="menu__primary">
-          Начать
-        </button>
       </form>
     </Window>
   )
