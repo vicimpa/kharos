@@ -15,6 +15,7 @@ export const UNIT_NAMES: Record<UnitType, string> = {
   tesla: 'Разрядник',
   drone: 'Дрон',
   gunship: 'Штурмовик',
+  bomber: 'Бомбардировщик',
   carrier: 'Носитель',
 }
 
@@ -43,6 +44,7 @@ export const BUILDING_NAMES: Record<BuildingType, string> = {
   ammoBunker: 'Бункер боеприпасов',
   partsLocker: 'Шкаф компонентов',
   spaceport: 'Космопорт',
+  airfield: 'Аэродром',
   wall: 'Стена',
   turret: 'Пулемётная турель',
   rocketTurret: 'Ракетная турель',

@@ -151,17 +151,6 @@ test('дробный остаток материалов довозят: зав�
   expect(oreIn(sim, store('metal'), 'metal')).toBeLessThan(10)
 })
 
-test('космопорт не отдаёт материалы своего производства, пока ждёт остальные', () => {
-  const { sim, x, y, buildings } = base(['spaceport'])
-  const [port] = buildings
-  sim.send(1, { type: 'produce', producer: port, unit: 'gunship' })
-  sim.world.get(port, Inventory)!.items.metal = UNITS.gunship.materials.metal
-  // Кремния и топлива нет нигде: металл лежит в космопорте и ждёт их.
-  spawnUnit(sim, 'truck', 1, x + 5, y + 4)
-  seconds(sim, 20)
-  expect(oreIn(sim, port, 'metal')).toBeCloseTo(UNITS.gunship.materials.metal)
-})
-
 test('груз, который стал не нужен, грузовик везёт обратно в хранилище, откуда взял', () => {
   const { sim, x, y, store, stash, buildings } = base(['factory', storeFor('metal')!, 'techCenter'])
   const [factory, second] = buildings

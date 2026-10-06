@@ -105,6 +105,12 @@ export const UNITS = {
   // Летающие: им нужно топливо.
   drone: { speed: 7.5, turn: 6, radius: 0.35, cost: 220, buildTime: 6, kind: 'air', hp: 70, weapon: 'machinegun', materials: { silicon: 3, fuel: 4 } },
   gunship: { speed: 5, turn: 3, radius: 0.55, cost: 500, buildTime: 12, kind: 'air', hp: 200, weapon: 'launcher', materials: { metal: 12, silicon: 4, fuel: 8 } },
+  // Бомбардировщик: сносит здания и колонны с воздуха, но сам по воздуху не бьёт и хрупок — его встречают ракеты,
+  // турели и зенитки. Второй тир.
+  bomber: {
+    speed: 5.5, turn: 2.5, radius: 0.7, cost: 700, buildTime: 14, kind: 'air', hp: 180, weapon: 'bomb', sight: 7,
+    materials: { metal: 10, fuel: 12 }, requires: ['techCenter'],
+  },
 } satisfies Record<string, UnitSpec>
 
 export type UnitType = keyof typeof UNITS

@@ -277,20 +277,21 @@ test('бой переживает сохранение', () => {
   expect(UNITS.tank.hp).toBeGreaterThan(WEAPONS.cannon.damage * 2)
 })
 
-test('пехоту выпускают казармы, технику — машинный завод, летающих — космопорт; всем им нужна энергия', () => {
+test('пехоту выпускают казармы, технику — машинный завод, летающих — аэродром, космопорт только торгует; всем им нужна энергия', () => {
   const sim = createSim(options)
   addCredits(sim, 1, 10000)
-  const layout = [['command', 0], ['barracks', 4], ['factory', 7], ['spaceport', 10], ['generator', 14], ['generator', 17]] as const
+  const layout = [['command', 0], ['barracks', 4], ['factory', 7], ['airfield', 10], ['generator', 15], ['generator', 18], ['spaceport', 21]] as const
   let spot: { x: number; y: number } | undefined
   for (let y = -80; y < 80 && !spot; y++) {
     for (let x = -80; x < 80 && !spot; x++) if (layout.every(([type, dx]) => canPlace(sim, type, x + dx, y))) spot = { x, y }
   }
-  const [, barracks, factory, port, plant, spare] = layout.map(([type, dx]) => placeBuilding(sim.world, type, spot!.x + dx, spot!.y, 1))
+  const [, barracks, factory, port, plant, spare, trader] = layout.map(([type, dx]) => placeBuilding(sim.world, type, spot!.x + dx, spot!.y, 1))
   expect(producibleBy(sim, barracks)).toEqual(['infantry', 'rocketeer'])
   expect(producibleBy(sim, factory)).toEqual(['buggy', 'lancer', 'tank', 'artillery', 'tesla', 'carrier', 'mcv'])
-  expect(producibleBy(sim, port)).toEqual(['drone', 'gunship'])
-  // Потребляют 2 + 5 + 5 из 20.
-  expect(zoneEconomies(sim, 1)[0]).toMatchObject({ produced: 20, demand: 12 })
+  expect(producibleBy(sim, port)).toEqual(['drone', 'gunship', 'bomber'])
+  expect(producibleBy(sim, trader)).toEqual([])
+  // Потребляют 2 + 5 + 4 + 5 из 20.
+  expect(zoneEconomies(sim, 1)[0]).toMatchObject({ produced: 20, demand: 16 })
   // Материалы на заказы уже на месте: подвоз проверяется в economy.test.ts.
   sim.world.get(factory, Inventory)!.items = { ...UNITS.buggy.materials }
   sim.world.get(port, Inventory)!.items = { ...UNITS.drone.materials }
@@ -309,13 +310,13 @@ test('пехоту выпускают казармы, технику — маш�
   for (const [, unit] of sim.world.query(Unit)) made.push(unit.type)
   expect(made.sort()).toEqual(['buggy', 'drone', 'rocketeer'])
 
-  // Энергии не хватает: 10 из 12 — производство идёт на 5/6 скорости, над зданием значок нехватки.
+  // Энергии не хватает: 10 из 16 — производство идёт на 5/8 скорости, над зданием значок нехватки.
   sim.world.destroy(spare)
   sim.send(1, { type: 'produce', producer: barracks, unit: 'infantry' })
   seconds(sim, UNITS.infantry.buildTime + 0.1)
   expect(powerStates(sim).get(barracks)).toBe('starved')
   expect(sim.world.get(barracks, Producer)!.queue).toEqual(['infantry'])
-  seconds(sim, UNITS.infantry.buildTime * 0.2 + 0.1)
+  seconds(sim, UNITS.infantry.buildTime * 0.6 + 0.1)
   expect(sim.world.get(barracks, Producer)!.queue).toEqual([])
 
   // Без энергии совсем производство стоит.
@@ -337,7 +338,7 @@ test('показательный бой: армии сходятся сами, �
   const sim = createSim(options)
   const army = randomArmy(3500, {}, () => 0.37)
   // Нулевой вес убирает тип из армии, а когда запрещены все — типы снова равноправны.
-  const tanks = randomArmy(3500, { infantry: 0, rocketeer: 0, buggy: 0, lancer: 0, artillery: 0, tesla: 0, carrier: 0, drone: 0, gunship: 0 })
+  const tanks = randomArmy(3500, { infantry: 0, rocketeer: 0, buggy: 0, lancer: 0, artillery: 0, tesla: 0, carrier: 0, drone: 0, gunship: 0, bomber: 0 })
   expect(tanks).toEqual(Array(5).fill('tank'))
   expect(randomArmy(3500, { infantry: 0, rocketeer: 0, buggy: 0, lancer: 0, tank: 0, tesla: 0, drone: 0, gunship: 0 }).length).toBeGreaterThan(0)
   expect(army.reduce((sum, type) => sum + UNITS[type].cost, 0)).toBeGreaterThan(3500 - 60)

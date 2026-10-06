@@ -71,3 +71,15 @@ test('в мёртвой зоне артиллерия молчит', () => {
   seconds(sim, 10)
   expect(sim.world.get(foe, Health)!.value).toBe(1)
 })
+
+test('бомбардировщик сносит здание, а по летающим не бьёт', () => {
+  const sim = createSim(options)
+  const target = placeBuilding(sim.world, 'generator', 0, 0, 2)
+  const bomber = spawnUnit(sim, 'bomber', 1, 8, 0)
+  const drone = spawnUnit(sim, 'drone', 2, 9, 3)
+  sim.send(1, { type: 'attack', units: [bomber], target })
+  seconds(sim, 60)
+  expect(sim.world.alive(target)).toBe(false)
+  // Дрон бомбардировщика клюёт, а тот ему не отвечает.
+  expect(sim.world.get(drone, Health)!.value).toBe(1)
+})

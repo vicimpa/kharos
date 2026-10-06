@@ -11,6 +11,7 @@ const SHOT_SOUNDS: Record<WeaponType, { name: SoundName; volume: number }> = {
   machinegun: { name: 'machinegun', volume: 0.25 },
   cannon: { name: 'cannon', volume: 0.8 },
   artillery: { name: 'cannon', volume: 1 },
+  bomb: { name: 'launcher', volume: 0.5 },
   launcher: { name: 'launcher', volume: 0.45 },
   laser: { name: 'laser', volume: 0.35 },
   arc: { name: 'arc', volume: 0.5 },

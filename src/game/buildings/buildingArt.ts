@@ -723,6 +723,54 @@ const techCenter: BuildingArt = {
   },
 }
 
+/**
+ * Аэродром, 4×3: взлётная полоса с разметкой и бегущими огнями вдоль неё, ангар с полукруглой крышей и открытыми
+ * воротами, где стоит самолёт, и диспетчерская вышка с вращающимся маяком.
+ */
+const airfield: BuildingArt = {
+  ...BUILDINGS.airfield,
+  draw(g, t, light) {
+    slab(g, 0, 2, 64, 46, 3, STEEL)
+
+    // Полоса вдоль нижнего края: асфальт, осевая разметка, огни по краям бегут к торцу.
+    g.rect(3, 30, 58, 13, INK)
+    g.rect(4, 31, 56, 11, 0x23262b)
+    for (let x = 7; x < 58; x += 7) g.rect(x, 36, 4, 1, 0xd8d2bf)
+    g.rect(5, 32, 1, 9, 0xd8d2bf)
+    g.rect(58, 32, 1, 9, 0xd8d2bf)
+    const LIGHTS = 8
+    for (let i = 0; i < LIGHTS; i++) {
+      const x = 7 + i * 7
+      bulb(g, light, x, 30, chase(t, i / LIGHTS))
+      bulb(g, light, x, 41, chase(t, i / LIGHTS))
+    }
+
+    // Ангар: полукруглая крыша с рёбрами и открытые ворота.
+    slab(g, 3, 1, 34, 28, 4, IRON)
+    for (let x = 6; x < 35; x += 4) {
+      g.rect(x, 3, 1, 18, IRON[0])
+      g.rect(x + 1, 3, 1, 18, IRON[2])
+    }
+    g.rect(9, 18, 22, 10, INK)
+    g.rect(10, 19, 20, 9, DARK)
+    // Самолёт в воротах носом наружу.
+    g.rect(19, 20, 2, 8, STEEL[3])
+    g.rect(13, 23, 14, 2, STEEL[2])
+    g.rect(17, 20, 6, 1, STEEL[2])
+    g.rect(19, 27, 2, 1, TEAM[2])
+
+    // Вышка: тонкая башня, остеклённая кабина и маяк на крыше.
+    tower(g, 52, 22, 3, 12, STEEL)
+    g.rect(46, 4, 13, 7, INK)
+    g.rect(47, 5, 11, 5, TEAM[1])
+    g.rect(47, 5, 11, 1, TEAM[2])
+    const sweep = Math.cos(TURN * t)
+    g.rect(52 + Math.round(sweep * 3), 2, 2, 2, TEAM[3])
+    lamp(g, light, 52, 1, 1, pulse(t * 2))
+    lamp(g, light, 42, 24, 2, pulse(t, 0.5))
+  },
+}
+
 /** Радар: мачта с вращающейся тарелкой и аппаратная будка. */
 const radar: BuildingArt = {
   ...BUILDINGS.radar,
@@ -1144,6 +1192,7 @@ const cannonTurret: BuildingArt = {
 
 export const BUILDING_ART = {
   techCenter,
+  airfield,
   command,
   smelter,
   siliconWorks,

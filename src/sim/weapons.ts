@@ -56,6 +56,9 @@ export const WEAPONS = {
   // Гаубица: навесом через стены и дальше турелей, тяжёлым снарядом по площади, вдвое сильнее по зданиям.
   // Вблизи — мёртвая зона: до подошедшего врага ей не достать. Осадное оружие.
   artillery: { shot: 'shell', range: 11, minRange: 3, damage: 70, reload: 4, speed: 8, splash: 1.8, lob: true, air: false, vs: { building: 2, infantry: 0.6, vehicle: 0.4, heavy: 0.5 } },
+  // Бомбы: бомбардировщик проходит над целью и сбрасывает тяжёлый груз — по земле и зданиям, через стены, но не
+  // по воздуху. Бьёт почти в упор: над целью надо пролететь, а там его ждёт ПВО.
+  bomb: { shot: 'shell', range: 1.5, damage: 110, reload: 3, speed: 6, splash: 1.6, lob: true, air: false, vs: { building: 1.6, infantry: 0.7, vehicle: 0.8 } },
   // Разряд бьёт цель и перескакивает на соседей: против толпы.
   arc: { shot: 'arc', range: 4.5, damage: 46, reload: 2, chain: 2, air: false, vs: { infantry: 1.5, building: 0.4 } },
 } satisfies Record<string, WeaponSpec>

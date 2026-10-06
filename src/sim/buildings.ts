@@ -154,6 +154,8 @@ export const BUILDINGS = {
   // Техцентр открывает второй тир: тяжёлую технику, артиллерию и бомбардировщик. Строится из стройблоков:
   // до него игрок должен наладить цех.
   techCenter: { width: 3, height: 3, cost: 1000, power: -6, materials: { blocks: 15 }, sight: 8 },
+  // Аэродром выпускает летающих: им нужно топливо, бомбардировщику ещё и техцентр.
+  airfield: { width: 4, height: 3, cost: 500, power: -4, materials: { metal: 15, blocks: 5 }, produces: ['drone', 'gunship', 'bomber'] },
   // Электростанция.
   generator: { width: 2, height: 2, cost: 300, power: 10 },
   // Генератор материи — базовый доход: превращает энергию в кредиты. Первая электростанция окупает его быстро,
@@ -175,10 +177,10 @@ export const BUILDINGS = {
   blockYard: store(['blocks'], 2, 2, 150, 200),
   ammoBunker: store(['ammo'], 2, 1, 200, 300),
   partsLocker: store(['parts'], 1, 1, 200, 60),
-  // Космопорт ещё и выпускает летающих. Энергию просит всегда, но от её нехватки замедляется только производство.
+  // Космопорт торгует: энергию просит всегда.
   // Товар на продажу грузовики сгружают в трюм корабля. Строится из металла, а не из стройблоков: с него
   // начинаются деньги, и первой продаже хватает одной линии металла — без цеха и кремния.
-  spaceport: { width: 3, height: 3, cost: 450, power: -5, materials: { metal: 20 }, trades: true, inventory: 400, accepts: WARES, produces: ['drone', 'gunship'] },
+  spaceport: { width: 3, height: 3, cost: 450, power: -5, materials: { metal: 20 }, trades: true, inventory: 400, accepts: WARES },
   // Дешёвая стена не расширяет зону: иначе цепочкой стен можно было бы бесплатно протянуть контроль через карту.
   wall: { width: 1, height: 1, cost: 30, hp: 400, defense: true, expand: 0 },
   // Оборонительные турели используют то же оружие, что техника, и стреляют боеприпасами со своего склада.
@@ -197,7 +199,7 @@ export const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[]
 /** Что возводят строители. Остальные здания появятся вместе с тем, для чего они нужны. */
 export const BUILDABLE: BuildingType[] = [
   'generator', 'matter', 'mine', 'smelter', 'siliconWorks', 'distillery', 'enricher', 'blockPlant', 'ammoPlant', 'partsPlant',
-  'metalYard', 'siliconStore', 'fuelTank', 'khariteVault', 'blockYard', 'ammoBunker', 'partsLocker', 'spaceport', 'barracks', 'factory', 'techCenter',
+  'metalYard', 'siliconStore', 'fuelTank', 'khariteVault', 'blockYard', 'ammoBunker', 'partsLocker', 'spaceport', 'barracks', 'factory', 'airfield', 'techCenter',
   'wall', 'turret', 'rocketTurret', 'cannonTurret',
 ]
 
