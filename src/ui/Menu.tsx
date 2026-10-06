@@ -6,7 +6,7 @@ import { DEFAULT_SETTINGS } from '../map/settings'
 import { DEFAULT_CONFIG, type GeneratorConfig } from '../map/terrain'
 import { DEFAULT_WEATHER } from '../sim'
 import { GENERATOR_GROUPS, Groups } from './GeneratorFields'
-import { NAME_LENGTH, cleanName } from '../net/protocol'
+import { NAME_LENGTH, PROTOCOL_VERSION, cleanName } from '../net/protocol'
 import { forgetServer, lastLaunch, localServerUrl, recentServers, type Launch } from './launch'
 import { MapPreview } from './MapPreview'
 
@@ -24,7 +24,12 @@ const DAY_LENGTHS = [
 const clock = (hour: number) => `${String(Math.floor(hour)).padStart(2, '0')}:${String(Math.floor((hour % 1) * 60)).padStart(2, '0')}`
 const SERVER_KEY = 'kharos.server'
 
-type Screen = 'main' | 'new' | 'saves' | 'network' | 'settings'
+type Screen = 'main' | 'new' | 'saves' | 'network' | 'settings' | 'about'
+
+/** Страница проекта. */
+const REPOSITORY = 'https://github.com/vicimpa/kharos'
+/** Кто делает игру: имя и ссылка на профиль. */
+const AUTHORS = [{ name: 'vicimpa', url: 'https://github.com/vicimpa' }]
 
 interface MenuProps {
   play(launch: Launch): void
@@ -108,13 +113,18 @@ export function Menu({ play }: MenuProps) {
             </button>
             <button onClick={() => setScreen('network')}>Сетевая игра</button>
             <button onClick={() => setScreen('settings')}>Настройки</button>
+            <button onClick={() => setScreen('about')}>Об игре</button>
           </nav>
+          <a class="menu__link" href={REPOSITORY} target="_blank" rel="noopener noreferrer">
+            GitHub
+          </a>
         </Window>
       )}
       {screen === 'new' && <NewGame back={home} play={play} count={saves.length} />}
       {screen === 'saves' && <Saves back={home} saves={saves} refresh={refresh} play={play} />}
       {screen === 'network' && <Network back={home} play={play} />}
       {screen === 'settings' && <Settings back={home} />}
+      {screen === 'about' && <About back={home} />}
     </div>
   )
 }
@@ -552,6 +562,35 @@ function Settings({ back }: SettingsProps) {
           />
           <output>{Math.round(volume * 100)}%</output>
         </label>
+      </div>
+    </Window>
+  )
+}
+
+/** Об игре: что это, кто делает, где код. */
+function About({ back }: { back(): void }) {
+  return (
+    <Window title="Об игре" back={back}>
+      <div class="menu__form">
+        <p class="menu__about">
+          Многопользовательская браузерная RTS: машина-основатель, процедурная карта, добыча и переработка руды, грузовая
+          логистика и оборона базы.
+        </p>
+        <h3 class="menu__group">Авторы</h3>
+        <ul class="menu__authors">
+          {AUTHORS.map((author) => (
+            <li key={author.name}>
+              <a class="menu__link" href={author.url} target="_blank" rel="noopener noreferrer">
+                {author.name}
+              </a>
+            </li>
+          ))}
+        </ul>
+        <h3 class="menu__group">Исходный код</h3>
+        <a class="menu__link" href={REPOSITORY} target="_blank" rel="noopener noreferrer">
+          github.com/vicimpa/kharos
+        </a>
+        <p class="menu__note">Версия протокола {PROTOCOL_VERSION}</p>
       </div>
     </Window>
   )

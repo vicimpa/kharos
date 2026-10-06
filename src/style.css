@@ -1011,6 +1011,35 @@ body {
   color: #6184a3;
 }
 
+.menu__link {
+  display: block;
+  margin-top: 10px;
+  color: #7fb8e6;
+  text-align: center;
+  text-decoration: none;
+}
+
+.menu__link:hover {
+  color: #b5dcff;
+  text-decoration: underline;
+}
+
+.menu__form .menu__link {
+  margin-top: 0;
+  text-align: left;
+}
+
+.menu__about {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.menu__authors {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 .menu__error {
   margin: 8px 0;
   color: #ff6b5a;
