@@ -362,13 +362,12 @@ export function createDecalsPass(gl: WebGL2RenderingContext, scene: Scene): Pass
       }
     }
     age = 0
-    // Точки, чей след уже растворился, больше ни с чем не соединятся.
+    // Точки, чей след растворился или ушёл из обзора, больше ни с чем не соединятся.
     const oldest = sim.time.tick - TRACE_LIFE.track / sim.time.step
     for (const [entity, path] of paths) {
-      let drop = 0
-      while (drop < path.length && path[drop].tick < oldest) drop++
-      if (drop === path.length) paths.delete(entity)
-      else if (drop) path.splice(0, drop)
+      const kept = path.filter((point) => point.tick >= oldest && sim.vision.sees(scene.player, point.x, point.y))
+      if (!kept.length) paths.delete(entity)
+      else if (kept.length !== path.length) paths.set(entity, kept)
     }
   }
 
@@ -392,10 +391,10 @@ export function createDecalsPass(gl: WebGL2RenderingContext, scene: Scene): Pass
         for (const decal of list) {
           decal.age += delta
           if (decal.age >= decal.life) continue
+          // След есть только в обзоре: ушли свои — клиент его забывает, а хост пришлёт заново, когда вернутся.
+          if (!vision.sees(scene.player, decal.toX, decal.toY)) continue
           list[kept++] = decal
           if (Math.abs(decal.toX - camera.x) > halfWidth || Math.abs(decal.toY - camera.y) > halfHeight) continue
-          // След виден только в обзоре: ушли свои — в тумане его не разглядеть, даже на разведанном.
-          if (!vision.sees(scene.player, decal.toX, decal.toY)) continue
           const share = Math.max(0, (decal.age / decal.life - FADE_FROM) / (1 - FADE_FROM))
           const left = 1 - share * share * (3 - 2 * share)
           const { u, v, width: frameWidth, height: frameHeight } = decal.frame

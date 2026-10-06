@@ -111,14 +111,14 @@ export function createTraces(world: World, tick: () => number, step: number): Tr
 const angleBetween = (a: number, b: number) => Math.atan2(Math.sin(a - b), Math.cos(a - b))
 
 /**
- * Следы в клиенте: их не оставляют, а получают от хоста — те, что игрок увидел. Отметка since — порядковый номер
+ * Следы в клиенте: их не оставляют, а получают от хоста — те, что игрок видит сейчас; ушедшие из обзора
+ * (sees — видно ли место) выбрасываются. Отметка since — порядковый номер
  * прихода, а не номер следа: след, найденный поздно, приходит поздно.
  */
-export function createReceivedTraces(tick: () => number, step: number): Traces & { receive(traces: Trace[]): void } {
+export function createReceivedTraces(tick: () => number, step: number, sees: (x: number, y: number) => boolean): Traces & { receive(traces: Trace[]): void } {
   let list: { trace: Trace; seq: number }[] = []
   let seq = 0
   let fresh: Trace[] = []
-  let pruned = 0
   return {
     add() {
       // Следы оставляет хост.
@@ -132,9 +132,8 @@ export function createReceivedTraces(tick: () => number, step: number): Traces &
     },
     update() {
       const now = tick()
-      if ((now - pruned) * step < EXPIRE_EVERY) return
-      pruned = now
-      list = list.filter(({ trace }) => (now - trace.tick) * step < TRACE_LIFE[trace.kind])
+      // Ушедшее из обзора клиент не хранит: о следах он знает только там, где видит сейчас.
+      list = list.filter(({ trace }) => sees(trace.x, trace.y) && (now - trace.tick) * step < TRACE_LIFE[trace.kind])
     },
     since(cursor) {
       let from = list.length

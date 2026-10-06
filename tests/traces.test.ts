@@ -59,7 +59,7 @@ test('погибшая техника оставляет остов и гарь'
   expect(kinds.has('scar') || kinds.has('burn')).toBe(true)
 })
 
-test('игрок, пришедший на место позже, получает следы прошедшего тут врага, а не видевший их — нет', () => {
+test('следы приходят только в обзор: пришедший позже видит колею врага, ушедший её забывает, вернувшийся получает снова', () => {
   const host = createHost(createSim(options))
   const first = join(host)
   join(host)
@@ -89,6 +89,13 @@ test('игрок, пришедший на место позже, получае�
   expect(seen.length).toBeGreaterThan(3)
   // Пришли они старыми: по их времени видно, давно ли тут прошли.
   expect(Math.max(...seen.map((trace) => trace.tick))).toBeLessThan(first.time.tick - 0.5 / STEP)
-  // Каждый след приходит один раз.
   expect(new Set(seen.map((trace) => trace.id)).size).toBe(seen.length)
+
+  // Ушли — клиент о следах больше не знает; вернулись — хост присылает их снова.
+  for (const position of home) Object.assign(position, { x: far.x - 60, y: far.y })
+  for (let i = 0; i < 1 / STEP; i++) tick()
+  expect(enemyTracks(first.traces.all())).toEqual([])
+  for (const position of home) Object.assign(position, { x: far.x + 3, y: far.y })
+  for (let i = 0; i < 1 / STEP; i++) tick()
+  expect(enemyTracks(first.traces.all()).length).toBe(seen.length)
 })

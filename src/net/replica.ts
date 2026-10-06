@@ -57,7 +57,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     replica.rules = { ...DEFAULT_RULES, ...options.rules }
     // Разведанное в новом мире ничего не значит.
     replica.vision = createVision(world, replica.bounds, () => time.tick)
-    replica.traces = createReceivedTraces(() => time.tick, step)
+    replica.traces = createReceivedTraces(() => time.tick, step, (x, y) => replica.vision.sees(player, x, y))
     world.clear()
     world.flush()
     Object.assign(time, { tick: 0, step, elapsed: 0, delta: 0, alpha: 0 })

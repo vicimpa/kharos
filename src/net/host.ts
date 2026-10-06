@@ -1,11 +1,12 @@
 import { shownTo, spawnStartingUnits, type Command, type Sim } from '../sim'
 import { SAVED } from '../sim/components'
+import type { Trace } from '../sim/traces'
 import type { ServerMessage } from './protocol'
 
 /** На каком расстоянии от начала мира появляются игроки, в тайлах. */
 const SPAWN_RADIUS = 24
 /** Раз во сколько тиков хост ищет для игроков старые следы, а не только новые. */
-const SWEEP_TICKS = 10
+const SWEEP_TICKS = 5
 /** Сколько игроков помещается на круге появления; следующие встают на круг шире. */
 const SPAWN_SLOTS = 8
 
@@ -55,10 +56,17 @@ export function createHost(first: Sim, player?: number): Host {
    */
   const traces = (send: (text: string) => void, player: number, sweep: boolean) => {
     const known = shown.get(send)!
-    const found = (sweep ? sim.traces.all() : sim.traces.fresh()).filter(
-      (trace) => !known.has(trace.id) && sim.vision.sees(player, trace.x, trace.y),
-    )
-    for (const trace of found) known.add(trace.id)
+    const found: Trace[] = []
+    for (const trace of sweep ? sim.traces.all() : sim.traces.fresh()) {
+      const seen = sim.vision.sees(player, trace.x, trace.y)
+      if (seen && !known.has(trace.id)) {
+        found.push(trace)
+        known.add(trace.id)
+      } else if (!seen && known.has(trace.id)) {
+        // Ушёл из обзора — клиент его выбросил, а вернётся в обзор — получит снова.
+        known.delete(trace.id)
+      }
+    }
     return found
   }
   const players = new Map<string, number>()
