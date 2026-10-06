@@ -2,7 +2,7 @@ import preact from '@preact/preset-vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  // На GitHub Pages клиент живёт не в корне домена, а в /<репозиторий>/.
-  base: process.env.BASE ?? '/',
+  // Относительные пути: клиент открывается и из корня домена, и из /kharos/ на GitHub Pages.
+  base: './',
   plugins: [preact()],
 })
