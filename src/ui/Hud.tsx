@@ -101,19 +101,25 @@ function Tip() {
 /** Сколько секунд сообщение о награде висит на экране. */
 const TOAST_SECONDS = 5
 
-/** Награды, полученные только что: каждая показывается TOAST_SECONDS. Те, что были до открытия страницы, не показываются. */
-function useNewRewards(rewards: string[]) {
+/**
+ * Награды, полученные только что: каждая показывается TOAST_SECONDS. Те, что были до входа в игру, не показываются:
+ * пока мир не пришёл от хоста (loaded), всё, что в нём есть, считается уже виденным.
+ */
+function useNewRewards(rewards: string[], loaded: boolean) {
   const seen = useRef(rewards.length)
+  /** Был ли мир уже загружен при прошлой проверке: в обновлении, где он пришёл, все его награды — старые. */
+  const ready = useRef(false)
   const [fresh, setFresh] = useState<string[]>([])
   useEffect(() => {
-    const added = rewards.slice(seen.current)
+    const added = ready.current ? rewards.slice(seen.current) : []
+    ready.current = loaded
     // Список стал короче — мир начался заново: считаем с нуля.
     seen.current = rewards.length
     if (!added.length) return
     setFresh((list) => [...list, ...added])
     // Таймер не отменяется при следующей награде: иначе прежнее сообщение осталось бы висеть.
     setTimeout(() => setFresh((list) => list.filter((key) => !added.includes(key))), TOAST_SECONDS * 1000)
-  }, [rewards.length])
+  }, [rewards.length, loaded])
   return fresh
 }
 
@@ -429,7 +435,7 @@ function Info({ state, lookAtSelection, narrow }: { state: HudState; lookAtSelec
 /** Интерфейс игрока: верхняя полоса со счётом и нижняя панель — мини-карта, выбранное, сетка команд. */
 export function Hud({ state, send, place, minimap, lookAt, lookAtSelection, narrow, moveSelected, menu }: HudProps) {
   const selected = state.units.length > 0 || state.building !== null
-  const fresh = useNewRewards(state.rewards)
+  const fresh = useNewRewards(state.rewards, state.loaded)
 
   // Страница сетки строителя сбрасывается, когда выбрано другое.
   const [page, setPage] = useState<Page>('root')
