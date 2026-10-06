@@ -75,6 +75,8 @@ const listen = (certificate?: Certificate) => Bun.serve<SocketData>({
     return new Response('Kharos: сюда подключаются по WebSocket\n', { status: 426 })
   },
   websocket: {
+    // Снимки мира — JSON, который почти не меняется от тика к тику: deflate ужимает его в разы.
+    perMessageDeflate: true,
     open(socket) {
       // Клиент другой версии собрал бы мир не так, как сервер: его не пускают, но говорят почему.
       if (socket.data.version !== PROTOCOL_VERSION) {
