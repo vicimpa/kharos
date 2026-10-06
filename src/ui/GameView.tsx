@@ -3,7 +3,6 @@ import { createGame, type Game } from '../game/game'
 import type { HudState } from '../game/hud'
 import type { MapSettings } from '../map/settings'
 import { DebugSpawn } from './DebugSpawn'
-import { GeneratorPanel } from './GeneratorPanel'
 import { Hud } from './Hud'
 import { startSession, type Launch } from './launch'
 
@@ -13,15 +12,12 @@ const HUD_INTERVAL = 100
 interface GameViewProps {
   launch: Launch
   settings: MapSettings
-  setSettings(settings: MapSettings): void
-  /** Показывать ли отладочную панель генератора. */
-  panel: boolean
   /** Выйти в главное меню. */
   exit(): void
 }
 
 /** Экран игры: холст, на котором живёт сама игра, и интерфейс поверх него. */
-export function GameView({ launch, settings, setSettings, panel, exit }: GameViewProps) {
+export function GameView({ launch, settings, exit }: GameViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const gameRef = useRef<Game | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -29,7 +25,7 @@ export function GameView({ launch, settings, setSettings, panel, exit }: GameVie
   const [muted, setMuted] = useState(false)
   const [debug, setDebug] = useState(false)
 
-  // Игра создаётся один раз; дальше она получает только новые настройки.
+  // Игра создаётся один раз.
   useEffect(() => {
     let closed = false
     const start = async () => {
@@ -61,10 +57,6 @@ export function GameView({ launch, settings, setSettings, panel, exit }: GameVie
     }, HUD_INTERVAL)
     return () => clearInterval(timer)
   }, [])
-
-  useEffect(() => {
-    gameRef.current?.setSettings(settings)
-  }, [settings])
 
   return (
     <main class="game">
@@ -113,7 +105,6 @@ export function GameView({ launch, settings, setSettings, panel, exit }: GameVie
         />
       )}
       {hud && error === null && debug && <DebugSpawn spawning={hud.spawning} spawn={(spawn) => gameRef.current?.spawn(spawn)} />}
-      {panel && <GeneratorPanel settings={settings} onChange={setSettings} onRestart={() => gameRef.current?.restart()} />}
       {error !== null && (
         <div class="game__error" role="alert">
           <strong>Игра остановилась</strong>

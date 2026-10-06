@@ -57,7 +57,6 @@ export interface GameOptions {
 export interface Game {
   readonly scene: Scene
   /** Применяет настройки панели. Смена параметров генератора или мира начинает мир заново. */
-  setSettings(settings: MapSettings): void
   /** Начинает мир заново с теми же настройками. */
   restart(): void
   /** Состояние интерфейса игрока на этот момент. */
@@ -274,13 +273,6 @@ export function createGame(
 
   return {
     scene,
-    setSettings(next) {
-      const changed = next.generator !== scene.settings.generator || next.world !== scene.settings.world
-      scene.settings = next
-      // Правила сервера задаёт сервер.
-      session.local?.rules(next.rules)
-      if (changed) restart()
-    },
     restart,
     hud: () => readHud(scene),
     send: (command) => scene.sim.send(scene.player, command),

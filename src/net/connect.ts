@@ -1,5 +1,5 @@
 import type { BattleConfig } from '../map/settings'
-import type { Rules, SimOptions, SimSave } from '../sim'
+import type { SimOptions, SimSave } from '../sim'
 import type { LocalControl, LocalNotice, LocalSetup } from './local'
 import { PROTOCOL_VERSION, type ServerMessage } from './protocol'
 import { createReplica, type Replica } from './replica'
@@ -13,7 +13,6 @@ export interface Session {
   player: number
   local?: {
     restart(options: SimOptions, battle: BattleConfig): void
-    rules(rules: Rules): void
   }
 }
 
@@ -114,7 +113,6 @@ export function connectLocal(setup: LocalSetup, onSave: (save: SimSave) => void,
         player: message.player,
         local: {
           restart: (options, battle) => control({ type: 'restart', options, battle }),
-          rules: (rules) => control({ type: 'rules', rules }),
         },
       })
     }

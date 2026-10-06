@@ -5,7 +5,7 @@ import { createSlot, deleteSave, exportSave, importSave, listSaves, renameSave, 
 import { DEFAULT_SETTINGS } from '../map/settings'
 import { DEFAULT_CONFIG, type GeneratorConfig } from '../map/terrain'
 import { DEFAULT_WEATHER } from '../sim'
-import { GENERATOR_GROUPS, Groups } from './GeneratorPanel'
+import { GENERATOR_GROUPS, Groups } from './GeneratorFields'
 import { NAME_LENGTH, cleanName } from '../net/protocol'
 import { forgetServer, lastLaunch, localServerUrl, recentServers, type Launch } from './launch'
 import { MapPreview } from './MapPreview'

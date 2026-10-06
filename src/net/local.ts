@@ -1,5 +1,5 @@
 import type { BattleConfig } from '../map/settings'
-import { createSim, driveBattle, randomArmy, spawnBattle, spawnSandbox, spawnStartingUnits, type Rules, type Sim, type SimOptions, type SimSave } from '../sim'
+import { createSim, driveBattle, randomArmy, spawnBattle, spawnSandbox, spawnStartingUnits, type Sim, type SimOptions, type SimSave } from '../sim'
 import { createHost, type Host, type Peer } from './host'
 
 /**
@@ -29,13 +29,12 @@ export interface LocalSetup {
 /**
  * Что вкладка шлёт воркеру локальной игры, кроме текста протокола (его — как серверу, строкой).
  * start — подключиться: первая вкладка заводит мир, остальные получают уже идущий; restart — начать мир заново;
- * rules — поменять правила на ходу; leave — вкладку закрывают или она уходит в меню: обычной игре воркер
+ * leave — вкладку закрывают или она уходит в меню: обычной игре воркер
  * тогда шлёт последнее сохранение.
  */
 export type LocalControl =
   | ({ type: 'start' } & LocalSetup)
   | { type: 'restart'; options: SimOptions; battle: BattleConfig }
-  | { type: 'rules'; rules: Rules }
   | { type: 'leave' }
 
 /** Что воркер шлёт вкладке, кроме текста протокола: сохранение, чтобы она положила его в свой браузер. */
@@ -110,8 +109,6 @@ export function createLocalServer(): LocalServer {
         } else if (control.type === 'restart' && setup) {
           setup = { ...setup, options: control.options, battle: control.battle }
           restart()
-        } else if (control.type === 'rules' && host) {
-          Object.assign(host.sim.rules, control.rules)
         } else if (control.type === 'leave') {
           // Уходящая вкладка уносит мир как есть: в меню список сохранений покажет его свежим.
           if (peer && host && setup?.mode === 'play') port.postMessage({ type: 'saved', save: host.sim.save() } satisfies LocalNotice)

@@ -19,7 +19,6 @@
  * внутрь, а граница — 4: содержимое заходит на фаску, но не на обводку.
  */
 .hud,
-.panel,
 .menu__window {
   border: 4px solid transparent;
   border-image: var(--skin-panel) 4 fill / 8px;
@@ -28,7 +27,6 @@
 }
 
 .hud button,
-.panel button,
 .menu button,
 .game__error button {
   border: 4px solid transparent;
@@ -42,7 +40,6 @@
 }
 
 .hud button:hover:not(:disabled),
-.panel button:hover,
 .menu button:hover:not(:disabled),
 .game__error button:hover {
   border-image-source: var(--skin-button-hover);
@@ -125,40 +122,6 @@ body {
   position: relative;
 }
 
-.panel {
-  position: absolute;
-  top: 44px;
-  right: 12px;
-  z-index: 1;
-  width: 320px;
-  max-height: calc(100% - 268px);
-  overflow-y: auto;
-  padding: 10px;
-  color: #d6e6f5;
-  font-size: 12px;
-}
-
-.panel--collapsed {
-  width: auto;
-  cursor: pointer;
-}
-
-.panel button {
-  padding: 2px 8px;
-}
-
-.panel.panel--collapsed {
-  padding: 6px 10px;
-}
-
-.panel__header,
-.panel__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
 .panel__group {
   margin: 10px 0;
   padding: 4px 6px;
@@ -177,22 +140,9 @@ body {
   accent-color: #5aa9ff;
 }
 
-.panel__row input[type='number'] {
-  padding: 3px 6px;
-  border: 2px solid #1c2b3e;
-  border-radius: 0;
-  background: #070d15;
-  color: inherit;
-  font: inherit;
-}
-
 .panel__row output {
   text-align: right;
   font-variant-numeric: tabular-nums;
-}
-
-.panel__row:has(input[type='number']) {
-  grid-template-columns: 96px 1fr auto;
 }
 
 .game__error {
