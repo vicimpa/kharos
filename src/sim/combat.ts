@@ -1,4 +1,5 @@
 import type { Entity } from '../ecs'
+import { Biome, Terrain, biomeAt, terrainAt } from '../map/terrain'
 import { BUILDINGS, buildingSpec, isWall, type BuildingType } from './buildings'
 import { NONE, isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './common'
 import { Armed, Blast, Building, Converting, Health, Inventory, Owner, Path, Position, Shot, Site, Turret, Unit } from './components'
@@ -142,10 +143,10 @@ function wallOnPath(sim: Sim, player: number, x0: number, y0: number, x1: number
   return undefined
 }
 
-/** Раз в тик: те, чья прочность восстанавливается сама (Health.regen), понемногу поправляются. */
+/** Раз в тик: те, чья прочность восстанавливается сама (Health.regen), понемногу поправляются — кроме задетых в этот тик. */
 export function recover(sim: Sim) {
   for (const [, health] of sim.world.query(Health)) {
-    if (health.regen > 0 && health.value < health.max) health.value = Math.min(health.max, health.value + health.regen * sim.time.step)
+    if (health.regen > 0 && health.hit !== sim.time.tick && health.value < health.max) health.value = Math.min(health.max, health.value + health.regen * sim.time.step)
   }
 }
 
@@ -468,6 +469,21 @@ export function fight(sim: Sim) {
         nearest = distance
         next = mark
       }
+    }
+  }
+
+  // Болото красных пустошей едкое: жжёт стоящих в нём наземных юнитов.
+  const burn = sim.rules.toxicSwamp * time.step
+  if (burn > 0) {
+    for (const mark of marks.values()) {
+      if (mark.air || mark.radius === 0 || dead.has(mark.entity)) continue
+      const x = Math.floor(mark.x)
+      const y = Math.floor(mark.y)
+      if (terrainAt(sim.land, x, y) !== Terrain.Swamp || biomeAt(sim.land, x, y) !== Biome.RedWastes) continue
+      // Отметка попадания: пока стоит в болоте, не чинится и сам не залечивается.
+      mark.health.hit = time.tick
+      mark.health.value -= burn
+      if (mark.health.value <= 0) dead.add(mark.entity)
     }
   }
 

@@ -85,6 +85,8 @@ const RULES_GROUPS: Group<RulesConfig>[] = [
       { key: 'heavySwamp', label: 'Гусеничные: болото', min: 0, max: 0.95, step: 0.05 },
       { key: 'infantrySand', label: 'Пехота: песок', min: 0, max: 0.95, step: 0.05 },
       { key: 'infantrySwamp', label: 'Пехота: болото', min: 0, max: 0.95, step: 0.05 },
+      { key: 'frozenSwamp', label: 'Мёрзлое болото: доля замедления', min: 0, max: 1, step: 0.05 },
+      { key: 'toxicSwamp', label: 'Едкое болото: урон в секунду', min: 0, max: 0.1, step: 0.005 },
     ],
   },
 ]

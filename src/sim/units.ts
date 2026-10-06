@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { Terrain, isPassable, terrainAt, tileKey } from '../map/terrain'
+import { Biome, Terrain, biomeAt, isPassable, terrainAt, tileKey } from '../map/terrain'
 import { isOwn } from './common'
 import { Armed, Converting, Hauler, Harvester, Health, Owner, Repair, Path, Position, Producer, Unit } from './components'
 import { STARTING_CREDITS, addCredits } from './economy'
@@ -140,7 +140,11 @@ export function terrainSpeed(sim: Sim, type: UnitType, x: number, y: number) {
   if (kind === 'air') return 1
   const terrain = terrainAt(sim.land, x, y)
   if (terrain === Terrain.Sand) return Math.max(SLOWEST, 1 - sim.rules[`${kind}Sand`])
-  if (terrain === Terrain.Swamp) return Math.max(SLOWEST, 1 - sim.rules[`${kind}Swamp`])
+  if (terrain === Terrain.Swamp) {
+    // На солончаках болото промёрзло: вязнут в нём меньше.
+    const frozen = biomeAt(sim.land, x, y) === Biome.SaltFlats ? sim.rules.frozenSwamp : 1
+    return Math.max(SLOWEST, 1 - sim.rules[`${kind}Swamp`] * frozen)
+  }
   return 1
 }
 

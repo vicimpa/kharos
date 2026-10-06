@@ -45,6 +45,10 @@ export interface Rules {
   heavySwamp: number
   infantrySand: number
   infantrySwamp: number
+  /** Какая доля болотного замедления остаётся на солончаках: там болото промёрзло. */
+  frozenSwamp: number
+  /** Какую долю прочности в секунду теряет наземный юнит в едком болоте красных пустошей. */
+  toxicSwamp: number
 }
 
 export const DEFAULT_RULES: Rules = {
@@ -57,6 +61,8 @@ export const DEFAULT_RULES: Rules = {
   heavySwamp: 0.5,
   infantrySand: 0,
   infantrySwamp: 0.5,
+  frozenSwamp: 0.25,
+  toxicSwamp: 0.01,
 }
 
 export interface SimOptions {
