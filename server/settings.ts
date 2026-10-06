@@ -2,6 +2,7 @@ import { DEFAULT_CONFIG, type GeneratorConfig } from '../src/map/terrain'
 import { DEFAULT_PORT } from '../src/net/protocol'
 import { DEFAULT_RULES, type Rules } from '../src/sim'
 import { DEFAULT_WEATHER, type WeatherOptions } from '../src/sim/weather'
+import { DEFAULT_TLS, type TlsSettings } from './tls'
 
 /** Настройки сервера из settings.json. */
 export interface ServerSettings {
@@ -16,6 +17,8 @@ export interface ServerSettings {
   weather: WeatherOptions
   /** Правила игры. В отличие от остального применяются и к миру из сохранения. */
   rules: Rules
+  /** wss: off, auto (Let's Encrypt) или files (свои сертификат и ключ). */
+  tls: TlsSettings
 }
 
 /** Настройки по умолчанию; seed у каждого нового сервера свой. */
@@ -27,6 +30,7 @@ export const defaultSettings = (): ServerSettings => ({
   generator: { ...DEFAULT_CONFIG, seed: Math.floor(Math.random() * 2 ** 31) },
   weather: { ...DEFAULT_WEATHER },
   rules: { ...DEFAULT_RULES },
+  tls: { ...DEFAULT_TLS },
 })
 
 /**

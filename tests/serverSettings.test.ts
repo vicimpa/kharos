@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import { defaultSettings, mergeSettings } from '../server/settings'
+import { needsRenewal, sslipName } from '../server/tls'
 
 test('настройки сервера: известное берётся, опечатки и чужие типы пропускаются с предупреждением', () => {
   const defaults = defaultSettings()
@@ -26,4 +27,11 @@ test('не объект вместо настроек — всё по умолч
   const warnings: string[] = []
   expect(mergeSettings(defaults, [1, 2], warnings)).toEqual(defaults)
   expect(warnings).toEqual(['настройки: ожидался объект'])
+})
+
+test('tls: имя sslip.io по IP и срок продления', () => {
+  expect(sslipName('1.2.3.4')).toBe('1-2-3-4.sslip.io')
+  const now = new Date('2026-01-01')
+  expect(needsRenewal(new Date('2026-03-01'), now)).toBe(false)
+  expect(needsRenewal(new Date('2026-01-20'), now)).toBe(true)
 })

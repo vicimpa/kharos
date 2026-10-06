@@ -3,6 +3,7 @@ import { createHost, type HostSave, type Peer } from '../src/net/host'
 import { PROTOCOL_VERSION, versionMismatch, type ServerMessage } from '../src/net/protocol'
 import { SAVE_VERSION, createSim } from '../src/sim'
 import { defaultSettings, mergeSettings, type ServerSettings } from './settings'
+import { TLS_CHECK_INTERVAL, TLS_MODES, obtainCertificate, readCertificate, tlsDomain, type Certificate } from './tls'
 
 /** Как часто сервер пишет в консоль, что с ним происходит, в секундах. */
 const REPORT_INTERVAL = 5
@@ -56,8 +57,17 @@ const host = createHost(saved ? createSim({ ...saved.sim, rules }) : createSim({
 if (saved) console.log(`мир загружен из ${SAVE_PATH}: тик ${saved.sim.tick}, игроков ${Object.keys(saved.players).length}`)
 else console.log(`новый мир ${size}×${size}, seed ${generator.seed}`)
 
-Bun.serve<{ id?: string; name?: string; version: number; peer?: Peer }>({
+type SocketData = { id?: string; name?: string; version: number; peer?: Peer }
+
+const { tls } = settings
+if (!TLS_MODES.includes(tls.mode)) throw new Error(`tls.mode: ${tls.mode}? ожидалось ${TLS_MODES.join(', ')}`)
+const domain = tls.mode === 'auto' ? await tlsDomain(tls) : undefined
+const certificate = async (): Promise<Certificate | undefined> =>
+  tls.mode === 'auto' ? obtainCertificate(tls, domain!) : tls.mode === 'files' ? readCertificate(tls) : undefined
+
+const listen = (certificate?: Certificate) => Bun.serve<SocketData>({
   port,
+  tls: certificate,
   fetch(request, server) {
     const query = new URL(request.url).searchParams
     const data = { id: query.get('id') ?? undefined, name: query.get('name') ?? undefined, version: Number(query.get('version')) || 0 }
@@ -87,6 +97,26 @@ Bun.serve<{ id?: string; name?: string; version: number; peer?: Peer }>({
     },
   },
 })
+
+let current = await certificate()
+let server = listen(current)
+
+// Bun не умеет менять сертификат у открытого сервера, поэтому новый сертификат — это новый сервер.
+// Игроки при этом на миг отключаются; бывает раз в пару месяцев.
+if (current) {
+  setInterval(async () => {
+    try {
+      const next = await certificate()
+      if (!next || next.cert === current?.cert) return
+      current = next
+      server.stop(true)
+      server = listen(current)
+      console.log('сертификат обновлён')
+    } catch (error) {
+      console.log(`сертификат не обновился: ${error instanceof Error ? error.message : error}`)
+    }
+  }, TLS_CHECK_INTERVAL)
+}
 
 let last = performance.now()
 let sinceReport = 0
@@ -126,4 +156,4 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   })
 }
 
-console.log(`Kharos слушает ws://localhost:${port}`)
+console.log(`Kharos слушает ${current ? `wss://${domain ?? 'localhost'}` : 'ws://localhost'}:${port}`)
