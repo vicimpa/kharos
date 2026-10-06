@@ -1,5 +1,5 @@
 import { simOptions } from '../game/game'
-import { loadSave, storeSave, type SaveSlot } from '../game/storage'
+import { listSaves, loadSave, storeSave, type SaveSlot } from '../game/storage'
 import type { MapSettings } from '../map/settings'
 import { connect, connectLocal, type Session } from '../net/connect'
 import { DEFAULT_PORT } from '../net/protocol'
@@ -27,6 +27,34 @@ export function launchFromAddress(): Launch | null {
   if (query.has('battle')) return { kind: 'battle' }
   if (query.has('sandbox')) return { kind: 'sandbox' }
   return null
+}
+
+const CURRENT_KEY = 'kharos.current'
+
+/**
+ * Запоминает, во что играет вкладка (null — она в меню), чтобы перезагрузка вернула в ту же игру. Хранится на время
+ * жизни вкладки: новая вкладка открывает меню.
+ */
+export function rememberLaunch(launch: Launch | null) {
+  try {
+    if (!launch) sessionStorage.removeItem(CURRENT_KEY)
+    else sessionStorage.setItem(CURRENT_KEY, JSON.stringify(launch.kind === 'save' ? { kind: 'save', slot: launch.slot.id } : launch))
+  } catch {
+    // Без хранилища перезагрузка просто откроет меню.
+  }
+}
+
+/** Игра, в которой вкладка была до перезагрузки; слот берётся свежим из списка, удалённый — забыт. */
+export function recallLaunch(): Launch | null {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(CURRENT_KEY) ?? 'null') as (Omit<Launch, 'slot'> & { slot?: string }) | null
+    if (!saved) return null
+    if (saved.kind !== 'save') return saved as Launch
+    const slot = listSaves().find((other) => other.id === saved.slot)
+    return slot ? { kind: 'save', slot } : null
+  } catch {
+    return null
+  }
 }
 
 /**

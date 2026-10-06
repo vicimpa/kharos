@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks'
 import { loadSettings, saveSettings } from '../map/settings'
 import { GameView } from './GameView'
-import { launchFromAddress, type Launch } from './launch'
+import { launchFromAddress, recallLaunch, rememberLaunch, type Launch } from './launch'
 import { Menu } from './Menu'
 import { Showcase } from './Showcase'
 
@@ -19,14 +19,16 @@ function loadPanel() {
 
 /**
  * Страница: главное меню над слайдами симуляции или сама игра. Игра, заданная адресной строкой (?server,
- * ?battle, ?sandbox), открывается сразу, минуя меню.
+ * ?battle, ?sandbox), открывается сразу, минуя меню; после перезагрузки вкладка возвращается в свою игру.
  */
 export function App() {
   const [settings, setSettings] = useState(loadSettings)
   const [panel, setPanel] = useState(loadPanel)
-  const [launch, setLaunch] = useState<Launch | null>(launchFromAddress)
+  const [launch, setLaunch] = useState<Launch | null>(() => launchFromAddress() ?? recallLaunch())
 
   useEffect(() => saveSettings(settings), [settings])
+  // Перезагрузка страницы возвращает в ту же игру, а не в меню.
+  useEffect(() => rememberLaunch(launch), [launch])
   useEffect(() => {
     try {
       localStorage.setItem(PANEL_KEY, panel ? '1' : '0')
