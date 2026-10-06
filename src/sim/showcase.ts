@@ -6,6 +6,7 @@ import { Armed, Building, Inventory, Owner, Path, Position, Site, Unit } from '.
 import { orderBuild } from './construction'
 import { addCredits } from './economy'
 import { orderSeek } from './harvesting'
+import { fortification } from './fortify'
 import { put } from './inventory'
 import { spawnSandbox } from './sandbox'
 import type { Sim } from './sim'
@@ -102,40 +103,49 @@ function construction(): Scene {
   }
 }
 
-/** Оборона: какие турели стоят за стеной и сколько тайлов между ними. */
-const TURRETS: BuildingType[] = ['turret', 'rocketTurret', 'cannonTurret']
-const LINE_HALF = 7
+/** Стороны, откуда может идти враг: оборона разворачивается к ней. */
+const SIDES = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }]
+/** Насколько волна может прийти в стороне от оси обороны, тайлов. */
+const WAVE_SPREAD = 8
 /** Чем идут волны: наземные бойцы. Бюджет первой волны и прибавка к каждой следующей. */
 const WAVE_WEIGHTS: Partial<Record<UnitType, number>> = { infantry: 2, rocketeer: 1, buggy: 1, lancer: 1, tank: 1, tesla: 0.5, carrier: 0, drone: 0, gunship: 0 }
 const WAVE_BUDGET = 1200
 const WAVE_GROWTH = 500
 const WAVES = 6
-/** Откуда идут волны: тайлов от стены. */
-const WAVE_DISTANCE = 26
+/** Откуда идут волны: тайлов перед самой дальней постройкой обороны. */
+const WAVE_DISTANCE = 20
+/** Кто защищает базу вместе с турелями: случайный отряд такой цены, и при нём строители. */
+const GUARD_BUDGET = 1500
+const GUARD_WEIGHTS: Partial<Record<UnitType, number>> = { infantry: 2, rocketeer: 2, buggy: 1, lancer: 1, tank: 1, tesla: 0.5, carrier: 0, drone: 0, gunship: 0 }
 
-/** Оборона: стена с турелями и защитники за ней отбивают волну за волной; турели подпитываются патронами. */
+/**
+ * Оборона: главное здание, перед ним случайное укрепление (см. fortification) лицом к случайной стороне, защитники
+ * за ним отбивают волну за волной; турели подпитываются патронами.
+ */
 function defense(): Scene {
   let wave = 0
   let calm = 0
-  let front = { x: 0, y: 0 }
+  /** Точка в осях обороны (u — к врагу, v — поперёк) → тайл на карте. */
+  let at = (u: number, v: number) => ({ x: u, y: v })
+  let reach = 0
   return {
     create(sim, player) {
       const spot = openSpot(sim, 'command', 10)
       if (!spot) return false
       wave = 0
       calm = 0
-      front = { x: spot.x + 6, y: spot.y + 1 }
+      const side = SIDES[Math.floor(Math.random() * SIDES.length)]
+      const core = { x: spot.x + 1, y: spot.y + 1 }
+      at = (u, v) => ({ x: core.x + side.x * u - side.y * v, y: core.y + side.y * u + side.x * v })
       placeBuilding(sim.world, 'command', spot.x, spot.y, player)
-      for (let dy = -LINE_HALF - 1; dy <= LINE_HALF + 1; dy++) {
-        // Стена с проходом посередине: через него прорываются, у него и жарче всего.
-        if (Math.abs(dy) <= 1) continue
-        if (canPlace(sim, 'wall', front.x + 2, front.y + dy)) placeBuilding(sim.world, 'wall', front.x + 2, front.y + dy, player)
+      const pieces = fortification()
+      reach = Math.max(...pieces.map((piece) => piece.u))
+      for (const { type, u, v } of pieces) {
+        const { x, y } = at(u, v)
+        if (canPlace(sim, type, x, y)) placeBuilding(sim.world, type, x, y, player)
       }
-      for (let i = 0, dy = -LINE_HALF + 1; dy <= LINE_HALF - 1; dy += 3, i++) {
-        const type = TURRETS[i % TURRETS.length]
-        if (canPlace(sim, type, front.x, front.y + dy)) placeBuilding(sim.world, type, front.x, front.y + dy, player)
-      }
-      spawnGroup(sim, ['rocketeer', 'rocketeer', 'infantry', 'infantry', 'tank', 'builder', 'builder'], player, front.x - 3, front.y, 1)
+      const guard = at(3, 0)
+      spawnGroup(sim, [...randomArmy(GUARD_BUDGET, GUARD_WEIGHTS), 'builder', 'builder'], player, guard.x, guard.y, 1)
       return true
     },
     drive(sim, player, seconds) {
@@ -181,8 +191,8 @@ function defense(): Scene {
       calm = 0
       if (wave >= WAVES) return false
       const army = randomArmy(WAVE_BUDGET + wave * WAVE_GROWTH, WAVE_WEIGHTS)
-      const side = Math.random() < 0.5 ? -1 : 1
-      spawnGroup(sim, army, TRAINING_PLAYER, front.x + WAVE_DISTANCE, front.y + side * Math.floor(Math.random() * LINE_HALF))
+      const from = at(reach + WAVE_DISTANCE, Math.round((Math.random() * 2 - 1) * WAVE_SPREAD))
+      spawnGroup(sim, army, TRAINING_PLAYER, from.x, from.y)
       wave++
       return true
     },
