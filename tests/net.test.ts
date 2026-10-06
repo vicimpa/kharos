@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { DEFAULT_CONFIG } from '../src/map/terrain'
 import { createHost, type Host } from '../src/net/host'
 import type { ServerMessage } from '../src/net/protocol'
@@ -7,6 +7,16 @@ import { Building, Ghost, Owner, Player, Position, Unit, createSim } from '../sr
 import { placeBuilding } from '../src/sim/buildings'
 
 const STEP = 1 / 20
+
+// Хост ставит игроков в случайные места: тестам нужны одни и те же при каждом прогоне.
+const random = Math.random
+beforeEach(() => {
+  let seed = 7
+  Math.random = () => (seed = (seed * 16807) % 2147483647) / 2147483647
+})
+afterEach(() => {
+  Math.random = random
+})
 
 /** Клиент, подключённый к хосту напрямую, без сокета: сообщения ходят так же, текстом. */
 function join(host: Host, id?: string, name?: string) {
