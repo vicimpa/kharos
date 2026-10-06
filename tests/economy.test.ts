@@ -117,3 +117,21 @@ test('космопорт продаёт любой ресурс по его це
   // Пока везли и летели, прошло не меньше полёта.
   expect(sim.time.tick * TICK).toBeGreaterThan(SELL_SECONDS)
 })
+
+test('из вставшей переработки грузовик увозит готовое до крошки, из работающей мелочь не возит', () => {
+  const { sim, x, y, store, buildings } = base(['smelter'])
+  const [smelter] = buildings
+  const inventory = sim.world.get(smelter, Inventory)!
+  // Руда ещё есть: переработка сделает больше, и за 3 единицами грузовик не едет.
+  inventory.items.metal = 3
+  inventory.items.metalOre = 20
+  spawnUnit(sim, 'truck', 1, x + 5, y + 4)
+  seconds(sim, 2)
+  expect(oreIn(sim, store('metal'), 'metal')).toBe(0)
+
+  // Руды нет и не везут: остаток меньше порога увозят весь.
+  inventory.items.metal = 7
+  inventory.items.metalOre = 0
+  until(sim, () => oreIn(sim, smelter, 'metal') < 1e-9)
+  until(sim, () => oreIn(sim, store('metal'), 'metal') >= 7 - 1e-6)
+})
