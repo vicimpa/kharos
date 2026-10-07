@@ -1,10 +1,14 @@
 import type { Audio } from '../audio/audio'
 import type { SoundName } from '../audio/synth'
-import type { Command, Sim } from '../sim'
+import type { Entity } from '../ecs'
+import { Unit, type Command, type Sim } from '../sim'
 
 /** Громкость звуков интерфейса: тише боя, но слышна поверх него. */
 const VOLUME = 0.35
 const HOVER_VOLUME = 0.12
+/** Чаще этого, в секундах, выделение не звучит: протянутая рамка меняет его каждый кадр. */
+const SELECT_GAP = 0.12
+
 /** Какие приказы как звучат; остальные команды — молча: их и так сопровождает щелчок кнопки. */
 const ORDER_SOUNDS: Partial<Record<Command['type'], SoundName>> = {
   move: 'order',
@@ -20,9 +24,9 @@ const ORDER_SOUNDS: Partial<Record<Command['type'], SoundName>> = {
 }
 
 /**
- * Звуки интерфейса: щелчок по кнопке, касание ячейки сетки при наведении, вход в раздел, отказ у недоступной кнопки
- * и подтверждение приказов. Кнопки слушаются одним обработчиком на документе — компонентам не нужно о них знать;
- * приказы — обёрткой отправки команд игрока. Возвращает функцию, которая всё снимает.
+ * Звуки интерфейса: щелчок по кнопке, касание кнопки при наведении, вход в раздел, отказ у недоступной кнопки,
+ * подтверждение приказов и выделение юнитов и зданий. Кнопки слушаются одним обработчиком на документе — компонентам
+ * не нужно о них знать; приказы — обёрткой отправки команд игрока; выделение — сверкой раз в кадр.
  */
 export function createInterfaceSounds(sim: Sim, audio: Audio) {
   const play = (name: SoundName, volume = VOLUME) => audio.play(name, volume, 0)
@@ -53,9 +57,24 @@ export function createInterfaceSounds(sim: Sim, audio: Audio) {
     return send(player, command)
   }
 
-  return () => {
-    document.removeEventListener('pointerdown', down, true)
-    document.removeEventListener('pointerover', over)
-    sim.send = send
+  let selected = ''
+  let clock = 0
+  let selectedAt = -Infinity
+  return {
+    /** Раз в кадр: выделение сменилось и в нём что-то есть — щелчок, у юнитов один, у здания другой. Снятое молчит. */
+    update(seconds: number, selection: ReadonlySet<Entity>) {
+      clock += seconds
+      const key = [...selection].join(',')
+      if (key === selected) return
+      selected = key
+      if (!selection.size || clock - selectedAt < SELECT_GAP) return
+      selectedAt = clock
+      play([...selection].some((entity) => sim.world.has(entity, Unit)) ? 'select' : 'selectBuilding')
+    },
+    destroy() {
+      document.removeEventListener('pointerdown', down, true)
+      document.removeEventListener('pointerover', over)
+      sim.send = send
+    },
   }
 }

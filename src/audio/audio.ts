@@ -99,7 +99,7 @@ export const storeLevel = (channel: Channel, value: number) => {
 }
 
 /** Звуки интерфейса: кнопки, приказы, уведомления. Остальные разовые звуки — бой. */
-const INTERFACE_SOUNDS = new Set<SoundName>(['click', 'hover', 'open', 'deny', 'place', 'order', 'attackOrder', 'attacked', 'spotted'])
+const INTERFACE_SOUNDS = new Set<SoundName>(['click', 'hover', 'open', 'deny', 'select', 'selectBuilding', 'place', 'order', 'attackOrder', 'attacked', 'spotted'])
 
 /**
  * Нажимал ли игрок что-нибудь на этой странице: тогда браузер разрешает звук сразу, без нового нажатия. Так звук

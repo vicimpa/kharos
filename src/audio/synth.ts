@@ -209,6 +209,9 @@ export const SOUNDS = {
   hover: (rate: number, variant: number) => blip(rate, variant, 2200, 2200, 0.025, 0.3),
   open: (rate: number, variant: number) => blip(rate, variant, 700, 1300, 0.09, 0.3),
   deny: (rate: number, variant: number) => blip(rate, variant, 220, 160, 0.16, 0.2),
+  /** Выделение: юниты — бодрый двойной щелчок, здание — один пониже. */
+  select: (rate: number, variant: number) => signal(rate, variant, [1300, 1700], 0.03, 0.015),
+  selectBuilding: (rate: number, variant: number) => blip(rate, variant, 600, 520, 0.08, 0.3),
   /** Приказы: закладка здания, движение, атака. */
   place: (rate: number, variant: number) => signal(rate, variant, [520, 780], 0.05, 0.02),
   order: (rate: number, variant: number) => blip(rate, variant, 900, 1250, 0.07, 0.4),

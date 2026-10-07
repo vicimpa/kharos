@@ -191,7 +191,7 @@ export function createGame(
   const shake = createShake()
   const soundscape = audio && createSoundscape(scene, audio, shake)
   if (!showcase) scene.alerts = createAlerts(scene, audio)
-  const silenceInterface = audio ? createInterfaceSounds(session.sim, audio) : null
+  const interfaceSounds = audio ? createInterfaceSounds(session.sim, audio) : null
   const machines = audio && createMachines(scene, audio)
 
   const saveCamera = () => slot && storeCamera(slot, camera)
@@ -275,6 +275,7 @@ export function createGame(
     soundscape?.update(seconds, motion.speed)
     scene.alerts?.update(seconds)
     machines?.update(seconds)
+    interfaceSounds?.update(seconds, scene.selection)
     shake.update(seconds)
 
     sinceSave += seconds
@@ -346,7 +347,7 @@ export function createGame(
       window.removeEventListener('pagehide', saveCamera)
       saveCamera()
       controls?.destroy()
-      silenceInterface?.()
+      interfaceSounds?.destroy()
       audio?.destroy()
       scene.sim.destroy()
       renderer.destroy()
