@@ -45,6 +45,8 @@ export interface UnitSpec {
   requires?: readonly string[]
   /** Склад: сколько ресурсов юнит везёт. См. inventory.ts. */
   inventory?: number
+  /** Грузовик: возит груз по заявкам зон, из шахты, по маршруту. См. hauling.ts. */
+  hauls?: boolean
   /** Транспортный луч: им юнит отдаёт ресурсы со своего склада или забирает на него. */
   beam?: BeamSpec
   /** Харвестер: копает руду сам, столько в секунду, и возит её на переработку. См. harvesting.ts. */
@@ -66,7 +68,7 @@ export const UNITS = {
   // Харвестер — шахта на колёсах: копает медленнее шахты, зато сам и где угодно, и сам возит руду на
   // переработку. Тяжелее грузовика: его ловят в поле, и он должен пережить первый налёт.
   harvester: { speed: 3, turn: 3, radius: 0.55, cost: 400, buildTime: 10, kind: 'vehicle', hp: 300, sight: 6, inventory: 30, harvest: 0.75, beam: { radius: 2, rate: 10, give: true, take: true } },
-  truck: { speed: 3.5, turn: 4, radius: 0.45, cost: 150, buildTime: 8, kind: 'vehicle', hp: 150, sight: 6, inventory: 25, beam: { radius: 2, rate: 10, give: true, take: true } },
+  truck: { speed: 3.5, turn: 4, radius: 0.45, cost: 150, buildTime: 8, kind: 'vehicle', hp: 150, sight: 6, inventory: 25, hauls: true, beam: { radius: 2, rate: 10, give: true, take: true } },
   // Пехота.
   // Огнемётчик: штурмовик ближнего боя — выжигает пехоту в окопах и здания, к броне ему не подойти.
   flamer: { speed: 3.4, turn: 10, radius: 0.3, cost: 140, buildTime: 5, kind: 'infantry', hp: 90, weapon: 'flame' },
@@ -109,6 +111,8 @@ export const UNITS = {
     ],
   },
   // Летающие: им нужно топливо.
+  // Летающий грузовик: везёт меньше обычного, зато вдвое быстрее и напрямик — над болотами и горами. Его сбивает ПВО.
+  airTruck: { speed: 7, turn: 5, radius: 0.45, cost: 300, buildTime: 10, kind: 'air', hp: 100, sight: 8, inventory: 10, hauls: true, beam: { radius: 2, rate: 10, give: true, take: true }, materials: { fuel: 4 } },
   drone: { speed: 7.5, turn: 6, radius: 0.35, cost: 220, buildTime: 6, kind: 'air', hp: 70, weapon: 'machinegun', materials: { silicon: 3, fuel: 4 } },
   gunship: { speed: 5, turn: 3, radius: 0.55, cost: 500, buildTime: 12, kind: 'air', hp: 200, weapon: 'launcher', materials: { metal: 12, silicon: 4, fuel: 8 } },
   // Бомбардировщик: сносит здания и колонны с воздуха, но сам по воздуху не бьёт и хрупок — его встречают ракеты,
@@ -294,7 +298,7 @@ export function spawnUnit(sim: Sim, type: UnitType, player: number, x: number, y
   const infantry = spec.kind === 'infantry'
   const entity = world.spawn(Position(position), Unit({ type, prevX: position.x, prevY: position.y }), Owner({ player }), Health(infantry ? { repairable: false, regen: INFANTRY_REGEN } : {}))
   if (type === 'mcv') world.add(entity, Producer)
-  if (type === 'truck' || spec.harvest) world.add(entity, Hauler)
+  if (spec.hauls || spec.harvest) world.add(entity, Hauler)
   if (spec.harvest) world.add(entity, Harvester)
   if (spec.weapon) world.add(entity, Armed)
   if (spec.repair) world.add(entity, Repair({ radius: spec.repair }))

@@ -6,6 +6,7 @@ export const UNIT_NAMES: Record<UnitType, string> = {
   builder: 'Строитель',
   infantry: 'Пехотинец',
   truck: 'Грузовик',
+  airTruck: 'Летающий грузовик',
   harvester: 'Харвестер',
   rocketeer: 'Ракетчик',
   flamer: 'Огнемётчик',

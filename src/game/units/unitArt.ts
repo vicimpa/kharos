@@ -35,7 +35,7 @@ export type UnitArt = (g: Pixmap, angle: number, team: TeamColors, phase: number
 export type Gait = 'tracks' | 'wheels' | 'legs' | 'air'
 export const UNIT_GAITS: Record<UnitType, Gait> = {
   mcv: 'tracks', harvester: 'tracks', builder: 'wheels', infantry: 'legs', truck: 'wheels', rocketeer: 'legs', flamer: 'legs', buggy: 'wheels', flak: 'wheels',
-  lancer: 'wheels', tank: 'tracks', artillery: 'wheels', tesla: 'tracks', carrier: 'wheels', drone: 'air', gunship: 'air', bomber: 'air',
+  lancer: 'wheels', tank: 'tracks', artillery: 'wheels', tesla: 'tracks', carrier: 'wheels', drone: 'air', airTruck: 'air', gunship: 'air', bomber: 'air',
 }
 /**
  * Кадров анимации хода у наземного юнита; у летающего кадр один. Протектор и звенья гусениц повторяются
@@ -416,6 +416,26 @@ const drone: UnitArt = (g, angle, team) => {
   p.dot(0.5, -0.5, 1, team[2])
 }
 
+/** Летающий грузовик: четыре винта на длинных балках, под ними — грузовой контейнер в жёлто-чёрных полосах. */
+const airTruck: UnitArt = (g, angle, team) => {
+  const p = pen(g, angle)
+  for (const [along, across] of [[6, 6], [6, -6], [-6, 6], [-6, -6]]) {
+    p.line(0, 0, along, across, 2.4, INK)
+    p.line(0, 0, along, across, 1, IRON[2])
+    p.dot(along, across, 3.2, INK)
+    p.dot(along, across, 2.2, IRON[3])
+    p.dot(along, across, 0.8, IRON[0])
+  }
+  // Контейнер.
+  p.bar(-4.5, 4.5, 0, 8, INK)
+  p.bar(-3.5, 3.5, 0, 6, HAZARD[1])
+  for (const along of [-2, 1]) p.beam(along, -3, 3, 1, HAZARD[0])
+  // Кабина спереди.
+  p.bar(4, 7, 0, 4, INK)
+  p.bar(4.5, 6.5, 0, 2.4, team[0])
+  p.dot(6, -0.6, 0.7, team[2])
+}
+
 /** Штурмовик: фюзеляж, крылья с ракетными блоками и хвост. */
 const gunship: UnitArt = (g, angle, team) => {
   const p = pen(g, angle)
@@ -535,6 +555,10 @@ export const UNIT_LIGHTS: Record<UnitType, UnitLights> = {
     lamps: [{ along: 12, across: -4.5, glow: 2.5 }, { along: 12, across: 4.5, glow: 2.5 }],
     beam: { along: 15, length: 60, near: 6, spread: 0.3, level: 1 },
   },
+  airTruck: {
+    lamps: [{ along: 7, across: 0, glow: 1.5 }],
+    beam: { along: 8, length: 44, near: 2, spread: 0.3, level: 0.8 },
+  },
   drone: {
     lamps: [{ along: 5, across: 0, glow: 1.5 }],
     beam: { along: 7, length: 40, near: 2, spread: 0.3, level: 0.8 },
@@ -549,7 +573,7 @@ export const UNIT_LIGHTS: Record<UnitType, UnitLights> = {
   },
 }
 
-export const UNIT_ART = { mcv, builder, infantry, truck, harvester, rocketeer, flamer, buggy, flak, lancer, tank, artillery, tesla, carrier, drone, gunship, bomber } satisfies Record<UnitType, UnitArt>
+export const UNIT_ART = { mcv, builder, infantry, truck, harvester, rocketeer, flamer, buggy, flak, lancer, tank, artillery, tesla, carrier, drone, airTruck, gunship, bomber } satisfies Record<UnitType, UnitArt>
 
 /** Сторона кадра турели в пикселях: два тайла, чтобы влез длинный ствол. */
 export const TURRET_FRAME = 32

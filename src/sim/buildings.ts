@@ -158,7 +158,7 @@ export const BUILDINGS = {
   // до него игрок должен наладить цех.
   techCenter: { width: 3, height: 3, cost: 1000, power: -6, materials: { blocks: 15 }, sight: 8 },
   // Аэродром выпускает летающих: им нужно топливо, бомбардировщику ещё и техцентр.
-  airfield: { width: 4, height: 3, cost: 500, power: -4, materials: { metal: 15, blocks: 5 }, produces: ['drone', 'gunship', 'bomber'] },
+  airfield: { width: 4, height: 3, cost: 500, power: -4, materials: { metal: 15, blocks: 5 }, produces: ['airTruck', 'drone', 'gunship', 'bomber'] },
   // Электростанция.
   generator: { width: 2, height: 2, cost: 300, power: 10 },
   // Генератор материи — базовый доход: превращает энергию в кредиты. Первая электростанция окупает его быстро,

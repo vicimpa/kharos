@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { DEPOSIT_SIZE, Harvester, depositNear, hasMine, type UnitType, Owner, Position, Repair, isOwn, UNITS, Unit, canAttack, canFight, canHaul, canRepair, isStop, siteAt, BUILDINGS, BRIDGE_COST, FOUNDATION_COST, ROAD_COST, creditsOf } from '../sim'
+import { DEPOSIT_SIZE, Harvester, Hauler, depositNear, hasMine, type UnitType, Owner, Position, Repair, isOwn, UNITS, Unit, canAttack, canFight, canHaul, canRepair, isStop, siteAt, BUILDINGS, BRIDGE_COST, FOUNDATION_COST, ROAD_COST, creditsOf } from '../sim'
 import { paveStrokeOf, placementOf } from './placing'
 import type { Scene } from './scene'
 
@@ -191,7 +191,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
       const site = siteAt(sim, x, y) ?? (broken !== undefined && canRepair(sim, scene.player, broken) ? broken : undefined)
       const builders = units.some((entity) => sim.world.has(entity, Repair))
       // Строители по своей стройке — строят, по повреждённому зданию или юниту — чинят; остальные выбранные при этом стоят.
-      const trucks = units.some((entity) => sim.world.get(entity, Unit)?.type === 'truck')
+      const trucks = units.some((entity) => sim.world.has(entity, Hauler) && !sim.world.has(entity, Harvester))
       // Вооружённые по врагу — атакуют: по чужому юниту или зданию под курсором.
       const enemy = unitAt(point.x, point.y, false) ?? damaged
       const fighters = units.some((entity) => canFight(sim, entity))
@@ -346,7 +346,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     // Маршрут набирают грузовикам: без них набор отменяется.
     if (scene.routing) {
       let trucks = false
-      for (const entity of scene.selection) trucks ||= scene.sim.world.get(entity, Unit)?.type === 'truck'
+      for (const entity of scene.selection) trucks ||= scene.sim.world.has(entity, Hauler) && !scene.sim.world.has(entity, Harvester)
       if (!trucks) scene.routing = null
     }
     // Покрытие кладут и снимают строители.

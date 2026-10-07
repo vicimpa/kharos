@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { BUILDINGS, Inventory, amountOf, canPlace, createSim, type BuildingType, type Sim } from '../src/sim'
+import { BUILDINGS, Inventory, Position, amountOf, canPlace, createSim, type BuildingType, type Sim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { Hauler } from '../src/sim/components'
 import { addCredits } from '../src/sim/economy'
@@ -87,4 +87,16 @@ test('фильтр действует и на работу от диспетче
   expect(amount(sim, yard, 'metal')).toBe(0)
   sim.send(1, { type: 'filter', units: [truck], goods: ['metal'] })
   until(sim, () => amount(sim, yard, 'metal') >= 20)
+})
+
+test('летающий грузовик возит по маршруту, как обычный: меньше за раз, но быстрее', () => {
+  const { sim, buildings: [from, to], truck } = base(['metalYard', 'metalYard'])
+  const { x, y } = sim.world.get(truck, Position)!
+  sim.world.destroy(truck)
+  const flyer = spawnUnit(sim, 'airTruck', 1, Math.floor(x), Math.floor(y))
+  expect(sim.world.has(flyer, Hauler)).toBe(true)
+  expect(sim.world.get(flyer, Inventory)!.capacity).toBeLessThan(25)
+  sim.world.get(from, Inventory)!.items.metal = 40
+  sim.send(1, { type: 'route', units: [flyer], stops: [from, to] })
+  until(sim, () => amount(sim, to, 'metal') >= 40)
 })
