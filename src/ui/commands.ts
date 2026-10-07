@@ -100,7 +100,7 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
         { page: 'storage', label: 'Склады', building: 'metalYard', title: 'Хранилища ресурсов и изделий', run: () => open('storage') },
         { page: 'industry', label: 'Переработка', building: 'smelter', title: 'Переработка руды и заводы изделий', run: () => open('industry') },
         { page: 'military', label: 'Военное', building: 'factory', title: 'Казармы, заводы, аэродром и техцентр', run: () => open('military') },
-        { page: 'defense', label: 'Оборона', building: 'turret', title: 'Стены, турели и радар', run: () => open('defense') },
+        { page: 'defense', label: 'Оборона', building: 'wall', title: 'Стены, турели и радар', run: () => open('defense') },
       ]
       // У каждого раздела своё место: закрытый оставляет пустую ячейку, и кнопки не сдвигаются, когда открываются новые.
       sections.forEach((section, i) => (slots[i] = opened(section.page) ? section : null))
