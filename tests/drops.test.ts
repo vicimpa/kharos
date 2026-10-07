@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { BUILDINGS, Drop, Inventory, Position, amountOf, canPlace, createSim, type BuildingType, type Sim } from '../src/sim'
+import { BUILDINGS, Drop, Hauler, Inventory, Position, TRUCK_CAPACITY, amountOf, canPlace, createSim, type BuildingType, type Sim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { addCredits } from '../src/sim/economy'
 import { dropItems } from '../src/sim/drops'
@@ -78,6 +78,26 @@ test('за дропом вне своих зон свободный грузов
   for (let i = 0; i < 5 / TICK; i++) sim.advance(TICK)
   expect(amount(sim, drop, 'metal')).toBe(10)
   expect(sim.world.get(truck, Position)).toEqual(start)
+})
+
+test('посланный за дропом грузовик вывозит его весь, сколько бы рейсов ни понадобилось, и освобождается', () => {
+  const { sim, x, y, truck, buildings: [store] } = base(['metalYard'])
+  const drop = dropItems(sim, x + 60, y, { metal: TRUCK_CAPACITY * 2 })!
+  sim.send(1, { type: 'pickup', units: [truck], drop })
+  until(sim, () => !sim.world.alive(drop), 600)
+  until(sim, () => amount(sim, store, 'metal') >= TRUCK_CAPACITY * 2, 120)
+  until(sim, () => sim.world.get(truck, Hauler)!.pickup === -1, 10)
+})
+
+test('груз с дропа, которому негде лежать, грузовик не берёт и ждёт; фильтр, не пускающий ничего с дропа, снимает приказ', () => {
+  const { sim, x, y, truck } = base(['metalYard'])
+  const drop = dropItems(sim, x + 20, y, { fuel: 3 })!
+  sim.send(1, { type: 'pickup', units: [truck], drop })
+  for (let i = 0; i < 30 / TICK; i++) sim.advance(TICK)
+  expect(amount(sim, drop, 'fuel')).toBe(3)
+  expect(sim.world.get(truck, Hauler)!.pickup).toBe(drop)
+  sim.send(1, { type: 'filter', units: [truck], goods: ['metal'] })
+  until(sim, () => sim.world.get(truck, Hauler)!.pickup === -1, 10)
 })
 
 test('груз падает к уже лежащему дропу того же тайла', () => {

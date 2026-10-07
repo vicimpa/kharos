@@ -8,7 +8,7 @@ import { NONE, isOwn } from './common'
 import { Builds, Building, Harvester, Producer, Unit } from './components'
 import { assignBuilders, cancelBuild, demolish, orderBuild } from './construction'
 import { DEPLOY_SECONDS, PACK_SECONDS, canDeploy, canPack, cancelDeploy, startConverting } from './conversion'
-import { assignHaulers, releaseHauler } from './hauling'
+import { assignHaulers, assignPickup, releaseHauler } from './hauling'
 import { orderPave, removePave, type PaveKind } from './paving'
 import { cancelUnit, orderUnit } from './production'
 import { setFilter, setRoute } from './routes'
@@ -46,6 +46,8 @@ export type Command =
   | { type: 'assist'; units: number[]; site: number }
   /** Привязать свои грузовики к своей шахте: они будут возить добытое из неё в хранилища, а не работать на заявки зон. */
   | { type: 'haul'; units: number[]; mine: number }
+  /** Грузовики вывозят дроп, где бы он ни лежал, пока он не опустеет. */
+  | { type: 'pickup'; units: number[]; drop: number }
   /** Послать своих харвестеров копать месторождение с левым верхним тайлом (x, y). */
   | { type: 'harvest'; units: number[]; x: number; y: number }
   /** Велеть своим харвестерам искать месторождение вида kind или любое (any): среди разведанных, а нет — разведать. */
@@ -119,6 +121,8 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
       if (!Array.isArray(command.units)) return false
       return assignHaulers(sim, player, command.mine as Entity, command.units as Entity[])
     }
+    case 'pickup':
+      return Array.isArray(command.units) && assignPickup(sim, player, command.drop as Entity, command.units as Entity[])
     case 'harvest': {
       if (!Array.isArray(command.units)) return false
       return orderHarvest(sim, player, command.units as Entity[], Math.floor(command.x), Math.floor(command.y))

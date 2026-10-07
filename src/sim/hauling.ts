@@ -1,11 +1,11 @@
 import type { Entity } from '../ecs'
 import { BUILDINGS, buildingSpec, isReady, type BuildingSpec } from './buildings'
 import { NONE, isOwn, onTurn } from './common'
-import { Beam, Building, Converting, Hauler, Harvester, Inventory, Owner, Path, Position, Site } from './components'
+import { Beam, Building, Converting, Drop, Hauler, Harvester, Inventory, Owner, Path, Position, Site } from './components'
 import { DEPOSIT_KINDS, reserveLeft, takeReserve } from './deposits'
 import { amountOf, approach, beamFor, put, reaches, resetBeams, roomFor, transfer } from './inventory'
 import { isStore } from './trade'
-import { acceptsDelivery, deliveryFor, dispatch, mineOre, offersPickup, refineryFor, requestsOf, spaceFor } from './logistics'
+import { acceptsDelivery, deliveryFor, dispatch, mineOre, offersOf, offersPickup, refineryFor, requestsOf, spaceFor, spareOf } from './logistics'
 import { GOODS, resourceOf, type Good } from './resources'
 import type { Sim } from './sim'
 import { UNITS } from './units'
@@ -46,6 +46,25 @@ export function assignHaulers(sim: Sim, player: number, mine: Entity, units: Ent
   return trucks.length > 0
 }
 
+/** Можно ли послать грузовики вывезти этот дроп: он ещё лежит. Дропы ничьи, так что забрать его может любой. */
+export const canPickup = (sim: Sim, drop: Entity) => sim.world.alive(drop) && sim.world.has(drop, Drop)
+
+/**
+ * Посылает грузовики игрока вывезти дроп: они бросают прежнюю работу, шахту и маршрут и возят с него груз рейсами
+ * в хранилища и на переработку, где бы он ни лежал, пока он не опустеет. Потом свободны.
+ */
+export function assignPickup(sim: Sim, player: number, drop: Entity, units: Entity[]) {
+  const { world } = sim
+  if (!canPickup(sim, drop)) return false
+  const trucks = [...new Set(units)].filter((entity) => world.has(entity, Hauler) && !world.has(entity, Harvester) && isOwn(sim, player, entity))
+  for (const truck of trucks) {
+    releaseHauler(sim, truck)
+    world.get(truck, Hauler)!.pickup = drop
+    world.remove(truck, Path)
+  }
+  return trucks.length > 0
+}
+
 /** Что лежит в кузове: первый груз, которого там есть хоть сколько-то; undefined — пусто. */
 const carriedBy = (sim: Sim, truck: Entity): Good | undefined => {
   const cargo = sim.world.get(truck, Inventory)
@@ -68,6 +87,7 @@ export function releaseHauler(sim: Sim, truck: Entity) {
   const hauler = sim.world.get(truck, Hauler)
   if (!hauler) return
   hauler.mine = NONE
+  hauler.pickup = NONE
   hauler.route = []
   hauler.stop = 0
   dropJob(sim, truck)
@@ -160,6 +180,11 @@ export function haul(sim: Sim) {
       released.push(entity)
       continue
     }
+    if (hauler.pickup !== NONE && !canPickup(sim, hauler.pickup as Entity)) {
+      // Дроп вывезли или застроили: грузовик свободен.
+      released.push(entity)
+      continue
+    }
     if (world.has(entity, Path) || world.has(entity, Converting)) continue
     const retry = onTurn(time, entity, RETRY_TICKS)
 
@@ -185,6 +210,23 @@ export function haul(sim: Sim) {
         hauler.to = to
         hauler.resource = ore
         hauler.amount = Math.min(cargo.capacity, spaceFor(sim, entity, to, ore))
+        hauler.full = false
+      } else if (hauler.pickup !== NONE) {
+        // Следующий рейс с дропа: первый груз, который пускает фильтр и которому есть куда ехать. Фильтр не пускает
+        // ничего из лежащего — приказ снимается; места нет нигде — грузовик ждёт.
+        const drop = hauler.pickup as Entity
+        const goods = offersOf(sim, drop).filter((good) => !hauler.filter.length || hauler.filter.includes(good))
+        if (!goods.length) {
+          released.push(entity)
+          continue
+        }
+        if (!retry) continue
+        const job = goods.map((good) => ({ good, to: deliveryFor(sim, entity, good) })).find(({ to }) => to !== NONE)
+        if (!job) continue
+        hauler.from = drop
+        hauler.to = job.to
+        hauler.resource = job.good
+        hauler.amount = Math.min(cargo.capacity, spaceFor(sim, entity, job.to, job.good), spareOf(sim, drop, job.good))
         hauler.full = false
       } else {
         // Свободный и пустой ждёт работы от диспетчера.

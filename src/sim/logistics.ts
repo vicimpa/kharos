@@ -352,7 +352,7 @@ const isIdle = (sim: Sim, truck: Entity) => {
   const { world } = sim
   const hauler = world.get(truck, Hauler)!
   const cargo = world.get(truck, Inventory)
-  return !world.has(truck, Harvester) && !hauler.route.length && hauler.mine === NONE && hauler.from === NONE && hauler.to === NONE && (!cargo || loadOf(cargo) <= 1e-9) && !world.has(truck, Path) && !world.has(truck, Converting)
+  return !world.has(truck, Harvester) && !hauler.route.length && hauler.mine === NONE && hauler.pickup === NONE && hauler.from === NONE && hauler.to === NONE && (!cargo || loadOf(cargo) <= 1e-9) && !world.has(truck, Path) && !world.has(truck, Converting)
 }
 
 /**

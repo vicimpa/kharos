@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { Building, DEPOSIT_SIZE, Harvester, Producer, Hauler, depositNear, hasMine, type UnitType, Owner, Position, Repair, isOwn, UNITS, Unit, canAttack, canFight, canHaul, canRepair, isStop, siteAt, BUILDINGS, BRIDGE_COST, FOUNDATION_COST, ROAD_COST, creditsOf } from '../sim'
+import { Building, DEPOSIT_SIZE, Harvester, Producer, Hauler, depositNear, hasMine, type UnitType, Owner, Position, Repair, isOwn, UNITS, Unit, canAttack, canFight, canHaul, canRepair, dropAt, isStop, siteAt, BUILDINGS, BRIDGE_COST, FOUNDATION_COST, ROAD_COST, creditsOf } from '../sim'
 import type { CameraMotion } from './cameraMotion'
 import { paveStrokeOf, placementOf } from './placing'
 import type { Scene } from './scene'
@@ -225,6 +225,9 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
         sim.send(scene.player, { type: 'harvest', units, x: deposit.x, y: deposit.y })
       } else if (trucks && damaged !== undefined && canHaul(sim, scene.player, damaged)) {
         sim.send(scene.player, { type: 'haul', units, mine: damaged })
+      } else if (trucks && dropAt(sim, x, y) !== undefined) {
+        // Грузовики по дропу — вывозят его.
+        sim.send(scene.player, { type: 'pickup', units, drop: dropAt(sim, x, y)! })
       } else if (site !== undefined && builders && isOwn(sim, scene.player, site)) {
         sim.send(scene.player, { type: 'assist', units, site })
       } else {
