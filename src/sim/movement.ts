@@ -1,10 +1,10 @@
 import type { Entity, Time } from '../ecs'
 import { tileKey } from '../map/terrain'
-import { ownerOf, turnToward, wrap } from './common'
+import { onTurn, ownerOf, turnToward, wrap } from './common'
 import { Path, Position, Unit } from './components'
 import { searchedTiles } from './path'
 import type { Sim } from './sim'
-import { UNITS, canStand, flies, orderMove, stepAside, terrainSpeed } from './units'
+import { UNITS, canStand, fastestOf, flies, orderMove, roadInSight, stepAside, terrainSpeed } from './units'
 
 /** Сколько тиков юнит ждёт, не в силах сдвинуться, прежде чем проложить путь заново. */
 const WAIT_TICKS = 20
@@ -35,6 +35,8 @@ const LOST_SEARCHES = 8
 const YIELD_SEARCHES = 8
 /** Сколько тайлов за тик вместе осматривают перепрокладывающие путь; остальные ждут следующего тика. */
 const LOST_TILES = 8000
+/** Раз во сколько тиков идущий юнит смотрит, не показалась ли в обзоре дорога. */
+const ROAD_LOOK_TICKS = 20
 /** Сторона ячейки сетки, по которой ищутся соседи, в тайлах. Больше любого расстояния, на котором юниты мешают друг другу. */
 const CELL = 4
 
@@ -105,6 +107,8 @@ export function moveUnits(sim: Sim, time: Time) {
   /** Дошедшие до конца пути, не дойдя до цели: ищут путь дальше. */
   const further: { entity: Entity; x: number; y: number; tries: number; near: number; from?: number }[] = []
   const asked: { entity: Entity; by: Entity; x: number; y: number; heading: number; room: number }[] = []
+  /** Увидевшие дорогу на ходу: перестраивают путь с ней. */
+  const roadward: { entity: Entity; x: number; y: number; near: number }[] = []
   /** Юнит не может идти дальше: прокладывает путь заново или, если уже пробовал, встаёт. */
   const giveUp = (entity: Entity, path: { goalX: number; goalY: number; tries: number; near: number }) => {
     if (path.tries >= MAX_TRIES) stopped.push(entity)
@@ -116,6 +120,10 @@ export function moveUnits(sim: Sim, time: Time) {
     const { points } = path
     const { speed, turn, radius } = UNITS[unit.type]
     const air = flies(unit.type)
+    // Путь проложен без дороги, а она показалась в обзоре — юнит прикинет путь заново. Смотрит не каждый тик.
+    if (!path.roads && fastestOf(unit.type) > 1 && onTurn(time, entity, ROAD_LOOK_TICKS) && roadInSight(sim, entity)) {
+      roadward.push({ entity, x: path.goalX, y: path.goalY, near: path.near })
+    }
     const dx = points[0] - position.x
     const dy = points[1] - position.y
     const distance = Math.hypot(dx, dy)
@@ -225,6 +233,12 @@ export function moveUnits(sim: Sim, time: Time) {
     const next = world.get(entity, Path)
     const end = next?.points.length ? [Math.floor(next.points.at(-2)!), Math.floor(next.points.at(-1)!)] : undefined
     if (end && end[0] === fromX && end[1] === fromY) world.remove(entity, Path)
+  }
+  for (const { entity, x, y, near } of roadward) {
+    if (searchedTiles() - searchedBefore >= LOST_TILES) break
+    if (!world.has(entity, Path)) continue
+    // Новый путь помнит, что дорогу уже учёл, и второй раз её не ищет.
+    orderMove(sim, entity, x, y, undefined, 0, near)
   }
   for (const { entity, x, y, tries, near } of lost) {
     // Не уложившиеся в норму ждут дальше: их путь цел, и в следующий тик они попробуют снова.

@@ -280,3 +280,27 @@ test('путь колёсных сворачивает на дорогу, есл
   expect(onRoad('buggy')).toBeGreaterThan(0)
   expect(onRoad('tank')).toBe(0)
 })
+
+test('дорогу ищут в обзоре юнита, а показалась она на ходу — путь перестраивается с ней', () => {
+  const sim = createSim(options)
+  let at = { x: 0, y: 0 }
+  search: for (let ty = -200; ty < 200; ty++) {
+    for (let tx = -200; tx < 200; tx++) {
+      let ok = true
+      for (let yy = ty; yy < ty + 7 && ok; yy++) for (let xx = tx; xx < tx + 40 && ok; xx++) ok = terrainAt(sim.land, xx, yy) === Terrain.Rock
+      if (ok) {
+        at = { x: tx, y: ty }
+        break search
+      }
+    }
+  }
+  const buggy = spawnUnit(sim, 'buggy', 1, at.x + 1, at.y + 2)
+  // Дорога далеко за пределами обзора: путь прокладывается без неё.
+  for (let tx = at.x + 30; tx < at.x + 39; tx++) lay(sim, 'road', tx, at.y + 5)
+  orderMove(sim, buggy, at.x + 38, at.y + 2)
+  expect(sim.world.get(buggy, Path)!.roads).toBe(false)
+  // Рядом с юнитом легла дорога — он её замечает и прокладывает путь с ней.
+  for (let tx = at.x + 2; tx < at.x + 30; tx++) lay(sim, 'road', tx, at.y + 5)
+  for (let i = 0; i < 25; i++) sim.advance(1 / 20)
+  expect(sim.world.get(buggy, Path)?.roads).toBe(true)
+})

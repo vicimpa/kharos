@@ -51,7 +51,7 @@ export const Unit = component('Unit', {
  * wait — сколько тиков подряд юнит не может сдвинуться; tries — сколько раз путь к этой точке уже прокладывался заново.
  * near — на сколько тайлов достаточно подойти к цели: так идут к тому, в кого собираются стрелять.
  */
-export const Path = component('Path', () => ({ points: [] as number[], goalX: 0, goalY: 0, wait: 0, tries: 0, near: 0 }))
+export const Path = component('Path', () => ({ points: [] as number[], goalX: 0, goalY: 0, wait: 0, tries: 0, near: 0, roads: false }))
 
 /**
  * Игрок: сущность без места на карте. Отслеживается, чтобы интерфейс узнавал о смене счёта.

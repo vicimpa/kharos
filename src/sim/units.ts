@@ -3,6 +3,7 @@ import { Biome, Terrain, biomeAt, isPassable, terrainAt, tileKey } from '../map/
 import { FOUNDATION_SPEED, ROAD_SPEED, isPaved } from './paved'
 import { isOwn } from './common'
 import { Armed, Converting, Hauler, Harvester, Health, Owner, Repair, Path, Pave, Position, Producer, Unit } from './components'
+import { unitSight } from './vision'
 import { STARTING_CREDITS, addCredits } from './economy'
 import { equipStorage, type BeamSpec } from './inventory'
 import type { Amounts } from './resources'
@@ -174,17 +175,25 @@ function pavedFor(sim: Sim, type: UnitType, x: number, y: number) {
   return false
 }
 
-/** На сколько тайлов в стороне от прямоугольника между началом и целью пути ещё ищут дорогу. */
-const ROAD_DETOUR = 12
-
-/** Лежит ли готовая дорога рядом с прямоугольником между двумя тайлами. */
-function roadNear(sim: Sim, fromX: number, fromY: number, toX: number, toY: number) {
-  const left = Math.min(fromX, toX) - ROAD_DETOUR
-  const right = Math.max(fromX, toX) + ROAD_DETOUR
-  const top = Math.min(fromY, toY) - ROAD_DETOUR
-  const bottom = Math.max(fromY, toY) + ROAD_DETOUR
-  for (const [, position, pave] of sim.world.query(Position, Pave)) {
-    if (pave.done && pave.kind === 'road' && position.x >= left && position.x <= right && position.y >= top && position.y <= bottom) return true
+/**
+ * Видит ли юнит готовую дорогу: в радиусе его обзора. Дорогу, которой юнит не видит, поиск пути не ищет: оценка с запасом
+ * на дорогу дороже, и в поле она только тратила бы поиск. Увидит дорогу по пути — перестроит путь, см. movement.ts.
+ */
+export function roadInSight(sim: Sim, entity: Entity) {
+  // Покрытия нет вовсе — и смотреть нечего.
+  if (!sim.world.count(Pave)) return false
+  const position = sim.world.get(entity, Position)
+  const unit = sim.world.get(entity, Unit)
+  if (!position || !unit) return false
+  const sight = unitSight(unit.type)
+  const centerX = Math.floor(position.x)
+  const centerY = Math.floor(position.y)
+  const reach = Math.ceil(sight)
+  for (let dy = -reach; dy <= reach; dy++) {
+    for (let dx = -reach; dx <= reach; dx++) {
+      if (dx * dx + dy * dy > sight * sight) continue
+      if (isPaved(sim, 'road', centerX + dx, centerY + dy)) return true
+    }
   }
   return false
 }
@@ -346,8 +355,8 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
   // Шаг по тайлу стоит столько, сколько по нему ехать: медленные пески и болота путь объезжает, если выходит быстрее.
   const slowness = (tileX: number, tileY: number) => 1 / terrainSpeed(sim, type, tileX, tileY)
   // Подход на расстояние ищется недолго: не вышло обойти — юнит встанет поближе и попробует оттуда.
-  // Оценка с запасом на дорогу дороже обычной — поиск осматривает больше тайлов; нужна она, только если дорога рядом.
-  const fastest = fastestOf(type) > 1 && roadNear(sim, fromX, fromY, x, y) ? 1 / fastestOf(type) : 1
+  // Оценка с запасом на дорогу дороже обычной — поиск осматривает больше тайлов; нужна она, только если дорога в виду.
+  const fastest = fastestOf(type) > 1 && roadInSight(sim, entity) ? 1 / fastestOf(type) : 1
   const tiles = findPath(walkable, fromX, fromY, x, y, near, near ? APPROACH_LIMIT : limit, slowness, fastest)
   // Уже достаточно близко, а идти всё равно велят: значит, надо подойти вплотную. Цель рядом — и искать недолго.
   if (near && !tiles.length && (fromX - x) ** 2 + (fromY - y) ** 2 <= near * near) return orderMove(sim, entity, x, y, ignore, tries, 0, APPROACH_LIMIT)
@@ -359,7 +368,7 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
     tiles.map((value) => value + 0.5),
     slowness,
   )
-  if (points.length) world.add(entity, Path({ points, goalX: x, goalY: y, tries, near }))
+  if (points.length) world.add(entity, Path({ points, goalX: x, goalY: y, tries, near, roads: fastest < 1 }))
   else world.remove(entity, Path)
 }
 
