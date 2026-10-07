@@ -1,7 +1,7 @@
 import type { HudState, Stack } from '../game/hud'
 import type { PaveIcon } from '../game/portraits'
 import type { PaveTool } from '../game/scene'
-import { BRIDGE_COST, DEPOSIT_TYPES, FOUNDATION_COST, ORES, ROAD_COST, WARES, type BuildingType, type Command, type DepositKind, type Good } from '../sim'
+import { BRIDGE_COST, DEPOSIT_TYPES, FOUNDATION_COST, LEASH, ORES, ROAD_COST, WARES, type Stance, type BuildingType, type Command, type DepositKind, type Good } from '../sim'
 import { BUILDING_NAMES, RESOURCE_NAMES, UNIT_NAMES, goodName } from './names'
 
 /** Клавиши ячеек сетки команд по порядку: три ряда по четыре, как на клавиатуре, справа от WASD. */
@@ -57,8 +57,17 @@ interface Actions {
   place: (building: BuildingType | null) => void
   pave: (tool: PaveTool | null) => void
   route: (start: boolean) => void
+  patrol: (start: boolean) => void
   open: (page: Page) => void
 }
+
+/** Кнопки стоек: подпись и подсказка. */
+const STANCE_SLOTS: { stance: Stance; label: string; title: string }[] = [
+  { stance: 'aggressive', label: 'Агрессивно', title: 'Идти на любого врага, которого видно, и гнаться за ним' },
+  { stance: 'defensive', label: 'Оборона', title: `Бить тех, кого достаёт; на огонь отвечать погоней не дальше ${LEASH} тайлов и возвращаться на место` },
+  { stance: 'hold', label: 'Держать позицию', title: 'С места не сходить: бить только тех, кого достаёт, и под огнём тоже' },
+  { stance: 'passive', label: 'Не стрелять', title: 'Огонь не открывать и не отвечать: стрелять только по приказу атаки' },
+]
 
 /** Инструменты раздела «Покрытие»: подпись, цена тайла и подсказка. */
 const PAVE_TOOLS: { tool: PaveTool; label: string; cost?: number; title: string }[] = [
@@ -68,7 +77,7 @@ const PAVE_TOOLS: { tool: PaveTool; label: string; cost?: number; title: string 
 ]
 
 /** Сетка команд для выбранного: GRID_SIZE ячеек, пустые — null. */
-export function commandsOf(state: HudState, page: Page, { send, place, pave, route, open }: Actions): (Slot | null)[] {
+export function commandsOf(state: HudState, page: Page, { send, place, pave, route, patrol, open }: Actions): (Slot | null)[] {
   const slots: (Slot | null)[] = Array(GRID_SIZE).fill(null)
   const list = (items: Slot[]) => items.slice(0, LIST).forEach((slot, i) => (slots[i] = slot))
   const { construction, production, conversion, assembly, trade, site, demolish, credits } = state
@@ -166,6 +175,20 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
     } else if (conversion.cancel) {
       const cancel = conversion.cancel
       slots[CANCEL] = { label: 'Отменить', run: () => send(cancel) }
+    }
+  }
+
+  const { tactics } = state
+  if (tactics && !construction && page === 'root') {
+    const { units } = tactics
+    STANCE_SLOTS.forEach(({ stance, label, title }, i) => {
+      slots[i] = { label, active: tactics.stance === stance, title, run: () => send({ type: 'stance', units, stance }) }
+    })
+    slots[4] = {
+      label: tactics.picking === null ? 'Патруль' : `Патруль: ${tactics.picking}`,
+      active: tactics.picking !== null || tactics.patrolling > 0,
+      title: 'Щёлкни точку на карте — бойцы будут ходить туда и обратно; с Shift — ещё точка; правая кнопка или Enter — готово, Esc — отмена',
+      run: () => patrol(tactics.picking === null),
     }
   }
 

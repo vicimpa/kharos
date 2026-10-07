@@ -18,6 +18,8 @@ interface HudProps {
   pave: (tool: PaveTool | null) => void
   /** Начать набор маршрута грузовикам; false — отменить. */
   route: (start: boolean) => void
+  /** Начать набор точек патруля бойцам; false — отменить. */
+  patrol: (start: boolean) => void
   minimap: Minimap
   /** Камера в точку карты, в тайлах. */
   lookAt: (x: number, y: number) => void
@@ -432,6 +434,9 @@ function Info({ state, lookAtSelection, narrow }: { state: HudState; lookAtSelec
             </div>
           </>
         )}
+        {state.tactics?.picking !== null && state.tactics?.picking !== undefined && (
+          <div class="hud__hint">Точки патруля: {state.tactics.picking}. Левая кнопка — точка и в путь, с Shift — ещё точка; правая или Enter — в путь по набранным, Esc — отмена</div>
+        )}
         {construction?.paving && (
           <div class="hud__hint">
             {construction.paving.tool === 'remove' ? 'Тяни левой кнопкой, что снять' : `Тяни левой кнопкой: ${construction.paving.tiles} тайл., ${construction.paving.cost} кредитов${construction.paving.short ? `; на ${construction.paving.short} тайл. не хватает кредитов (жёлтые)` : ''}`}; правая или Esc — хватит
@@ -448,7 +453,7 @@ function Info({ state, lookAtSelection, narrow }: { state: HudState; lookAtSelec
 }
 
 /** Интерфейс игрока: верхняя полоса со счётом и нижняя панель — мини-карта, выбранное, сетка команд. */
-export function Hud({ state, send, place, pave, route, minimap, lookAt, lookAtSelection, narrow, moveSelected, menu }: HudProps) {
+export function Hud({ state, send, place, pave, route, patrol, minimap, lookAt, lookAtSelection, narrow, moveSelected, menu }: HudProps) {
   const selected = state.units.length > 0 || state.building !== null
   const fresh = useNewRewards(state.rewards, state.loaded)
 
@@ -457,7 +462,7 @@ export function Hud({ state, send, place, pave, route, minimap, lookAt, lookAtSe
   const selectionKey = `${state.building}:${state.units.map(({ type, count }) => `${type}${count}`).join()}`
   useEffect(() => setPage(state.construction?.placing || state.construction?.paving ? page : 'root'), [selectionKey])
 
-  const slots = selected ? commandsOf(state, page, { send, place, pave, route, open: setPage }) : []
+  const slots = selected ? commandsOf(state, page, { send, place, pave, route, patrol, open: setPage }) : []
 
   // Клавиши сетки. Читаются из ref, чтобы не переподписываться на каждое обновление.
   const slotsRef = useRef(slots)

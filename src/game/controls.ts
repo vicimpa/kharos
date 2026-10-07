@@ -114,7 +114,14 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     pressed = null
     const point = camera.screenToTile(event.offsetX, event.offsetY)
 
-    if (scene.routing) {
+    if (scene.patrolling) {
+      // Левый щелчок — точка патруля; с Shift — набор продолжается, без — патруль уходит. Правый — патруль по набранному.
+      if (button === LEFT && !dragged) {
+        scene.patrolling.push(Math.floor(point.x), Math.floor(point.y))
+        if (!event.shiftKey) finishPatrol()
+      }
+      if (button === RIGHT && !dragged) finishPatrol()
+    } else if (scene.routing) {
       // Левый щелчок по своему зданию со складом — ещё остановка; правый — маршрут готов.
       if (button === LEFT && !dragged) {
         const building = scene.sim.occupancy.at(Math.floor(point.x), Math.floor(point.y))
@@ -246,15 +253,23 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
       lastGroup = { digit, at: now }
     }
     if ((event.code === 'Enter' || event.code === 'NumpadEnter') && scene.routing) finishRoute()
+    if ((event.code === 'Enter' || event.code === 'NumpadEnter') && scene.patrolling) finishPatrol()
     if (event.code === 'Escape') {
       // Сначала отменяется выбор места, и только следующим нажатием — выделение.
-      if (scene.routing) scene.routing = null
+      if (scene.patrolling) scene.patrolling = null
+      else if (scene.routing) scene.routing = null
       else if (scene.paving) {
         scene.paving = null
         scene.paveFrom = null
       } else if (scene.placing) scene.placing = null
       else scene.selection.clear()
     }
+  }
+  /** Посылает выбранных бойцов в патруль по набранным точкам; без точек набор просто кончается. */
+  const finishPatrol = () => {
+    const points = scene.patrolling ?? []
+    scene.patrolling = null
+    if (points.length) scene.sim.send(scene.player, { type: 'patrol', units: [...scene.selection], points })
   }
   /** Отдаёт набранный маршрут выбранным грузовикам; меньше двух остановок — набор просто кончается. */
   const finishRoute = () => {
@@ -319,6 +334,12 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     const credits = creditsOf(scene.sim, scene.player)
     if (scene.placing && credits < BUILDINGS[scene.placing].cost) scene.placing = null
     if (scene.paving && scene.paving !== 'remove' && credits < Math.min(...PAVE_COSTS[scene.paving])) scene.paving = null
+    // Патруль набирают бойцам: без них набор отменяется.
+    if (scene.patrolling) {
+      let fighters = false
+      for (const entity of scene.selection) fighters ||= canFight(scene.sim, entity)
+      if (!fighters) scene.patrolling = null
+    }
     // Маршрут набирают грузовикам: без них набор отменяется.
     if (scene.routing) {
       let trucks = false

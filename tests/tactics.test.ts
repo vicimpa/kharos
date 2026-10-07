@@ -106,3 +106,34 @@ test('патруль: юнит ходит туда и обратно, а при�
   seconds(sim, 10)
   expect(sim.world.has(ours, Path)).toBe(false)
 })
+
+test('стойки работают и на юнитах с турелями: багги «не стрелять» молчит, «агрессивно» — едет на врага', () => {
+  const run = (stance: 'passive' | 'aggressive' | 'defensive') => {
+    const { sim, x, y } = field()
+    const ours = put(sim, 'buggy', 1, x + 5, y)
+    // Пулемётчик багги бьёт на 5 тайлов, а видит багги дальше: враг на 7 — в обзоре, но не на выстреле.
+    const foe = put(sim, 'infantry', 2, x + (stance === 'passive' ? 8 : 12), y)
+    sim.send(1, { type: 'stance', units: [ours], stance })
+    sim.send(2, { type: 'stance', units: [foe], stance: 'passive' })
+    seconds(sim, 5)
+    return hurt(sim, foe)
+  }
+  expect(run('passive')).toBe(false)
+  expect(run('aggressive')).toBe(true)
+  expect(run('defensive')).toBe(false)
+})
+
+test('«держать позицию» на юните с турелью: под огнём издалека багги с места не сходит', () => {
+  const run = (stance: 'hold' | 'defensive') => {
+    const { sim, x, y } = field()
+    const ours = put(sim, 'buggy', 1, x + 5, y)
+    const foe = put(sim, 'rocketeer', 2, x + 11.5, y)
+    sim.send(1, { type: 'stance', units: [ours], stance })
+    sim.send(2, { type: 'stance', units: [foe], stance: 'hold' })
+    sim.send(2, { type: 'attack', units: [foe], target: ours })
+    seconds(sim, 3)
+    return sim.world.alive(ours) ? at(sim, ours).x - (x + 5.5) : Infinity
+  }
+  expect(Math.abs(run('hold'))).toBeLessThan(0.5)
+  expect(run('defensive')).toBeGreaterThan(1)
+})

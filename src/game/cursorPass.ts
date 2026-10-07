@@ -2,7 +2,7 @@ import { setBlend } from '../gl'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites, createWhiteTexture } from '../render/sprites'
 import type { Entity } from '../ecs'
-import { BUILDINGS, Building, CONTROL_RADIUS, Hauler, Position, allZones } from '../sim'
+import { BUILDINGS, Building, CONTROL_RADIUS, Hauler, Position, Tactics, Unit, allZones } from '../sim'
 import { paveStrokeOf, placementOf } from './placing'
 import type { Scene } from './scene'
 
@@ -50,6 +50,24 @@ function routesOf(scene: Scene): DrawnRoute[] {
   for (const entity of scene.selection) {
     const route = world.get(entity, Hauler)?.route
     if (route?.length) add(route, true)
+  }
+  // Патруль: точки — тайлы. Набираемый — от выбранного бойца через набранные точки.
+  const tiles = (points: readonly number[], closed: boolean) => {
+    const key = `patrol:${closed}:${points.join()}`
+    if (points.length < 2 || seen.has(key)) return
+    seen.add(key)
+    const stops = []
+    for (let i = 0; i + 1 < points.length; i += 2) stops.push({ x: points[i], y: points[i + 1], width: 1, height: 1 })
+    routes.push({ stops, closed })
+  }
+  for (const entity of scene.selection) {
+    const patrol = world.get(entity, Tactics)?.patrol
+    if (patrol?.length) tiles(patrol, true)
+  }
+  if (scene.patrolling?.length) {
+    const first = [...scene.selection].find((entity) => world.has(entity, Unit))
+    const at = first === undefined ? undefined : world.get(first, Position)
+    tiles(at ? [Math.floor(at.x), Math.floor(at.y), ...scene.patrolling] : scene.patrolling, false)
   }
   return routes
 }

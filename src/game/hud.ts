@@ -4,7 +4,7 @@ import type { Entity } from '../ecs'
 import {
   Assembly, Harvester, BUILDABLE, buyPrice, roomFor, BUILDINGS, Building, Converting, Hauler, Health, CORE, GOODS, PRODUCT_SPECS, REFINE_RATE, RESOURCES, RESOURCE_SPECS, buildingSpec, cycleSeconds, isOwn, missingRequirements, producibleBy, productStock, Trade, Inventory, amountOf, loadOf, deliveredTo, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit, unitSpec,
   awaitsMaterials, buildTicks, canDemolish, canFight, canDeploy, canPack, depositAt, depositNear, DEPOSIT_SIZE, entriesOf, isDeployBlocked, creditsOf, economyOf, isSiteBlocked, materialsFor, reserveLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, spareOf, zoneEconomies, zonesOf,
-  Position, type Amounts, type BuildingType, type Command, type DepositKind, type Good, type Ore, type Product, type Resource, type UnitType,
+  Position, Tactics, stanceOf, type Stance, type Amounts, type BuildingType, type Command, type DepositKind, type Good, type Ore, type Product, type Resource, type UnitType,
 } from '../sim'
 import { paveStrokeOf } from './placing'
 import type { PaveTool, Scene } from './scene'
@@ -42,6 +42,11 @@ export interface HudState {
   units: { type: UnitType; count: number }[]
   /** Бой: сколько среди выбранных юнитов вооружённых и средняя прочность выбранных юнитов от 0 до 1. */
   army: { armed: number; health: number } | null
+  /**
+   * Тактика выбранных бойцов: кому слать стойку и патруль; stance — общая стойка или null, если у них разные;
+   * patrolling — сколько из них в патруле; picking — сколько точек патруля игрок уже набрал, null — не набирает.
+   */
+  tactics: { units: number[]; stance: Stance | null; patrolling: number; picking: number | null } | null
   /** Выбранное здание, если выбрано оно. */
   building: BuildingType | null
   /** Месторождение под выбранной шахтой: что в нём и сколько осталось. */
@@ -199,6 +204,7 @@ export function readHud(scene: Scene): HudState {
   let materials: HudState['materials'] = null
   let cargo: HudState['cargo'] = null
   let haul: HudState['haul'] = null
+  let tactics: HudState['tactics'] = null
   let trade: HudState['trade'] = null
   let power: HudState['power'] = null
   let health: number | null = null
@@ -215,7 +221,14 @@ export function readHud(scene: Scene): HudState {
       counts.set(unit.type, (counts.get(unit.type) ?? 0) + 1)
       unitHealth += world.get(entity, Health)?.value ?? 1
       unitCount++
-      if (canFight(sim, entity)) armed++
+      if (canFight(sim, entity)) {
+        armed++
+        const stance = stanceOf(sim, entity)
+        tactics ??= { units: [], stance, patrolling: 0, picking: scene.patrolling ? scene.patrolling.length / 2 : null }
+        tactics.units.push(entity)
+        if (tactics.stance !== stance) tactics.stance = null
+        if (world.get(entity, Tactics)?.patrol.length) tactics.patrolling++
+      }
     }
     building = world.get(entity, Building)?.type ?? world.get(entity, Site)?.type ?? building
     if (building !== null && buildingSpec(building).extract) {
@@ -364,6 +377,7 @@ export function readHud(scene: Scene): HudState {
     trade,
     cargo,
     haul,
+    tactics,
     site,
     demolish,
     construction: counts.has('builder')
