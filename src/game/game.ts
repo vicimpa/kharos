@@ -68,6 +68,8 @@ export interface Game {
   place(building: BuildingType | null): void
   /** Начинает укладку или снятие покрытия; null — отменяет. */
   pave(tool: PaveTool | null): void
+  /** Начинает набор маршрута выбранным грузовикам щелчками по зданиям; false — отменяет. */
+  route(start: boolean): void
   /** Выбирает, что ставит отладочный спавн; null — выключает его. */
   spawn(spawn: Spawn | null): void
   /** Мини-карта нижней панели. */
@@ -118,6 +120,7 @@ export function createGame(
     placing: null,
     paving: null,
     paveFrom: null,
+    routing: null,
     spawning: null,
     grid: false,
     weather: weatherAt(session.sim.options, session.sim.time.elapsed),
@@ -226,6 +229,7 @@ export function createGame(
       scene.placing = null
       scene.paving = null
       scene.paveFrom = null
+      scene.routing = null
       scene.spawning = null
       centered = false
     }
@@ -287,6 +291,10 @@ export function createGame(
     place(building) {
       scene.placing = building
       if (building) scene.paving = null
+    },
+    route(start) {
+      scene.routing = start ? [] : null
+      if (start) scene.placing = scene.paving = null
     },
     pave(tool) {
       scene.paving = tool

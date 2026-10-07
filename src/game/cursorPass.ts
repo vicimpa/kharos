@@ -1,7 +1,8 @@
 import { setBlend } from '../gl'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites, createWhiteTexture } from '../render/sprites'
-import { BUILDINGS, CONTROL_RADIUS, allZones } from '../sim'
+import type { Entity } from '../ecs'
+import { BUILDINGS, Building, CONTROL_RADIUS, Hauler, Position, allZones } from '../sim'
 import { paveStrokeOf, placementOf } from './placing'
 import type { Scene } from './scene'
 
@@ -16,6 +17,40 @@ const FORBIDDEN: Color = [1, 0.3, 0.25]
 const CONTROL: Color = [0.3, 0.6, 1]
 /** Снимаемое покрытие. */
 const REMOVE: Color = [1, 0.65, 0.2]
+/** Маршрут грузовиков: цвет, размер точки пунктира в пикселях экрана и шаг пунктира в тайлах. */
+const ROUTE: Color = [1, 0.85, 0.3]
+const ROUTE_DOT = 3
+const ROUTE_STEP = 0.5
+
+/** Маршрут на карте: остановки прямоугольниками основания; closed — замкнут по кругу, а не ещё набирается. */
+interface DrawnRoute {
+  stops: { x: number; y: number; width: number; height: number }[]
+  closed: boolean
+}
+
+/** Маршруты для показа: набираемый игроком и маршруты выбранных грузовиков, каждый по разу. */
+function routesOf(scene: Scene): DrawnRoute[] {
+  const { world } = scene.sim
+  const stopOf = (entity: number) => {
+    const position = world.get(entity as Entity, Position)
+    const type = world.get(entity as Entity, Building)?.type
+    return position && type !== undefined ? { x: position.x, y: position.y, ...BUILDINGS[type] } : null
+  }
+  const routes: DrawnRoute[] = []
+  const seen = new Set<string>()
+  const add = (entities: readonly number[], closed: boolean) => {
+    const key = `${closed}:${entities.join()}`
+    if (!entities.length || seen.has(key)) return
+    seen.add(key)
+    routes.push({ stops: entities.map(stopOf).filter((stop) => stop !== null), closed })
+  }
+  if (scene.routing) add(scene.routing, false)
+  for (const entity of scene.selection) {
+    const route = world.get(entity, Hauler)?.route
+    if (route?.length) add(route, true)
+  }
+  return routes
+}
 /** Граница радиуса контроля — пунктир: столько штрихов на круг, каждый такой длины и толщины в пикселях экрана. */
 const CONTROL_DASHES = 120
 const CONTROL_DASH = 3
@@ -33,10 +68,10 @@ export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass
 
   return {
     draw({ camera, view }) {
-      if (!scene.camera.pointerTile) return
-      const placement = placementOf(scene)
-      const stroke = paveStrokeOf(scene)
-      if (!placement && !stroke) return
+      const placement = scene.camera.pointerTile ? placementOf(scene) : null
+      const stroke = scene.camera.pointerTile ? paveStrokeOf(scene) : null
+      const routes = routesOf(scene)
+      if (!placement && !stroke && !routes.length) return
 
       /** Прямоугольник в тайлах от камеры. */
       const rect = (x: number, y: number, width: number, height: number, [r, g, b]: Color, alpha: number) =>
@@ -54,7 +89,23 @@ export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass
       }
 
       rects.clear()
-      {
+      // Маршруты грузовиков: остановки в рамке, между ними — пунктир по кругу.
+      for (const { stops, closed } of routes) {
+        const size = ROUTE_DOT / camera.zoom
+        const centers = stops.map(({ x, y, width, height }) => ({ x: x + width / 2, y: y + height / 2 }))
+        for (const { x, y, width, height } of stops) area(x, y, width, height, ROUTE)
+        const legs = closed ? centers.length : centers.length - 1
+        for (let i = 0; i < legs; i++) {
+          const from = centers[i]
+          const to = centers[(i + 1) % centers.length]
+          const length = Math.hypot(to.x - from.x, to.y - from.y)
+          for (let along = 0; along < length; along += ROUTE_STEP) {
+            const t = along / length
+            rect(from.x + (to.x - from.x) * t - camera.x - size / 2, from.y + (to.y - from.y) * t - camera.y - size / 2, size, size, ROUTE, BORDER_ALPHA)
+          }
+        }
+      }
+      if (placement || stroke) {
         const size = CONTROL_DASH / camera.zoom
         /** Внешняя граница зоны пунктиром. zone — круги: x, y и радиус подряд. */
         const outline = (zone: readonly number[], color: Color) => {

@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { DEPOSIT_SIZE, Harvester, depositNear, hasMine, type UnitType, Owner, Position, Repair, isOwn, UNITS, Unit, canAttack, canFight, canHaul, canRepair, siteAt } from '../sim'
+import { DEPOSIT_SIZE, Harvester, depositNear, hasMine, type UnitType, Owner, Position, Repair, isOwn, UNITS, Unit, canAttack, canFight, canHaul, canRepair, isStop, siteAt } from '../sim'
 import { paveStrokeOf, placementOf, spawnGhostOf } from './placing'
 import type { Scene, Spawn } from './scene'
 
@@ -112,6 +112,14 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     if (scene.spawning) {
       if (button === LEFT && !dragged) spawnAt(scene.spawning)
       if (button === RIGHT && !dragged) scene.spawning = null
+    } else if (scene.routing) {
+      // Левый щелчок по своему зданию со складом — ещё остановка; правый — маршрут готов.
+      if (button === LEFT && !dragged) {
+        const building = scene.sim.occupancy.at(Math.floor(point.x), Math.floor(point.y))
+        const last = scene.routing[scene.routing.length - 1]
+        if (building !== undefined && building !== last && isStop(scene.sim, scene.player, building)) scene.routing.push(building)
+      }
+      if (button === RIGHT && !dragged) finishRoute()
     } else if (scene.paving) {
       if (button === RIGHT && !dragged) scene.paving = null
       const stroke = button === LEFT ? paveStrokeOf(scene) : null
@@ -246,15 +254,23 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
       if (lastGroup?.digit === digit && now - lastGroup.at < DOUBLE_TAP) lookAtSelection()
       lastGroup = { digit, at: now }
     }
+    if ((event.code === 'Enter' || event.code === 'NumpadEnter') && scene.routing) finishRoute()
     if (event.code === 'Escape') {
       // Сначала отменяется выбор места, и только следующим нажатием — выделение.
       if (scene.spawning) scene.spawning = null
+      else if (scene.routing) scene.routing = null
       else if (scene.paving) {
         scene.paving = null
         scene.paveFrom = null
       } else if (scene.placing) scene.placing = null
       else scene.selection.clear()
     }
+  }
+  /** Отдаёт набранный маршрут выбранным грузовикам; меньше двух остановок — набор просто кончается. */
+  const finishRoute = () => {
+    const stops = scene.routing ?? []
+    scene.routing = null
+    if (stops.length > 1) scene.sim.send(scene.player, { type: 'route', units: [...scene.selection], stops })
   }
   /** Наводит камеру на середину выделенного. */
   const lookAtSelection = () => {
@@ -308,6 +324,12 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
       let builders = false
       for (const entity of scene.selection) builders ||= scene.sim.world.get(entity, Unit)?.type === 'builder'
       if (!builders) scene.placing = null
+    }
+    // Маршрут набирают грузовикам: без них набор отменяется.
+    if (scene.routing) {
+      let trucks = false
+      for (const entity of scene.selection) trucks ||= scene.sim.world.get(entity, Unit)?.type === 'truck'
+      if (!trucks) scene.routing = null
     }
     // Покрытие кладут строители, а снимают и без них.
     if (scene.paving && scene.paving !== 'remove') {

@@ -1,7 +1,7 @@
 import type { HudState, Stack } from '../game/hud'
 import type { PaveTool } from '../game/scene'
-import { BRIDGE_COST, DEPOSIT_TYPES, FOUNDATION_COST, ROAD_COST, type BuildingType, type Command, type DepositKind, type Good } from '../sim'
-import { BUILDING_NAMES, RESOURCE_NAMES, UNIT_NAMES } from './names'
+import { BRIDGE_COST, DEPOSIT_TYPES, FOUNDATION_COST, ORES, ROAD_COST, WARES, type BuildingType, type Command, type DepositKind, type Good } from '../sim'
+import { BUILDING_NAMES, RESOURCE_NAMES, UNIT_NAMES, goodName } from './names'
 
 /** Клавиши ячеек сетки команд по порядку: три ряда по четыре, как на клавиатуре, справа от WASD. */
 export const GRID_KEYS = ['KeyT', 'KeyY', 'KeyU', 'KeyI', 'KeyG', 'KeyH', 'KeyJ', 'KeyK', 'KeyB', 'KeyN', 'KeyM', 'Comma'] as const
@@ -19,7 +19,7 @@ const TRADE = 8
 const LIST = 8
 
 /** Страница сетки строителя: корень с разделами или сами здания раздела. */
-export type Page = 'root' | 'economy' | 'storage' | 'industry' | 'military' | 'paving' | 'sell' | 'buy'
+export type Page = 'root' | 'economy' | 'storage' | 'industry' | 'military' | 'paving' | 'filter' | 'sell' | 'buy'
 
 /** Разделы строителя: в какой странице какое здание. Остальное — хозяйство: энергия, добыча, торговля. */
 const SECTIONS: Partial<Record<Page, BuildingType[]>> = {
@@ -52,6 +52,7 @@ interface Actions {
   send: (command: Command) => void
   place: (building: BuildingType | null) => void
   pave: (tool: PaveTool | null) => void
+  route: (start: boolean) => void
   open: (page: Page) => void
 }
 
@@ -63,7 +64,7 @@ const PAVE_TOOLS: { tool: PaveTool; label: string; cost?: number; title: string 
 ]
 
 /** Сетка команд для выбранного: GRID_SIZE ячеек, пустые — null. */
-export function commandsOf(state: HudState, page: Page, { send, place, pave, open }: Actions): (Slot | null)[] {
+export function commandsOf(state: HudState, page: Page, { send, place, pave, route, open }: Actions): (Slot | null)[] {
   const slots: (Slot | null)[] = Array(GRID_SIZE).fill(null)
   const list = (items: Slot[]) => items.slice(0, LIST).forEach((slot, i) => (slots[i] = slot))
   const { construction, production, conversion, assembly, trade, site, demolish, credits } = state
@@ -159,6 +160,41 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, ope
     } else if (conversion.cancel) {
       const cancel = conversion.cancel
       slots[CANCEL] = { label: 'Отменить', run: () => send(cancel) }
+    }
+  }
+
+  const { haul } = state
+  if (haul && !construction) {
+    const { units, filter } = haul
+    if (page === 'root') {
+      slots[0] = {
+        label: haul.routing === null ? 'Маршрут' : `Маршрут: ${haul.routing}`,
+        active: haul.routing !== null,
+        title: 'Щёлкай по своим зданиям со складом по порядку; правая кнопка или Enter — готово, Esc — отмена',
+        run: () => route(haul.routing === null),
+      }
+      if (haul.routed > 0) {
+        slots[1] = { label: 'Снять маршрут', title: 'Грузовики вернутся к заявкам зон', run: () => send({ type: 'route', units, stops: [] }) }
+      }
+      slots[2] = {
+        label: filter.length ? `Фильтр: ${filter.length}` : 'Фильтр',
+        active: filter.length > 0,
+        title: 'Какие грузы возить по заявкам и маршруту',
+        run: () => open('filter'),
+      }
+    } else if (page === 'filter') {
+      /** Руда в фильтре — вся сразу: по видам её различает месторождение, а не игрок. */
+      const has = (goods: readonly Good[]) => goods.every((good) => filter.includes(good))
+      const toggle = (goods: readonly Good[]) => {
+        const next = has(goods) ? filter.filter((good) => !goods.includes(good)) : [...filter, ...goods.filter((good) => !filter.includes(good))]
+        send({ type: 'filter', units, goods: next })
+      }
+      WARES.forEach((ware, i) => {
+        slots[i] = { label: goodName(ware), good: ware, active: has([ware]), title: 'Возить или нет', run: () => toggle([ware]) }
+      })
+      slots[WARES.length] = { label: 'Руда', good: ORES[0], active: has(ORES), title: 'Возить руду или нет', run: () => toggle(ORES) }
+      slots[CANCEL] = { label: 'Всё', active: !filter.length, title: 'Снять фильтр: возить любые грузы', run: () => send({ type: 'filter', units, goods: [] }) }
+      slots[BACK] = { label: 'Назад', run: () => open('root') }
     }
   }
 

@@ -16,6 +16,8 @@ interface HudProps {
   place: (building: BuildingType | null) => void
   /** Начать укладку или снятие покрытия; null — отменить. */
   pave: (tool: PaveTool | null) => void
+  /** Начать набор маршрута грузовикам; false — отменить. */
+  route: (start: boolean) => void
   minimap: Minimap
   /** Камера в точку карты, в тайлах. */
   lookAt: (x: number, y: number) => void
@@ -370,8 +372,12 @@ function Info({ state, lookAtSelection, narrow }: { state: HudState; lookAtSelec
           <div class="hud__hint">
             Груз: <Stacks items={state.cargo.items} />
             {state.cargo.items.length === 0 && 'пусто'} из {state.cargo.capacity}.{' '}
-            {state.cargo.bound > 0
+            {state.haul?.routing !== null && state.haul?.routing !== undefined
+              ? `Набор маршрута: остановок ${state.haul.routing}. Щёлкай по своим зданиям со складом; правая кнопка или Enter — готово, Esc — отмена`
+              : state.cargo.bound > 0
               ? 'Возит руду из шахты на переработку'
+              : state.haul && state.haul.routed > 0
+                ? 'Ездит по маршруту: на каждой остановке сгружает, что там принимают, и берёт для следующей'
               : state.cargo.busy > 0
                 ? 'Везёт по заявке зоны'
                 : 'Свободен: сам берёт заявки зон. Правый щелчок по шахте — возить только из неё'}
@@ -441,7 +447,7 @@ function Info({ state, lookAtSelection, narrow }: { state: HudState; lookAtSelec
 }
 
 /** Интерфейс игрока: верхняя полоса со счётом и нижняя панель — мини-карта, выбранное, сетка команд. */
-export function Hud({ state, send, place, pave, minimap, lookAt, lookAtSelection, narrow, moveSelected, menu }: HudProps) {
+export function Hud({ state, send, place, pave, route, minimap, lookAt, lookAtSelection, narrow, moveSelected, menu }: HudProps) {
   const selected = state.units.length > 0 || state.building !== null
   const fresh = useNewRewards(state.rewards, state.loaded)
 
@@ -450,7 +456,7 @@ export function Hud({ state, send, place, pave, minimap, lookAt, lookAtSelection
   const selectionKey = `${state.building}:${state.units.map(({ type, count }) => `${type}${count}`).join()}`
   useEffect(() => setPage(state.construction?.placing || state.construction?.paving ? page : 'root'), [selectionKey])
 
-  const slots = selected ? commandsOf(state, page, { send, place, pave, open: setPage }) : []
+  const slots = selected ? commandsOf(state, page, { send, place, pave, route, open: setPage }) : []
 
   // Клавиши сетки. Читаются из ref, чтобы не переподписываться на каждое обновление.
   const slotsRef = useRef(slots)
