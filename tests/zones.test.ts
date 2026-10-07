@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Terrain, terrainAt } from '../src/map/terrain'
-import { createSim, type BuildingType, type Sim } from '../src/sim'
+import { Owner, Pave, Position, createSim, type BuildingType, type Sim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { zonesOf } from '../src/sim/zones'
 
@@ -40,4 +40,26 @@ test('здание в перекрытии двух зон соединяет и
   expect(zonesOf(sim, 1).length).toBe(2)
   placeBuilding(sim.world, 'generator', x + 10, y, 1)
   expect(zonesOf(sim, 1).length).toBe(1)
+})
+
+/** Сохранение через JSON, как на сервере. */
+const reload = (sim: Sim) => createSim(JSON.parse(JSON.stringify(sim.save())))
+
+test('после загрузки сохранения зоны те же: шахта раньше главного и полоса фундамента', () => {
+  const sim = createSim(options)
+  const { x, y } = rock(sim, 34, 4)
+  placeBuilding(sim.world, 'mine', x + 10, y, 1)
+  placeBuilding(sim.world, 'command', x, y, 1)
+  const generator = placeBuilding(sim.world, 'generator', x + 30, y, 1)
+  expect(zonesOf(sim, 1).length).toBe(2)
+  for (let tx = x + 12; tx < x + 30; tx++) sim.world.spawn(Position({ x: tx, y: y + 2 }), Pave({ kind: 'foundation', done: true, work: 1 }), Owner({ player: 1 }))
+  expect(zonesOf(sim, 1).length).toBe(1)
+  const loaded = reload(sim)
+  expect(zonesOf(loaded, 1).length).toBe(1)
+  expect(zonesOf(loaded, 1)[0].buildings.length).toBe(3)
+  expect(zonesOf(loaded, 1)[0].buildings).toContain(generator)
+  // И дальше зоны пересчитываются: разрыв полосы снова отделяет электростанцию.
+  loaded.world.destroy(loaded.paving.at(x + 20, y + 2)!)
+  loaded.advance(1 / 20)
+  expect(zonesOf(loaded, 1).length).toBe(2)
 })
