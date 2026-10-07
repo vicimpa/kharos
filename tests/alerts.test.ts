@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { createAlerts } from '../src/game/alerts'
 import type { Scene } from '../src/game/scene'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { Health, createSim } from '../src/sim'
+import { Health, Shot, createSim } from '../src/sim'
 import { spawnUnit } from '../src/sim/units'
 
 /** Уведомления над миром без отрисовки: им нужны только мир и номер игрока. */
@@ -38,6 +38,8 @@ test('об атаке предупреждают раз, а снова — ко�
   const foe = spawnUnit(sim, 'infantry', 2, 5, 5)
   alerts.update(0.1)
   const hit = () => {
+    // Выстрел врага в танк и урон от него.
+    sim.world.spawn(Shot({ player: 2, fromX: 5, fromY: 5, toX: 0, toY: 0 }))
     sim.world.get(own, Health)!.value -= 1
     alerts.update(0.1)
   }
@@ -53,4 +55,16 @@ test('об атаке предупреждают раз, а снова — ко�
   alerts.update(0.1)
   hit()
   expect(kinds().filter((kind) => kind === 'attacked')).toHaveLength(2)
+})
+
+test('урон без чужого выстрела рядом — не атака: прочность падает и от нехватки энергии', () => {
+  const { sim, alerts, kinds } = setup()
+  const own = spawnUnit(sim, 'tank', 1, 0, 0)
+  spawnUnit(sim, 'infantry', 2, 30, 30)
+  // Выстрел врага далеко от танка.
+  sim.world.spawn(Shot({ player: 2, fromX: 30, fromY: 30, toX: 25, toY: 25 }))
+  alerts.update(0.1)
+  sim.world.get(own, Health)!.value -= 1
+  alerts.update(0.1)
+  expect(kinds()).not.toContain('attacked')
 })
