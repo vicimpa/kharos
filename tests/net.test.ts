@@ -254,3 +254,21 @@ test('мир клиента, собранный из изменений, сов�
   second.sim.advance(STEP)
   expect(seen(second.sim)).toEqual(truth(2))
 })
+
+test('сдавшийся на сервере начинает заново: новый стартовый набор, а до поражения — нельзя', () => {
+  const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: 256 }))
+  const { peer, sim } = join(host)
+  host.advance(STEP)
+  const before = unitsOf(host.sim as never, 1).length
+  // Не проигравший заново не начинает.
+  sim.respawn()
+  host.advance(STEP)
+  expect(unitsOf(host.sim as never, 1).length).toBe(before)
+  sim.send(1, { type: 'surrender' })
+  for (let i = 0; i < 8 / STEP; i++) host.advance(STEP)
+  expect(unitsOf(host.sim as never, 1).length).toBe(0)
+  sim.respawn()
+  host.advance(STEP)
+  expect(unitsOf(host.sim as never, 1).length).toBe(before)
+  expect(peer.player).toBe(1)
+})

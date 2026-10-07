@@ -6,7 +6,7 @@ import type { Trace } from '../sim/traces'
  * из тех же компонентов и правил, что у сервера. Поднимай её при каждом изменении протокола, компонентов из SAVED
  * или симуляции, которое меняет то, что видит клиент.
  */
-export const PROTOCOL_VERSION = 3
+export const PROTOCOL_VERSION = 4
 
 /** Почему сервер не пустил клиента другой версии: текст для игрока. */
 export function versionMismatch(server: number, client: number) {
@@ -61,4 +61,7 @@ export const cleanName = (name: string) =>
     .slice(0, NAME_LENGTH)
 
 /** Что клиент шлёт серверу. */
-export type ClientMessage = { type: 'command'; command: Command }
+export type ClientMessage =
+  | { type: 'command'; command: Command }
+  /** Проигравший начинает заново: хост убирает его остатки и ставит новый стартовый набор в новом месте. */
+  | { type: 'respawn' }

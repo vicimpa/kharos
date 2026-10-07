@@ -217,6 +217,9 @@ export const Drop = component('Drop')
  */
 export const Tactics = component('Tactics', () => ({ stance: 'defensive' as Stance, patrol: [] as number[], leg: 0, away: false, homeX: 0, homeY: 0 }))
 
+/** Обречённый: игрок сдался, и через left тиков юнит или здание взорвётся. См. defeat.ts. */
+export const Doomed = component('Doomed', { left: 0 })
+
 /** Компоненты, которые попадают в сохранение и в сеть. Новый компонент симуляции добавляй сюда. */
 /**
  * Призрак: чужое здание или месторождение, каким клиент видел его последний раз. Живёт только в клиенте: хост
@@ -224,4 +227,4 @@ export const Tactics = component('Tactics', () => ({ stance: 'defensive' as Stan
  */
 export const Ghost = component('Ghost', {})
 
-export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Harvester, Inventory, Beam, Assembly, Trade, Armed, Shot, Blast, Pave, Drop, Tactics]
+export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Harvester, Inventory, Beam, Assembly, Trade, Armed, Shot, Blast, Pave, Drop, Tactics, Doomed]

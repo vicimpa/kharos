@@ -22,6 +22,8 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
   const [error, setError] = useState<unknown>(null)
   const [hud, setHud] = useState<HudState | null>(null)
   const [muted, setMuted] = useState(false)
+  /** Настоящая игра — за свою базу: в ней можно сдаться и проиграть. Песочница и показательный бой — не в счёт. */
+  const real = launch.kind === 'save' || launch.kind === 'server'
 
   // Игра создаётся один раз.
   useEffect(() => {
@@ -77,6 +79,16 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
               {(launch.kind === 'battle' || launch.kind === 'sandbox') && (
                 <button onClick={() => gameRef.current?.restart()}>{launch.kind === 'battle' ? 'Новый бой' : 'Заново'}</button>
               )}
+              {real && !hud.defeated && (
+                <button
+                  data-tip="Проиграть сразу: всё своё взорвётся"
+                  onClick={() => {
+                    if (confirm('Сдаться? Все ваши юниты и здания взорвутся.')) gameRef.current?.send({ type: 'surrender' })
+                  }}
+                >
+                  Сдаться
+                </button>
+              )}
               <button
                 data-tip={muted ? 'Включить звук' : 'Выключить звук'}
                 onClick={() => {
@@ -94,6 +106,16 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
             </>
           }
         />
+      )}
+      {real && hud?.defeated && error === null && (
+        <div class="game__defeat" role="alert">
+          <strong>Поражение</strong>
+          <span>{launch.kind === 'server' ? 'Ни главного здания, ни MCV. Можно начать заново в новом месте этого мира.' : 'Ни главного здания, ни MCV.'}</span>
+          <div class="game__actions">
+            <button onClick={exit}>В меню</button>
+            <button onClick={() => gameRef.current?.respawn()}>Начать заново</button>
+          </div>
+        </div>
       )}
       {error !== null && (
         <div class="game__error" role="alert">

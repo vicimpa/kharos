@@ -4,7 +4,7 @@ import { isPaved } from './paved'
 import { dropCargo } from './drops'
 import { BUILDINGS, buildingSpec, isWall, type BuildingType } from './buildings'
 import { NONE, isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './common'
-import { Armed, Blast, Building, Converting, Health, Inventory, Owner, Path, Pave, Position, Shot, Site, Tactics, Turret, Unit } from './components'
+import { Armed, Blast, Building, Converting, Doomed, Health, Inventory, Owner, Path, Pave, Position, Shot, Site, Tactics, Turret, Unit } from './components'
 import { releaseHauler } from './hauling'
 import { amountOf, take } from './inventory'
 import { searchedTiles } from './path'
@@ -513,6 +513,15 @@ export function fight(sim: Sim) {
       }
     }
   }
+
+  // Сдавшийся игрок взрывает своё: пришёл черёд — гибель, как от выстрела.
+  const vanished: Entity[] = []
+  for (const [entity, doomed] of world.query(Doomed)) {
+    if (--doomed.left > 0) continue
+    if (marks.has(entity)) dead.add(entity)
+    else vanished.push(entity)
+  }
+  for (const entity of vanished) world.destroy(entity)
 
   // Болото красных пустошей едкое: жжёт стоящих в нём наземных юнитов.
   const burn = sim.rules.toxicSwamp * time.step

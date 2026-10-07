@@ -1,5 +1,5 @@
 import { Terrain, terrainAt } from '../map/terrain'
-import { isWalkable, shownTo, spawnStartingUnits, type Command, type Sim, type SimSave } from '../sim'
+import { isDefeated, isWalkable, shownTo, spawnStartingUnits, wipePlayer, type Command, type Sim, type SimSave } from '../sim'
 import { Owner, Position, SAVED } from '../sim/components'
 import type { Trace } from '../sim/traces'
 import { cleanName, type PlayerInfo, type ServerMessage } from './protocol'
@@ -179,8 +179,10 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
   }
 
   /** Новый игрок: стартовый набор в случайном месте, см. spawnPoint; не нашлось — на круге вокруг начала мира. */
-  const addPlayer = () => {
-    const player = nextPlayer++
+  const addPlayer = () => place(nextPlayer++)
+
+  /** Ставит игроку стартовый набор: в случайном месте вдали от других, а не нашлось — на круге вокруг начала мира. */
+  const place = (player: number) => {
     const point = spawnPoint()
     if (point) {
       spawnStartingUnits(sim, player, point.x, point.y)
@@ -254,6 +256,13 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
           }
           if (typeof message !== 'object' || message === null) return
           const { type, command } = message as { type?: unknown; command?: unknown }
+          // Проигравший начинает заново: остатки его базы исчезают, а сам он получает новый стартовый набор.
+          if (type === 'respawn') {
+            if (!isDefeated(sim, joined)) return
+            wipePlayer(sim, joined)
+            place(joined)
+            return
+          }
           if (type !== 'command' || typeof command !== 'object' || command === null) return
           // Что внутри команды, проверит сама симуляция: она не доверяет и локальному клиенту.
           sim.send(joined, command as Command)

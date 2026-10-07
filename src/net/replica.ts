@@ -23,6 +23,8 @@ export interface Replica extends Sim {
   receive(message: ServerMessage): void
   /** Соединение пропало: следующий advance() бросит ошибку с этой причиной. */
   fail(reason: string): void
+  /** Проигравший просит хост начать заново: новый стартовый набор в новом месте. */
+  respawn(): void
   /** Растёт, когда хост начинает мир заново: по нему клиент сбрасывает выделение и камеру. */
   readonly generation: number
   /** Кто играет на хосте, как его прислал хост; пусто, пока не прислал. */
@@ -133,6 +135,9 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     vision: undefined as unknown as Replica['vision'],
     traces: undefined as unknown as ReturnType<typeof createReceivedTraces>,
     time,
+    respawn() {
+      send(JSON.stringify({ type: 'respawn' } satisfies ClientMessage))
+    },
     send(_player: number, command: Command) {
       // Игрока сервер знает по соединению; номеру из сообщения он бы и не поверил.
       send(JSON.stringify({ type: 'command', command } satisfies ClientMessage))

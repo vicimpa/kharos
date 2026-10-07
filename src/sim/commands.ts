@@ -12,6 +12,7 @@ import { assignHaulers, releaseHauler } from './hauling'
 import { orderPave, removePave, type PaveKind } from './paving'
 import { cancelUnit, orderUnit } from './production'
 import { setFilter, setRoute } from './routes'
+import { surrender } from './defeat'
 import { clearTactics, orderPatrol, setStance, type Stance } from './tactics'
 import type { Good, Resource } from './resources'
 import type { Sim } from './sim'
@@ -65,6 +66,8 @@ export type Command =
   | { type: 'route'; units: number[]; stops: number[] }
   /** Какие грузы возить своим грузовикам; пусто — любые. */
   | { type: 'filter'; units: number[]; goods: Good[] }
+  /** Сдаться: проиграть сразу — все свои юниты и здания исчезают. */
+  | { type: 'surrender' }
   /** Стойка своих вооружённых юнитов: как они воюют без приказа. */
   | { type: 'stance'; units: number[]; stance: Stance }
   /** Послать своих вооружённых юнитов в патруль: по кругу от их места через точки (x и y подряд) и обратно. */
@@ -136,6 +139,8 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
       return setWorking(sim, player, command.building as Entity, !!command.on)
     case 'cancelBuild':
       return cancelBuild(sim, player, command.site as Entity)
+    case 'surrender':
+      return surrender(sim, player)
     case 'stance':
       return Array.isArray(command.units) && setStance(sim, player, command.units as Entity[], command.stance)
     case 'patrol':

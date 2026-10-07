@@ -4,7 +4,7 @@ import type { Entity } from '../ecs'
 import {
   Assembly, Harvester, BUILDABLE, buyPrice, roomFor, BUILDINGS, Building, Converting, Hauler, Health, CORE, GOODS, PRODUCT_SPECS, REFINE_RATE, RESOURCES, RESOURCE_SPECS, buildingSpec, cycleSeconds, isOwn, missingRequirements, producibleBy, productStock, Trade, Inventory, amountOf, loadOf, deliveredTo, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit, unitSpec,
   awaitsMaterials, buildTicks, canDemolish, canFight, canDeploy, canPack, depositAt, depositNear, DEPOSIT_SIZE, entriesOf, isDeployBlocked, creditsOf, economyOf, isSiteBlocked, materialsFor, reserveLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, spareOf, zoneEconomies, zonesOf,
-  Position, Tactics, stanceOf, type Stance, type Amounts, type BuildingType, type Command, type DepositKind, type Good, type Ore, type Product, type Resource, type UnitType,
+  Position, Tactics, isDefeated, stanceOf, type Stance, type Amounts, type BuildingType, type Command, type DepositKind, type Good, type Ore, type Product, type Resource, type UnitType,
 } from '../sim'
 import { paveStrokeOf } from './placing'
 import type { PaveTool, Scene } from './scene'
@@ -26,6 +26,8 @@ export interface HudState {
   players: { name: string; own: boolean; online: boolean }[]
   /** Пришёл ли мир от хоста: до этого наград ноль не потому, что их нет, а потому, что мира ещё нет. */
   loaded: boolean
+  /** Игрок проиграл: у него нет ни главного здания, ни MCV. */
+  defeated: boolean
   /** Доход в кредитах в секунду. */
   income: number
   /**
@@ -353,6 +355,7 @@ export function readHud(scene: Scene): HudState {
     hover: hoverOf(scene),
     rewards: [...rewardsOf(sim, player)],
     loaded: sim.time.tick > 0,
+    defeated: sim.time.tick > 0 && isDefeated(sim, player),
     // Минуты — десятками: интерфейс перерисовывается, только когда состояние изменилось.
     clock: `${String(Math.floor(scene.weather.hour)).padStart(2, '0')}:${Math.floor((scene.weather.hour % 1) * 6)}0`,
     storm: scene.weather.precipitation > 0.05,
