@@ -12,6 +12,7 @@ import { assignHaulers, releaseHauler } from './hauling'
 import { orderPave, removePave, type PaveKind } from './paving'
 import { cancelUnit, orderUnit } from './production'
 import { setFilter, setRoute } from './routes'
+import { clearTactics, orderPatrol, setStance, type Stance } from './tactics'
 import type { Good, Resource } from './resources'
 import type { Sim } from './sim'
 import { buy, closeSale, sell } from './trade'
@@ -64,6 +65,10 @@ export type Command =
   | { type: 'route'; units: number[]; stops: number[] }
   /** Какие грузы возить своим грузовикам; пусто — любые. */
   | { type: 'filter'; units: number[]; goods: Good[] }
+  /** Стойка своих вооружённых юнитов: как они воюют без приказа. */
+  | { type: 'stance'; units: number[]; stance: Stance }
+  /** Послать своих вооружённых юнитов в патруль: по кругу от их места через точки (x и y подряд) и обратно. */
+  | { type: 'patrol'; units: number[]; points: number[] }
   /** Заложить покрытие в тайлы (x и y подряд) и послать к нему своих строителей. Дорога по болоту — мост. */
   | { type: 'pave'; kind: PaveKind; tiles: number[]; builders: number[] }
   /** Снять своё покрытие с тайлов (x и y подряд) своими строителями: недостроенное — сразу с возвратом, готовое разберут. */
@@ -92,6 +97,7 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
         if (harvester) Object.assign(harvester, { x: NONE, y: NONE, ordered: false, parked: true, seek: '' })
         releaseHauler(sim, entity)
         stopAttack(sim, entity)
+        clearTactics(sim, entity)
       }
       orderGroupMove(sim, units, command.x, command.y)
       return true
@@ -130,6 +136,10 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
       return setWorking(sim, player, command.building as Entity, !!command.on)
     case 'cancelBuild':
       return cancelBuild(sim, player, command.site as Entity)
+    case 'stance':
+      return Array.isArray(command.units) && setStance(sim, player, command.units as Entity[], command.stance)
+    case 'patrol':
+      return Array.isArray(command.units) && Array.isArray(command.points) && orderPatrol(sim, player, command.units as Entity[], command.points)
     case 'route':
       return Array.isArray(command.units) && Array.isArray(command.stops) && setRoute(sim, player, command.units as Entity[], command.stops as Entity[])
     case 'filter':

@@ -6,6 +6,7 @@ import type { UnitType } from './units'
 import type { WeaponType } from './weapons'
 import type { DepositKind } from './deposits'
 import type { PaveKind } from './paved'
+import type { Stance } from './tactics'
 
 /** Место на карте в тайлах. У здания — левый верхний тайл основания, у юнита — его центр. */
 export const Position = component('Position', { x: 0, y: 0 })
@@ -158,7 +159,7 @@ export const Trade = component('Trade', { resource: 'metal' as Resource, wanted:
  * достаёт с места. cooldown — сколько тиков до следующего выстрела. stuck — сколько раз подряд гонящийся не нашёл,
  * куда идти: чем больше, тем реже он пробует снова.
  */
-export const Armed = component('Armed', { target: -1, chase: false, cooldown: 0, stuck: 0 })
+export const Armed = component('Armed', { target: -1, chase: false, cooldown: 0, stuck: 0, ordered: false })
 
 /**
  * Выстрел. Position — где снаряд сейчас, prevX и prevY — где был тик назад. Пуля, ракета и ядро летят из (fromX, fromY)
@@ -209,6 +210,13 @@ export const Pave = component('Pave', { kind: 'road' as PaveKind, work: 0, done:
 /** Дроп: груз, брошенный на землю, — склад (Inventory) на тайле Position без хозяина. См. drops.ts. */
 export const Drop = component('Drop')
 
+/**
+ * Тактика юнита — как он ведёт себя без приказа (см. tactics.ts). stance — стойка; patrol — точки патруля x, y
+ * подряд, leg — к какой он идёт; пусто — не патрулирует. away — юнит ушёл в погоню с места (homeX, homeY) и вернётся
+ * туда, когда бой кончится. Без компонента юнит в обороне.
+ */
+export const Tactics = component('Tactics', () => ({ stance: 'defensive' as Stance, patrol: [] as number[], leg: 0, away: false, homeX: 0, homeY: 0 }))
+
 /** Компоненты, которые попадают в сохранение и в сеть. Новый компонент симуляции добавляй сюда. */
 /**
  * Призрак: чужое здание или месторождение, каким клиент видел его последний раз. Живёт только в клиенте: хост
@@ -216,4 +224,4 @@ export const Drop = component('Drop')
  */
 export const Ghost = component('Ghost', {})
 
-export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Harvester, Inventory, Beam, Assembly, Trade, Armed, Shot, Blast, Pave, Drop]
+export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Harvester, Inventory, Beam, Assembly, Trade, Armed, Shot, Blast, Pave, Drop, Tactics]

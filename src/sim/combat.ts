@@ -4,7 +4,7 @@ import { isPaved } from './paved'
 import { dropCargo } from './drops'
 import { BUILDINGS, buildingSpec, isWall, type BuildingType } from './buildings'
 import { NONE, isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './common'
-import { Armed, Blast, Building, Converting, Health, Inventory, Owner, Path, Pave, Position, Shot, Site, Turret, Unit } from './components'
+import { Armed, Blast, Building, Converting, Health, Inventory, Owner, Path, Pave, Position, Shot, Site, Tactics, Turret, Unit } from './components'
 import { releaseHauler } from './hauling'
 import { amountOf, take } from './inventory'
 import { searchedTiles } from './path'
@@ -12,6 +12,8 @@ import type { Sim } from './sim'
 import { TURRETS, carrierOf, turnerOf, turretsOf } from './turrets'
 import { UNITS, flies, orderMove, unitSpec, type UnitSpec } from './units'
 import { WEAPONS, type Armor, type ShotKind, type WeaponSpec, type WeaponType } from './weapons'
+import { LEASH, clearTactics, leaveHome, stanceOf } from './tactics'
+import { unitSight } from './vision'
 
 /** Сколько единиц прочности у здания на кредит его цены. */
 export const BUILDING_HP = 2
@@ -196,12 +198,15 @@ export function orderAttack(sim: Sim, player: number, units: Entity[], target: E
     if (!armed || !spec || (air ? !spec.air : spec.onlyAir)) return 0
     armed.target = target
     armed.chase = true
+    armed.ordered = true
     armed.stuck = 0
     return spec.range
   }
   let ordered = false
   for (const entity of new Set(units)) {
     if (!isOwn(sim, player, entity)) continue
+    // Приказ атаки снимает патруль и возвращение на место: юнит идёт за целью, куда велели.
+    clearTactics(sim, entity)
     if (aim(entity)) {
       // Прежний путь больше не нужен: к цели юнит тронется сам в ближайший тик.
       world.remove(entity, Path)
@@ -223,6 +228,7 @@ export function stopAttack(sim: Sim, entity: Entity) {
     if (!armed) continue
     armed.target = NONE
     armed.chase = false
+    armed.ordered = false
   }
 }
 
@@ -252,16 +258,24 @@ export function fight(sim: Sim) {
       return
     }
     const from = marks.get(source)
-    if (!from || world.has(mark.entity, Path)) return
+    // Идущий по приказу не отвлекается; патрульный — отвечает.
+    if (!from || (world.has(mark.entity, Path) && !world.get(mark.entity, Tactics)?.patrol.length)) return
+    const unit = world.has(mark.entity, Unit)
+    const stance = unit ? stanceOf(sim, mark.entity) : 'defensive'
+    // Кому велено не стрелять, тот не отвечает.
+    if (stance === 'passive') return
     // Отвечают и сам юнит, и его турели.
     for (const gunner of [mark.entity, ...turretsOf(sim, mark.entity)]) {
       const armed = world.get(gunner, Armed)
       const own = weaponOf(sim, gunner)
       if (!armed || !own || armed.target !== NONE || !canHit(WEAPONS[own], mark.player, from)) continue
       armed.target = source
-      // Здание отвечает, только если само достаёт до стрелка: гнаться за ним может лишь носитель-юнит.
-      armed.chase = world.has(mark.entity, Unit)
+      // Здание отвечает, только если само достаёт до стрелка: гнаться за ним может лишь носитель-юнит. Держащий
+      // позицию тоже не гонится.
+      armed.chase = unit && stance !== 'hold'
+      armed.ordered = false
       armed.stuck = 0
+      if (armed.chase) leaveHome(sim, mark.entity)
     }
   }
 
@@ -341,7 +355,7 @@ export function fight(sim: Sim) {
   for (const entity of gone) world.destroy(entity)
 
   // Стрелки. Список собирается заранее: дальше мир и обходится заново, и меняется.
-  const shooters: { entity: Entity; armed: { target: number; chase: boolean; cooldown: number; stuck: number } }[] = []
+  const shooters: { entity: Entity; armed: { target: number; chase: boolean; cooldown: number; stuck: number; ordered: boolean } }[] = []
   for (const [entity, armed] of world.query(Armed)) shooters.push({ entity, armed })
 
   let searches = 0
@@ -370,16 +384,23 @@ export function fight(sim: Sim) {
     // Гонится за целью тот, кто ездит: юнит сам, турель — на своём носителе. Стреляет турель и на ходу.
     const mover = carrier
     const moving = world.has(mover, Path)
+    const unitCarrier = world.get(carrier, Unit)
+    const stance = unitCarrier ? stanceOf(sim, carrier) : 'defensive'
+    const patrolling = !!world.get(carrier, Tactics)?.patrol.length
     if (!target) {
       armed.target = NONE
       armed.chase = false
-      // Свободный юнит высматривает врага в пределах выстрела: сперва юнитов, потом здания.
-      if ((moving && !mounted) || !onTurn(time, entity, SCAN_TICKS)) continue
+      armed.ordered = false
+      // Свободный юнит высматривает врага в пределах выстрела: сперва юнитов, потом здания. Идущий по приказу не
+      // высматривает, патрульный — высматривает. Кому велено не стрелять — не высматривает вовсе.
+      if (stance === 'passive' || (moving && !mounted && !patrolling) || !onTurn(time, entity, SCAN_TICKS)) continue
+      // Агрессивный высматривает на всю дальность обзора и гонится за найденным.
+      const lookout = stance === 'aggressive' && unitCarrier ? Math.max(range, unitSight(unitCarrier.type)) : range
       let best = Infinity
       for (const mark of marks.values()) {
         if (!canHit(weapon, self.player, mark)) continue
         const distance = distanceTo(mark, self.x, self.y)
-        if (distance > range || distance < (weapon.minRange ?? 0)) continue
+        if (distance > lookout || distance < (weapon.minRange ?? 0)) continue
         const order = distance + (mark.armor === 'building' ? range : 0)
         if (order >= best) continue
         best = order
@@ -387,6 +408,18 @@ export function fight(sim: Sim) {
       }
       if (!target) continue
       armed.target = target.entity
+      if (distanceTo(target, self.x, self.y) > range) {
+        armed.chase = true
+        leaveHome(sim, carrier)
+      }
+    }
+
+    // Юнит в обороне, убежавший за врагом дальше поводка от места, где стоял, бросает погоню и вернётся туда.
+    const tactics = world.get(carrier, Tactics)
+    if (!armed.ordered && armed.chase && stance === 'defensive' && tactics?.away && Math.hypot(self.x - tactics.homeX - 0.5, self.y - tactics.homeY - 0.5) > LEASH) {
+      armed.target = NONE
+      armed.chase = false
+      continue
     }
 
     if (distanceTo(target, self.x, self.y) > range) {
@@ -417,7 +450,8 @@ export function fight(sim: Sim) {
     }
     // На выстреле: гнавшийся встаёт. Идущий по приказу игрока не стреляет — цели у него нет; турель на едущем
     // по приказу носителе стреляет, но носитель не останавливает.
-    if (moving && (!mounted || armed.chase)) world.remove(mover, Path)
+    // Патрульный встаёт драться и продолжит обход, когда бой кончится.
+    if (moving && (!mounted || armed.chase || patrolling)) world.remove(mover, Path)
 
     const wanted = Math.atan2(target.y - self.y, target.x - self.x)
     const { body: aimer } = turner
