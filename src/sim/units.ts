@@ -7,7 +7,7 @@ import { unitSight } from './vision'
 import { STARTING_CREDITS, addCredits } from './economy'
 import { equipStorage, type BeamSpec } from './inventory'
 import type { Amounts } from './resources'
-import { findPath, findPaths, smoothPath } from './path'
+import { findPath, smoothPath } from './path'
 import type { Sim } from './sim'
 import { mountTurrets, turretSpec, type MountSpec } from './turrets'
 import type { UnitClass, WeaponType } from './weapons'
@@ -350,7 +350,7 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
   if (air) {
     // Летающему преград нет: он летит к цели по прямой.
     if (!inBounds(sim, x, y)) return void world.remove(entity, Path)
-    world.add(entity, Path({ points: [x + 0.5, y + 0.5], goalX: x, goalY: y, tries, near }))
+    world.add(entity, Path({ points: [x + 0.5, y + 0.5], goalX: x, goalY: y, tries, near, pending: false }))
     return
   }
   const fromX = Math.floor(position.x)
@@ -376,7 +376,7 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
     tiles.map((value) => value + 0.5),
     slowness,
   )
-  if (points.length) world.add(entity, Path({ points, goalX: x, goalY: y, tries, near, roads: fastest < 1 }))
+  if (points.length) world.add(entity, Path({ points, goalX: x, goalY: y, tries, near, roads: fastest < 1, pending: false }))
   else world.remove(entity, Path)
 }
 
@@ -393,64 +393,25 @@ export function orderGroupMove(sim: Sim, all: Entity[], x: number, y: number) {
   const radius = Math.max(...units.map((entity) => UNITS[sim.world.get(entity, Unit)!.type].radius))
   const taken = standingUnits(sim, group, radius, air)
   const tiles = freeTilesNear(sim, x, y, units.length, 0, taken, air)
-  if (air || units.length < SHARED_PATHS) sendToTiles(sim, units, tiles, group)
-  else sendArmy(sim, units, tiles, group)
+  if (air) sendToTiles(sim, units, tiles, group)
+  else aimAtTiles(sim, units, tiles)
 }
 
-/** С какой численности наземная группа прокладывает пути одним общим поиском, а не каждому свой. */
-const SHARED_PATHS = 8
-/** Сколько тайлов осматривает поиск от места, где путь группы подошёл к цели, до места юнита. */
-const SLOT_LIMIT = 400
-
 /**
- * Рассылает большую наземную группу по тайлам (x, y подряд) так же, как sendToTiles, но пути ищутся одним поиском на вид
- * юнитов (findPaths): по местности они ездят по-разному, а стоящие мешают им по-разному. Путь ведёт к первому из тайлов —
- * ближайшему к цели; не доезжая до него, юнит сворачивает к своему месту коротким поиском. Кому общий поиск пути
- * не нашёл, тот ищет сам.
+ * Раздаёт наземным юнитам тайлы (x, y подряд), каждому свой, но путь не прокладывает: юнит сразу едет к своему тайлу
+ * напрямую, обходя встречных, а путь ему проложит planPaths, когда дойдёт очередь. Так приказ армии в тысячи юнитов
+ * не стоит тысячи поисков пути в один тик.
  */
-function sendArmy(sim: Sim, units: Entity[], tiles: number[], group: ReadonlySet<Entity>) {
+function aimAtTiles(sim: Sim, units: Entity[], tiles: number[]) {
   if (!tiles.length) return
   const { world } = sim
-  const [goalX, goalY] = tiles
-  const byType = new Map<UnitType, number[]>()
   units.forEach((entity, i) => {
-    const { type } = world.get(entity, Unit)!
-    const list = byType.get(type)
-    if (list) list.push(i)
-    else byType.set(type, [i])
+    if (world.has(entity, Converting)) return
+    const at = Math.min(i * 2, tiles.length - 2)
+    const x = tiles[at]
+    const y = tiles[at + 1]
+    world.add(entity, Path({ points: [x + 0.5, y + 0.5], goalX: x, goalY: y, wait: 0, tries: 0, near: 0, roads: false, pending: true }))
   })
-  for (const [type, indices] of byType) {
-    const taken = standingUnits(sim, group, UNITS[type].radius)
-    const walkable = (tileX: number, tileY: number) => isWalkable(sim, tileX, tileY) && !taken.has(tileKey(tileX, tileY))
-    const slowness = (tileX: number, tileY: number) => 1 / terrainSpeed(sim, type, tileX, tileY)
-    const movers = indices.filter((i) => !world.has(units[i], Converting))
-    const origins: number[] = []
-    for (const i of movers) {
-      const position = world.get(units[i], Position)!
-      origins.push(Math.floor(position.x), Math.floor(position.y))
-    }
-    const paths = findPaths(walkable, goalX, goalY, origins, undefined, slowness, 1 / fastestOf(type))
-    movers.forEach((i, n) => {
-      const entity = units[i]
-      const at = Math.min(i * 2, tiles.length - 2)
-      const slotX = tiles[at]
-      const slotY = tiles[at + 1]
-      const shared = paths[n]
-      if (!shared) return orderMove(sim, entity, slotX, slotY, group)
-      // Общий путь обрывается там, где до цели осталось столько же, сколько от цели до места юнита: дальше — к месту.
-      const reach = Math.hypot(slotX - goalX, slotY - goalY) + 1
-      let cut = 0
-      while (cut < shared.length && Math.hypot(shared[cut] - goalX, shared[cut + 1] - goalY) > reach) cut += 2
-      const route = shared.slice(0, cut)
-      const fromX = cut ? route[cut - 2] : origins[n * 2]
-      const fromY = cut ? route[cut - 1] : origins[n * 2 + 1]
-      if (fromX !== slotX || fromY !== slotY) route.push(...findPath(walkable, fromX, fromY, slotX, slotY, 0, SLOT_LIMIT, slowness))
-      const position = world.get(entity, Position)!
-      const points = smoothPath(walkable, position.x, position.y, route.map((value) => value + 0.5), slowness)
-      if (points.length) world.add(entity, Path({ points, goalX: slotX, goalY: slotY, tries: 0, near: 0, roads: true }))
-      else world.remove(entity, Path)
-    })
-  }
 }
 
 /** Рассылает юнитов по тайлам (x, y подряд), каждого в свой. Друг другу юниты group не препятствие. */

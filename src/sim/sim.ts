@@ -12,7 +12,7 @@ import { harvest } from './harvesting'
 import { haul } from './hauling'
 import { earn } from './income'
 import { trade } from './trade'
-import { moveUnits } from './movement'
+import { moveUnits, planPaths } from './movement'
 import { produceUnits } from './production'
 import { refine } from './refining'
 import { followCarriers, restTurrets } from './turrets'
@@ -163,6 +163,8 @@ export function createSim(source: SimOptions | SimSave): Sim {
       (_, time) => refine(sim, time),
       // Цеха собирают изделия из привезённого сырья.
       (_, time) => assemble(sim, time),
+      // До движения: едущие к цели напрямую получают пути, сколько успеет поиск за тик.
+      () => planPaths(sim),
       (_, time) => moveUnits(sim, time),
       // Турели встают на носители, уже сдвинувшиеся за этот тик.
       () => followCarriers(sim),

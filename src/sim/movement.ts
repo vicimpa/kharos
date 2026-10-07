@@ -130,8 +130,10 @@ export function moveUnits(sim: Sim, time: Time) {
   /** Увидевшие дорогу на ходу: перестраивают путь с ней. */
   const roadward: { entity: Entity; x: number; y: number; near: number }[] = []
   /** Юнит не может идти дальше: прокладывает путь заново или, если уже пробовал, встаёт. */
-  const giveUp = (entity: Entity, path: { goalX: number; goalY: number; tries: number; near: number }) => {
-    if (path.tries >= MAX_TRIES) stopped.push(entity)
+  const giveUp = (entity: Entity, path: { goalX: number; goalY: number; tries: number; near: number; wait: number; pending: boolean }) => {
+    // Путь ещё не проложен: юнит ждёт его, а не ищет сам.
+    if (path.pending) path.wait = 0
+    else if (path.tries >= MAX_TRIES) stopped.push(entity)
     // Сверх нормы — юнит просто ждёт дальше и попробует в следующий тик.
     else if (lost.length < LOST_SEARCHES) lost.push({ entity, x: path.goalX, y: path.goalY, tries: path.tries + 1, near: path.near })
   }
@@ -141,7 +143,7 @@ export function moveUnits(sim: Sim, time: Time) {
     const { speed, turn, radius } = UNITS[unit.type]
     const air = flies(unit.type)
     // Путь проложен без дороги, а она показалась в обзоре — юнит прикинет путь заново. Смотрит не каждый тик.
-    if (!path.roads && fastestOf(unit.type) > 1 && onTurn(time, entity, ROAD_LOOK_TICKS) && roadInSight(sim, entity)) {
+    if (!path.roads && !path.pending && fastestOf(unit.type) > 1 && onTurn(time, entity, ROAD_LOOK_TICKS) && roadInSight(sim, entity)) {
       roadward.push({ entity, x: path.goalX, y: path.goalY, near: path.near })
     }
     const dx = points[0] - position.x
@@ -269,5 +271,28 @@ export function moveUnits(sim: Sim, time: Time) {
   // Дорогу уступают только своим: чужой юнит стоит, где стоял.
   for (const { entity, by, x, y, heading, room } of asked) {
     if (ownerOf(sim, entity) === ownerOf(sim, by)) stepAside(sim, entity, x, y, heading, room)
+  }
+}
+
+/** Сколько тайлов за тик осматривают поиски пути юнитов, едущих к цели напрямую. */
+const PLAN_TILES = 20000
+/** Сколько тайлов осматривает один такой поиск: путь ведёт к ближайшему найденному, дальше юнит ищет с конца пути. */
+const PLAN_LIMIT = 2000
+
+/**
+ * Раз в тик, до движения: прокладывает пути юнитам, которые едут к цели напрямую (Path.pending), пока не кончится
+ * норма тика. Первый в очереди получает путь всегда: иначе юнит с дальней целью не дождался бы его никогда.
+ * Кто не дождался, едет напрямую дальше и получит путь в следующие тики.
+ */
+export function planPaths(sim: Sim) {
+  const { world } = sim
+  const waiting: Entity[] = []
+  for (const [entity, path] of world.query(Path)) if (path.pending) waiting.push(entity)
+  const searchedBefore = searchedTiles()
+  for (const entity of waiting) {
+    const path = world.get(entity, Path)
+    if (!path?.pending) continue
+    orderMove(sim, entity, path.goalX, path.goalY, undefined, 0, path.near, PLAN_LIMIT)
+    if (searchedTiles() - searchedBefore >= PLAN_TILES) break
   }
 }
