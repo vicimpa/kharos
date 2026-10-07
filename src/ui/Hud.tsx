@@ -447,7 +447,6 @@ function Info({ state, lookAtSelection, narrow }: { state: HudState; lookAtSelec
           <div class="hud__hint">Строит здания и чинит своё: правый щелчок по стройке или повреждённому. Здания — в сетке справа</div>
         )}
         {construction?.placing && <div class="hud__hint">Левая кнопка — заложить, можно ещё и ещё; правая или Esc — хватит</div>}
-        {construction && !construction.available && <div class="hud__hint is-short">Строить негде: своей зоны нет — сначала разверни MCV</div>}
       </div>
     </div>
   )

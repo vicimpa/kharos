@@ -121,8 +121,6 @@ export interface HudState {
   demolish: { building: number; refund: number } | null
   /** Что можно построить, если среди выбранного есть строитель. */
   construction: {
-    /** Есть ли у игрока своя зона: без неё строить негде. */
-    available: boolean
     /** Здание, для которого сейчас выбирается место. */
     placing: BuildingType | null
     /** Покрытие, которое сейчас кладут или снимают, и во что обойдётся протянутое мышью. */
@@ -385,7 +383,6 @@ export function readHud(scene: Scene): HudState {
     demolish,
     construction: counts.has('builder')
       ? {
-          available: zonesOf(sim, player).length > 0,
           placing: scene.placing,
           paving: pavingOf(scene),
           options: BUILDABLE.filter((type) => isUnlocked(sim, player, type)).map((type) => ({
