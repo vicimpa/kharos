@@ -1,4 +1,4 @@
-import { SOUNDS, SOUND_NAMES, SOUND_VARIANTS, type SoundName } from './synth'
+import { LOOPS, LOOP_NAMES, SOUNDS, SOUND_NAMES, SOUND_VARIANTS, type LoopName, type SoundName } from './synth'
 
 /** Больше звуков разом не звучит: в большом бою остальные пропускаются. */
 const MAX_VOICES = 32
@@ -12,6 +12,8 @@ const VOLUME_KEY = 'kharos.volume'
 export interface Audio {
   /** Звучит звук name громкостью volume (0..1) и в стороне pan: -1 — слева, 1 — справа. */
   play(name: SoundName, volume: number, pan: number): void
+  /** Фоновая петля name звучит громкостью volume (0 — молчит) в стороне pan. Меняется плавно, сколько ни зови. */
+  loop(name: LoopName, volume: number, pan: number): void
   /** Включён ли звук: выбор игрока хранится в браузере. */
   muted: boolean
   /** Громкость от 0 до 1, тоже из браузера. */
@@ -63,6 +65,9 @@ export function createAudio(): Audio {
   let master: GainNode | null = null
   const buffers = new Map<SoundName, AudioBuffer[]>()
   let voices = 0
+  const loops = new Map<LoopName, { gain: GainNode; panner: StereoPannerNode }>()
+  /** Как быстро петля догоняет новую громкость, в секундах: без этого она бы щёлкала. */
+  const GLIDE = 0.25
   let muted = loadMuted()
   let volume = loadVolume()
   const level = () => (muted ? 0 : MASTER * volume)
@@ -94,6 +99,21 @@ export function createAudio(): Audio {
         }),
       )
     }
+    for (const name of LOOP_NAMES) {
+      const data = LOOPS[name](context.sampleRate)
+      const buffer = context.createBuffer(1, data.length, context.sampleRate)
+      buffer.copyToChannel(data, 0)
+      const source = context.createBufferSource()
+      source.buffer = buffer
+      source.loop = true
+      const gain = context.createGain()
+      gain.gain.value = 0
+      const panner = context.createStereoPanner()
+      source.connect(gain).connect(panner).connect(master)
+      // Петли разной длины начинаются вразнобой: так их стыки не совпадают.
+      source.start(0, Math.random() * buffer.duration)
+      loops.set(name, { gain, panner })
+    }
   }
   const events = ['pointerdown', 'keydown'] as const
   for (const event of events) window.addEventListener(event, start)
@@ -118,6 +138,12 @@ export function createAudio(): Audio {
         panner.disconnect()
       }
       source.start()
+    },
+    loop(name, volume, pan) {
+      const voice = loops.get(name)
+      if (!context || !voice) return
+      voice.gain.gain.setTargetAtTime(Math.max(0, volume), context.currentTime, GLIDE)
+      voice.panner.pan.setTargetAtTime(Math.max(-1, Math.min(1, pan)), context.currentTime, GLIDE)
     },
     get muted() {
       return muted

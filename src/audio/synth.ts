@@ -194,3 +194,112 @@ export type SoundName = keyof typeof SOUNDS
 export const SOUND_NAMES = Object.keys(SOUNDS) as SoundName[]
 /** Вариантов у каждого звука. */
 export const SOUND_VARIANTS = 3
+
+/**
+ * Петля длиной seconds: как render, но конец плавно переходит в начало — сэмплы последних FADE секунд
+ * подмешиваются к первым, и петля звучит без щелчка на стыке.
+ */
+function loop(rate: number, seconds: number, sample: (t: number, noise: () => number) => number) {
+  const fade = Math.round(rate * 0.25)
+  const length = Math.ceil(rate * seconds)
+  const next = random(7)
+  const noise = () => next() * 2 - 1
+  const raw = new Float32Array(length + fade)
+  for (let i = 0; i < raw.length; i++) raw[i] = sample(i / rate, noise)
+  const data = raw.slice(0, length)
+  for (let i = 0; i < fade; i++) {
+    const k = i / fade
+    data[i] = data[i] * k + raw[length + i] * (1 - k)
+  }
+  let peak = 0
+  for (const value of data) peak = Math.max(peak, Math.abs(value))
+  if (peak > 0) for (let i = 0; i < data.length; i++) data[i] /= peak
+  return data
+}
+
+/** Удары раз в period секунд со сдвигом offset: огибающая каждого гаснет за time. */
+const pulse = (t: number, period: number, time: number, offset = 0) => decay((((t - offset) % period) + period) % period, time)
+
+/** Гул электростанции: сеть и её гармоники, чуть дышащие. */
+function hum(rate: number) {
+  const air = lowpass(rate, () => 400)
+  return loop(rate, 4, (t, noise) => {
+    const breath = 1 + Math.sin(2 * Math.PI * 0.5 * t) * 0.15
+    return (Math.sin(2 * Math.PI * 50 * t) * 0.6 + Math.sin(2 * Math.PI * 100 * t) * 0.35 + Math.sin(2 * Math.PI * 150 * t) * 0.12) * breath + air(noise()) * 0.25
+  })
+}
+
+/** Цех и переработка: мерный стук пресса и звон металла поверх шипения. */
+function machinery(rate: number) {
+  const thud = lowpass(rate, () => 300)
+  const hiss = highpass(rate, 2500)
+  return loop(rate, 2, (t, noise) => {
+    const n = noise()
+    const press = thud(n) * pulse(t, 0.5, 0.06) * 2.2
+    const ring = Math.sin(2 * Math.PI * 760 * t) * pulse(t, 1, 0.12, 0.25) * 0.35
+    return press + ring + hiss(n) * 0.08 + Math.sin(2 * Math.PI * 60 * t) * 0.15
+  })
+}
+
+/** Шахта: бур — жужжание, которое дрожит. */
+function drill(rate: number) {
+  const grit = lowpass(rate, () => 900)
+  return loop(rate, 2, (t, noise) => {
+    const wobble = 1 + Math.sin(2 * Math.PI * 7 * t) * 0.3
+    const buzz = (((t * 95) % 1) * 2 - 1) * 0.4
+    return (buzz + grit(noise()) * 1.4) * wobble
+  })
+}
+
+/** Колёсная техника: мотор — пила с подвыванием. */
+function engine(rate: number) {
+  const body = lowpass(rate, () => 500)
+  let phase = 0
+  return loop(rate, 2, (t, noise) => {
+    phase += (2 * Math.PI * (72 + Math.sin(2 * Math.PI * 0.5 * t) * 6)) / rate
+    const saw = (phase / (2 * Math.PI)) % 1
+    return body((saw * 2 - 1) * 0.9 + noise() * 0.3) * 1.6
+  })
+}
+
+/** Гусеничная: низкий рокот и лязг траков. */
+function tracks(rate: number) {
+  const rumble = lowpass(rate, () => 140)
+  const clank = highpass(rate, 1800)
+  return loop(rate, 2, (t, noise) => {
+    const n = noise()
+    return rumble(n) * 3 + clank(n) * pulse(t, 1 / 9, 0.012) * 0.6 + Math.sin(2 * Math.PI * 38 * t) * 0.3
+  })
+}
+
+/** Пехота: шаги вразнобой — глухие шорохи. */
+function steps(rate: number) {
+  const scuff = lowpass(rate, () => 1200)
+  return loop(rate, 2, (t, noise) => {
+    const n = noise()
+    const beat = pulse(t, 0.5, 0.03) + pulse(t, 0.5, 0.03, 0.23) * 0.8 + pulse(t, 0.66, 0.025, 0.1) * 0.6
+    return scuff(n) * beat * 2
+  })
+}
+
+/** Летающие: винты — шум, рубленый на лопасти. */
+function rotor(rate: number) {
+  const wash = lowpass(rate, () => 700)
+  return loop(rate, 2, (t, noise) => wash(noise()) * (0.35 + pulse(t, 1 / 14, 0.025) * 1.4))
+}
+
+/** Ветер: тёмный шум, который то крепчает, то стихает. */
+function wind(rate: number) {
+  let t = 0
+  const gust = lowpass(rate, () => 250 + 350 * (0.5 + Math.sin(2 * Math.PI * 0.13 * t) * 0.5))
+  return loop(rate, 8, (time, noise) => {
+    t = time
+    const swell = 0.55 + Math.sin(2 * Math.PI * 0.125 * time) * 0.25 + Math.sin(2 * Math.PI * 0.375 * time) * 0.12
+    return gust(noise()) * swell
+  })
+}
+
+/** Фоновые петли: здания, техника на ходу, погода. Каждая звучит одним голосом, громкость задаёт ambience.ts. */
+export const LOOPS = { hum, machinery, drill, engine, tracks, steps, rotor, wind } satisfies Record<string, (rate: number) => Float32Array>
+export type LoopName = keyof typeof LOOPS
+export const LOOP_NAMES = Object.keys(LOOPS) as LoopName[]

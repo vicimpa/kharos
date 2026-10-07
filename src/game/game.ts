@@ -16,6 +16,7 @@ import { createCursorPass } from './cursorPass'
 import { createDecalsPass } from './decalsPass'
 import { createFogPass } from './fogPass'
 import { createAlerts } from './alerts'
+import { createAmbience } from './ambience'
 import { createInterfaceSounds } from './interfaceSounds'
 import { createShake } from './shake'
 import { createSoundscape } from './soundscape'
@@ -187,6 +188,7 @@ export function createGame(
   const soundscape = audio && createSoundscape(scene, audio, shake)
   if (!showcase) scene.alerts = createAlerts(scene, audio)
   const silenceInterface = audio ? createInterfaceSounds(session.sim, audio) : null
+  const ambience = audio && createAmbience(scene, audio)
 
   const saveCamera = () => slot && storeCamera(slot, camera)
   let sinceSave = 0
@@ -267,6 +269,7 @@ export function createGame(
 
     soundscape?.update(seconds)
     scene.alerts?.update(seconds)
+    ambience?.update(seconds)
     shake.update(seconds)
 
     sinceSave += seconds
