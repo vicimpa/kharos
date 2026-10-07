@@ -19,13 +19,14 @@ const TRADE = 8
 const LIST = 8
 
 /** Страница сетки строителя: корень с разделами или сами здания раздела. */
-export type Page = 'root' | 'economy' | 'storage' | 'industry' | 'military' | 'paving' | 'filter' | 'sell' | 'buy'
+export type Page = 'root' | 'economy' | 'storage' | 'industry' | 'military' | 'defense' | 'paving' | 'filter' | 'sell' | 'buy'
 
 /** Разделы строителя: в какой странице какое здание. Остальное — хозяйство: энергия, добыча, торговля. */
 const SECTIONS: Partial<Record<Page, BuildingType[]>> = {
   storage: ['metalYard', 'siliconStore', 'fuelTank', 'khariteVault', 'blockYard', 'ammoBunker', 'partsLocker'],
   industry: ['smelter', 'siliconWorks', 'distillery', 'enricher', 'blockPlant', 'ammoPlant', 'partsPlant'],
-  military: ['barracks', 'factory', 'airfield', 'techCenter', 'radar', 'wall', 'turret', 'rocketTurret', 'cannonTurret', 'laserTurret'],
+  military: ['barracks', 'factory', 'airfield', 'techCenter'],
+  defense: ['wall', 'turret', 'rocketTurret', 'cannonTurret', 'laserTurret', 'radar'],
 }
 const sectionOf = (building: BuildingType): Page =>
   (Object.keys(SECTIONS) as Page[]).find((page) => SECTIONS[page]!.includes(building)) ?? 'economy'
@@ -75,7 +76,8 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
         { label: 'Хозяйство', building: 'mine', title: 'Энергия, добыча и торговля', run: () => open('economy') },
         { label: 'Склады', building: 'metalYard', title: 'Хранилища ресурсов и изделий', run: () => open('storage') },
         { label: 'Переработка', building: 'smelter', title: 'Переработка руды и заводы изделий', run: () => open('industry') },
-        { label: 'Военное', building: 'turret', title: 'Казармы, заводы, радар, стены и турели', run: () => open('military') },
+        { label: 'Военное', building: 'factory', title: 'Казармы, заводы, аэродром и техцентр', run: () => open('military') },
+        { label: 'Оборона', building: 'turret', title: 'Стены, турели и радар', run: () => open('defense') },
         { label: 'Покрытие', title: 'Фундамент, дороги и мосты', run: () => open('paving') },
       ])
     } else if (page === 'paving') {
