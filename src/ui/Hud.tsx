@@ -2,7 +2,7 @@ import type { ComponentChildren } from 'preact'
 import type { HudState, Stack } from '../game/hud'
 import { MINIMAP_SIZE, type Minimap } from '../game/minimap'
 import type { PaveTool } from '../game/scene'
-import { buildingPortrait, unitPortrait } from '../game/portraits'
+import { buildingPortrait, pavePortrait, unitPortrait } from '../game/portraits'
 import { goodIcon } from '../game/goodIcons'
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { REWARDS, resourceOf, type UnitType, type BuildingType, type Command, type Good, type Reward } from '../sim'
@@ -172,11 +172,12 @@ function MinimapView({ minimap, lookAt, moveSelected }: Pick<HudProps, 'minimap'
   )
 }
 
-/** Картинка ячейки: портрет здания или юнита, значок груза или ничего. */
+/** Картинка ячейки: портрет здания или юнита, значок груза или покрытия, или ничего. */
 function SlotImage({ slot }: { slot: Slot }) {
   if (slot.building) return <img src={buildingPortrait(slot.building)} alt="" />
   if (slot.unit) return <img src={unitPortrait(slot.unit)} alt="" />
   if (slot.good) return <img class="bar__good" src={goodIcon(slot.good)} alt="" />
+  if (slot.pave) return <img src={pavePortrait(slot.pave)} alt="" />
   return null
 }
 

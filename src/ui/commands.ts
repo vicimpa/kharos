@@ -1,4 +1,5 @@
 import type { HudState, Stack } from '../game/hud'
+import type { PaveIcon } from '../game/portraits'
 import type { PaveTool } from '../game/scene'
 import { BRIDGE_COST, DEPOSIT_TYPES, FOUNDATION_COST, ORES, ROAD_COST, WARES, type BuildingType, type Command, type DepositKind, type Good } from '../sim'
 import { BUILDING_NAMES, RESOURCE_NAMES, UNIT_NAMES, goodName } from './names'
@@ -38,6 +39,8 @@ export interface Slot {
   building?: BuildingType
   unit?: HudState['units'][number]['type']
   good?: Good
+  /** Значок покрытия. */
+  pave?: PaveIcon
   cost?: number
   /** cost — не трата, а доход: продажа, возврат за разбор. */
   gain?: boolean
@@ -78,13 +81,14 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
         { label: 'Переработка', building: 'smelter', title: 'Переработка руды и заводы изделий', run: () => open('industry') },
         { label: 'Военное', building: 'factory', title: 'Казармы, заводы, аэродром и техцентр', run: () => open('military') },
         { label: 'Оборона', building: 'turret', title: 'Стены, турели и радар', run: () => open('defense') },
-        { label: 'Покрытие', title: 'Фундамент, дороги и мосты', run: () => open('paving') },
+        { label: 'Покрытие', pave: 'road', title: 'Фундамент, дороги и мосты', run: () => open('paving') },
       ])
     } else if (page === 'paving') {
       PAVE_TOOLS.forEach(({ tool, label, cost, title }, i) => {
         const active = construction.paving?.tool === tool
         slots[i] = {
           label,
+          pave: tool,
           cost: active && construction.paving!.tiles > 1 ? construction.paving!.cost : cost,
           active,
           disabled: tool !== 'remove' && cost !== undefined && credits < cost,
