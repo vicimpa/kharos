@@ -31,6 +31,8 @@ export const TURRETS = {
   gunner: { turn: 8, radius: 0.45, weapon: 'machinegun' },
   rocket: { turn: 4, radius: 0.2, weapon: 'launcher' },
   repair: { turn: 4, radius: 0.2, repair: 5 },
+  // Пушка главного здания: тяжёлый купол со спаренным излучателем.
+  core: { turn: 2.5, radius: 0.9, weapon: 'coreGun' },
 } satisfies Record<string, TurretSpec>
 
 export type TurretType = keyof typeof TURRETS

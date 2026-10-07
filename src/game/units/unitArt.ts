@@ -623,4 +623,21 @@ const gunnerTurret: UnitArt = (g, angle, team) => {
   p.dot(-1, -0.6, 0.9, team[2])
 }
 
-export const TURRET_ART = { gunner: gunnerTurret, arc: arcTurret, cannon: cannonTurret, rocket: rocketTurret, repair: repairTurret } satisfies Record<TurretType, UnitArt>
+/** Пушка главного здания: широкий купол цвета команды и спаренный излучатель с голубыми линзами. */
+const coreTurret: UnitArt = (g, angle, team) => {
+  const p = pen(g, angle)
+  for (const side of [-1.8, 1.8]) {
+    p.bar(2, 12, side, 2.4, INK)
+    p.bar(2.5, 11.5, side, 1.2, IRON[3])
+    p.dot(11.6, side, 1.1, ENERGY[1])
+    p.dot(11.6, side, 0.5, ENERGY[2])
+  }
+  p.dot(0, 0, 6.4, INK)
+  p.dot(0, 0, 5.4, STEEL[2])
+  p.dot(-0.8, 0, 4.2, team[0])
+  p.dot(-1.6, -1.6, 1.8, team[1])
+  p.dot(1.5, 0, 1.6, INK)
+  p.dot(1.5, 0, 1, ENERGY[0])
+}
+
+export const TURRET_ART = { gunner: gunnerTurret, arc: arcTurret, cannon: cannonTurret, rocket: rocketTurret, repair: repairTurret, core: coreTurret } satisfies Record<TurretType, UnitArt>

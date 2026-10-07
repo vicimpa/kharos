@@ -17,3 +17,17 @@ test('ракетная турель достаёт штурмовика даль
     if (unit.type === 'gunship') expect(health.value).toBeLessThan(1)
   }
 })
+
+test('главное здание бьёт по всей своей зоне, и по воздуху тоже, а дальше — нет', () => {
+  // Центр главного здания — (1.5, 1.5); его зона — 12 тайлов. Каждую цель — в своём мире: турель бьёт по одной.
+  const hurt = (type: 'buggy' | 'drone', x: number, y: number) => {
+    const sim = newSim()
+    placeBuilding(sim.world, 'command', 0, 0, 1)
+    const unit = spawnUnit(sim, type, TRAINING_PLAYER, x, y)
+    for (let i = 0; i < 20 * 10; i++) sim.advance(0.05)
+    return !sim.world.alive(unit) || sim.world.get(unit, Health)!.value < 1
+  }
+  expect(hurt('buggy', 12, 1)).toBe(true)
+  expect(hurt('drone', 1, 12)).toBe(true)
+  expect(hurt('buggy', -14, 1)).toBe(false)
+})

@@ -65,6 +65,9 @@ export const WEAPONS = {
   flame: { shot: 'flame', range: 3, damage: 14, reload: 0.4, chain: 1, air: false, vs: { infantry: 1.5, building: 1.2, vehicle: 0.3, heavy: 0.15 } },
   // Зенитка: частые разрывы по воздуху, далеко и сильно, по земле не стреляет.
   flak: { shot: 'bullet', range: 8, damage: 22, reload: 0.5, speed: 30, splash: 0.6, air: true, onlyAir: true },
+  // Пушка главного здания: лазер на всю его зону (с надбавкой турели здания — 12), по земле и воздуху, без боеприпасов.
+  // Бьёт редко: одиночку и разведку она отгоняет, а настоящий штурм её перемалывает.
+  coreGun: { shot: 'laser', range: 10, damage: 40, reload: 2.5, air: true, vs: { building: 0.5 } },
   // Разряд бьёт цель и перескакивает на соседей: против толпы.
   arc: { shot: 'arc', range: 4.5, damage: 46, reload: 2, chain: 2, air: false, vs: { infantry: 1.5, building: 0.4 } },
 } satisfies Record<string, WeaponSpec>
