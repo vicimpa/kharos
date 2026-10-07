@@ -6,7 +6,8 @@ import {
   awaitsMaterials, buildTicks, canDemolish, canFight, canDeploy, canPack, depositAt, depositNear, DEPOSIT_SIZE, entriesOf, isDeployBlocked, coreCenters, creditsOf, economyOf, isSiteBlocked, materialsFor, reserveLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, spareOf, zoneEconomies, zonesOf,
   Position, type Amounts, type BuildingType, type Command, type DepositKind, type Good, type Ore, type Product, type Resource, type UnitType,
 } from '../sim'
-import type { Scene, Spawn } from './scene'
+import { paveStrokeOf } from './placing'
+import type { PaveTool, Scene, Spawn } from './scene'
 
 /** Что интерфейс игрока показывает прямо сейчас. Обычные данные: их можно сравнивать и хранить в состоянии. */
 export interface HudState {
@@ -114,6 +115,8 @@ export interface HudState {
     available: boolean
     /** Здание, для которого сейчас выбирается место. */
     placing: BuildingType | null
+    /** Покрытие, которое сейчас кладут или снимают, и во что обойдётся протянутое мышью. */
+    paving: { tool: PaveTool; cost: number; tiles: number } | null
     /** power — как здание изменит баланс энергии: больше нуля — даст, меньше — попросит; materials — что привезти на стройку. */
     options: { building: BuildingType; cost: number; affordable: boolean; power: number; materials: Stack[] }[]
   } | null
@@ -358,6 +361,7 @@ export function readHud(scene: Scene): HudState {
       ? {
           available: coreCenters(sim, player).length > 0,
           placing: scene.placing,
+          paving: pavingOf(scene),
           options: BUILDABLE.map((type) => ({
             building: type,
             cost: BUILDINGS[type].cost,
@@ -401,4 +405,11 @@ export function readHud(scene: Scene): HudState {
     })),
   }
   return state
+}
+
+/** Укладка покрытия, которую игрок тянет мышью: инструмент, цена и сколько тайлов ляжет. */
+function pavingOf(scene: Scene): NonNullable<HudState['construction']>['paving'] {
+  if (!scene.paving) return null
+  const stroke = paveStrokeOf(scene)
+  return { tool: scene.paving, cost: stroke?.cost ?? 0, tiles: stroke ? stroke.allowed.filter(Boolean).length : 0 }
 }

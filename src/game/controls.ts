@@ -1,6 +1,6 @@
 import type { Entity } from '../ecs'
 import { DEPOSIT_SIZE, Harvester, depositNear, hasMine, type UnitType, Owner, Position, Repair, isOwn, UNITS, Unit, canAttack, canFight, canHaul, canRepair, siteAt } from '../sim'
-import { placementOf, spawnGhostOf } from './placing'
+import { paveStrokeOf, placementOf, spawnGhostOf } from './placing'
 import type { Scene, Spawn } from './scene'
 
 const KEY_SPEED = 900 // пикселей экрана в секунду
@@ -86,6 +86,8 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
   const onPointerDown = (event: PointerEvent) => {
     if (pressed) return
     pressed = { button: event.button, x: event.offsetX, y: event.offsetY, dragged: false }
+    // Покрытие тянут от тайла, где зажали левую кнопку.
+    if (scene.paving && event.button === LEFT) scene.paveFrom = camera.screenToTile(event.offsetX, event.offsetY)
     canvas.setPointerCapture(event.pointerId)
   }
   const onPointerMove = (event: PointerEvent) => {
@@ -93,7 +95,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     if (!pressed) return
     if (Math.hypot(event.offsetX - pressed.x, event.offsetY - pressed.y) > CLICK_SLOP) pressed.dragged = true
     if (pressed.button === LEFT) {
-      if (!pressed.dragged || scene.placing || scene.spawning) return
+      if (!pressed.dragged || scene.placing || scene.paving || scene.spawning) return
       const from = camera.screenToTile(pressed.x, pressed.y)
       const to = camera.screenToTile(event.offsetX, event.offsetY)
       scene.selectionBox = { fromX: from.x, fromY: from.y, toX: to.x, toY: to.y }
@@ -110,6 +112,19 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     if (scene.spawning) {
       if (button === LEFT && !dragged) spawnAt(scene.spawning)
       if (button === RIGHT && !dragged) scene.spawning = null
+    } else if (scene.paving) {
+      if (button === RIGHT && !dragged) scene.paving = null
+      const stroke = button === LEFT ? paveStrokeOf(scene) : null
+      scene.paveFrom = null
+      if (stroke) {
+        const tiles = stroke.tiles.filter((_, i) => stroke.allowed[i >> 1])
+        if (tiles.length) {
+          scene.sim.send(scene.player, stroke.tool === 'remove'
+            ? { type: 'unpave', tiles }
+            : { type: 'pave', kind: stroke.tool, tiles, builders: [...scene.selection] })
+        }
+        if (!event.shiftKey) scene.paving = null
+      }
     } else if (scene.placing) {
       if (button === RIGHT && !dragged) scene.placing = null
       const placement = button === LEFT && !dragged ? placementOf(scene) : null
@@ -234,7 +249,10 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     if (event.code === 'Escape') {
       // Сначала отменяется выбор места, и только следующим нажатием — выделение.
       if (scene.spawning) scene.spawning = null
-      else if (scene.placing) scene.placing = null
+      else if (scene.paving) {
+        scene.paving = null
+        scene.paveFrom = null
+      } else if (scene.placing) scene.placing = null
       else scene.selection.clear()
     }
   }
@@ -290,6 +308,12 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
       let builders = false
       for (const entity of scene.selection) builders ||= scene.sim.world.get(entity, Unit)?.type === 'builder'
       if (!builders) scene.placing = null
+    }
+    // Покрытие кладут строители, а снимают и без них.
+    if (scene.paving && scene.paving !== 'remove') {
+      let builders = false
+      for (const entity of scene.selection) builders ||= scene.sim.world.get(entity, Unit)?.type === 'builder'
+      if (!builders) scene.paving = null
     }
   }
 

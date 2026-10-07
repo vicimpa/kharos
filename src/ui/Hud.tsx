@@ -1,6 +1,7 @@
 import type { ComponentChildren } from 'preact'
 import type { HudState, Stack } from '../game/hud'
 import { MINIMAP_SIZE, type Minimap } from '../game/minimap'
+import type { PaveTool } from '../game/scene'
 import { buildingPortrait, unitPortrait } from '../game/portraits'
 import { goodIcon } from '../game/goodIcons'
 import { useEffect, useRef, useState } from 'preact/hooks'
@@ -13,6 +14,8 @@ interface HudProps {
   send: (command: Command) => void
   /** Начать выбор места под здание; null — отменить. */
   place: (building: BuildingType | null) => void
+  /** Начать укладку или снятие покрытия; null — отменить. */
+  pave: (tool: PaveTool | null) => void
   minimap: Minimap
   /** Камера в точку карты, в тайлах. */
   lookAt: (x: number, y: number) => void
@@ -422,7 +425,12 @@ function Info({ state, lookAtSelection, narrow }: { state: HudState; lookAtSelec
             </div>
           </>
         )}
-        {construction && !construction.placing && (
+        {construction?.paving && (
+          <div class="hud__hint">
+            {construction.paving.tool === 'remove' ? 'Тяни левой кнопкой, что снять' : `Тяни левой кнопкой: ${construction.paving.tiles} тайл., ${construction.paving.cost} кредитов`}; с Shift — ещё раз; правая или Esc — отмена
+          </div>
+        )}
+        {construction && !construction.placing && !construction.paving && (
           <div class="hud__hint">Строит здания и чинит своё: правый щелчок по стройке или повреждённому. Здания — в сетке справа</div>
         )}
         {construction?.placing && <div class="hud__hint">Левая кнопка — заложить, с Shift — ещё одно; правая или Esc — отмена</div>}
@@ -433,16 +441,16 @@ function Info({ state, lookAtSelection, narrow }: { state: HudState; lookAtSelec
 }
 
 /** Интерфейс игрока: верхняя полоса со счётом и нижняя панель — мини-карта, выбранное, сетка команд. */
-export function Hud({ state, send, place, minimap, lookAt, lookAtSelection, narrow, moveSelected, menu }: HudProps) {
+export function Hud({ state, send, place, pave, minimap, lookAt, lookAtSelection, narrow, moveSelected, menu }: HudProps) {
   const selected = state.units.length > 0 || state.building !== null
   const fresh = useNewRewards(state.rewards, state.loaded)
 
   // Страница сетки строителя сбрасывается, когда выбрано другое.
   const [page, setPage] = useState<Page>('root')
   const selectionKey = `${state.building}:${state.units.map(({ type, count }) => `${type}${count}`).join()}`
-  useEffect(() => setPage(state.construction?.placing ? page : 'root'), [selectionKey])
+  useEffect(() => setPage(state.construction?.placing || state.construction?.paving ? page : 'root'), [selectionKey])
 
-  const slots = selected ? commandsOf(state, page, { send, place, open: setPage }) : []
+  const slots = selected ? commandsOf(state, page, { send, place, pave, open: setPage }) : []
 
   // Клавиши сетки. Читаются из ref, чтобы не переподписываться на каждое обновление.
   const slotsRef = useRef(slots)

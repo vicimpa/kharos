@@ -1,6 +1,6 @@
 import type { Entity } from '../ecs'
 import type { MapSettings } from '../map/settings'
-import type { BuildingType, Sim, UnitType, Weather } from '../sim'
+import type { BuildingType, PaveKind, Sim, UnitType, Weather } from '../sim'
 import type { Camera } from './camera'
 
 /** Прямоугольник в тайлах, заданный двумя противоположными углами. */
@@ -29,6 +29,10 @@ export interface Scene {
   selectionBox: Box | null
   /** Здание, для которого игрок сейчас выбирает место; null — обычный режим. */
   placing: BuildingType | null
+  /** Покрытие, которое игрок сейчас кладёт мышью, или снятие покрытия; null — обычный режим. */
+  paving: PaveTool | null
+  /** Откуда игрок тянет укладку покрытия: тайл, где зажал кнопку; null — ещё не зажал. */
+  paveFrom: { x: number; y: number } | null
   /**
    * Отладочный спавн: что ставит щелчок левой кнопкой — готовое здание, свой юнит или юнит учебного противника.
    * Остаётся выбранным, пока не отменят правой кнопкой или Esc; null — обычный режим.
@@ -39,6 +43,9 @@ export interface Scene {
   /** Погода в этом кадре: её считает симуляция по времени мира, игра обновляет каждый кадр. */
   weather: Weather
 }
+
+/** Чем работает игрок на покрытии: кладёт фундамент или дорогу, или снимает своё. */
+export type PaveTool = PaveKind | 'remove'
 
 /** Что ставит отладочный спавн. */
 export type Spawn = { kind: 'building'; type: BuildingType } | { kind: 'unit' | 'enemy'; type: UnitType }

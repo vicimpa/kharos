@@ -1,5 +1,6 @@
 import type { HudState, Stack } from '../game/hud'
-import { DEPOSIT_TYPES, type BuildingType, type Command, type DepositKind, type Good } from '../sim'
+import type { PaveTool } from '../game/scene'
+import { BRIDGE_COST, DEPOSIT_TYPES, FOUNDATION_COST, ROAD_COST, type BuildingType, type Command, type DepositKind, type Good } from '../sim'
 import { BUILDING_NAMES, RESOURCE_NAMES, UNIT_NAMES } from './names'
 
 /** Клавиши ячеек сетки команд по порядку: три ряда по четыре, как на клавиатуре, справа от WASD. */
@@ -18,13 +19,13 @@ const TRADE = 8
 const LIST = 8
 
 /** Страница сетки строителя: корень с разделами или сами здания раздела. */
-export type Page = 'root' | 'economy' | 'storage' | 'industry' | 'military' | 'sell' | 'buy'
+export type Page = 'root' | 'economy' | 'storage' | 'industry' | 'military' | 'paving' | 'sell' | 'buy'
 
 /** Разделы строителя: в какой странице какое здание. Остальное — хозяйство: энергия, добыча, торговля. */
 const SECTIONS: Partial<Record<Page, BuildingType[]>> = {
   storage: ['metalYard', 'siliconStore', 'fuelTank', 'khariteVault', 'blockYard', 'ammoBunker', 'partsLocker'],
   industry: ['smelter', 'siliconWorks', 'distillery', 'enricher', 'blockPlant', 'ammoPlant', 'partsPlant'],
-  military: ['barracks', 'factory', 'wall', 'turret', 'rocketTurret', 'cannonTurret'],
+  military: ['barracks', 'factory', 'airfield', 'techCenter', 'radar', 'wall', 'turret', 'rocketTurret', 'cannonTurret'],
 }
 const sectionOf = (building: BuildingType): Page =>
   (Object.keys(SECTIONS) as Page[]).find((page) => SECTIONS[page]!.includes(building)) ?? 'economy'
@@ -50,11 +51,19 @@ export interface Slot {
 interface Actions {
   send: (command: Command) => void
   place: (building: BuildingType | null) => void
+  pave: (tool: PaveTool | null) => void
   open: (page: Page) => void
 }
 
+/** Инструменты раздела «Покрытие»: подпись, цена тайла и подсказка. */
+const PAVE_TOOLS: { tool: PaveTool; label: string; cost?: number; title: string }[] = [
+  { tool: 'foundation', label: 'Фундамент', cost: FOUNDATION_COST, title: 'Здания на нём строятся вдвое быстрее; на песке разрешает стройку, и вне зоны тоже. Тяни мышью прямоугольник' },
+  { tool: 'road', label: 'Дорога', cost: ROAD_COST, title: `Наземные едут быстрее; по болоту — мост за ${BRIDGE_COST} за тайл. Тяни мышью линию` },
+  { tool: 'remove', label: 'Снять', title: 'Убрать своё покрытие: за недостроенное кредиты вернутся. Тяни мышью прямоугольник' },
+]
+
 /** Сетка команд для выбранного: GRID_SIZE ячеек, пустые — null. */
-export function commandsOf(state: HudState, page: Page, { send, place, open }: Actions): (Slot | null)[] {
+export function commandsOf(state: HudState, page: Page, { send, place, pave, open }: Actions): (Slot | null)[] {
   const slots: (Slot | null)[] = Array(GRID_SIZE).fill(null)
   const list = (items: Slot[]) => items.slice(0, LIST).forEach((slot, i) => (slots[i] = slot))
   const { construction, production, conversion, assembly, trade, site, demolish, credits } = state
@@ -65,8 +74,29 @@ export function commandsOf(state: HudState, page: Page, { send, place, open }: A
         { label: 'Хозяйство', building: 'mine', title: 'Энергия, добыча и торговля', run: () => open('economy') },
         { label: 'Склады', building: 'metalYard', title: 'Хранилища ресурсов и изделий', run: () => open('storage') },
         { label: 'Переработка', building: 'smelter', title: 'Переработка руды и заводы изделий', run: () => open('industry') },
-        { label: 'Военное', building: 'turret', title: 'Казармы, завод, стены и турели', run: () => open('military') },
+        { label: 'Военное', building: 'turret', title: 'Казармы, заводы, радар, стены и турели', run: () => open('military') },
+        { label: 'Покрытие', title: 'Фундамент, дороги и мосты', run: () => open('paving') },
       ])
+    } else if (page === 'paving') {
+      PAVE_TOOLS.forEach(({ tool, label, cost, title }, i) => {
+        const active = construction.paving?.tool === tool
+        slots[i] = {
+          label,
+          cost: active && construction.paving!.tiles > 1 ? construction.paving!.cost : cost,
+          active,
+          disabled: tool !== 'remove' && cost !== undefined && credits < cost,
+          title,
+          run: () => pave(active ? null : tool),
+        }
+      })
+      slots[BACK] = {
+        label: 'Назад',
+        title: 'К разделам; Esc отменяет укладку',
+        run: () => {
+          pave(null)
+          open('root')
+        },
+      }
     } else {
       const wanted = construction.options.filter(({ building }) => sectionOf(building) === page)
       wanted.slice(0, BACK).forEach(({ building, cost, affordable, power, materials }, i) => {

@@ -66,6 +66,7 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
           state={hud}
           send={(command) => gameRef.current?.send(command)}
           place={(building) => gameRef.current?.place(building)}
+          pave={(tool) => gameRef.current?.pave(tool)}
           minimap={gameRef.current.minimap}
           lookAt={(x, y) => gameRef.current?.lookAt(x, y)}
           lookAtSelection={() => gameRef.current?.lookAtSelection()}

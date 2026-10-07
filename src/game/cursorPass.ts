@@ -2,7 +2,7 @@ import { setBlend } from '../gl'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites, createWhiteTexture } from '../render/sprites'
 import { BUILDINGS, CONTROL_RADIUS, allZones } from '../sim'
-import { placementOf } from './placing'
+import { paveStrokeOf, placementOf } from './placing'
 import type { Scene } from './scene'
 
 /** Толщина рамки в тайлах: один пиксель пиксель-арта. */
@@ -14,13 +14,16 @@ type Color = readonly [number, number, number]
 const ALLOWED: Color = [0.35, 1, 0.45]
 const FORBIDDEN: Color = [1, 0.3, 0.25]
 const CONTROL: Color = [0.3, 0.6, 1]
+/** Снимаемое покрытие. */
+const REMOVE: Color = [1, 0.65, 0.2]
 /** Граница радиуса контроля — пунктир: столько штрихов на круг, каждый такой длины и толщины в пикселях экрана. */
 const CONTROL_DASHES = 120
 const CONTROL_DASH = 3
 
 /**
  * Подсветка под указателем мыши, пока игрок выбирает место под здание: его основание (зелёное, если строить можно,
- * красное, если нельзя) и границы зон строительства. В остальное время ничего не рисует.
+ * красное, если нельзя) и границы зон строительства. Так же — тайлы покрытия, которое игрок тянет мышью.
+ * В остальное время ничего не рисует.
  * Ставить выше освещения, чтобы ночью не темнела.
  */
 export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass {
@@ -32,7 +35,8 @@ export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass
     draw({ camera, view }) {
       if (!scene.camera.pointerTile) return
       const placement = placementOf(scene)
-      if (!placement) return
+      const stroke = paveStrokeOf(scene)
+      if (!placement && !stroke) return
 
       /** Прямоугольник в тайлах от камеры. */
       const rect = (x: number, y: number, width: number, height: number, [r, g, b]: Color, alpha: number) =>
@@ -76,8 +80,14 @@ export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass
           if (own) outline(zones.flatMap((zone) => zone.circles), CONTROL)
           else for (const zone of zones) outline(zone.circles, FORBIDDEN)
         }
-        const { width, height } = BUILDINGS[placement.type]
-        area(placement.x, placement.y, width, height, placement.allowed ? ALLOWED : FORBIDDEN)
+        if (placement) {
+          const { width, height } = BUILDINGS[placement.type]
+          area(placement.x, placement.y, width, height, placement.allowed ? ALLOWED : FORBIDDEN)
+        }
+        if (stroke) {
+          const good = stroke.tool === 'remove' ? REMOVE : ALLOWED
+          for (let i = 0; i < stroke.tiles.length; i += 2) area(stroke.tiles[i], stroke.tiles[i + 1], 1, 1, stroke.allowed[i >> 1] ? good : FORBIDDEN)
+        }
       }
 
       setBlend(gl, 'alpha')

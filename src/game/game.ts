@@ -18,10 +18,11 @@ import { createFogPass } from './fogPass'
 import { createShake } from './shake'
 import { createSoundscape } from './soundscape'
 import { createDepositsPass } from './depositsPass'
+import { createPavingPass } from './pavingPass'
 import { startFrames } from './frames'
 import { readHud, type HudState } from './hud'
 import { createMinimap, type Minimap } from './minimap'
-import type { Scene, Spawn } from './scene'
+import type { PaveTool, Scene, Spawn } from './scene'
 import { createPowerPass } from './powerPass'
 import { createSelectionPass } from './selectionPass'
 import { loadCamera, storeCamera } from './storage'
@@ -65,6 +66,8 @@ export interface Game {
   send(command: Command): void
   /** Начинает выбор места под здание; null — отменяет его. */
   place(building: BuildingType | null): void
+  /** Начинает укладку или снятие покрытия; null — отменяет. */
+  pave(tool: PaveTool | null): void
   /** Выбирает, что ставит отладочный спавн; null — выключает его. */
   spawn(spawn: Spawn | null): void
   /** Мини-карта нижней панели. */
@@ -113,6 +116,8 @@ export function createGame(
     selection: new Set(),
     selectionBox: null,
     placing: null,
+    paving: null,
+    paveFrom: null,
     spawning: null,
     grid: false,
     weather: weatherAt(session.sim.options, session.sim.time.elapsed),
@@ -132,6 +137,7 @@ export function createGame(
       return [
         createTerrainPass(gl, scene, landWindow),
         createDepositsPass(gl, scene),
+        createPavingPass(gl, scene),
         // Следы, гарь и остовы — на земле, под юнитами.
         createDecalsPass(gl, scene),
         createBoundsPass(gl, scene),
@@ -218,6 +224,8 @@ export function createGame(
       generation = session.sim.generation
       scene.selection.clear()
       scene.placing = null
+      scene.paving = null
+      scene.paveFrom = null
       scene.spawning = null
       centered = false
     }
@@ -278,6 +286,12 @@ export function createGame(
     send: (command) => scene.sim.send(scene.player, command),
     place(building) {
       scene.placing = building
+      if (building) scene.paving = null
+    },
+    pave(tool) {
+      scene.paving = tool
+      scene.paveFrom = null
+      if (tool) scene.placing = null
     },
     spawn(spawn) {
       scene.spawning = spawn
