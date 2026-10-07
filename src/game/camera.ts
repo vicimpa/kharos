@@ -68,9 +68,19 @@ export class Camera {
     this.y += dy
   }
 
+  /** Масштаб zoom, приведённый в допустимые пределы. */
+  clampZoom(zoom: number) {
+    return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.minZoom, zoom))
+  }
+
+  /** Высота камеры: 0 — ближе всего к земле, 1 — дальше всего. */
+  get altitude() {
+    return Math.log(MAX_ZOOM / this.zoom) / Math.log(MAX_ZOOM / MIN_ZOOM)
+  }
+
   /** Меняет масштаб; точка экрана (anchorX, anchorY) остаётся на месте. По умолчанию это середина видимой части. */
   zoomTo(zoom: number, anchorX = this.viewCenter.x, anchorY = this.viewCenter.y) {
-    const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.minZoom, zoom))
+    const next = this.clampZoom(zoom)
     const offsetX = anchorX - this.width / 2
     const offsetY = anchorY - this.height / 2
     this.x += offsetX / this.zoom - offsetX / next

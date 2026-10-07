@@ -11,6 +11,7 @@ import { createBoundsPass } from './boundsPass'
 import { createBuildingsPass } from './buildings/buildingsPass'
 import { createCombatPasses } from './combatPass'
 import { Camera } from './camera'
+import { CameraMotion } from './cameraMotion'
 import { createControls } from './controls'
 import { createCursorPass } from './cursorPass'
 import { createDecalsPass } from './decalsPass'
@@ -179,7 +180,8 @@ export function createGame(
     camera.inset.top = top ? Math.max(0, Math.min(frame.height, top.bottom - frame.top)) : 0
     camera.inset.bottom = bottom ? Math.max(0, Math.min(frame.height, frame.bottom - bottom.top)) : 0
   }
-  const controls = showcase ? null : createControls(canvas, scene)
+  const motion = new CameraMotion(camera)
+  const controls = showcase ? null : createControls(canvas, scene, motion)
   const audio = showcase ? null : createAudio()
   const shake = createShake()
   const soundscape = audio && createSoundscape(scene, audio, shake)
@@ -242,7 +244,7 @@ export function createGame(
     else if (!centered) {
       for (const [entity, position] of sim.world.query(Position, Unit)) {
         if (!isOwn(sim, scene.player, entity)) continue
-        camera.centerOn(position.x, position.y)
+        motion.jump(position.x, position.y)
         centered = true
         break
       }
@@ -260,8 +262,9 @@ export function createGame(
       Math.min(sim.bounds.right, Math.max(sim.bounds.left, focus.x)),
       Math.min(sim.bounds.bottom, Math.max(sim.bounds.top, focus.y)),
     )
+    motion.measure(seconds)
 
-    soundscape?.update(seconds)
+    soundscape?.update(seconds, motion.speed)
     shake.update(seconds)
 
     sinceSave += seconds
@@ -314,7 +317,7 @@ export function createGame(
       if (tool) scene.placing = null
     },
     minimap: createMinimap(scene),
-    lookAt: (x, y) => camera.centerOn(x, y),
+    lookAt: (x, y) => motion.jump(x, y),
     lookAtSelection: () => controls?.lookAtSelection(),
     narrow: (type, remove) => controls?.narrow(type, remove),
     moveSelected(x, y) {
