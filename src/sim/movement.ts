@@ -42,8 +42,13 @@ const ROAD_LOOK_TICKS = 20
  * не дальше — самый быстрый проходит за тик меньше половины тайла.
  */
 const NEIGHBOUR_REACH = LOOK_AHEAD + 0.1
-/** Сторона ячейки сетки, по которой ищутся соседи, в тайлах. Больше любого расстояния, на котором юниты мешают друг другу. */
-const CELL = 4
+/**
+ * Сторона ячейки сетки, по которой ищутся соседи, в тайлах. Больше любого расстояния, на котором мешают друг другу
+ * юниты не крупнее LARGE: тогда соседи — в девяти ячейках вокруг. Чем мельче ячейка, тем меньше в толпе лишних.
+ */
+const CELL = 2.5
+/** Юниты крупнее этого радиуса — редкость: в сетку они не кладутся, их проверяет каждый. */
+const LARGE = 0.9
 
 interface Body {
   entity: Entity
@@ -61,6 +66,7 @@ interface Body {
 export function moveUnits(sim: Sim, time: Time) {
   const { world } = sim
   const cells = new Map<number, Body[]>()
+  const large: Body[] = []
   // Клиент рисует юнит между прошлым и нынешним положением, поэтому прошлое запоминается у всех, даже у стоящих.
   for (const [entity, position, unit] of world.query(Position, Unit)) {
     unit.prevX = position.x
@@ -69,6 +75,10 @@ export function moveUnits(sim: Sim, time: Time) {
     // Сетка строится по местам на начало тика: за тик юнит сдвигается куда меньше, чем на ячейку.
     const key = tileKey(Math.floor(position.x / CELL), Math.floor(position.y / CELL))
     const body = { entity, position, radius: UNITS[unit.type].radius, air: flies(unit.type) }
+    if (body.radius > LARGE) {
+      large.push(body)
+      continue
+    }
     const cell = cells.get(key)
     if (cell) cell.push(body)
     else cells.set(key, [body])
@@ -81,21 +91,24 @@ export function moveUnits(sim: Sim, time: Time) {
   const neighbours: Body[] = []
   const gather = (self: Entity, air: boolean, radius: number, x: number, y: number) => {
     neighbours.length = 0
+    const check = (other: Body) => {
+      if (other.entity === self || other.air !== air) return
+      const reach = radius + other.radius + NEIGHBOUR_REACH
+      const offsetX = other.position.x - x
+      const offsetY = other.position.y - y
+      if (offsetX * offsetX + offsetY * offsetY < reach * reach) neighbours.push(other)
+    }
+    // Крупному юниту мешают и те, что дальше соседних ячеек.
+    const span = radius > LARGE ? Math.ceil((radius + LARGE + NEIGHBOUR_REACH) / CELL) : 1
     const cellX = Math.floor(x / CELL)
     const cellY = Math.floor(y / CELL)
-    for (let cy = cellY - 1; cy <= cellY + 1; cy++) {
-      for (let cx = cellX - 1; cx <= cellX + 1; cx++) {
+    for (let cy = cellY - span; cy <= cellY + span; cy++) {
+      for (let cx = cellX - span; cx <= cellX + span; cx++) {
         const cell = cells.get(tileKey(cx, cy))
-        if (!cell) continue
-        for (const other of cell) {
-          if (other.entity === self || other.air !== air) continue
-          const reach = radius + other.radius + NEIGHBOUR_REACH
-          const offsetX = other.position.x - x
-          const offsetY = other.position.y - y
-          if (offsetX * offsetX + offsetY * offsetY < reach * reach) neighbours.push(other)
-        }
+        if (cell) for (const other of cell) check(other)
       }
     }
+    for (const other of large) check(other)
   }
 
   /** Кого из соседей юнит заденет, пройдя по прямой из (fromX, fromY) в (toX, toY). Соседей собирает gather. */

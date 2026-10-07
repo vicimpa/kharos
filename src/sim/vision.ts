@@ -14,6 +14,8 @@ const SIGHT_OVER_RANGE = 1.5
 /** Сколько тайлов от края видит готовое здание и стройка, если у вида нет своего числа. */
 const BUILDING_SIGHT = 4
 const SITE_SIGHT = 2
+/** Раз во сколько тиков пересчитывается обзор игрока. */
+const VISION_TICKS = 4
 
 /** Дальность самого дальнобойного оружия у вида — своего или на турелях. */
 function longestRange(weapon: keyof typeof WEAPONS | undefined, mounts: { turret: keyof typeof TURRETS }[] = []) {
@@ -137,7 +139,9 @@ export function createVision(world: World, bounds: Bounds, tick: () => number, f
       sight.tick = now
       return sight
     }
-    if (sight.tick === now) return sight
+    // Обзор тысяч юнитов — тысячи кругов тайлов: он пересчитывается не каждый тик. За VISION_TICKS юнит сдвигается
+    // на полтайла, а туман и решения хоста запаздывают на долю секунды.
+    if (sight.tick >= 0 && now >= sight.tick && now - sight.tick < VISION_TICKS) return sight
     sight.tick = now
     const before = sight.lit
     for (const index of before) sight.cells[index] = EXPLORED

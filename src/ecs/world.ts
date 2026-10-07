@@ -217,36 +217,30 @@ export class World {
    * Пока обход не закончен, spawn() создаёт сущность, но её компоненты, а также add(), remove()
    * и destroy() применяются после обхода.
    */
-  *query<C extends Component<any>[]>(...components: C): Generator<Row<C>, void, undefined> {
+  query<C extends Component<any>[]>(...components: C): IterableIterator<Row<C>> {
     const stores: Store<any>[] = []
     for (const component of components) {
       const store = this.stores[component.id]
-      if (!store) return
+      if (!store) return EMPTY
       stores.push(store)
     }
-    if (!stores.length) return
+    if (!stores.length) return EMPTY
     // Идём по самому маленькому хранилищу, остальные только проверяем.
     let driver = stores[0]
     for (const store of stores) if (store.entities.length < driver.entities.length) driver = store
+    // Обход — обычный объект-итератор, а не генератор: генератор на каждом шаге стоит в разы дороже, а обходов
+    // в тике — по числу сущностей.
+    return new Query<Row<C>>(this, stores, driver)
+  }
 
-    const row = new Array(stores.length + 1) as Row<C>
+  /** Обход начался: до его конца состав сущностей не меняется. Только для Query. */
+  enter() {
     this.iterating++
-    try {
-      const { entities, data } = driver
-      next: for (let i = 0; i < entities.length; i++) {
-        const entity = entities[i]
-        row[0] = entity
-        for (let j = 0; j < stores.length; j++) {
-          const store = stores[j]
-          const value = store === driver ? data[i] : store.get(entity)
-          if (value === undefined) continue next
-          row[j + 1] = value
-        }
-        yield row
-      }
-    } finally {
-      if (--this.iterating === 0) this.applyDeferred()
-    }
+  }
+
+  /** Обход кончился: отложенные изменения применяются, когда кончится последний. Только для Query. */
+  leave() {
+    if (--this.iterating === 0) this.applyDeferred()
   }
 
   /**
@@ -378,5 +372,73 @@ export class World {
       this.deferred = []
       for (const command of commands) command()
     }
+  }
+}
+
+const EMPTY: IterableIterator<never> = {
+  next: () => ({ done: true, value: undefined }),
+  [Symbol.iterator]() {
+    return this
+  },
+}
+
+/** Обход запроса. Массив строки и объект результата одни на весь обход. */
+class Query<R extends unknown[]> implements IterableIterator<R> {
+  private at = 0
+  private started = false
+  private done = false
+  private readonly row: R
+  private readonly result: IteratorResult<R> & { value: R }
+  private readonly data: unknown[]
+  private readonly entities: Entity[]
+
+  constructor(
+    private readonly world: World,
+    private readonly stores: Store<any>[],
+    private readonly driver: Store<any>,
+  ) {
+    this.row = new Array(stores.length + 1) as unknown as R
+    this.result = { done: false, value: this.row }
+    this.entities = driver.entities
+    this.data = driver.data
+  }
+
+  [Symbol.iterator]() {
+    return this
+  }
+
+  next(): IteratorResult<R> {
+    const { entities, data, stores, driver, row } = this
+    // Как у генератора: обход начинается с первого шага, а не когда запрос создан.
+    if (!this.started && !this.done) {
+      this.started = true
+      this.world.enter()
+    }
+    next: while (!this.done && this.at < entities.length) {
+      const i = this.at++
+      const entity = entities[i]
+      row[0] = entity
+      for (let j = 0; j < stores.length; j++) {
+        const store = stores[j]
+        const value = store === driver ? data[i] : store.get(entity)
+        if (value === undefined) continue next
+        row[j + 1] = value
+      }
+      return this.result
+    }
+    return this.finish()
+  }
+
+  /** Обход прерван (break, return, исключение): тоже конец. */
+  return(): IteratorResult<R> {
+    return this.finish()
+  }
+
+  private finish(): IteratorResult<R> {
+    if (!this.done) {
+      this.done = true
+      if (this.started) this.world.leave()
+    }
+    return { done: true, value: undefined }
   }
 }

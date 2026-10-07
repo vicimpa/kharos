@@ -159,14 +159,17 @@ test('чужое здание, ушедшее в туман, остаётся п
     host.advance(STEP)
     first.sim.advance(STEP)
   }
+  // Обзор пересчитывается раз в несколько тиков: столько и ждём, чтобы хост заметил перемену.
+  const settle = () => {
+    for (let i = 0; i < 5; i++) step()
+  }
   step()
   expect(first.sim.world.has(yard, Building)).toBe(true)
   expect(first.sim.world.has(yard, Ghost)).toBe(false)
 
   // Юниты ушли — хост здание больше не шлёт, а клиент его помнит.
   shift(-60)
-  step()
-  step()
+  settle()
   expect(first.sim.world.has(yard, Ghost)).toBe(true)
 
   // Здание снесли в тумане: клиент узнаёт об этом, только вернувшись.
@@ -174,8 +177,7 @@ test('чужое здание, ушедшее в туман, остаётся п
   step()
   expect(first.sim.world.has(yard, Ghost)).toBe(true)
   shift(60)
-  step()
-  step()
+  settle()
   expect(first.sim.world.alive(yard)).toBe(false)
 })
 
