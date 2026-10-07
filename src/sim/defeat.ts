@@ -5,8 +5,8 @@ import { dropCargo } from './drops'
 import type { Sim } from './sim'
 
 /**
- * Проиграл ли игрок: у него нет ни главного здания, ни MCV — новую базу ему не начать. Недостроенное главное здание
- * не считается. Игрока, которого в мире ещё нет, проигравшим не считают.
+ * Проиграл ли игрок: у него не осталось ни одного здания и нет MCV. Пока стоит хоть одно готовое здание, база жива:
+ * без главного здания она всё равно держит зону, даёт доход и строит. Недостроенное не считается. Игрока, которого в мире ещё нет, проигравшим не считают.
  */
 export function isDefeated(sim: Sim, player: number) {
   const { world } = sim
@@ -14,8 +14,8 @@ export function isDefeated(sim: Sim, player: number) {
   for (const [, info] of world.query(Player)) if (info.id === player) known = true
   if (!known) return false
   for (const [, unit, owner] of world.query(Unit, Owner)) if (owner.player === player && unit.type === 'mcv') return false
-  for (const [entity, building, owner] of world.query(Building, Owner)) {
-    if (owner.player === player && building.type === CORE && !world.has(entity, Site)) return false
+  for (const [entity, , owner] of world.query(Building, Owner)) {
+    if (owner.player === player && !world.has(entity, Site)) return false
   }
   return true
 }

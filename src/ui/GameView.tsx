@@ -123,7 +123,7 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
       {real && hud?.defeated && error === null && (
         <div class="game__defeat" role="alert">
           <strong>Поражение</strong>
-          <span>{launch.kind === 'server' ? 'Ни главного здания, ни MCV. Можно начать заново в новом месте этого мира.' : 'Ни главного здания, ни MCV.'}</span>
+          <span>{launch.kind === 'server' ? 'Не осталось ни зданий, ни MCV. Можно начать заново в новом месте этого мира.' : 'Не осталось ни зданий, ни MCV.'}</span>
           <div class="game__actions">
             <button onClick={exit}>В меню</button>
             <button onClick={() => gameRef.current?.respawn()}>Начать заново</button>

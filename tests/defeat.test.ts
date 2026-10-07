@@ -2,7 +2,8 @@ import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Terrain, terrainAt } from '../src/map/terrain'
-import { Blast, Owner, Unit, createSim, creditsOf, isDefeated, spawnStartingUnits, type Sim } from '../src/sim'
+import { Blast, Building, Owner, Position, Unit, createSim, creditsOf, isDefeated, spawnStartingUnits, type Sim } from '../src/sim'
+import { placeBuilding } from '../src/sim/buildings'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
 const TICK = 1 / 20
@@ -58,4 +59,15 @@ test('игрока, которого в мире нет, проигравшим 
   const sim = start()
   expect(isDefeated(sim, 2)).toBe(false)
   expect(isDefeated(sim, 1)).toBe(false)
+})
+
+test('без главного здания, но с другим зданием — не проиграл; без зданий и MCV — проиграл', () => {
+  const sim = start()
+  const core = [...sim.world.query(Building, Owner)].find(([, building, owner]) => building.type === 'command' && owner.player === 1)![0]
+  const spot = sim.world.get(core, Position)!
+  sim.world.destroy(core)
+  const generator = placeBuilding(sim.world, 'generator', spot.x, spot.y, 1)
+  expect(isDefeated(sim, 1)).toBe(false)
+  sim.world.destroy(generator)
+  expect(isDefeated(sim, 1)).toBe(true)
 })

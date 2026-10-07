@@ -26,7 +26,7 @@ export interface HudState {
   players: { name: string; own: boolean; online: boolean }[]
   /** Пришёл ли мир от хоста: до этого наград ноль не потому, что их нет, а потому, что мира ещё нет. */
   loaded: boolean
-  /** Игрок проиграл: у него нет ни главного здания, ни MCV. */
+  /** Игрок проиграл: у него не осталось ни зданий, ни MCV. */
   defeated: boolean
   /** Доход в кредитах в секунду. */
   income: number
