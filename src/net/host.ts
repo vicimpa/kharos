@@ -1,7 +1,7 @@
 import { Terrain, terrainAt } from '../map/terrain'
 import { isDefeated, isWalkable, shownTo, spawnStartingUnits, wipePlayer, type Command, type Sim, type SimSave } from '../sim'
 import { Owner, Path, Position } from '../sim/components'
-import { pathOf, sharedWireOf, type Wired } from './wire'
+import { pathOf, seenBy, sharedWireOf, type Wired } from './wire'
 import { encodeDelta, type Motion } from './codec'
 import type { ServerData } from './protocol'
 import type { Trace } from '../sim/traces'
@@ -135,8 +135,9 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
       for (const entity of sim.world.all) {
         if (!shownTo(sim, player, entity)) continue
         // Общее для всех собирается раз за тик — у первого, кто увидел сущность; путь — свой у каждого.
-        let wired = common.wired.get(entity)
-        if (!wired) common.wired.set(entity, (wired = sharedWireOf(sim.world, entity, tick)))
+        let shared = common.wired.get(entity)
+        if (!shared) common.wired.set(entity, (shared = sharedWireOf(sim.world, entity, tick)))
+        let wired = seenBy(shared, player)
         const path = pathOf(sim.world, entity, player)
         if (path !== undefined) wired = { parts: new Map(wired.parts).set(Path.key, path), motion: wired.motion }
         if (wired.parts.size || wired.motion) found.set(entity, wired)

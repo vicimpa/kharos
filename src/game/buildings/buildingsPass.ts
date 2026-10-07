@@ -104,7 +104,11 @@ export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): P
   const workOf = (entity: Entity, type: BuildingType) => {
     const { world } = scene.sim
     const ore = buildingSpec(type).refines
-    if (ore) return amountOf(world.get(entity, Inventory)!, ore)
+    if (ore) {
+      // Склад чужого здания хост не шлёт: работает ли оно, не видно.
+      const inventory = world.get(entity, Inventory)
+      return inventory ? amountOf(inventory, ore) : undefined
+    }
     const assembly = world.get(entity, Assembly)
     return assembly ? assembly.progress : undefined
   }

@@ -3,7 +3,7 @@ import { DEFAULT_CONFIG } from '../src/map/terrain'
 import { createHost, type Host, type HostSave } from '../src/net/host'
 import { decodeServer } from '../src/net/protocol'
 import { createReplica, type Replica } from '../src/net/replica'
-import { Building, Ghost, Owner, Player, Position, Unit, createSim, shownTo } from '../src/sim'
+import { Building, Ghost, Owner, Player, Position, Producer, Unit, createSim, shownTo } from '../src/sim'
 import { SAVED } from '../src/sim/components'
 import { wireOf } from '../src/net/wire'
 import type { Entity } from '../src/ecs'
@@ -291,4 +291,18 @@ test('сдавшийся на сервере начинает заново: но
   // Клиент получил новое приветствие: туман и камера — как в новом мире, а юниты нового набора у него есть.
   expect(sim.generation).toBe(generation + 1)
   expect(unitsOf(sim, 1).length).toBe(before)
+})
+
+test('склад и очередь производства видны только хозяину', () => {
+  const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: 256, fog: false }))
+  const first = join(host)
+  const second = join(host)
+  host.advance(STEP)
+  first.sim.advance(STEP)
+  second.sim.advance(STEP)
+  const mcv = unitsOf(host.sim as never, 1).find((entity) => host.sim.world.get(entity as never, Unit)!.type === 'mcv')!
+  // Свой MCV — с очередью производства, чужой — без неё; сам юнит виден обоим.
+  expect(first.sim.world.has(mcv as never, Producer)).toBe(true)
+  expect(second.sim.world.has(mcv as never, Unit)).toBe(true)
+  expect(second.sim.world.has(mcv as never, Producer)).toBe(false)
 })
