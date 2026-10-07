@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { Biome, Terrain, biomeAt, terrainAt } from '../map/terrain'
+import { Biome, Terrain, biomeAt, terrainAt, tileKey } from '../map/terrain'
 import { isPaved } from './paved'
 import { dropCargo } from './drops'
 import { BUILDINGS, buildingSpec, isWall, type BuildingType } from './buildings'
@@ -80,6 +80,58 @@ interface Mark {
   hp: number
   /** Компонент прочности: урон пишется прямо в него, туда же — тик попадания. */
   health: { value: number; hit: number }
+  /** Номер последнего поиска по сетке, нашедшего метку: здание лежит в нескольких ячейках, а найтись должно раз. */
+  seen: number
+}
+
+/** Сторона ячейки сетки меток, в тайлах. */
+const MARK_CELL = 8
+/** Самый большой радиус юнита: на столько метка может выступать из своей ячейки. */
+const MARK_PAD = 2
+
+/**
+ * Метки по ячейкам: стрелку, взрыву и разряду нужны только те, что рядом, а перебирать на каждого все метки мира —
+ * квадрат от численности армий. Здание лежит во всех ячейках, которые накрывает.
+ */
+function gridOf(marks: Map<Entity, Mark>) {
+  const cells = new Map<number, Mark[]>()
+  const put = (key: number, mark: Mark) => {
+    const cell = cells.get(key)
+    if (cell) cell.push(mark)
+    else cells.set(key, [mark])
+  }
+  for (const mark of marks.values()) {
+    const left = Math.floor(mark.left / MARK_CELL)
+    const top = Math.floor(mark.top / MARK_CELL)
+    const right = Math.floor((mark.left + mark.width) / MARK_CELL)
+    const bottom = Math.floor((mark.top + mark.height) / MARK_CELL)
+    for (let y = top; y <= bottom; y++) for (let x = left; x <= right; x++) put(tileKey(x, y), mark)
+  }
+  let query = 0
+  const found: Mark[] = []
+  /**
+   * Метки, край которых может оказаться не дальше radius от точки: каждая по разу, в порядке ячеек. Массив один
+   * на все поиски — его обходят сразу, до следующего поиска.
+   */
+  return function near(x: number, y: number, radius: number): readonly Mark[] {
+    const current = ++query
+    found.length = 0
+    const reach = radius + MARK_PAD
+    const bottom = Math.floor((y + reach) / MARK_CELL)
+    const right = Math.floor((x + reach) / MARK_CELL)
+    for (let cellY = Math.floor((y - reach) / MARK_CELL); cellY <= bottom; cellY++) {
+      for (let cellX = Math.floor((x - reach) / MARK_CELL); cellX <= right; cellX++) {
+        const cell = cells.get(tileKey(cellX, cellY))
+        if (!cell) continue
+        for (const mark of cell) {
+          if (mark.seen === current) continue
+          mark.seen = current
+          found.push(mark)
+        }
+      }
+    }
+    return found
+  }
 }
 
 /** Расстояние от точки до края цели в тайлах. */
@@ -93,14 +145,14 @@ function collectMarks(sim: Sim) {
     const spec: UnitSpec = UNITS[unit.type]
     marks.set(entity, {
       entity, player: owner.player, x: position.x, y: position.y, left: position.x, top: position.y, width: 0, height: 0,
-      radius: spec.radius, air: spec.kind === 'air', armor: spec.kind, wall: false, hp: spec.hp, health,
+      radius: spec.radius, air: spec.kind === 'air', armor: spec.kind, wall: false, hp: spec.hp, health, seen: 0,
     })
   }
   for (const [entity, position, building, owner, health] of sim.world.query(Position, Building, Owner, Health)) {
     const { width, height } = BUILDINGS[building.type]
     marks.set(entity, {
       entity, player: owner.player, x: position.x + width / 2, y: position.y + height / 2, left: position.x, top: position.y, width, height,
-      radius: 0, air: false, armor: 'building', wall: building.type === 'wall', hp: buildingHp(building.type), health,
+      radius: 0, air: false, armor: 'building', wall: building.type === 'wall', hp: buildingHp(building.type), health, seen: 0,
     })
   }
   return marks
@@ -240,6 +292,7 @@ export function stopAttack(sim: Sim, entity: Entity) {
 export function fight(sim: Sim) {
   const { world, time } = sim
   const marks = collectMarks(sim)
+  const near = gridOf(marks)
   const dead = new Set<Entity>()
   /** Взрывы тика. ground — пришёлся в землю, а не в летающего: такой оставляет гарь. */
   const blasts: { x: number; y: number; size: number; ground: boolean }[] = []
@@ -289,7 +342,7 @@ export function fight(sim: Sim) {
       if (mark && canHit(weapon, player, mark)) hit(mark, weapon.damage, weapon, source)
       return
     }
-    for (const mark of marks.values()) {
+    for (const mark of near(x, y, weapon.splash)) {
       if (blocked && !mark.wall) continue
       if (!canHit(weapon, player, mark)) continue
       const distance = distanceTo(mark, x, y)
@@ -397,7 +450,7 @@ export function fight(sim: Sim) {
       // Агрессивный высматривает на всю дальность обзора и гонится за найденным.
       const lookout = stance === 'aggressive' && unitCarrier ? Math.max(range, unitSight(unitCarrier.type)) : range
       let best = Infinity
-      for (const mark of marks.values()) {
+      for (const mark of near(self.x, self.y, lookout)) {
         if (!canHit(weapon, self.player, mark)) continue
         const distance = distanceTo(mark, self.x, self.y)
         if (distance > lookout || distance < (weapon.minRange ?? 0)) continue
@@ -504,7 +557,7 @@ export function fight(sim: Sim) {
       from = current
       next = undefined
       let nearest = CHAIN_RANGE
-      for (const mark of marks.values()) {
+      for (const mark of near(current.x, current.y, CHAIN_RANGE)) {
         if (struck.has(mark.entity) || !canHit(weapon, self.player, mark)) continue
         const distance = distanceTo(mark, current.x, current.y)
         if (distance >= nearest) continue

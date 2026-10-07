@@ -37,6 +37,11 @@ const YIELD_SEARCHES = 8
 const LOST_TILES = 8000
 /** Раз во сколько тиков идущий юнит смотрит, не показалась ли в обзоре дорога. */
 const ROAD_LOOK_TICKS = 20
+/**
+ * Насколько дальше суммы радиусов сосед ещё может помешать за тик: юнит смотрит вперёд на LOOK_AHEAD, а шагает
+ * не дальше — самый быстрый проходит за тик меньше половины тайла.
+ */
+const NEIGHBOUR_REACH = LOOK_AHEAD + 0.1
 /** Сторона ячейки сетки, по которой ищутся соседи, в тайлах. Больше любого расстояния, на котором юниты мешают друг другу. */
 const CELL = 4
 
@@ -69,34 +74,49 @@ export function moveUnits(sim: Sim, time: Time) {
     else cells.set(key, [body])
   }
 
-  /** Кого юнит заденет, пройдя по прямой из (fromX, fromY) в (toX, toY). */
-  const collides = (self: Entity, air: boolean, radius: number, fromX: number, fromY: number, toX: number, toY: number) => {
-    const dx = toX - fromX
-    const dy = toY - fromY
-    const lengthSquared = dx * dx + dy * dy
-    const cellX = Math.floor(fromX / CELL)
-    const cellY = Math.floor(fromY / CELL)
-    for (let y = cellY - 1; y <= cellY + 1; y++) {
-      for (let x = cellX - 1; x <= cellX + 1; x++) {
-        const cell = cells.get(tileKey(x, y))
+  /**
+   * Соседи юнита в (x, y), которых он может задеть за тик: и глядя вперёд, и шагнув. Собираются раз на юнит,
+   * а не на каждый пробуемый обход: в толпе их пробуется до десятка.
+   */
+  const neighbours: Body[] = []
+  const gather = (self: Entity, air: boolean, radius: number, x: number, y: number) => {
+    neighbours.length = 0
+    const cellX = Math.floor(x / CELL)
+    const cellY = Math.floor(y / CELL)
+    for (let cy = cellY - 1; cy <= cellY + 1; cy++) {
+      for (let cx = cellX - 1; cx <= cellX + 1; cx++) {
+        const cell = cells.get(tileKey(cx, cy))
         if (!cell) continue
         for (const other of cell) {
           if (other.entity === self || other.air !== air) continue
-          const reach = radius + other.radius - OVERLAP
-          const offsetX = other.position.x - fromX
-          const offsetY = other.position.y - fromY
-          const along = offsetX * dx + offsetY * dy
-          // Уже стоят друг в друге (так бывает сразу после появления): расходиться можно, сближаться нельзя.
-          if (offsetX * offsetX + offsetY * offsetY < reach * reach) {
-            if (along > 0) return other
-            continue
-          }
-          const share = lengthSquared ? Math.min(1, Math.max(0, along / lengthSquared)) : 0
-          const gapX = offsetX - dx * share
-          const gapY = offsetY - dy * share
-          if (gapX * gapX + gapY * gapY < reach * reach) return other
+          const reach = radius + other.radius + NEIGHBOUR_REACH
+          const offsetX = other.position.x - x
+          const offsetY = other.position.y - y
+          if (offsetX * offsetX + offsetY * offsetY < reach * reach) neighbours.push(other)
         }
       }
+    }
+  }
+
+  /** Кого из соседей юнит заденет, пройдя по прямой из (fromX, fromY) в (toX, toY). Соседей собирает gather. */
+  const collides = (radius: number, fromX: number, fromY: number, toX: number, toY: number) => {
+    const dx = toX - fromX
+    const dy = toY - fromY
+    const lengthSquared = dx * dx + dy * dy
+    for (const other of neighbours) {
+      const reach = radius + other.radius - OVERLAP
+      const offsetX = other.position.x - fromX
+      const offsetY = other.position.y - fromY
+      const along = offsetX * dx + offsetY * dy
+      // Уже стоят друг в друге (так бывает сразу после появления): расходиться можно, сближаться нельзя.
+      if (offsetX * offsetX + offsetY * offsetY < reach * reach) {
+        if (along > 0) return other
+        continue
+      }
+      const share = lengthSquared ? Math.min(1, Math.max(0, along / lengthSquared)) : 0
+      const gapX = offsetX - dx * share
+      const gapY = offsetY - dy * share
+      if (gapX * gapX + gapY * gapY < reach * reach) return other
     }
     return undefined
   }
@@ -132,6 +152,7 @@ export function moveUnits(sim: Sim, time: Time) {
     // Юнит, под которым выросло здание, выходит из него: внутри здания тайлы ему не преграда.
     const inside = !canStand(sim, air, Math.floor(position.x), Math.floor(position.y))
 
+    gather(entity, air, radius, position.x, position.y)
     // Куда ехать: прямо к точке пути, а если там другой юнит — в ближайшую свободную сторону.
     const look = Math.min(distance, LOOK_AHEAD)
     let heading: number | undefined
@@ -143,7 +164,7 @@ export function moveUnits(sim: Sim, time: Time) {
       const lookY = position.y + Math.sin(angle) * look
       // Прямой путь проверен, когда прокладывался; в стороне от него может оказаться стена.
       if (detour && !inside && !canStand(sim, air, Math.floor(lookX), Math.floor(lookY))) continue
-      const other = collides(entity, air, radius, position.x, position.y, lookX, lookY)
+      const other = collides(radius, position.x, position.y, lookX, lookY)
       if (!detour) ahead = other
       if (other) continue
       heading = wrap(angle)
@@ -178,7 +199,7 @@ export function moveUnits(sim: Sim, time: Time) {
       const nextX = arrives ? points[0] : position.x + Math.cos(unit.facing) * move
       const nextY = arrives ? points[1] : position.y + Math.sin(unit.facing) * move
       const open = inside || canStand(sim, air, Math.floor(nextX), Math.floor(nextY))
-      const blocker = open ? collides(entity, air, radius, position.x, position.y, nextX, nextY) : undefined
+      const blocker = open ? collides(radius, position.x, position.y, nextX, nextY) : undefined
       if (open && !blocker) {
         position.x = nextX
         position.y = nextY

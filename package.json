@@ -9,7 +9,8 @@
     "build": "tsc && tsc -p tsconfig.sim.json && tsc -p tsconfig.server.json && vite build",
     "preview": "vite preview",
     "test": "bun test",
-    "balance": "bun tools/balance.ts"
+    "balance": "bun tools/balance.ts",
+    "stress": "bun tools/stress.ts"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.6",

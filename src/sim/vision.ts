@@ -25,11 +25,18 @@ function longestRange(weapon: keyof typeof WEAPONS | undefined, mounts: { turret
   return range
 }
 
-/** Сколько тайлов от своего центра видит юнит вида type. */
+const sights = new Map<UnitType, number>()
+
+/** Сколько тайлов от своего центра видит юнит вида type. Описания видов не меняются, и число считается раз. */
 export function unitSight(type: UnitType) {
-  const spec = unitSpec(type)
-  const range = longestRange(spec.weapon, spec.mounts)
-  return Math.max(spec.sight ?? CLASS_SIGHT[spec.kind], range ? range + SIGHT_OVER_RANGE : 0)
+  let sight = sights.get(type)
+  if (sight === undefined) {
+    const spec = unitSpec(type)
+    const range = longestRange(spec.weapon, spec.mounts)
+    sight = Math.max(spec.sight ?? CLASS_SIGHT[spec.kind], range ? range + SIGHT_OVER_RANGE : 0)
+    sights.set(type, sight)
+  }
+  return sight
 }
 
 /** Сколько тайлов от своего центра видит здание вида type; стройка видит меньше. */

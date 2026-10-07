@@ -88,6 +88,7 @@ let stamps: Uint32Array | undefined
 let costs: Float64Array
 let parents: Int32Array
 let passable: Uint8Array
+let prices: Float64Array
 let generation = 0
 
 /**
@@ -116,6 +117,7 @@ function findNearPath(walkable: Walkable, fromX: number, fromY: number, toX: num
     costs = new Float64Array(WINDOW * WINDOW)
     parents = new Int32Array(WINDOW * WINDOW)
     passable = new Uint8Array(WINDOW * WINDOW)
+    prices = new Float64Array(WINDOW * WINDOW)
   }
   const stamp = stamps
   const current = ++generation
@@ -134,6 +136,7 @@ function findNearPath(walkable: Walkable, fromX: number, fromY: number, toX: num
       stamp[index] = current
       costs[index] = Infinity
       passable[index] = walkable(x, y) ? 1 : 0
+      prices[index] = passable[index] ? slowness(x, y) : Infinity
     }
     return passable[index] === 1
   }
@@ -173,7 +176,7 @@ function findNearPath(walkable: Walkable, fromX: number, fromY: number, toX: num
       const next = nextLocalY * WINDOW + nextLocalX
       if (!free(next, x + dx, y + dy)) continue
       if (dx && dy && (!free(at + dx, x + dx, y) || !free(at + dy * WINDOW, x, y + dy))) continue
-      const total = reached + price * slowness(x + dx, y + dy)
+      const total = reached + price * prices[next]
       if (total >= costs[next]) continue
       costs[next] = total
       parents[next] = at
@@ -293,14 +296,141 @@ export function smoothPath(walkable: Walkable, fromX: number, fromY: number, poi
   let anchorX = fromX
   let anchorY = fromY
   let at = 0
+  const visible = (index: number) => isClear(walkable, anchorX, anchorY, points[index], points[index + 1], slowness)
   while (at < points.length) {
-    // Идём вперёд, пока очередная точка видна из опорной; последняя видимая становится новой опорной.
+    // Самая дальняя точка, видная из опорной, становится новой опорной. Проверять подряд каждую — квадрат от длины
+    // пути, а у армии путей сотни: дальность ищется скачками вдвое, потом делением пополам.
     let next = at
-    while (next + 2 < points.length && isClear(walkable, anchorX, anchorY, points[next + 2], points[next + 3], slowness)) next += 2
+    let step = 2
+    while (next + step < points.length && visible(next + step)) {
+      next += step
+      step *= 2
+    }
+    for (step >>= 1; step >= 2; step >>= 1) {
+      const far = Math.min(next + step, points.length - 2)
+      if (far > next && visible(far)) next = far
+    }
     anchorX = points[next]
     anchorY = points[next + 1]
     result.push(anchorX, anchorY)
     at = next + 2
   }
   return result
+}
+
+/** Память поля путей: своя, чтобы поиски внутри не затирали её. Устроена как окно findNearPath, только вокруг цели. */
+let fieldStamps: Uint32Array | undefined
+let fieldCosts: Float64Array
+let fieldParents: Int32Array
+let fieldPrices: Float64Array
+let fieldClosed: Uint32Array
+let fieldGeneration = 0
+
+/**
+ * Пути от многих стартов к одной цели за один поиск: алгоритм Дейкстры от цели во все стороны, пока не дойдёт до всех
+ * стартов или не осмотрит limit тайлов. Так группа в сотни юнитов прокладывает путь за цену одного поиска, а не сотни.
+ * origins — старты, x, y подряд. Возвращает для каждого тайлы пути, как findPath, или null: до старта поиск не дошёл
+ * или он дальше окна. Цена шага, как и в findPath, — по тайлу, на который ступают. Поиск тянется к прямоугольнику,
+ * в котором лежат старты (A* с оценкой до него), а не расходится кругом: оценка согласованная, и пути остаются кратчайшими.
+ */
+export function findPaths(walkable: Walkable, toX: number, toY: number, origins: number[], limit = SEARCH_LIMIT * 3, slowness = EVEN, fastest = 1): (number[] | null)[] {
+  if (!fieldStamps) {
+    fieldStamps = new Uint32Array(WINDOW * WINDOW)
+    fieldCosts = new Float64Array(WINDOW * WINDOW)
+    fieldParents = new Int32Array(WINDOW * WINDOW)
+    fieldPrices = new Float64Array(WINDOW * WINDOW)
+    fieldClosed = new Uint32Array(WINDOW * WINDOW)
+  }
+  const stamp = fieldStamps
+  const current = ++fieldGeneration
+  const originX = toX - HALF
+  const originY = toY - HALF
+  const indexOf = (x: number, y: number) => {
+    const localX = x - originX
+    const localY = y - originY
+    return localX < 0 || localY < 0 || localX >= WINDOW || localY >= WINDOW ? -1 : localY * WINDOW + localX
+  }
+  /** Цена шага на тайл окна; Infinity — туда нельзя. Спрашивает walkable один раз за поиск. */
+  const price = (index: number, x: number, y: number) => {
+    if (stamp[index] !== current) {
+      stamp[index] = current
+      fieldCosts[index] = Infinity
+      fieldPrices[index] = walkable(x, y) ? slowness(x, y) : Infinity
+    }
+    return fieldPrices[index]
+  }
+
+  // Старты помечаются заранее: поиск кончается, когда дойдёт до всех.
+  const wanted = new Map<number, number>()
+  for (let i = 0; i < origins.length; i += 2) {
+    const index = indexOf(origins[i], origins[i + 1])
+    if (index >= 0) wanted.set(index, (wanted.get(index) ?? 0) + 1)
+  }
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (let i = 0; i < origins.length; i += 2) {
+    minX = Math.min(minX, origins[i])
+    maxX = Math.max(maxX, origins[i])
+    minY = Math.min(minY, origins[i + 1])
+    maxY = Math.max(maxY, origins[i + 1])
+  }
+  const estimate = (x: number, y: number) => {
+    const dx = Math.max(0, minX - x, x - maxX)
+    const dy = Math.max(0, minY - y, y - maxY)
+    return (Math.max(dx, dy) + (DIAGONAL - 1) * Math.min(dx, dy)) * fastest
+  }
+  const closed = fieldClosed
+  const goal = indexOf(toX, toY)
+  price(goal, toX, toY)
+  fieldCosts[goal] = 0
+  const open = new Heap()
+  open.push(goal, estimate(toX, toY))
+  let left = wanted.size
+  let visited = 0
+  while (open.size && left && visited < limit) {
+    const at = open.pop()
+    if (closed[at] === current) continue
+    closed[at] = current
+    visited++
+    if (wanted.has(at)) left--
+    const localX = at % WINDOW
+    const localY = (at - localX) / WINDOW
+    const x = localX + originX
+    const y = localY + originY
+    // Обратный шаг: из соседа в этот тайл. Цена — по этому тайлу, как у шага вперёд.
+    const step = at === goal ? 1 : fieldPrices[at]
+    for (const [dx, dy, length] of STEPS) {
+      const nextLocalX = localX + dx
+      const nextLocalY = localY + dy
+      if (nextLocalX < 0 || nextLocalY < 0 || nextLocalX >= WINDOW || nextLocalY >= WINDOW) continue
+      const next = nextLocalY * WINDOW + nextLocalX
+      // Старт может стоять там, куда нельзя (в нём самом юнит есть всегда): из него выйти можно.
+      if (price(next, x + dx, y + dy) === Infinity && !wanted.has(next)) continue
+      if (dx && dy && (price(at + dx, x + dx, y) === Infinity || price(at + dy * WINDOW, x, y + dy) === Infinity)) continue
+      const total = fieldCosts[at] + length * step
+      if (total >= fieldCosts[next]) continue
+      fieldCosts[next] = total
+      fieldParents[next] = at
+      open.push(next, total + estimate(x + dx, y + dy))
+    }
+  }
+  searched += visited
+
+  const paths: (number[] | null)[] = []
+  for (let i = 0; i < origins.length; i += 2) {
+    const start = indexOf(origins[i], origins[i + 1])
+    if (start < 0 || closed[start] !== current) {
+      paths.push(null)
+      continue
+    }
+    const path: number[] = []
+    for (let at = start; at !== goal; ) {
+      at = fieldParents[at]
+      path.push((at % WINDOW) + originX, Math.floor(at / WINDOW) + originY)
+    }
+    paths.push(path)
+  }
+  return paths
 }
