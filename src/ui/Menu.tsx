@@ -1,6 +1,7 @@
 import type { ComponentChildren } from 'preact'
-import { useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import { loadMuted, loadVolume, storeMuted, storeVolume } from '../audio/audio'
+import { createMenuMusic, type MenuMusic } from '../audio/music'
 import { createSlot, deleteSave, exportSave, importSave, listSaves, renameSave, type SaveSlot } from '../game/storage'
 import { DEFAULT_SETTINGS } from '../map/settings'
 import { DEFAULT_CONFIG, type GeneratorConfig } from '../map/terrain'
@@ -93,6 +94,12 @@ export function Menu({ play }: MenuProps) {
   const home = () => setScreen('main')
   const [last] = useState(lastLaunch)
   const lastTitle = !last ? undefined : last.kind === 'save' ? `${last.slot.name} — ${playtime(last.slot.tick)}` : last.kind === 'server' ? `Сервер ${last.url}` : undefined
+  // Музыка звучит, пока открыто меню, и стихает, когда начинается игра.
+  const music = useRef<MenuMusic | null>(null)
+  useEffect(() => {
+    music.current = createMenuMusic()
+    return () => music.current?.destroy()
+  }, [])
 
   return (
     <div class="menu">
@@ -124,7 +131,7 @@ export function Menu({ play }: MenuProps) {
       {screen === 'new' && <NewGame back={home} play={play} count={saves.length} />}
       {screen === 'saves' && <Saves back={home} saves={saves} refresh={refresh} play={play} />}
       {screen === 'network' && <Network back={home} play={play} />}
-      {screen === 'settings' && <Settings back={home} />}
+      {screen === 'settings' && <Settings back={home} onSound={() => music.current?.refresh()} />}
       {screen === 'about' && <About back={home} />}
     </div>
   )
@@ -539,10 +546,12 @@ function Network({ back, play }: { back(): void; play(launch: Launch): void }) {
 
 interface SettingsProps {
   back(): void
+  /** Громкость или выключение звука поменялись: музыка меню подстраивается сразу. */
+  onSound(): void
 }
 
 /** Настройки самого игрока. Всё, что относится к миру (погода, размер, зерно), задаётся при создании игры. */
-function Settings({ back }: SettingsProps) {
+function Settings({ back, onSound }: SettingsProps) {
   const [muted, setMuted] = useState(loadMuted)
   const [volume, setVolume] = useState(loadVolume)
   return (
@@ -556,9 +565,10 @@ function Settings({ back }: SettingsProps) {
             onChange={(event) => {
               storeMuted(!event.currentTarget.checked)
               setMuted(!event.currentTarget.checked)
+              onSound()
             }}
           />
-          Звук в игре
+          Звук и музыка
         </label>
         <label class="menu__field menu__field--slider">
           <span>Громкость</span>
@@ -572,6 +582,7 @@ function Settings({ back }: SettingsProps) {
             onInput={(event) => {
               storeVolume(Number(event.currentTarget.value))
               setVolume(Number(event.currentTarget.value))
+              onSound()
             }}
           />
           <output>{Math.round(volume * 100)}%</output>
