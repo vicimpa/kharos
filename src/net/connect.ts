@@ -41,6 +41,25 @@ function storeByUrl(key: string, url: string, value: string | undefined) {
   }
 }
 
+/** Сервер не пустил без пароля или с неверным: wrong — пароль был, но не подошёл. */
+export class PasswordRequired extends Error {
+  constructor(
+    message: string,
+    readonly wrong: boolean,
+  ) {
+    super(message)
+  }
+}
+
+/** Страница открыта по https, а сервер — по незащищённому ws://: браузер такое соединение блокирует. */
+export const isInsecure = (url: string) => location.protocol === 'https:' && /^ws:\/\//i.test(url.trim())
+
+/** Что сказать, если до незащищённого сервера не достучаться со страницы по https. */
+export const INSECURE_HINT =
+  'Страница открыта по https, а сервер — по незащищённому ws://, и браузер блокирует такое соединение. ' +
+  'Разрешите его: значок слева от адреса → «Настройки сайтов» → «Небезопасный контент» → «Разрешить», затем перезагрузите вкладку. ' +
+  'Либо подключайтесь к серверу по wss://.'
+
 /** Пароль, с которым на сервер url уже пускали. */
 export const savedPassword = (url: string) => loadByUrl(PASSWORDS_KEY)[url] ?? ''
 
@@ -68,10 +87,10 @@ export function connect(url: string, lag = 0, name = '', password = ''): Promise
       delayed(() => {
         const message = JSON.parse(event.data as string) as ServerMessage
         if (message.type === 'refused') {
-          refused = message.password ? `${message.reason}: введите пароль в меню «Сетевая игра»` : message.reason
+          refused = message.password ? `${message.reason}: переподключитесь и введите пароль` : message.reason
           if (message.password) storeByUrl(PASSWORDS_KEY, url, undefined)
           if (sim) sim.fail(refused)
-          else reject(new Error(refused))
+          else reject(message.password ? new PasswordRequired(message.reason, Boolean(password)) : new Error(refused))
           return
         }
         if (sim) return sim.receive(message)
@@ -89,7 +108,7 @@ export function connect(url: string, lag = 0, name = '', password = ''): Promise
     socket.onclose = () => {
       if (refused) return
       if (sim) sim.fail('Соединение с сервером потеряно')
-      else reject(new Error(`Не удалось подключиться к серверу ${url}`))
+      else reject(new Error(`Не удалось подключиться к серверу ${url}${isInsecure(url) ? `\n\n${INSECURE_HINT}` : ''}`))
     }
   })
 }

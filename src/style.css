@@ -198,7 +198,8 @@ body {
 }
 
 .game__error pre {
-  max-width: 100%;
+  max-width: min(100%, 720px);
+  white-space: pre-wrap;
   max-height: 50%;
   margin: 0;
   overflow: auto;
@@ -1001,6 +1002,19 @@ body {
 .menu__note {
   margin: 0;
   color: #6184a3;
+}
+
+.menu__note.is-warn {
+  color: #e6a35a;
+}
+
+.game__password {
+  width: 240px;
+  padding: 6px 8px;
+  border: 2px solid #2c4560;
+  background: #0b111b;
+  color: #d6e6f5;
+  font: inherit;
 }
 
 .menu__link {

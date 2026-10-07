@@ -3,6 +3,7 @@ import { createGame, type Game } from '../game/game'
 import type { HudState } from '../game/hud'
 import type { MapSettings } from '../map/settings'
 import { Hud } from './Hud'
+import { PasswordRequired } from '../net/connect'
 import { startSession, type Launch } from './launch'
 
 /** Как часто интерфейс сверяется с игрой, в миллисекундах. */
@@ -25,16 +26,28 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
   /** Настоящая игра — за свою базу: в ней можно сдаться и проиграть. Песочница и показательный бой — не в счёт. */
   const real = launch.kind === 'save' || launch.kind === 'server'
 
+  /** Сервер просит пароль: wrong — введённый не подошёл. Окно спрашивает снова, пока не пустят или не отменят. */
+  const [asking, setAsking] = useState<{ wrong: boolean } | null>(null)
+  const [password, setPassword] = useState('')
+  const connectRef = useRef<(password?: string) => void>(() => {})
+
   // Игра создаётся один раз.
   useEffect(() => {
     let closed = false
-    const start = async () => {
-      const session = await startSession(launch, settings)
+    const start = async (password?: string) => {
+      const session = await startSession(launch.kind === 'server' && password !== undefined ? { ...launch, password } : launch, settings)
       if (closed) return session.sim.destroy()
       gameRef.current = createGame(canvasRef.current!, settings, setError, session, { slot: launch.kind === 'save' ? launch.slot.id : undefined })
       setMuted(gameRef.current.muted)
     }
-    start().catch(setError)
+    const attempt = (password?: string) =>
+      start(password).catch((error: unknown) => {
+        if (closed) return
+        if (error instanceof PasswordRequired) setAsking({ wrong: error.wrong })
+        else setError(error)
+      })
+    connectRef.current = attempt
+    attempt()
     return () => {
       closed = true
       gameRef.current?.destroy()
@@ -116,6 +129,27 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
             <button onClick={() => gameRef.current?.respawn()}>Начать заново</button>
           </div>
         </div>
+      )}
+      {asking && error === null && (
+        <form
+          class="game__error"
+          onSubmit={(event) => {
+            event.preventDefault()
+            setAsking(null)
+            connectRef.current(password)
+          }}
+        >
+          <strong>{asking.wrong ? 'Неверный пароль' : 'Сервер закрыт паролем'}</strong>
+          <input class="game__password" type="password" autoFocus value={password} placeholder="Пароль" onInput={(event) => setPassword(event.currentTarget.value)} />
+          <div class="game__actions">
+            <button type="button" onClick={exit}>
+              Отмена
+            </button>
+            <button type="submit" disabled={!password}>
+              Подключиться
+            </button>
+          </div>
+        </form>
       )}
       {error !== null && (
         <div class="game__error" role="alert">
