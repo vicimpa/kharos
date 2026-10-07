@@ -19,7 +19,7 @@ export function deploySite(sim: Sim, entity: Entity) {
   return { x: Math.floor(position.x) - Math.floor(width / 2), y: Math.floor(position.y) - Math.floor(height / 2) }
 }
 
-/** Может ли игрок развернуть этот юнит прямо сейчас: это его MCV, он не занят, под ним свободная скала и не чужая зона. */
+/** Может ли игрок развернуть этот юнит прямо сейчас: это его MCV, он не занят, под ним свободная скала или фундамент и не чужая зона. */
 export function canDeploy(sim: Sim, player: number, entity: Entity) {
   const { world } = sim
   if (world.get(entity, Unit)?.type !== 'mcv' || !isOwn(sim, player, entity)) return false

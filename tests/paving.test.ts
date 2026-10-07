@@ -6,7 +6,8 @@ import {
   BRIDGE_COST, Building, CORE, FOUNDATION_COST, Owner, Pave, Position, ROAD_COST, ROAD_SPEED, Site, Unit,
   FOUNDATION_SPEED, buildSpeed, canBuild, canPave, canPlace, createSim, creditsOf, isPaved, spawnStartingUnits, type Sim,
 } from '../src/sim'
-import { terrainSpeed } from '../src/sim/units'
+import { spawnUnit, terrainSpeed } from '../src/sim/units'
+import { canDeploy } from '../src/sim/conversion'
 import { breakSlabs } from '../src/sim/combat'
 import { inCircles, zoneOf } from '../src/sim/zones'
 
@@ -194,4 +195,16 @@ test('наземный взрыв разбивает фундамент под �
   breakSlabs(sim, x + 5, y + 10.5, 3)
   expect(sim.paving.at(x + 4, y + 10)).toBeUndefined()
   expect(sim.paving.at(x + 6, y + 10)).toBeUndefined()
+})
+
+test('MCV разворачивается на фундаменте, лежащем на песке', () => {
+  const { sim, x, y } = start()
+  const sand = find(sim, Terrain.Sand, x + 40, y + 40, 3)
+  const mcv = spawnUnit(sim, 'mcv', 1, sand.x + 1, sand.y + 1)
+  expect(canDeploy(sim, 1, mcv)).toBe(false)
+  for (let dy = 0; dy < 3; dy++) for (let dx = 0; dx < 3; dx++) lay(sim, 'foundation', sand.x + dx, sand.y + dy)
+  expect(canDeploy(sim, 1, mcv)).toBe(true)
+  sim.send(1, { type: 'deploy', unit: mcv })
+  seconds(sim, 6)
+  expect(sim.occupancy.at(sand.x + 1, sand.y + 1)).toBeDefined()
 })

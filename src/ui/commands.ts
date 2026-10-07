@@ -154,7 +154,7 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
         label: conversion.kind === 'deploy' ? 'Развернуть' : 'Свернуть в MCV',
         building: 'command',
         disabled: !conversion.possible,
-        title: conversion.possible ? undefined : 'Нужна свободная скала 3×3 под машиной',
+        title: conversion.possible ? undefined : 'Нужна свободная скала или фундамент 3×3 под машиной',
         run: () => send(conversion.command),
       }
     } else if (conversion.cancel) {
