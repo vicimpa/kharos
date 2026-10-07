@@ -100,3 +100,19 @@ test('летающий грузовик возит по маршруту, как
   sim.send(1, { type: 'route', units: [flyer], stops: [from, to] })
   until(sim, () => amount(sim, to, 'metal') >= 40)
 })
+
+test('фильтр снимает начатую работу с грузом, которого он не пускает', () => {
+  const { sim, buildings: [smelter], truck } = base(['smelter', 'metalYard'])
+  sim.world.get(smelter, Inventory)!.items.metal = 20
+  const hauler = sim.world.get(truck, Hauler)!
+  // Диспетчер дал работу: вывезти металл из плавильни в хранилище.
+  until(sim, () => hauler.from === smelter)
+  expect(hauler.resource).toBe('metal')
+  sim.send(1, { type: 'filter', units: [truck], goods: ['silicon'] })
+  sim.advance(TICK)
+  expect(hauler.from).toBe(-1)
+  expect(hauler.to).toBe(-1)
+  // И новую работу с металлом он не берёт.
+  seconds(sim, 5)
+  expect(hauler.from === -1 || hauler.resource !== 'metal').toBe(true)
+})

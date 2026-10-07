@@ -63,7 +63,10 @@ export function setRoute(sim: Sim, player: number, units: Entity[], stops: Entit
   return trucks.length > 0
 }
 
-/** Ставит грузовикам игрока фильтр груза; пустой — возят всё. Неизвестные грузы выбрасываются. */
+/**
+ * Ставит грузовикам игрока фильтр груза; пустой — возят всё. Неизвестные грузы выбрасываются. Начатая работа с грузом,
+ * которого фильтр не пускает, бросается.
+ */
 export function setFilter(sim: Sim, player: number, units: Entity[], goods: Good[]) {
   const { world } = sim
   const filter = GOODS.filter((good) => goods.includes(good))
@@ -72,6 +75,15 @@ export function setFilter(sim: Sim, player: number, units: Entity[], goods: Good
     const hauler = world.get(truck, Hauler)
     if (!hauler || !isOwn(sim, player, truck)) continue
     hauler.filter = filter
+    // Работа на заявку с грузом, который фильтр теперь не пускает, бросается сразу: грузовик встаёт и ждёт новой.
+    // Набранное он, как после любой отмены, сначала отвезёт в хранилище.
+    const job = hauler.from !== NONE || hauler.to !== NONE
+    if (job && filter.length && !filter.includes(hauler.resource)) {
+      hauler.from = hauler.to = NONE
+      hauler.amount = 0
+      hauler.full = hauler.loading = hauler.waiting = false
+      world.remove(truck, Path)
+    }
     count++
   }
   return count > 0
