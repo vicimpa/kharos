@@ -71,6 +71,12 @@ export const storeVolume = (value: number) => {
 }
 
 /**
+ * Нажимал ли игрок что-нибудь на этой странице: тогда браузер разрешает звук сразу, без нового нажатия. Так звук
+ * не молчит при переходе из меню в игру и обратно. Браузер без userActivation спрашивает нажатие, как раньше.
+ */
+export const wasActivated = () => (navigator as { userActivation?: { hasBeenActive: boolean } }).userActivation?.hasBeenActive ?? false
+
+/**
  * Звук игры. Браузер не даёт играть звук, пока игрок ничего не нажал, поэтому всё готовится при первом его
  * действии: тогда же синтезируются звуки (см. synth.ts) и заводятся ветер полёта (flight.ts) и фон (ambience.ts).
  * До этого play, flight и ambience ничего не делают. Пока вкладка скрыта, звук стоит.
@@ -152,6 +158,7 @@ export function createAudio(): Audio {
   }
   const events = ['pointerdown', 'keydown'] as const
   for (const event of events) window.addEventListener(event, start)
+  if (wasActivated()) start()
   // Скрытая вкладка не рисует кадров, и звук замер бы на полуслове: ветер свистел бы без конца.
   const onVisibility = () => {
     if (!context) return

@@ -1,4 +1,4 @@
-import { loadMuted, loadVolume } from './audio'
+import { loadMuted, loadVolume, wasActivated } from './audio'
 import { SOUNDS, random, reverbImpulse, type SoundName } from './synth'
 
 /** Громкость музыки при полной громкости игры. */
@@ -65,7 +65,11 @@ export function createMenuMusic(): MenuMusic {
   const level = () => (loadMuted() ? 0 : LEVEL * loadVolume())
 
   const start = () => {
-    if (context) return
+    // Браузер всё же создал звук приглушённым — нажатие его будит.
+    if (context) {
+      if (context.state === 'suspended') void context.resume()
+      return
+    }
     const Context = window.AudioContext ?? (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
     if (!Context) return
     const audio = new Context()
@@ -214,6 +218,8 @@ export function createMenuMusic(): MenuMusic {
   document.addEventListener('pointerover', over)
   // После обработчиков меню: громкость к этому времени уже новая.
   document.addEventListener('input', slide)
+  // Из игры в меню — без нового нажатия: страница его уже видела.
+  if (wasActivated()) start()
 
   return {
     refresh() {
