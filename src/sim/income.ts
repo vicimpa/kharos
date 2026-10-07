@@ -162,7 +162,8 @@ function wear(sim: Sim, all: Book[]) {
 
 /**
  * Раз в тик: начисляет игрокам доход и изнашивает перегруженные электростанции.
- * Доли кредита копятся в earned, на счёт попадают целые.
+ * Доли кредита копятся в earned, на счёт попадают целые. Игроку не в сети — доля дохода, и за одно отсутствие
+ * не больше потолка (Rules.offlineIncome, offlineMinutes): иначе за ночь копилось бы целое состояние.
  */
 export function earn(sim: Sim) {
   const { world, time } = sim
@@ -170,15 +171,21 @@ export function earn(sim: Sim) {
   if (!all.length) return
   const incomes = new Map<number, number>()
   for (const { player, economy } of all) incomes.set(player, (incomes.get(player) ?? 0) + economy.income)
-  const paid: { entity: Entity; credits: number; earned: number }[] = []
+  const paid: { entity: Entity; credits: number; earned: number; away: number }[] = []
+  const { online, rules } = sim
   for (const [entity, player] of world.query(Player)) {
-    const income = incomes.get(player.id)
-    if (!income) continue
-    const earned = player.earned + income * time.step
+    const here = !online || online.has(player.id)
+    const income = incomes.get(player.id) ?? 0
+    let gain = income * time.step
+    if (!here) gain = Math.max(0, Math.min(gain * rules.offlineIncome, income * rules.offlineMinutes * 60 - player.away))
+    // В сети — отсутствие кончилось, и потолок снова полный.
+    const away = here ? 0 : player.away + gain
+    if (gain <= 0 && away === player.away) continue
+    const earned = player.earned + gain
     const whole = Math.floor(earned)
-    paid.push({ entity, credits: player.credits + whole, earned: earned - whole })
+    paid.push({ entity, credits: player.credits + whole, earned: earned - whole, away })
   }
-  for (const { entity, credits, earned } of paid) world.set(entity, Player, { credits, earned })
+  for (const { entity, credits, earned, away } of paid) world.set(entity, Player, { credits, earned, away })
   // Износ — в самом конце: разрушенное здание исчезает из мира, а зоны этого тика о нём ещё помнят.
   wear(sim, all)
 }

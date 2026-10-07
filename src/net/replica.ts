@@ -151,6 +151,8 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     bounds: undefined as unknown as Replica['bounds'],
     land: undefined as unknown as Replica['land'],
     rules: undefined as unknown as Replica['rules'],
+    // Кто в сети, клиенту знать незачем: доход считает хост.
+    online: null,
     generation: 0,
     players: [] as PlayerInfo[],
     world,

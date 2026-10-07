@@ -76,6 +76,8 @@ export interface HostSave {
  */
 export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, 'sim'>): Host {
   let sim = first
+  // На сервере до первого подключения не в сети никто.
+  if (player === undefined) sim.online = new Set()
   /** Подключённые: как отправить и за кого играет. */
   const peers = new Map<Send, number>()
   /** Какие следы каждое подключение уже получило. */
@@ -117,6 +119,9 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
   }
   /** Сообщает всем подключённым, кто сейчас в игре. */
   const announce = () => {
+    // Кто в сети, знает только сервер: доход игрока не в сети урезан, см. Rules.offlineIncome. Локальная игра
+    // (player задан) идёт, только пока открыта, и там все в сети.
+    if (player === undefined) sim.online = new Set(peers.values())
     const text = roster()
     for (const send of peers.keys()) send(text)
   }

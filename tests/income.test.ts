@@ -347,3 +347,30 @@ test('строители чинят повреждённое здание — п
   expect(sim.world.has(builders[0], Builds)).toBe(true)
   expect(health()).toBeGreaterThan(worn)
 })
+
+test('игроку не в сети — пятая часть дохода и не больше потолка за отсутствие; вернулся — снова полный', () => {
+  const { sim } = start()
+  const income = economyOf(sim, 1).income
+  expect(income).toBeGreaterThan(0)
+  const earned = (time: number) => {
+    const before = creditsOf(sim, 1) + sim.world.get(playerOf(sim), Player)!.earned
+    seconds(sim, time)
+    return creditsOf(sim, 1) + sim.world.get(playerOf(sim), Player)!.earned - before
+  }
+  expect(earned(20)).toBeCloseTo(income * 20, 1)
+  // Ушёл: доход — пятая часть.
+  sim.online = new Set()
+  expect(earned(20)).toBeCloseTo(income * 20 * sim.rules.offlineIncome, 1)
+  // Потолок — секунда обычного дохода: он уже набран, больше не капает.
+  sim.rules.offlineMinutes = 1 / 60
+  expect(earned(20)).toBeCloseTo(0, 6)
+  // Вернулся — полный доход, а потолок обнулён.
+  sim.online = new Set([1])
+  expect(earned(20)).toBeCloseTo(income * 20, 1)
+  expect(sim.world.get(playerOf(sim), Player)!.away).toBe(0)
+})
+
+function playerOf(sim: Sim) {
+  for (const [entity, player] of sim.world.query(Player)) if (player.id === 1) return entity
+  throw new Error('Игрока нет')
+}

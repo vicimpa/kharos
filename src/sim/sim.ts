@@ -53,6 +53,12 @@ export interface Rules {
   frozenSwamp: number
   /** Какую долю прочности в секунду теряет наземный юнит в едком болоте красных пустошей. */
   toxicSwamp: number
+  /**
+   * Доход игрока не в сети: offlineIncome — доля обычного, offlineMinutes — потолок за одно отсутствие, в минутах
+   * обычного дохода. Без дохода совсем вернувшегося ждала бы неотремонтированная база: починка тратит кредиты.
+   */
+  offlineIncome: number
+  offlineMinutes: number
 }
 
 export const DEFAULT_RULES: Rules = {
@@ -68,6 +74,8 @@ export const DEFAULT_RULES: Rules = {
   infantrySwamp: 0.5,
   frozenSwamp: 0.25,
   toxicSwamp: 0.01,
+  offlineIncome: 0.2,
+  offlineMinutes: 30,
 }
 
 export interface SimOptions {
@@ -119,6 +127,8 @@ export interface Sim {
   readonly traces: Traces
   /** Правила. Поля можно менять на ходу: со следующего тика симуляция считает по новым. */
   readonly rules: Rules
+  /** Кто из игроков сейчас в сети; null — все: локальная игра. Задаёт сервер, см. host.ts. */
+  online: ReadonlySet<number> | null
   /** Время симуляции. alpha — доля тика, прошедшая после последнего: ею клиент сглаживает движение. */
   readonly time: Time
   /** Ставит команду игрока player в очередь. Она выполнится в начале следующего тика. */
@@ -195,6 +205,7 @@ export function createSim(source: SimOptions | SimSave): Sim {
     vision: createVision(world, bounds, () => loop.time.tick, options.fog !== false),
     traces: createTraces(world, () => loop.time.tick, loop.time.step),
     rules,
+    online: null,
     time: loop.time,
     send(player, command) {
       queue.push({ player, command })
