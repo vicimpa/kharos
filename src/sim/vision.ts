@@ -75,6 +75,8 @@ export interface Vision {
   update(): void
   /** Забывает всё: разведанное в том числе. */
   reset(): void
+  /** Забывает обзор и разведанное одного игрока: он начинает заново и карту открывает снова. */
+  forget(player: number): void
 }
 
 const HIDDEN = 0
@@ -220,6 +222,9 @@ export function createVision(world: World, bounds: Bounds, tick: () => number, f
     },
     reset() {
       sights.clear()
+    },
+    forget(player) {
+      sights.delete(player)
     },
   }
   return vision

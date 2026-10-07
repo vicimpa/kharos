@@ -26,7 +26,7 @@ function join(host: Host, id?: string, name?: string) {
   const peer = host.join(
     (text) => {
       const message = JSON.parse(text) as ServerMessage
-      if (message.type === 'welcome') {
+      if (message.type === 'welcome' && !replica) {
         issued = message.id
         replica = createReplica(message, (reply) => peer.receive(reply), () => peer.leave())
       } else replica!.receive(message)
@@ -267,8 +267,13 @@ test('сдавшийся на сервере начинает заново: но
   sim.send(1, { type: 'surrender' })
   for (let i = 0; i < 8 / STEP; i++) host.advance(STEP)
   expect(unitsOf(host.sim as never, 1).length).toBe(0)
+  const generation = sim.generation
   sim.respawn()
   host.advance(STEP)
   expect(unitsOf(host.sim as never, 1).length).toBe(before)
   expect(peer.player).toBe(1)
+  sim.advance(STEP)
+  // Клиент получил новое приветствие: туман и камера — как в новом мире, а юниты нового набора у него есть.
+  expect(sim.generation).toBe(generation + 1)
+  expect(unitsOf(sim, 1).length).toBe(before)
 })

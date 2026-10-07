@@ -260,7 +260,17 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
           if (type === 'respawn') {
             if (!isDefeated(sim, joined)) return
             wipePlayer(sim, joined)
+            sim.vision.forget(joined)
             place(joined)
+            // Вкладки игрока начинают как в новом мире: туман закрыт, камера встаёт на новый стартовый набор.
+            for (const [peer, owner] of peers) {
+              if (owner !== joined) continue
+              peer(welcome(joined))
+              peer(explored(joined))
+              sent.set(peer, new Map())
+              shown.set(peer, new Set())
+              peer(delta(peer, joined))
+            }
             return
           }
           if (type !== 'command' || typeof command !== 'object' || command === null) return
