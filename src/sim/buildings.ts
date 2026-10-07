@@ -162,7 +162,8 @@ export const BUILDINGS = {
   // дальше теснота делает каждый следующий всё дороже. Он страховка на случай, когда линий добычи нет (§4.3 шаг 3):
   // одной электростанции хватает на два генератора.
   matter: { width: 2, height: 2, cost: 250, power: -3, income: 1.5, crowding: true },
-  radar: { width: 2, height: 2, cost: 400, sight: 18 },
+  // Радар открывает туман далеко вокруг: так видно, кто идёт к базе, и куда бить артиллерией.
+  radar: { width: 2, height: 2, cost: 400, power: -3, sight: 24 },
   windtrap: { width: 2, height: 2, cost: 300 },
   barracks: { width: 3, height: 2, cost: 250, power: -2, produces: ['infantry', 'rocketeer', 'flamer'] },
   // Шахта энергии не просит и начинает свою зону: тянуть к месторождению цепочку зданий не нужно.
@@ -200,7 +201,7 @@ export const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[]
 export const BUILDABLE: BuildingType[] = [
   'generator', 'matter', 'mine', 'smelter', 'siliconWorks', 'distillery', 'enricher', 'blockPlant', 'ammoPlant', 'partsPlant',
   'metalYard', 'siliconStore', 'fuelTank', 'khariteVault', 'blockYard', 'ammoBunker', 'partsLocker', 'spaceport', 'barracks', 'factory', 'airfield', 'techCenter',
-  'wall', 'turret', 'rocketTurret', 'cannonTurret',
+  'radar', 'wall', 'turret', 'rocketTurret', 'cannonTurret',
 ]
 
 /** Хранилища — по одному на каждое готовое. */

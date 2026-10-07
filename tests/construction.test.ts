@@ -144,7 +144,7 @@ test('строить можно только в радиусе контроля,
   // Главное здание строители не возводят.
   expect(canBuild(sim, 1, CORE, site.x, site.y)).toBe(false)
   sim.send(2, { type: 'build', building: 'generator', x: site.x, y: site.y, builders })
-  sim.send(1, { type: 'build', building: 'radar', x: site.x, y: site.y, builders })
+  sim.send(1, { type: 'build', building: 'windtrap', x: site.x, y: site.y, builders })
   sim.advance(TICK)
   expect(siteAt(sim, site.x, site.y)).toBeUndefined()
   expect(creditsOf(sim, 1)).toBe(credits)
