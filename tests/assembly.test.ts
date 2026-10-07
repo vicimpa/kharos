@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import {
-  Assembly, BUILDINGS, BUY_MARKUP, BUY_SECONDS, Health, Inventory, PRODUCT_SPECS, RESOURCE_SPECS, Trade, buyPrice, creditsOf, UNITS, WEAPONS, amountOf, canPlace, createSim, cycleSeconds,
+  Assembly, Building, BUILDINGS, BUY_MARKUP, BUY_SECONDS, Health, Inventory, PRODUCT_SPECS, RESOURCE_SPECS, Trade, buyPrice, creditsOf, UNITS, WEAPONS, amountOf, canPlace, createSim, cycleSeconds,
   stockOf, type BuildingType, type Good, type Sim,
 } from '../src/sim'
 import { STORES, placeBuilding, storeFor } from '../src/sim/buildings'
@@ -201,4 +201,18 @@ test('старое сохранение получает нынешние пре
   const restored = loaded.world.get(smelter, Inventory)!
   expect(restored.capacity).toBe(60)
   expect(restored.limits).toEqual({ metalOre: 30, metal: 30 })
+})
+
+test('готовое расходится по всем хранилищам, а не копится в ближайшем', () => {
+  const { sim, x, y, stash, buildings } = base(['ammoPlant', 'ammoBunker'])
+  const [plant, bunker] = buildings
+  stash({ metal: 200 })
+  sim.send(1, { type: 'work', building: plant, on: true })
+  for (let i = 0; i < 3; i++) spawnUnit(sim, 'truck', 1, x + 2 + i * 2, y + 5)
+  seconds(sim, 90)
+  // В обоих бункерах — ряд хранилищ base добавляет ещё один — что-то есть.
+  const filled: number[] = []
+  for (const [entity, inventory] of sim.world.query(Inventory)) if (entity !== plant && (inventory.items.ammo ?? 0) > 0 && STORES.includes(sim.world.get(entity, Building)?.type as never)) filled.push(entity)
+  expect(filled.length).toBeGreaterThanOrEqual(2)
+  expect(filled).toContain(bunker)
 })

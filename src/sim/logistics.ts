@@ -254,18 +254,27 @@ export function spaceFor(sim: Sim, truck: Entity, to: Entity, resource: Good, fl
   return inventory ? roomFor(inventory, resource) - (flows.incoming.get(to)?.[resource] ?? 0) : 0
 }
 
-/** Ближайшее к грузовику своё хранилище, куда поместится груз с учётом едущего туда; NONE — места нет нигде. */
+/**
+ * Своё хранилище, куда грузовик отвезёт груз: самое пустое по этому грузу с учётом едущего туда, из равных — ближайшее.
+ * Так запас расходится по всем хранилищам, а не копится в ближайшем, пока соседние стоят пустыми. NONE — места нет нигде.
+ */
 export function storeFor(sim: Sim, truck: Entity, resource: Good, except: Entity = NONE as Entity): Entity {
   const player = sim.world.get(truck, Owner)?.player ?? 0
   const flows = flowsOf(sim, truck)
   let best = NONE as Entity
+  let bestFill = Infinity
   let bestDistance = Infinity
-  for (const [entity] of sim.world.query(Inventory, Building)) {
+  for (const [entity, inventory] of sim.world.query(Inventory, Building)) {
     if (entity === except || !isStore(sim, entity) || !isReady(sim, player, entity) || sim.world.has(entity, Converting)) continue
-    if (spaceFor(sim, truck, entity, resource, flows) <= 1e-9) continue
+    const space = spaceFor(sim, truck, entity, resource, flows)
+    if (space <= 1e-9) continue
+    const holds = Math.min(inventory.limits[resource] ?? inventory.capacity, inventory.capacity)
+    // Доля занятого с учётом едущего — до десятых: почти равные хранилища считаются равными, и решает близость.
+    const fill = Math.round((1 - space / holds) * 10)
     const far = distance(sim, truck, entity)
-    if (far < bestDistance) {
+    if (fill < bestFill || (fill === bestFill && far < bestDistance)) {
       best = entity
+      bestFill = fill
       bestDistance = far
     }
   }
