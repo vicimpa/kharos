@@ -10,6 +10,7 @@ import { addCredits, creditsOf, pay, reward, spend } from './economy'
 import { overbuiltPlants } from './income'
 import type { Sim } from './sim'
 import { buildSpeed, paveCost } from './paving'
+import { clearDrops, dropCargo } from './drops'
 import { inCircles, inForeignZone, resetZones, zoneOf } from './zones'
 import { carrierOf, turnerOf } from './turrets'
 import { UNITS, clearGround, isWalkable, orderMove, standingUnits, unitsIn } from './units'
@@ -251,6 +252,8 @@ export function cancelBuild(sim: Sim, player: number, site: Entity) {
     return true
   }
   addCredits(sim, player, BUILDINGS[type].cost)
+  // Привезённые материалы остаются на земле.
+  dropCargo(sim, site)
   sim.world.destroy(site)
   return true
 }
@@ -577,6 +580,8 @@ export function construct(sim: Sim) {
       site.progress -= count * DEMOLISH_SPEED
       if (site.progress > 0) continue
       addCredits(sim, player, refundOf(site.type))
+      // Что лежало на складе здания, остаётся на земле.
+      dropCargo(sim, entity)
       world.destroy(entity)
       continue
     }
@@ -585,6 +590,8 @@ export function construct(sim: Sim) {
       // Выгонять пробуют не каждый тик: поиск пути недёшев.
       if (!clearSite(sim, entity, onTurn(time, entity, RETRY_TICKS))) continue
       world.add(entity, newBuilding(world, site.type))
+      // Стройка давит брошенный под ней груз.
+      clearDrops(sim, position.x, position.y, BUILDINGS[site.type].width, BUILDINGS[site.type].height)
       const durability = durabilityOf(sim, site.type, position.x, position.y)
       world.add(entity, Health({ value: durability, max: durability }))
     }

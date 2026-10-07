@@ -10,6 +10,7 @@ import { GOODS, resourceOf, type Good } from './resources'
 import type { Sim } from './sim'
 import { UNITS } from './units'
 import { runRoutes } from './routes'
+import { sweepDrops } from './drops'
 
 /** Сколько ресурсов помещается в грузовик. */
 export const TRUCK_CAPACITY = UNITS.truck.inventory
@@ -280,6 +281,7 @@ export function haul(sim: Sim) {
   }
 
   runRoutes(sim)
+  sweepDrops(sim)
   if (time.tick % DISPATCH_TICKS === 0) dispatch(sim)
   for (const { truck, building, toBuilding } of seeking) seek(sim, truck, building, toBuilding)
 }

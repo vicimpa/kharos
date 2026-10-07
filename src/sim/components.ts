@@ -206,6 +206,9 @@ export const Carrier = component('Carrier', () => ({ turrets: [] as number[] }))
  */
 export const Pave = component('Pave', { kind: 'road' as PaveKind, work: 0, done: false, remove: false })
 
+/** Дроп: груз, брошенный на землю, — склад (Inventory) на тайле Position без хозяина. См. drops.ts. */
+export const Drop = component('Drop')
+
 /** Компоненты, которые попадают в сохранение и в сеть. Новый компонент симуляции добавляй сюда. */
 /**
  * Призрак: чужое здание или месторождение, каким клиент видел его последний раз. Живёт только в клиенте: хост
@@ -213,4 +216,4 @@ export const Pave = component('Pave', { kind: 'road' as PaveKind, work: 0, done:
  */
 export const Ghost = component('Ghost', {})
 
-export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Harvester, Inventory, Beam, Assembly, Trade, Armed, Shot, Blast, Pave]
+export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Harvester, Inventory, Beam, Assembly, Trade, Armed, Shot, Blast, Pave, Drop]

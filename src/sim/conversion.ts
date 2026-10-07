@@ -1,5 +1,6 @@
 import type { Entity } from '../ecs'
 import { BUILDINGS, CORE, canPlace, placeBuilding } from './buildings'
+import { clearDrops } from './drops'
 import { isOwn, onTurn, ownerOf } from './common'
 import { Building, Converting, Health, Path, Position, Producer, Unit } from './components'
 import { reward } from './economy'
@@ -103,6 +104,7 @@ export function convert(sim: Sim) {
       // За время разворачивания место могли занять. Тогда MCV остаётся машиной.
       if (!canPlace(sim, CORE, site.x, site.y)) continue
       world.destroy(entity)
+      clearDrops(sim, site.x, site.y, BUILDINGS[CORE].width, BUILDINGS[CORE].height)
       const core = placeBuilding(world, CORE, site.x, site.y, player)
       if (production) world.set(core, Producer, production)
       world.set(core, Health, { value: health })

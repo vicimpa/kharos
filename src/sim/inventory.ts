@@ -1,7 +1,7 @@
 import type { Entity, World } from '../ecs'
 import { tileKey } from '../map/terrain'
 import { BUILDINGS, siteAt } from './buildings'
-import { Beam, Building, Inventory, Position, Unit } from './components'
+import { Beam, Building, Drop, Inventory, Position, Unit } from './components'
 import { GOODS, type Amounts, type Good } from './resources'
 import type { Sim } from './sim'
 import { UNITS, isWalkable, orderMove, standingUnits } from './units'
@@ -65,6 +65,8 @@ function shapeOf(sim: Sim, entity: Entity) {
   if (!position) return undefined
   const building = world.get(entity, Building)
   if (building) return { x: position.x, y: position.y, width: BUILDINGS[building.type].width, height: BUILDINGS[building.type].height, radius: 0 }
+  // Дроп лежит на своём тайле.
+  if (world.has(entity, Drop)) return { x: position.x, y: position.y, width: 1, height: 1, radius: 0 }
   const unit = world.get(entity, Unit)
   return { x: position.x, y: position.y, width: 0, height: 0, radius: unit ? UNITS[unit.type].radius : 0 }
 }
@@ -128,7 +130,7 @@ export function resetBeams(sim: Sim) {
 const APPROACH_MARGIN = 0.5
 
 /**
- * Подводит юнит к зданию так, чтобы между ними дотянулся луч длиной radius: на ближайший к юниту свободный тайл,
+ * Подводит юнит к зданию (или дропу) так, чтобы между ними дотянулся луч длиной radius: на ближайший к юниту свободный тайл,
  * откуда хватает. Вплотную ему не нужно. Возвращает, нашлось ли такое место.
  */
 export function approach(sim: Sim, entity: Entity, building: Entity, radius: number) {
@@ -137,8 +139,8 @@ export function approach(sim: Sim, entity: Entity, building: Entity, radius: num
   const unit = world.get(entity, Unit)
   const at = world.get(building, Position)
   const type = world.get(building, Building)?.type
-  if (!position || !unit || !at || type === undefined) return false
-  const { width, height } = BUILDINGS[type]
+  if (!position || !unit || !at || (type === undefined && !world.has(building, Drop))) return false
+  const { width, height } = type === undefined ? { width: 1, height: 1 } : BUILDINGS[type]
   const size = UNITS[unit.type].radius
   const reach = Math.max(0, radius - APPROACH_MARGIN)
   const taken = standingUnits(sim, new Set([entity]), size)

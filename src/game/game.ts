@@ -19,6 +19,7 @@ import { createShake } from './shake'
 import { createSoundscape } from './soundscape'
 import { createDepositsPass } from './depositsPass'
 import { createPavingPass } from './pavingPass'
+import { createDropsPass } from './dropsPass'
 import { startFrames } from './frames'
 import { readHud, type HudState } from './hud'
 import { createMinimap, type Minimap } from './minimap'
@@ -138,6 +139,7 @@ export function createGame(
         createTerrainPass(gl, scene, landWindow),
         createDepositsPass(gl, scene),
         createPavingPass(gl, scene),
+        createDropsPass(gl, scene),
         // Следы, гарь и остовы — на земле, под юнитами.
         createDecalsPass(gl, scene),
         createBoundsPass(gl, scene),

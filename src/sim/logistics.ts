@@ -1,11 +1,11 @@
 import type { Entity } from '../ecs'
 import { inputsOf } from './assembly'
-import { BUILDINGS, buildingSpec, isReady } from './buildings'
+import { BUILDINGS, buildingSpec, isReady, type BuildingSpec } from './buildings'
 import { NONE, isOwn } from './common'
-import { Assembly, Building, Converting, Hauler, Harvester, Inventory, Owner, Path, Position, Producer, Site, Trade, Unit } from './components'
+import { Assembly, Building, Converting, Drop, Hauler, Harvester, Inventory, Owner, Path, Position, Producer, Site, Trade, Unit } from './components'
 import { depositAt } from './deposits'
 import { amountOf, loadOf, roomFor } from './inventory'
-import { entriesOf, isOre, isProduct, ORE_OF, WARES, stockedFor, type Amounts, type Good, type Ore, type Resource } from './resources'
+import { entriesOf, GOODS, isOre, isProduct, ORE_OF, WARES, stockedFor, type Amounts, type Good, type Ore, type Resource } from './resources'
 import type { Sim } from './sim'
 import { deliveredTo, isStore } from './trade'
 import { unitSpec } from './units'
@@ -151,6 +151,11 @@ const NOTHING_OFFERED: Good[] = []
  * availableIn; шахту это не касается, её руду берут только заявкой.
  */
 export function offersOf(sim: Sim, entity: Entity): readonly Good[] {
+  // Дроп отдаёт всё, что на нём лежит.
+  if (sim.world.has(entity, Drop)) {
+    const inventory = sim.world.get(entity, Inventory)
+    return inventory ? GOODS.filter((good) => amountOf(inventory, good) > 1e-9) : NOTHING_OFFERED
+  }
   const type = sim.world.get(entity, Building)?.type
   if (type === undefined || sim.world.has(entity, Site)) return NOTHING_OFFERED
   const spec = buildingSpec(type)
@@ -330,7 +335,7 @@ function nearestZone(zones: readonly Zone[], x: number, y: number): Zone | undef
 
 /** Можно ли забирать груз со склада: свой готовый склад, где он есть. */
 export function offersPickup(sim: Sim, player: number, from: Entity, resource: Good) {
-  return isReady(sim, player, from) && spareOf(sim, from, resource) > 1e-9
+  return (isReady(sim, player, from) || sim.world.has(from, Drop)) && spareOf(sim, from, resource) > 1e-9
 }
 
 /** Свободен ли грузовик для диспетчера: не привязан к шахте, без работы и груза, стоит. */
@@ -371,6 +376,8 @@ export function dispatch(sim: Sim) {
       if (spec.refines || spec.assembles || spec.trades) outlets.push(entity)
       else if (spec.extract) mines.push(entity)
     }
+    // Дропы ничьи: их подбирает любой.
+    for (const [entity] of world.query(Drop, Inventory)) outlets.push(entity)
     // У шахты с привязанным грузовиком есть свой возчик: свободные её руду не трогают и занимаются готовым.
     const bound = new Set<Entity>()
     for (const [, hauler] of world.query(Hauler)) if (hauler.mine !== NONE) bound.add(hauler.mine as Entity)
@@ -405,11 +412,13 @@ export function dispatch(sim: Sim) {
             // Так же — готовое из вставшей переработки.
             // Как и закупку в космопорте: ей там не место, склад космопорта — под товар продажи. Даже крошки:
             // иначе остаток на пороге MIN_JOB так и лежал бы у цеха.
-            const spec = buildingSpec(world.get(source, Building)!.type)
+            const type = world.get(source, Building)?.type
+            const spec: BuildingSpec = type === undefined ? {} as BuildingSpec : buildingSpec(type)
             // Переработка, которой нечего перерабатывать — руды нет и её не везут, — новое готовое не сделает:
             // остаток меньше порога иначе лежал бы в ней вечно.
             const stopped = !!spec.refines && amountOf(inventory, spec.refines) <= 1e-9 && !(flows.incoming.get(source)?.[spec.refines] ?? 0)
-            const leftover = (world.has(source, Assembly) && !isProduct(resource)) || !!spec.trades || stopped
+            // С дропа увозят всё до крошки.
+            const leftover = (world.has(source, Assembly) && !isProduct(resource)) || !!spec.trades || stopped || world.has(source, Drop)
             if (available < (leftover ? 1e-9 : Math.min(PUSH_MIN, room, holds * PUSH_SHARE))) continue
             const score = -distance(sim, truck, source)
             if (best && score <= best.score) continue

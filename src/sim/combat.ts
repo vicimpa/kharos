@@ -1,6 +1,7 @@
 import type { Entity } from '../ecs'
 import { Biome, Terrain, biomeAt, terrainAt } from '../map/terrain'
 import { isPaved } from './paved'
+import { dropCargo } from './drops'
 import { BUILDINGS, buildingSpec, isWall, type BuildingType } from './buildings'
 import { NONE, isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './common'
 import { Armed, Blast, Building, Converting, Health, Inventory, Owner, Path, Pave, Position, Shot, Site, Turret, Unit } from './components'
@@ -505,6 +506,8 @@ export function fight(sim: Sim) {
       sim.traces.add({ kind: 'wreck', type: unit.type, facing: unit.facing, x: mark.x, y: mark.y })
     }
     releaseHauler(sim, entity)
+    // Груз со склада здания и из кузова остаётся на земле.
+    dropCargo(sim, entity)
     world.destroy(entity)
   }
   for (const { x, y, size, ground } of blasts) {
