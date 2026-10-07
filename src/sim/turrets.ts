@@ -120,6 +120,19 @@ export function turnerOf(sim: Sim, entity: Entity): { body: { facing: number }; 
 }
 
 /**
+ * Ставит турель на её место на носителе. false — носителя нет. Так же место турели находит и клиент: хост его
+ * не шлёт, см. wire.ts.
+ */
+export function placeTurret(world: World, attached: { parent: number; along: number; across: number }, position: { x: number; y: number }) {
+  const pose = attached.parent === NONE ? undefined : carrierPose(world, attached.parent as Entity)
+  if (!pose) return false
+  const { x, y } = mountedAt(pose.x, pose.y, pose.facing, attached.along, attached.across)
+  position.x = x
+  position.y = y
+  return true
+}
+
+/**
  * Раз в тик, после движения: турели встают на свои места на юнитах и зданиях, а турели погибших носителей исчезают.
  * Поворот турели — относительно носителя: поворачиваясь, юнит поворачивает и её.
  */
@@ -130,15 +143,7 @@ export function followCarriers(sim: Sim) {
     turret.prevX = position.x
     turret.prevY = position.y
     turret.prevAngle = turret.angle
-    const parent = attached.parent as Entity
-    const pose = attached.parent === NONE ? undefined : carrierPose(world, parent)
-    if (!pose) {
-      orphans.push(entity)
-      continue
-    }
-    const { x, y } = mountedAt(pose.x, pose.y, pose.facing, attached.along, attached.across)
-    position.x = x
-    position.y = y
+    if (!placeTurret(world, attached, position)) orphans.push(entity)
   }
   // Состав мира меняется после обхода.
   for (const entity of orphans) world.destroy(entity)

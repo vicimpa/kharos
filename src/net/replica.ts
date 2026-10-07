@@ -6,7 +6,8 @@ import { createPaving } from '../sim/paved'
 import { createReceivedTraces } from '../sim/traces'
 import { createVision } from '../sim/vision'
 import { BUILDINGS, type BuildingType } from '../sim/buildings'
-import { Ghost, Position, SAVED, Unit } from '../sim/components'
+import { Armed, Attached, Ghost, Position, SAVED, Turret, Unit } from '../sim/components'
+import { placeTurret } from '../sim/turrets'
 import { SAVE_VERSION, type SimSave } from '../sim/sim'
 import type { ClientMessage, PlayerInfo, ServerMessage } from './protocol'
 
@@ -39,6 +40,8 @@ export interface Replica extends Sim {
 export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' }>, send: (text: string) => void, close: () => void): Replica {
   const world = new World()
   const time: Time = { tick: 0, step: welcome.step, elapsed: 0, delta: 0, alpha: 0 }
+  /** Турели, которым место на носителе нашлось впервые: компонент добавляется после обхода. */
+  const deferred: [Entity, { x: number; y: number }][] = []
   /** Пришедшие изменения мира, ещё не применённые: применяются все и по порядку. */
   let pending: Delta[] = []
   /** Что хост прислал и что игрок сейчас видит: сущность целиком, как её собрали из изменений. */
@@ -156,12 +159,41 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
       // Прошлое место и поворот юнитов хост не шлёт: это то, что было до пришедших изменений.
       const before = new Map<Entity, [number, number, number]>()
       for (const [entity, position, unit] of world.query(Position, Unit)) before.set(entity, [position.x, position.y, unit.facing])
+      for (const [entity, position, turret] of world.query(Position, Turret)) before.set(entity, [position.x, position.y, turret.angle])
       for (const delta of pending) apply(delta)
       for (const [entity, position, unit] of world.query(Position, Unit)) {
         const [x, y, facing] = before.get(entity) ?? [position.x, position.y, unit.facing]
         unit.prevX = x
         unit.prevY = y
         unit.prevFacing = facing
+      }
+      // Место турели на носителе хост не шлёт: она встаёт на него здесь, после того как носитель сдвинулся.
+      for (const [entity, attached, turret] of world.query(Attached, Turret)) {
+        let position = world.get(entity, Position)
+        if (!position) {
+          position = { x: 0, y: 0 }
+          if (!placeTurret(world, attached, position)) continue
+          // Состав мира меняется после обхода: новое место ставится там же, где и у остальных, и сразу без сглаживания.
+          deferred.push([entity, position])
+          continue
+        }
+        placeTurret(world, attached, position)
+        const [x, y, angle] = before.get(entity) ?? [position.x, position.y, turret.angle]
+        turret.prevX = x
+        turret.prevY = y
+        turret.prevAngle = angle
+      }
+      for (const [entity, position] of deferred.splice(0)) {
+        world.add(entity, Position(position))
+        const turret = world.get(entity, Turret)!
+        turret.prevX = position.x
+        turret.prevY = position.y
+        turret.prevAngle = turret.angle
+      }
+      // Перезарядку хост шлёт тиком её конца, см. wire.ts.
+      for (const [, armed] of world.query(Armed)) {
+        const wired = armed as typeof armed & { until?: number }
+        armed.cooldown = Math.max(0, (wired.until ?? 0) - last.tick)
       }
       world.flush()
       time.tick = last.tick

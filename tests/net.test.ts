@@ -252,7 +252,7 @@ test('мир клиента, собранный из изменений, сов�
     [...world.all]
       .filter(keep)
       .sort((a, b) => a - b)
-      .map((entity) => [entity, Object.fromEntries([...wireOf(world, entity, player)].map(([key, json]) => [key, JSON.parse(json)]))])
+      .map((entity) => [entity, Object.fromEntries([...wireOf(world, entity, player, 0)].map(([key, json]) => [key, JSON.parse(json)]))])
       .filter(([, data]) => Object.keys(data).length)
   const seen = (sim: Replica, player = 1) => wired(sim.world, player, (entity) => !sim.world.has(entity, Ghost))
   const truth = (player: number) => wired(host.sim.world as never, player, (entity) => shownTo(host.sim, player, entity as never))

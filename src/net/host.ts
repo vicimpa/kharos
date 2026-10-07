@@ -123,7 +123,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
       found = new Map()
       for (const entity of sim.world.all) {
         if (!shownTo(sim, player, entity)) continue
-        const components = wireOf(sim.world, entity, player)
+        const components = wireOf(sim.world, entity, player, sim.time.tick)
         if (components.size) found.set(entity, components)
       }
       cache?.set(player, found)
