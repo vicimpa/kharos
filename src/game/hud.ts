@@ -3,7 +3,7 @@ import { knownReserve } from './knownReserve'
 import type { Entity } from '../ecs'
 import {
   Assembly, Harvester, BUILDABLE, buyPrice, roomFor, BUILDINGS, Building, Converting, Hauler, Health, CORE, GOODS, PRODUCT_SPECS, REFINE_RATE, RESOURCES, RESOURCE_SPECS, buildingSpec, cycleSeconds, isOwn, missingRequirements, producibleBy, productStock, Trade, Inventory, amountOf, loadOf, deliveredTo, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit, unitSpec,
-  awaitsMaterials, buildTicks, canDemolish, canFight, canDeploy, canPack, depositAt, depositNear, DEPOSIT_SIZE, entriesOf, isDeployBlocked, coreCenters, creditsOf, economyOf, isSiteBlocked, materialsFor, reserveLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, spareOf, zoneEconomies, zonesOf,
+  awaitsMaterials, buildTicks, canDemolish, canFight, canDeploy, canPack, depositAt, depositNear, DEPOSIT_SIZE, entriesOf, isDeployBlocked, creditsOf, economyOf, isSiteBlocked, materialsFor, reserveLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, spareOf, zoneEconomies, zonesOf,
   Position, type Amounts, type BuildingType, type Command, type DepositKind, type Good, type Ore, type Product, type Resource, type UnitType,
 } from '../sim'
 import { paveStrokeOf } from './placing'
@@ -114,7 +114,7 @@ export interface HudState {
   demolish: { building: number; refund: number } | null
   /** Что можно построить, если среди выбранного есть строитель. */
   construction: {
-    /** Есть ли у игрока главное здание: без него строить негде. */
+    /** Есть ли у игрока своя зона: без неё строить негде. */
     available: boolean
     /** Здание, для которого сейчас выбирается место. */
     placing: BuildingType | null
@@ -368,7 +368,7 @@ export function readHud(scene: Scene): HudState {
     demolish,
     construction: counts.has('builder')
       ? {
-          available: coreCenters(sim, player).length > 0,
+          available: zonesOf(sim, player).length > 0,
           placing: scene.placing,
           paving: pavingOf(scene),
           options: BUILDABLE.map((type) => ({

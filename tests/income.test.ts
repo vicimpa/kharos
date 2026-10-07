@@ -111,19 +111,18 @@ test('каждый следующий генератор материи в зо�
   expect(economyOf(sim, 1).income).toBeCloseTo(0.2 + 3 * 1.5 * (10 / 18))
 })
 
-test('здания вне зоны и без главного здания не работают', () => {
+test('здания держат зону и работают и без главного здания; оторванное от базы — без энергии', () => {
   const { sim, x, y } = start()
   put(sim, 'generator', x + 6, y)
   put(sim, 'matter', x + 6, y + 3)
+  // Далёкий генератор материи — своя зона без электростанции: энергии ему нет, и дохода он не даёт.
   put(sim, 'matter', x + 60, y)
-  expect(economyOf(sim, 1)).toEqual({ produced: 10, demand: 3, income: 1.7, crowd: 1 })
+  expect(economyOf(sim, 1)).toEqual({ produced: 10, demand: 6, income: 1.7, crowd: 2 })
 
   sim.send(1, { type: 'pack', building: coreOf(sim) })
   seconds(sim, 10.1)
-  expect(economyOf(sim, 1)).toEqual({ produced: 0, demand: 0, income: 0, crowd: 0 })
-  const credits = creditsOf(sim, 1)
-  seconds(sim, 5)
-  expect(creditsOf(sim, 1)).toBe(credits)
+  // Свёрнуто главное здание: нет только его дохода.
+  expect(economyOf(sim, 1)).toEqual({ produced: 10, demand: 6, income: 1.5, crowd: 2 })
 })
 
 test('готовые здания расширяют зону строительства по цепочке, стройки — нет', () => {
@@ -142,15 +141,17 @@ test('готовые здания расширяют зону строитель
   expect(zoneOf(sim, 1).length).toBe(6)
   expect(canBuild(sim, 1, 'khariteVault', far, y + 3)).toBe(true)
 
-  // Здание, до которого цепочка не дотягивается, зону не даёт; встанет звено между ними — даст.
+  // Здание, до которого цепочка не дотягивается, держит свою, отдельную зону; встанет звено между ними — зоны сольются.
   put(sim, 'khariteVault', x + 22, y + 5)
-  expect(zoneOf(sim, 1).length).toBe(6)
+  expect(zonesOf(sim, 1).length).toBe(2)
   put(sim, 'khariteVault', x + 18, y + 5)
+  expect(zonesOf(sim, 1).length).toBe(1)
   expect(zoneOf(sim, 1).length).toBe(12)
 
+  // Без главного здания зона остаётся: её держат сами здания.
   sim.send(1, { type: 'pack', building: coreOf(sim) })
   seconds(sim, 10.1)
-  expect(zoneOf(sim, 1).length).toBe(0)
+  expect(zoneOf(sim, 1).length).toBe(9)
 })
 
 test('здание разбирают строители в полтора раза быстрее стройки; половина цены возвращается в конце', () => {

@@ -210,7 +210,7 @@ test('MCV разворачивается на фундаменте, лежаще
   expect(sim.occupancy.at(sand.x + 1, sand.y + 1)).toBeDefined()
 })
 
-test('полоса фундамента от новой зоны подхватывает базу, оставшуюся без главного здания', () => {
+test('полоса фундамента соединяет зону главного здания с базой, оставшейся без него', () => {
   const sim = createSim(options)
   // Ряд скалы: новое главное здание слева, старая база справа, между ними — фундамент.
   let row = { x: 0, y: 0 }
@@ -228,10 +228,14 @@ test('полоса фундамента от новой зоны подхват�
   placeBuilding(sim.world, 'command', x, y, 1)
   const generator = placeBuilding(sim.world, 'generator', x + 26, y, 1)
   const yard = placeBuilding(sim.world, 'metalYard', x + 30, y, 1)
-  const inZone = (entity: Entity) => zonesOf(sim, 1).some((zone) => zone.buildings.includes(entity))
-  expect(inZone(generator)).toBe(false)
+  const core = sim.occupancy.at(x, y)!
+  const zoneWith = (entity: Entity) => zonesOf(sim, 1).findIndex((zone) => zone.buildings.includes(entity))
+  // Старая база держит свою зону, отдельную от зоны главного здания.
+  expect(zonesOf(sim, 1).length).toBe(2)
+  expect(zoneWith(generator)).not.toBe(zoneWith(core))
   for (let tx = x + 3; tx < x + 26; tx++) lay(sim, 'foundation', tx, y + 2)
-  expect(inZone(generator)).toBe(true)
-  // Дальше зону тянет уже само здание: соседнее хранилище тоже в ней.
-  expect(inZone(yard)).toBe(true)
+  // Полоса примыкает к электростанции: зоны слились, и хранилище за ней — в той же зоне.
+  expect(zonesOf(sim, 1).length).toBe(1)
+  expect(zoneWith(generator)).toBe(zoneWith(core))
+  expect(zoneWith(yard)).toBe(zoneWith(core))
 })

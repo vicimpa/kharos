@@ -109,7 +109,7 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
           materials,
           active: construction.placing === building,
           disabled: !construction.available || !affordable,
-          title: !construction.available ? 'Сначала разверни MCV в главное здание' : affordable ? undefined : 'Не хватает кредитов',
+          title: !construction.available ? 'Своей зоны нет: сначала разверни MCV' : affordable ? undefined : 'Не хватает кредитов',
           run: () => place(construction.placing === building ? null : building),
         }
       })
