@@ -141,8 +141,9 @@ test('строить можно только в радиусе контроля,
   const credits = creditsOf(sim, 1)
   expect(canBuild(sim, 1, 'generator', site.x + 60, site.y)).toBe(false)
   expect(canBuild(sim, 2, 'generator', site.x, site.y)).toBe(false)
-  // Главное здание строители не возводят.
-  expect(canBuild(sim, 1, CORE, site.x, site.y)).toBe(false)
+  // Главное здание строители возводят только в своей зоне: на новое место его привозит MCV.
+  expect(canBuild(sim, 1, CORE, site.x, site.y)).toBe(true)
+  expect(canBuild(sim, 1, CORE, site.x + 60, site.y)).toBe(false)
   sim.send(2, { type: 'build', building: 'generator', x: site.x, y: site.y, builders })
   sim.send(1, { type: 'build', building: 'windtrap', x: site.x, y: site.y, builders })
   sim.advance(TICK)

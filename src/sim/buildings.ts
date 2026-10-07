@@ -138,8 +138,9 @@ export const SAND_DURABILITY = 0.7
 export const BUILDINGS = {
   // Доход главного здания не даёт остаться без кредитов совсем: на генератор он копит долго, но копит.
   // Своего склада у главного здания нет: всё готовое лежит в хранилищах своего вида.
-  // Пушка на крыше держит всю зону главного здания: одиночкам и разведке к нему не подойти.
-  command: { width: 3, height: 3, cost: 2000, income: 0.2, zone: 12, sight: 12, produces: ['builder', 'truck', 'harvester'], mounts: [{ turret: 'core', along: 0, across: 0 }] },
+  // Пушка на крыше держит всю зону главного здания: одиночкам и разведке к нему не подойти. Строители возводят его
+  // только в своей зоне и из тех же материалов, что MCV: новое место занимают MCV, а отстроенная база восстанавливает ядро.
+  command: { width: 3, height: 3, cost: 2000, materials: { blocks: 20, metal: 20 }, income: 0.2, zone: 12, sight: 12, produces: ['builder', 'truck', 'harvester'], mounts: [{ turret: 'core', along: 0, across: 0 }] },
   // Переработка — по зданию на руду: каждое принимает только свою руду и выдаёт её ресурс, один передел
   // (§4.3 шаг 5). Приём 1,5 руды/с — примерно полторы шахты металла: где поставить завод между шахтами
   // и хранилищем, решает игрок. Руду держит про запас на кузов, готовое отдаёт по общим заявкам.
@@ -201,7 +202,7 @@ export const CORE: BuildingType = 'command'
 export const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[]
 /** Что возводят строители. Остальные здания появятся вместе с тем, для чего они нужны. */
 export const BUILDABLE: BuildingType[] = [
-  'generator', 'matter', 'mine', 'smelter', 'siliconWorks', 'distillery', 'enricher', 'blockPlant', 'ammoPlant', 'partsPlant',
+  'command', 'generator', 'matter', 'mine', 'smelter', 'siliconWorks', 'distillery', 'enricher', 'blockPlant', 'ammoPlant', 'partsPlant',
   'metalYard', 'siliconStore', 'fuelTank', 'khariteVault', 'blockYard', 'ammoBunker', 'partsLocker', 'spaceport', 'barracks', 'factory', 'airfield', 'techCenter',
   'radar', 'wall', 'turret', 'rocketTurret', 'cannonTurret',
 ]

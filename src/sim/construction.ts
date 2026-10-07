@@ -66,6 +66,8 @@ export function canBuild(sim: Sim, player: number, type: BuildingType, x: number
   if (inForeignZone(sim, player, x, y, width, height)) return false
   // Шахта встаёт ровно на месторождение, в котором ещё что-то есть.
   if (buildingSpec(type).extract && reserveLeft(sim, x, y) <= 0) return false
+  // Главное здание строители ставят только в своей зоне: на новое место его привозит MCV.
+  if (type === CORE) return inControl(sim, player, type, x, y)
   return !outOfControl(sim, player, type, x, y)
 }
 
