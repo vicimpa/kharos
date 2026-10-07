@@ -13,8 +13,8 @@ test('большая армия сразу трогается, каждый юн
     const path = sim.world.get(entity, Path)
     if (!path) continue
     goals.add(`${path.goalX},${path.goalY}`)
-    // Пути приказ не ищет: их проложит planPaths в следующие тики.
-    expect(path.pending).toBe(true)
+    // Пути приказ не ищет: юниты едут напрямую.
+    expect(path.direct).toBe(true)
   }
   // Почти у всех есть путь, и места не повторяются: армии хватает колец вокруг цели.
   expect(goals.size).toBeGreaterThan(380)

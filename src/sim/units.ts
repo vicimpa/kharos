@@ -350,7 +350,7 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
   if (air) {
     // Летающему преград нет: он летит к цели по прямой.
     if (!inBounds(sim, x, y)) return void world.remove(entity, Path)
-    world.add(entity, Path({ points: [x + 0.5, y + 0.5], goalX: x, goalY: y, tries, near, pending: false }))
+    world.add(entity, Path({ points: [x + 0.5, y + 0.5], goalX: x, goalY: y, tries, near, direct: false, stuck: false }))
     return
   }
   const fromX = Math.floor(position.x)
@@ -376,7 +376,7 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
     tiles.map((value) => value + 0.5),
     slowness,
   )
-  if (points.length) world.add(entity, Path({ points, goalX: x, goalY: y, tries, near, roads: fastest < 1, pending: false }))
+  if (points.length) world.add(entity, Path({ points, goalX: x, goalY: y, tries, near, roads: fastest < 1, direct: false, stuck: false }))
   else world.remove(entity, Path)
 }
 
@@ -399,8 +399,8 @@ export function orderGroupMove(sim: Sim, all: Entity[], x: number, y: number) {
 
 /**
  * Раздаёт наземным юнитам тайлы (x, y подряд), каждому свой, но путь не прокладывает: юнит сразу едет к своему тайлу
- * напрямую, обходя встречных, а путь ему проложит planPaths, когда дойдёт очередь. Так приказ армии в тысячи юнитов
- * не стоит тысячи поисков пути в один тик.
+ * напрямую, объезжая встречное на ходу. Путь ищется, только если упрётся (planPaths) или увидит дорогу (movement.ts):
+ * в открытом поле армия в тысячи юнитов не ищет путей вовсе.
  */
 function aimAtTiles(sim: Sim, units: Entity[], tiles: number[]) {
   if (!tiles.length) return
@@ -410,7 +410,7 @@ function aimAtTiles(sim: Sim, units: Entity[], tiles: number[]) {
     const at = Math.min(i * 2, tiles.length - 2)
     const x = tiles[at]
     const y = tiles[at + 1]
-    world.add(entity, Path({ points: [x + 0.5, y + 0.5], goalX: x, goalY: y, wait: 0, tries: 0, near: 0, roads: false, pending: true }))
+    world.add(entity, Path({ points: [x + 0.5, y + 0.5], goalX: x, goalY: y, wait: 0, tries: 0, near: 0, roads: false, direct: true, stuck: false }))
   })
 }
 

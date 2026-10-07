@@ -53,9 +53,10 @@ export const Unit = component('Unit', {
  * near — на сколько тайлов достаточно подойти к цели: так идут к тому, в кого собираются стрелять.
  */
 /**
- * pending — путь ещё не проложен: юнит едет к цели напрямую, а путь ему проложит planPaths, когда до него дойдёт очередь.
+ * direct — путь не прокладывался: юнит едет к цели напрямую и объезжает встречное на ходу. stuck — такой юнит
+ * упёрся и не объехал: путь ему проложит planPaths.
  */
-export const Path = component('Path', () => ({ points: [] as number[], goalX: 0, goalY: 0, wait: 0, tries: 0, near: 0, roads: false, pending: false }))
+export const Path = component('Path', () => ({ points: [] as number[], goalX: 0, goalY: 0, wait: 0, tries: 0, near: 0, roads: false, direct: false, stuck: false }))
 
 /**
  * Игрок: сущность без места на карте. Отслеживается, чтобы интерфейс узнавал о смене счёта.

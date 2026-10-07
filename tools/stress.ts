@@ -39,7 +39,7 @@ for (let i = 0; i < ticks; i++) {
   times.push(d)
   if (planned < 0) {
     let pending = 0
-    for (const [, path] of sim.world.query(Path)) if (path.pending) pending++
+    for (const [, path] of sim.world.query(Path)) if (path.direct) pending++
     if (!pending) planned = i + 2
   }
   worst = Math.max(worst, d)
@@ -48,5 +48,5 @@ const total = performance.now() - start
 let alive = 0
 for (const _ of sim.world.query(Unit, Owner, Position)) alive++
 times.sort((a, b) => a - b)
-console.log(`первый тик (приказ)=${firstTick.toFixed(0)}мс p50=${times[times.length >> 1].toFixed(1)} p95=${times[Math.floor(times.length * 0.95)].toFixed(1)} пути у всех — ${planned < 0 ? 'не за ' + ticks + ' тиков' : (planned / 20).toFixed(1) + ' с'}`)
+console.log(`первый тик (приказ)=${firstTick.toFixed(0)}мс p50=${times[times.length >> 1].toFixed(1)} p95=${times[Math.floor(times.length * 0.95)].toFixed(1)} напрямую ехали до ${planned < 0 ? 'не за ' + ticks + ' тиков' : (planned / 20).toFixed(1) + ' с'}`)
 console.log(`N=${n}×2 тиков=${ticks} средний=${(total / ticks).toFixed(2)}мс худший=${worst.toFixed(1)}мс живых=${alive}`)
