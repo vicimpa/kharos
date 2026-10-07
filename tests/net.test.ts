@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { DEFAULT_CONFIG } from '../src/map/terrain'
 import { createHost, type Host, type HostSave } from '../src/net/host'
-import type { ServerMessage } from '../src/net/protocol'
+import { decodeServer } from '../src/net/protocol'
 import { createReplica, type Replica } from '../src/net/replica'
 import { Building, Ghost, Owner, Player, Position, Unit, createSim, shownTo } from '../src/sim'
 import { SAVED } from '../src/sim/components'
@@ -26,8 +26,8 @@ function join(host: Host, id?: string, name?: string) {
   let replica: Replica | undefined
   let issued: string | undefined
   const peer = host.join(
-    (text) => {
-      const message = JSON.parse(text) as ServerMessage
+    (data) => {
+      const message = decodeServer(data)
       if (message.type === 'welcome' && !replica) {
         issued = message.id
         replica = createReplica(message, (reply) => peer.receive(reply), () => peer.leave())
@@ -252,8 +252,11 @@ test('мир клиента, собранный из изменений, сов�
     [...world.all]
       .filter(keep)
       .sort((a, b) => a - b)
-      .map((entity) => [entity, Object.fromEntries([...wireOf(world, entity, player, 0)].map(([key, json]) => [key, JSON.parse(json)]))])
-      .filter(([, data]) => Object.keys(data).length)
+      .map((entity) => {
+        const { parts, motion } = wireOf(world, entity, player, 0)
+        return [entity, { ...Object.fromEntries([...parts].map(([key, json]) => [key, JSON.parse(json)])), motion }]
+      })
+      .filter(([, data]) => Object.keys(data).length > 1 || (data as { motion?: unknown }).motion)
   const seen = (sim: Replica, player = 1) => wired(sim.world, player, (entity) => !sim.world.has(entity, Ghost))
   const truth = (player: number) => wired(host.sim.world as never, player, (entity) => shownTo(host.sim, player, entity as never))
   for (let tick = 1; tick <= 600; tick++) {

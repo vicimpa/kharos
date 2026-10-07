@@ -1,7 +1,7 @@
 import type { BattleConfig } from '../map/settings'
 import type { SimOptions, SimSave } from '../sim'
 import type { LocalControl, LocalNotice, LocalSetup } from './local'
-import { PROTOCOL_VERSION, type ServerMessage } from './protocol'
+import { PROTOCOL_VERSION, decodeServer } from './protocol'
 import { createReplica, type Replica } from './replica'
 
 /**
@@ -80,12 +80,14 @@ export function connect(url: string, lag = 0, name = '', password = ''): Promise
     address.searchParams.set('version', String(PROTOCOL_VERSION))
     let refused: string | undefined
     const socket = new WebSocket(address)
+    // Изменения мира приходят двоичными, см. codec.ts.
+    socket.binaryType = 'arraybuffer'
     const delayed = (action: () => void) => (lag > 0 ? void setTimeout(action, lag) : action())
     let sim: Replica | undefined
 
     socket.onmessage = (event) => {
       delayed(() => {
-        const message = JSON.parse(event.data as string) as ServerMessage
+        const message = decodeServer(event.data as string | ArrayBuffer)
         if (message.type === 'refused') {
           refused = message.password ? `${message.reason}: переподключитесь и введите пароль` : message.reason
           if (message.password) storeByUrl(PASSWORDS_KEY, url, undefined)
@@ -131,8 +133,8 @@ export function connectLocal(setup: LocalSetup, onSave: (save: SimSave) => void,
     let sim: Replica | undefined
 
     port.onmessage = ({ data }: MessageEvent) => {
-      if (typeof data !== 'string') return onSave((data as LocalNotice).save)
-      const message = JSON.parse(data) as ServerMessage
+      if (typeof data !== 'string' && !(data instanceof Uint8Array)) return onSave((data as LocalNotice).save)
+      const message = decodeServer(data)
       if (sim) return sim.receive(message)
       if (message.type !== 'welcome') return
       sim = createReplica(message, (text) => port.postMessage(text), () => {

@@ -56,8 +56,7 @@ export function createTraces(world: World, tick: () => number, step: number): Tr
   let expired: number[] = []
   let sinceExpire = 0
   let next = 1
-  /** Где каждый наземный юнит оставил последнюю точку. */
-  const walkers = new Map<Entity, { x: number; y: number; facing: number }>()
+  const walk = createWalkers(world)
 
   const traces: Traces = {
     add(trace) {
@@ -75,19 +74,7 @@ export function createTraces(world: World, tick: () => number, step: number): Tr
     fresh: () => fresh,
     expired: () => expired,
     update() {
-      const seen = new Set<Entity>()
-      for (const [entity, unit, position, owner] of world.query(Unit, Position, Owner)) {
-        if (flies(unit.type)) continue
-        seen.add(entity)
-        const last = walkers.get(entity)
-        const moved = last ? Math.hypot(position.x - last.x, position.y - last.y) : Infinity
-        if (last && moved < TRACK_STEP && Math.abs(angleBetween(unit.facing, last.facing)) < TRACK_TURN) continue
-        if (last && moved < 1e-3) continue
-        walkers.set(entity, { x: position.x, y: position.y, facing: unit.facing })
-        // Первая точка — тоже точка: от неё колея и потянется. Скачок клиент узнаёт по расстоянию и не соединяет.
-        traces.add({ kind: 'track', entity, type: unit.type, facing: unit.facing, player: owner.player, x: position.x, y: position.y })
-      }
-      for (const entity of walkers.keys()) if (!seen.has(entity)) walkers.delete(entity)
+      walk((track) => traces.add(track))
 
       fresh = pending
       pending = []
@@ -110,15 +97,47 @@ export function createTraces(world: World, tick: () => number, step: number): Tr
 
 const angleBetween = (a: number, b: number) => Math.atan2(Math.sin(a - b), Math.cos(a - b))
 
+type NewTrack = Extract<NewTrace, { kind: 'track' }>
+
 /**
- * Следы в клиенте: их не оставляют, а получают от хоста — те, что игрок видит сейчас; ушедшие из обзора
- * (sees — видно ли место) выбрасываются. Отметка since — порядковый номер
+ * Колея: наземный юнит оставляет точку, пройдя TRACK_STEP или повернув на TRACK_TURN. Возвращает обход, который
+ * отдаёт новые точки тика. Одно правило у хоста и у клиента: колею, оставленную на глазах у игрока, клиент кладёт
+ * сам, и хосту не нужно слать её по сети.
+ */
+function createWalkers(world: World) {
+  /** Где каждый наземный юнит оставил последнюю точку. */
+  const walkers = new Map<Entity, { x: number; y: number; facing: number }>()
+  return (emit: (track: NewTrack) => void) => {
+    const seen = new Set<Entity>()
+    for (const [entity, unit, position, owner] of world.query(Unit, Position, Owner)) {
+      if (flies(unit.type)) continue
+      seen.add(entity)
+      const last = walkers.get(entity)
+      const moved = last ? Math.hypot(position.x - last.x, position.y - last.y) : Infinity
+      if (last && moved < TRACK_STEP && Math.abs(angleBetween(unit.facing, last.facing)) < TRACK_TURN) continue
+      if (last && moved < 1e-3) continue
+      walkers.set(entity, { x: position.x, y: position.y, facing: unit.facing })
+      // Первая точка — тоже точка: от неё колея и потянется. Скачок клиент узнаёт по расстоянию и не соединяет.
+      emit({ kind: 'track', entity, type: unit.type, facing: unit.facing, player: owner.player, x: position.x, y: position.y })
+    }
+    for (const entity of walkers.keys()) if (!seen.has(entity)) walkers.delete(entity)
+  }
+}
+
+/**
+ * Следы в клиенте: их получают от хоста — те, что игрок видит сейчас; ушедшие из обзора (sees — видно ли место)
+ * выбрасываются. Колею юнитов, которых игрок видит, клиент кладёт сам: хост её не шлёт, см. host.ts. Свои следы
+ * клиент нумерует отрицательными числами, чтобы не спутать с хостовыми. Отметка since — порядковый номер
  * прихода, а не номер следа: след, найденный поздно, приходит поздно.
  */
-export function createReceivedTraces(tick: () => number, step: number, sees: (x: number, y: number) => boolean): Traces & { receive(traces: Trace[]): void } {
+export function createReceivedTraces(world: World, tick: () => number, step: number, sees: (x: number, y: number) => boolean): Traces & { receive(traces: Trace[]): void } {
   let list: { trace: Trace; seq: number }[] = []
   let seq = 0
   let fresh: Trace[] = []
+  /** Пришедшие от хоста после прошлого update: в update они станут fresh вместе со своими. */
+  let incoming: Trace[] = []
+  let own = 0
+  const walk = createWalkers(world)
   return {
     add() {
       // Следы оставляет хост.
@@ -127,11 +146,18 @@ export function createReceivedTraces(tick: () => number, step: number, sees: (x:
     fresh: () => fresh,
     expired: () => [],
     receive(traces) {
-      fresh = traces
+      incoming.push(...traces)
       for (const trace of traces) list.push({ trace, seq: ++seq })
     },
     update() {
       const now = tick()
+      fresh = incoming
+      incoming = []
+      walk((track) => {
+        const trace = { ...track, id: -++own, tick: now } as Trace
+        fresh.push(trace)
+        list.push({ trace, seq: ++seq })
+      })
       // Ушедшее из обзора клиент не хранит: о следах он знает только там, где видит сейчас.
       list = list.filter(({ trace }) => sees(trace.x, trace.y) && (now - trace.tick) * step < TRACE_LIFE[trace.kind])
     },

@@ -1,7 +1,9 @@
 import { Terrain, terrainAt } from '../map/terrain'
 import { isDefeated, isWalkable, shownTo, spawnStartingUnits, wipePlayer, type Command, type Sim, type SimSave } from '../sim'
 import { Owner, Position } from '../sim/components'
-import { wireOf } from './wire'
+import { wireOf, type Wired } from './wire'
+import { encodeDelta, type Motion } from './codec'
+import type { ServerData } from './protocol'
 import type { Trace } from '../sim/traces'
 import { cleanName, type PlayerInfo, type ServerMessage } from './protocol'
 
@@ -24,7 +26,9 @@ const SWEEP_TICKS = 5
 const SPAWN_SLOTS = 8
 
 /** Мир, каким его видит игрок: по сущности — JSON каждого её компонента. */
-type View = Map<number, Map<string, string>>
+type View = Map<number, Wired>
+/** Как отправить сообщение подключению: изменения мира — двоичные, остальное — текст. */
+type Send = (data: ServerData) => void
 
 /** Подключённый игрок с точки зрения хоста. */
 export interface Peer {
@@ -41,14 +45,14 @@ export interface Host {
   replace(sim: Sim): void
   /** Сколько клиентов сейчас подключено. */
   readonly peers: number
-  /** Размер самого большого из последних разосланных изменений мира в символах. */
+  /** Размер самого большого из последних разосланных изменений мира в байтах. */
   readonly stateSize: number
   /**
-   * Подключает клиента. send отправляет ему текст сообщения. id — то, по чему хост узнаёт вернувшегося игрока: его
+   * Подключает клиента. send отправляет ему сообщение: текст или двоичный кадр изменений мира, см. codec.ts. id — то, по чему хост узнаёт вернувшегося игрока: его
    * выдаёт сам хост в приветствии; с прежним id клиент получает прежнего игрока, а не новый стартовый набор.
    * Неизвестный или пустой id — новый игрок с новым id. name — ник; пустой — «Игрок N».
    */
-  join(send: (text: string) => void, id?: string, name?: string): Peer
+  join(send: Send, id?: string, name?: string): Peer
   /** Продвигает игру на seconds реального времени и рассылает мир, если прошёл хотя бы один тик. */
   advance(seconds: number): number
   /** Мир вместе с тем, кого хост знает: по id игроки узнаются и после перезапуска сервера. */
@@ -73,20 +77,22 @@ export interface HostSave {
 export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, 'sim'>): Host {
   let sim = first
   /** Подключённые: как отправить и за кого играет. */
-  const peers = new Map<(text: string) => void, number>()
+  const peers = new Map<Send, number>()
   /** Какие следы каждое подключение уже получило. */
-  const shown = new Map<(text: string) => void, Set<number>>()
+  const shown = new Map<Send, Set<number>>()
   /** Какой мир каждое подключение уже получило: по сущности — JSON каждого её компонента. */
-  const sent = new Map<(text: string) => void, View>()
+  const sent = new Map<Send, View>()
   let sinceSweep = 0
 
   /**
    * Следы, которые подключение видит — они в обзоре его юнитов и зданий прямо сейчас, — а ещё не получало. Новые проверяются каждый тик, все — раз в SWEEP_TICKS:
    * так находятся старые следы там, куда игрок только что пришёл.
    */
-  const traces = (send: (text: string) => void, player: number, sweep: boolean) => {
+  const traces = (send: Send, player: number, sweep: boolean) => {
     const known = shown.get(send)!
     const found: Trace[] = []
+    // Колею, оставленную на глазах у игрока, клиент кладёт сам: он видит того же юнита, см. traces.ts.
+    for (const trace of sim.traces.fresh()) if (trace.kind === 'track' && sim.vision.sees(player, trace.x, trace.y)) known.add(trace.id)
     for (const trace of sweep ? sim.traces.all() : sim.traces.fresh()) {
       const seen = sim.vision.sees(player, trace.x, trace.y)
       if (seen && !known.has(trace.id)) {
@@ -123,8 +129,8 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
       found = new Map()
       for (const entity of sim.world.all) {
         if (!shownTo(sim, player, entity)) continue
-        const components = wireOf(sim.world, entity, player, sim.time.tick)
-        if (components.size) found.set(entity, components)
+        const wired = wireOf(sim.world, entity, player, sim.time.tick)
+        if (wired.parts.size || wired.motion) found.set(entity, wired)
       }
       cache?.set(player, found)
     }
@@ -135,29 +141,33 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
    * Что поменялось в мире подключения с прошлого раза: сравнивается JSON компонентов, так что неподвижное здание
    * не уходит в сеть каждый тик. Текст собирается из готовых кусков JSON, чтобы не сериализовать всё второй раз.
    */
-  const delta = (send: (text: string) => void, player: number, cache?: Map<number, View>) => {
+  const delta = (send: Send, player: number, cache?: Map<number, View>) => {
     const before = sent.get(send)!
     const now = view(player, cache)
     const set: string[] = []
     const unset: [number, string[]][] = []
     const remove: number[] = []
-    for (const [id, components] of now) {
+    const motions: [number, Motion][] = []
+    for (const [id, { parts: components, motion }] of now) {
       const old = before.get(id)
       const parts: string[] = []
-      for (const [key, json] of components) if (old?.get(key) !== json) parts.push(`${JSON.stringify(key)}:${json}`)
+      for (const [key, json] of components) if (old?.parts.get(key) !== json) parts.push(`${JSON.stringify(key)}:${json}`)
       if (parts.length) set.push(`[${id},{${parts.join(',')}}]`)
+      // Новая сущность получает движение, даже если ничего, кроме него, у неё нет: так клиент узнаёт о ней.
+      if (motion && (!old?.motion || motion.some((value, i) => value !== old.motion![i]))) motions.push([id, motion])
+      else if (!old && !parts.length) set.push(`[${id},{}]`)
       if (old) {
-        const dropped = [...old.keys()].filter((key) => !components.has(key))
+        const dropped = [...old.parts.keys()].filter((key) => !components.has(key))
         if (dropped.length) unset.push([id, dropped])
       }
-      before.set(id, components)
+      before.set(id, { parts: components, motion })
     }
     for (const id of before.keys()) {
       if (now.has(id)) continue
       remove.push(id)
       before.delete(id)
     }
-    return `{"type":"delta","tick":${sim.time.tick},"set":[${set.join(',')}],"unset":${JSON.stringify(unset)},"remove":${JSON.stringify(remove)}}`
+    return encodeDelta(sim.time.tick, motions, `{"set":[${set.join(',')}],"unset":${JSON.stringify(unset)},"remove":${JSON.stringify(remove)}}`)
   }
 
   /** Случайная точка появления: на скале, просторная и подальше от других игроков; undefined — не нашлась. */

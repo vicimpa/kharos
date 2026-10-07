@@ -13,6 +13,8 @@ import type { ClientMessage, PlayerInfo, ServerMessage } from './protocol'
 
 /** Из чего собираются призраки: сохраняемое и метка призрака. */
 const REMEMBERED = [...SAVED, Ghost]
+/** Поля компонентов, которые приходят не в нём самом: поворот юнита — движением, см. codec.ts. */
+const KEPT: Record<string, string[]> = { Unit: ['facing', 'prevX', 'prevY', 'prevFacing'] }
 /** Компоненты, которые присылает хост, по имени. */
 const BY_KEY = new Map<string, Component<any>>(SAVED.map((component) => [component.key, component]))
 
@@ -73,7 +75,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     replica.rules = { ...DEFAULT_RULES, ...options.rules }
     // Разведанное в новом мире ничего не значит.
     replica.vision = createVision(world, replica.bounds, () => time.tick, options.fog !== false)
-    replica.traces = createReceivedTraces(() => time.tick, step, (x, y) => replica.vision.sees(player, x, y))
+    replica.traces = createReceivedTraces(world, () => time.tick, step, (x, y) => replica.vision.sees(player, x, y))
     world.clear()
     world.flush()
     mirror.clear()
@@ -82,7 +84,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
   }
 
   /** Накладывает изменения на мир на месте: незатронутые сущности и их наблюдатели не трогаются. */
-  const apply = ({ set, unset, remove }: Delta) => {
+  const apply = ({ set, unset, remove, motion }: Delta) => {
     for (const id of remove) {
       mirror.delete(id)
       // Запомненное здание остаётся и станет призраком, остальное исчезает.
@@ -107,14 +109,33 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
             world.add(entity, component(data[key]))
             continue
           }
-          // Компонент приходит целиком: поля, которых в нём больше нет, обнуляются.
+          // Компонент приходит целиком: поля, которых в нём больше нет, обнуляются. Кроме тех, что приходят иначе.
           const patch: Record<string, unknown> = { ...data[key] }
-          for (const field in current) if (!(field in patch)) patch[field] = undefined
+          const kept = KEPT[key]
+          for (const field in current) if (!(field in patch) && !kept?.includes(field)) patch[field] = undefined
           world.set(entity, component, patch)
         }
       }
       const owner = (entry.Owner as { player: number } | undefined)?.player
       if (('Building' in entry || 'Deposit' in entry) && owner !== player) memory.set(id, entry)
+    }
+    // Движение — после set: новая сущность к этому времени уже есть.
+    for (let i = 0; i < motion.length; i += 4) {
+      const id = motion[i]
+      const entity = id as Entity
+      const x = motion[i + 1]
+      const y = motion[i + 2]
+      const facing = motion[i + 3]
+      if (!world.alive(entity)) world.insert(id, {}, BY_KEY)
+      let entry = mirror.get(id)
+      if (!entry) mirror.set(id, (entry = {}))
+      entry.Position = { x, y }
+      if (world.has(entity, Position)) world.set(entity, Position, { x, y })
+      else world.add(entity, Position({ x, y }))
+      if (!Number.isNaN(facing)) {
+        if (entry.Unit) entry.Unit = { ...entry.Unit, facing }
+        if (world.has(entity, Unit)) world.set(entity, Unit, { facing })
+      }
     }
     for (const [id, keys] of unset) {
       const entry = mirror.get(id)

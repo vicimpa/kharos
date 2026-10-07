@@ -1,5 +1,6 @@
 import type { Command, SimOptions } from '../sim'
 import type { Trace } from '../sim/traces'
+import { decodeDelta } from './codec'
 
 /**
  * Версия сетевой игры. Клиент и сервер играют вместе, только если она у них одна: копия мира у клиента собирается
@@ -34,9 +35,10 @@ export type ServerMessage =
   /**
    * Мир после тика tick — только то, что поменялось с прошлого сообщения в том, что игрок видит. set — новые сущности
    * целиком и поменявшиеся компоненты остальных, unset — снятые компоненты, remove — сущности, которых игрок больше
-   * не видит или которых не стало. Первое после приветствия приносит весь видимый мир.
+   * не видит или которых не стало. Первое после приветствия приносит весь видимый мир. motion — места и повороты:
+   * номер сущности, x, y и поворот подряд (поворота нет — NaN); они идут не в set, а отдельно и двоично, см. codec.ts.
    */
-  | { type: 'delta'; tick: number; set: [number, Record<string, object>][]; unset: [number, string[]][]; remove: number[] }
+  | { type: 'delta'; tick: number; set: [number, Record<string, object>][]; unset: [number, string[]][]; remove: number[]; motion: number[] }
   /** Сразу после приветствия: что игрок разведал раньше, см. Vision.map. Открытая карта остаётся открытой. */
   | { type: 'explored'; map: number[] }
   /** Следы, которые игрок только что увидел: каждый приходит один раз, дальше клиент держит его сам до конца срока. */
@@ -59,6 +61,15 @@ export const cleanName = (name: string) =>
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, NAME_LENGTH)
+
+/** Сообщение сервера как оно идёт по проводу: изменения мира — двоичные, остальное — текст JSON. */
+export type ServerData = string | Uint8Array
+
+/** Разбирает сообщение сервера: текст или двоичный кадр изменений мира. */
+export function decodeServer(data: ServerData | ArrayBuffer): ServerMessage {
+  if (typeof data === 'string') return JSON.parse(data) as ServerMessage
+  return { type: 'delta', ...decodeDelta(data instanceof Uint8Array ? data : new Uint8Array(data)) }
+}
 
 /** Что клиент шлёт серверу. */
 export type ClientMessage =

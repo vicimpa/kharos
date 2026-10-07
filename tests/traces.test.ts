@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { DEFAULT_CONFIG } from '../src/map/terrain'
 import { createHost, type Host } from '../src/net/host'
-import type { ServerMessage } from '../src/net/protocol'
+import { decodeServer } from '../src/net/protocol'
 import { createReplica, type Replica } from '../src/net/replica'
 import { Owner, Position, Unit, createSim, type Sim } from '../src/sim'
 import { TRACE_LIFE, type Trace } from '../src/sim/traces'
@@ -12,8 +12,8 @@ const options = { generator: DEFAULT_CONFIG, size: 256 }
 
 function join(host: Host) {
   let replica: Replica | undefined
-  const peer = host.join((text) => {
-    const message = JSON.parse(text) as ServerMessage
+  const peer = host.join((data) => {
+    const message = decodeServer(data)
     if (message.type === 'welcome') replica = createReplica(message, (reply) => peer.receive(reply), () => peer.leave())
     else replica!.receive(message)
   })

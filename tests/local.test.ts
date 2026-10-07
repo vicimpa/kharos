@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { createLocalServer, type LocalControl, type LocalNotice, type LocalPort, type LocalServer } from '../src/net/local'
-import type { ServerMessage } from '../src/net/protocol'
+import { decodeServer } from '../src/net/protocol'
 import { createReplica, type Replica } from '../src/net/replica'
 import { Position, Unit, type SimSave } from '../src/sim'
 
@@ -16,8 +16,8 @@ function tab(server: LocalServer, save: SimSave | null = null, mode: 'play' | 'b
   const port: LocalPort = {
     onmessage: null,
     postMessage(data) {
-      if (typeof data !== 'string') return void saves.push((data as LocalNotice).save)
-      const message = JSON.parse(data) as ServerMessage
+      if (typeof data !== 'string' && !(data instanceof Uint8Array)) return void saves.push((data as LocalNotice).save)
+      const message = decodeServer(data)
       if (sim) sim.receive(message)
       else if (message.type === 'welcome') sim = createReplica(message, (text) => port.onmessage!({ data: text }), () => {})
     },
