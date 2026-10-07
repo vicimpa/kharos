@@ -51,12 +51,18 @@ export interface Wired {
  */
 const PRIVATE = new Set([Inventory, Producer, Hauler, Harvester, Assembly, Trade, Tactics, Builds, Repair].map((component) => component.key))
 
-/** Сущность глазами игрока viewer: своё и ничьё — целиком, чужое — без PRIVATE. */
+/** Сущность глазами игрока viewer: своё и ничьё — целиком, чужое — без PRIVATE и без цели стрелка. */
 export function seenBy(wired: Wired, viewer: number): Wired {
   if (wired.owner === undefined || wired.owner === 0 || wired.owner === viewer) return wired
   if (!wired.foreign) {
     const parts = new Map(wired.parts)
     for (const key of PRIVATE) if (!(key === Inventory.key && wired.drop)) parts.delete(key)
+    // В кого целится стрелок, знает только хозяин: чужой узнал бы это раньше выстрела.
+    const armed = parts.get(Armed.key)
+    if (armed) {
+      const { target: _target, ...rest } = JSON.parse(armed)
+      parts.set(Armed.key, JSON.stringify(rest))
+    }
     wired.foreign = { parts, motion: wired.motion }
   }
   return wired.foreign

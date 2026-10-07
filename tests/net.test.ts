@@ -3,7 +3,7 @@ import { DEFAULT_CONFIG } from '../src/map/terrain'
 import { createHost, type Host, type HostSave } from '../src/net/host'
 import { decodeServer } from '../src/net/protocol'
 import { createReplica, type Replica } from '../src/net/replica'
-import { Building, Ghost, Owner, Player, Position, Producer, Unit, createSim, shownTo } from '../src/sim'
+import { Armed, Building, Ghost, Owner, Player, Position, Producer, Unit, createSim, shownTo } from '../src/sim'
 import { SAVED } from '../src/sim/components'
 import { wireOf } from '../src/net/wire'
 import type { Entity } from '../src/ecs'
@@ -293,7 +293,7 @@ test('сдавшийся на сервере начинает заново: но
   expect(unitsOf(sim, 1).length).toBe(before)
 })
 
-test('склад и очередь производства видны только хозяину', () => {
+test('склад, очередь производства и цель стрелка видны только хозяину', () => {
   const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: 256, fog: false }))
   const first = join(host)
   const second = join(host)
@@ -305,4 +305,12 @@ test('склад и очередь производства видны толь�
   expect(first.sim.world.has(mcv as never, Producer)).toBe(true)
   expect(second.sim.world.has(mcv as never, Unit)).toBe(true)
   expect(second.sim.world.has(mcv as never, Producer)).toBe(false)
+
+  // В кого целится стрелок, знает только хозяин.
+  const soldier = unitsOf(host.sim as never, 1).find((entity) => host.sim.world.get(entity as never, Unit)!.type === 'infantry')!
+  const enemy = unitsOf(host.sim as never, 2)[0]!
+  host.sim.world.get(soldier as never, Armed)!.target = enemy
+  const armedFor = (player: number) => JSON.parse(wireOf(host.sim.world as never, soldier as never, player, 0).parts.get(Armed.key)!)
+  expect(armedFor(1).target).toBe(enemy)
+  expect(armedFor(2)).not.toHaveProperty('target')
 })
