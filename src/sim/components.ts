@@ -54,9 +54,10 @@ export const Unit = component('Unit', {
  */
 /**
  * direct — путь не прокладывался: юнит едет к цели напрямую и объезжает встречное на ходу. stuck — такой юнит
- * упёрся и не объехал: путь ему проложит planPaths.
+ * упёрся и не объехал: путь ему проложит planPaths. side — в какую сторону юнит объезжает помеху: 1, −1 или 0 — едет
+ * прямо. Пока помеха не пройдена, сторона та же: иначе он метался бы то вправо, то влево и топтался на месте.
  */
-export const Path = component('Path', () => ({ points: [] as number[], goalX: 0, goalY: 0, wait: 0, tries: 0, near: 0, roads: false, direct: false, stuck: false }))
+export const Path = component('Path', () => ({ points: [] as number[], goalX: 0, goalY: 0, wait: 0, tries: 0, near: 0, roads: false, direct: false, stuck: false, side: 0 }))
 
 /**
  * Игрок: сущность без места на карте. Отслеживается, чтобы интерфейс узнавал о смене счёта.

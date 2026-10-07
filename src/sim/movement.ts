@@ -23,6 +23,8 @@ const REACHED = 0.2
  * считает, что приехал. Иначе двое с одной целью кружили бы друг вокруг друга без конца.
  */
 const SETTLE = 1
+/** Насколько дальше своего радиуса от последней точки юнит, упёршись в соседа, считает, что доехал. */
+const NEARLY = 0.5
 /** Во сколько раз круг разворота считается шире настоящего, когда решается, попадёт ли юнит в точку на ходу. */
 const ORBIT_MARGIN = 1.3
 /**
@@ -30,11 +32,14 @@ const ORBIT_MARGIN = 1.3
  * Сначала вправо — так двое встречных расходятся в разные стороны, а не зеркалят друг друга.
  */
 const DETOURS = [0, 0.35, -0.35, 0.7, -0.7, 1.05, -1.05, 1.4, -1.4, 1.75, -1.75]
+/** Те же отклонения, но сначала влево: для того, кто уже объезжает помеху слева, см. Path.side. */
+const MIRRORED = DETOURS.map((detour) => -detour)
 /**
- * Через сколько тиков ожидания юнит проезжает сквозь своих встречных едущих. Две толпы, едущие навстречу, иначе
- * упирались бы стенкой в стенку: в плотной толпе уступить некуда.
+ * Через сколько тиков ожидания юнит отодвигает плечом своего встречного едущего — вбок, на PUSH за тик. Две толпы,
+ * едущие навстречу, иначе упирались бы стенкой в стенку: в плотной толпе уступить некуда.
  */
-const PASS_TICKS = 15
+const PUSH_TICKS = 10
+const PUSH = 0.08
 /**
  * На сколько сворачивает тот, у кого право проезда, когда впереди едущий: он не объезжает, а ждёт, пока уступят.
  * Объезжай оба — кружили бы друг вокруг друга хороводом.
@@ -131,7 +136,6 @@ export function moveUnits(sim: Sim, time: Time) {
     const dy = toY - fromY
     const lengthSquared = dx * dx + dy * dy
     for (const other of neighbours) {
-      if (passes(other)) continue
       const reach = radius + other.radius - OVERLAP
       const offsetX = other.position.x - fromX
       const offsetY = other.position.y - fromY
@@ -149,10 +153,22 @@ export function moveUnits(sim: Sim, time: Time) {
     return undefined
   }
 
-  /** Своих встречных едущих юнит сейчас проезжает насквозь: см. PASS_TICKS. */
-  let passing: { owner: number; heading: number } | undefined
-  const passes = (other: Body) =>
-    passing !== undefined && other.moving && other.owner === passing.owner && Math.cos(other.unit.facing - passing.heading) < 0
+  /**
+   * Юнит, ехавший в сторону heading, отодвигает встречного other вбок — в ту сторону, куда тот и так ближе, —
+   * если там тому свободно. Так двое протискиваются плечом к плечу, не заходя друг в друга.
+   */
+  const push = (heading: number, x: number, y: number, other: Body) => {
+    const sideX = -Math.sin(heading)
+    const sideY = Math.cos(heading)
+    const sign = (other.position.x - x) * sideX + (other.position.y - y) * sideY >= 0 ? 1 : -1
+    const toX = other.position.x + sideX * sign * PUSH
+    const toY = other.position.y + sideY * sign * PUSH
+    if (!canStand(sim, other.air, Math.floor(toX), Math.floor(toY))) return
+    gather(other.entity, other.air, other.radius, other.position.x, other.position.y)
+    if (collides(other.radius, other.position.x, other.position.y, toX, toY)) return
+    other.position.x = toX
+    other.position.y = toY
+  }
 
   // Пути меняются после обхода: во время него состав мира трогать нельзя.
   const stopped: Entity[] = []
@@ -192,17 +208,17 @@ export function moveUnits(sim: Sim, time: Time) {
     const inside = !canStand(sim, air, Math.floor(position.x), Math.floor(position.y))
 
     gather(entity, air, radius, position.x, position.y)
-    passing = path.wait >= PASS_TICKS ? { owner: ownerOf(sim, entity), heading: wanted } : undefined
     // Куда ехать: прямо к точке пути, а если там другой юнит — в ближайшую свободную сторону.
     const look = Math.min(distance, LOOK_AHEAD)
     let heading: number | undefined
     /** Кто стоит прямо на пути к точке. */
     const ahead = collides(radius, position.x, position.y, position.x + Math.cos(wanted) * look, position.y + Math.sin(wanted) * look)
     // Право проезда: из двух встречных объезжает тот, у кого номер больше, другой ждёт. Объезжай оба — кружили бы
-    // друг вокруг друга хороводом. Заждавшиеся проезжают своих встречных насквозь, см. PASS_TICKS.
+    // друг вокруг друга хороводом. Заждавшиеся отодвигают своих встречных, см. PUSH_TICKS.
     const oncoming = ahead?.moving && Math.cos(ahead.unit.facing - wanted) < 0
     const yielding = oncoming && ahead!.entity < entity
-    for (const detour of DETOURS) {
+    const side = path.side
+    for (const detour of side < 0 ? MIRRORED : DETOURS) {
       if (oncoming && !yielding && Math.abs(detour) > PRIORITY_DETOUR) break
       const angle = wanted + detour
       const lookX = position.x + Math.cos(angle) * look
@@ -211,7 +227,14 @@ export function moveUnits(sim: Sim, time: Time) {
       if (detour && !inside && !canStand(sim, air, Math.floor(lookX), Math.floor(lookY))) continue
       if (detour ? collides(radius, position.x, position.y, lookX, lookY) : ahead) continue
       heading = wrap(angle)
+      path.side = Math.sign(detour)
       break
+    }
+    // Промежуточную точку занял тот, кто мешает проехать прямо, а юнит уже рядом: точка пропускается — он едет
+    // к следующей. Иначе крутился бы у занятой точки, которую не засчитать, пока на неё не встанешь.
+    if (ahead && points.length > 2 && distance < radius + ahead.radius + SETTLE && Math.hypot(ahead.position.x - points[0], ahead.position.y - points[1]) < radius + ahead.radius) {
+      points.splice(0, 2)
+      continue
     }
     // Последнюю точку занял тот, кто мешает проехать прямо, или он едет к ней же: ближе не подъехать — юнит встаёт,
     // где стоит. Иначе кружил бы вокруг точки, объезжая соседа, хороводом.
@@ -219,10 +242,15 @@ export function moveUnits(sim: Sim, time: Time) {
       const reach = radius + ahead.radius
       // Едущего к той же точке пропускает тот, у кого номер больше: двое кружили бы друг вокруг друга.
       const taken = (ahead.moving && ahead.entity < entity) || Math.hypot(ahead.position.x - points[0], ahead.position.y - points[1]) < reach
-      if (taken && distance < reach + SETTLE) {
+      // Почти доехал, а прямо мешает сосед: юнит встаёт. Точка внутри круга разворота, и, объезжая, он вертелся бы на месте.
+      if ((taken && distance < reach + SETTLE) || distance < radius + NEARLY) {
         stopped.push(entity)
         continue
       }
+    }
+    // Объезжая стоящего, сменил сторону — с обеих не пройти, стоящие плотно: просит его отойти.
+    if (ahead && !ahead.moving && side && path.side === -side && asked.length < YIELD_SEARCHES) {
+      asked.push({ entity: ahead.entity, by: entity, x: position.x, y: position.y, heading: wrap(wanted), room: radius + ahead.radius + 1 })
     }
     const direct = heading === wrap(wanted)
     // Свободной стороны нет, а прямо — юнит: он ждёт на месте, доворачивая к точке. Поехай он, куда смотрит, —
@@ -259,6 +287,8 @@ export function moveUnits(sim: Sim, time: Time) {
       } else if (++path.wait >= WAIT_TICKS) {
         giveUp(entity, path, !blocker)
         continue
+      } else if (blocker?.moving && path.wait >= PUSH_TICKS && blocker.owner === ownerOf(sim, entity) && Math.cos(blocker.unit.facing - wanted) < 0) {
+        push(wanted, position.x, position.y, blocker)
       } else if (blocker && path.wait === YIELD_TICKS && asked.length < YIELD_SEARCHES) {
         const room = radius + blocker.radius + 1
         asked.push({ entity: blocker.entity, by: entity, x: position.x, y: position.y, heading: wrap(wanted), room })
