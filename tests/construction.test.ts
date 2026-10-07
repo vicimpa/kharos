@@ -255,7 +255,7 @@ test('свободный строитель сам берётся за стро�
   expect(sim.world.has(builders[0], Builds)).toBe(false)
 })
 
-test('дерево технологий: после главного здания — электростанция, после неё шахта и радар, после радара — военное', () => {
+test('дерево технологий: после главного здания — электростанция, после неё шахта, переработка и радар, после радара — военное', () => {
   const { sim, site } = start()
   sim.rules.techTree = true
   expect(isUnlocked(sim, 1, 'generator')).toBe(true)
@@ -270,6 +270,8 @@ test('дерево технологий: после главного здани�
   const generator = placeBuilding(sim.world, 'generator', site.x - 3, site.y + 4, 1)
   expect(isUnlocked(sim, 1, 'radar')).toBe(true)
   expect(isUnlocked(sim, 1, 'mine')).toBe(true)
+  // Переработка — без шахты: руду ей привезут харвестеры.
+  for (const type of ['smelter', 'siliconWorks', 'distillery', 'enricher'] as const) expect(isUnlocked(sim, 1, type)).toBe(true)
   expect(isUnlocked(sim, 1, 'factory')).toBe(false)
   // Чужое здание не в счёт.
   expect(isUnlocked(sim, 2, 'radar')).toBe(false)
