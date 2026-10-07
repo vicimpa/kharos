@@ -1,6 +1,7 @@
 import type { Entity } from '../ecs'
 import { TRAINING_PLAYER, orderAttack, weaponOf } from './combat'
 import { Armed, Owner, Path, Position, Unit } from './components'
+import { setStance } from './tactics'
 import { turretsOf } from './turrets'
 import type { Sim } from './sim'
 import { UNITS, UNIT_TYPES, canStand, flies, spawnUnit, isFighter, type UnitType } from './units'
@@ -74,7 +75,10 @@ export function spawnBattle(sim: Sim, player: number, x: number, y: number, own 
     for (const air of [false, true]) {
       const types = army.filter((type) => flies(type) === air)
       const tiles = formation(sim, x + side * gap, y, side, types.length, air)
-      for (let i = 0; i < types.length && i * 2 < tiles.length; i++) spawnUnit(sim, types[i], owner, tiles[i * 2], tiles[i * 2 + 1])
+      const units: Entity[] = []
+      for (let i = 0; i < types.length && i * 2 < tiles.length; i++) units.push(spawnUnit(sim, types[i], owner, tiles[i * 2], tiles[i * 2 + 1]))
+      // Обе армии агрессивны: увидел врага — идёт на него. В обороне юнит под огнём издалека стоял бы и молчал.
+      setStance(sim, owner, units, 'aggressive')
     }
   }
 }

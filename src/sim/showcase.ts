@@ -10,6 +10,7 @@ import { fortification } from './fortify'
 import { put } from './inventory'
 import { spawnSandbox } from './sandbox'
 import type { Sim } from './sim'
+import { setStance } from './tactics'
 import { freeTilesNear, spawnUnit, type UnitType } from './units'
 
 /**
@@ -41,6 +42,8 @@ function spawnGroup(sim: Sim, types: UnitType[], player: number, x: number, y: n
   const tiles = freeTilesNear(sim, Math.floor(x), Math.floor(y), types.length, from)
   const units: Entity[] = []
   for (let i = 0; i < types.length && i * 2 < tiles.length; i++) units.push(spawnUnit(sim, types[i], player, tiles[i * 2], tiles[i * 2 + 1]))
+  // В сценках все агрессивны: увидел врага — идёт на него. В обороне юнит под огнём издалека стоял бы и молчал.
+  setStance(sim, player, units, 'aggressive')
   return units
 }
 

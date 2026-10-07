@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { Building, Owner, SCENES, Site, TRAINING_PLAYER, Unit, createSim, type Sim, type SceneName } from '../src/sim'
+import { Building, Owner, SCENES, stanceOf, Site, TRAINING_PLAYER, Unit, createSim, type Sim, type SceneName } from '../src/sim'
 
 const STEP = 1 / 20
 const PLAYER = 1
@@ -55,4 +55,14 @@ test('оборона: волны идут на стену, а турели их 
 test('добыча и бои встают на крошечной карте; бой кончается', () => {
   for (const name of ['mining', 'battle', 'armor', 'infantry', 'air'] as const) expect(count(stage(name).sim, Unit, PLAYER) + 1).toBeGreaterThan(1)
   expect(play(stage('infantry'), 120)).toBe(true)
+})
+
+test('в сценках боя все бойцы агрессивны: под огнём не стоят, а идут на врага', () => {
+  const { sim } = stage('battle')
+  let units = 0
+  for (const [entity] of sim.world.query(Unit)) {
+    units++
+    expect(stanceOf(sim, entity)).toBe('aggressive')
+  }
+  expect(units).toBeGreaterThan(0)
 })
