@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { DEPOSIT_SIZE, Harvester, Hauler, depositNear, hasMine, type UnitType, Owner, Position, Repair, isOwn, UNITS, Unit, canAttack, canFight, canHaul, canRepair, isStop, siteAt, BUILDINGS, BRIDGE_COST, FOUNDATION_COST, ROAD_COST, creditsOf } from '../sim'
+import { Building, DEPOSIT_SIZE, Harvester, Producer, Hauler, depositNear, hasMine, type UnitType, Owner, Position, Repair, isOwn, UNITS, Unit, canAttack, canFight, canHaul, canRepair, isStop, siteAt, BUILDINGS, BRIDGE_COST, FOUNDATION_COST, ROAD_COST, creditsOf } from '../sim'
 import type { CameraMotion } from './cameraMotion'
 import { paveStrokeOf, placementOf } from './placing'
 import type { Scene } from './scene'
@@ -81,6 +81,14 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
   }
   /** Прошлый щелчок по юниту: для двойного щелчка. */
   let lastClick: { unit: Entity; at: number } | null = null
+
+  /** Выбрано одно своё производящее здание: правый щелчок задаёт ему точку сбора. */
+  const rallying = () => {
+    const { world } = scene.sim
+    if (scene.selection.size !== 1) return false
+    const [entity] = scene.selection
+    return world.has(entity, Building) && world.has(entity, Producer) && isOwn(scene.sim, scene.player, entity)
+  }
 
   const select = (units: Entity[], add: boolean) => {
     if (!add) scene.selection.clear()
@@ -185,6 +193,10 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
           select(own ? [building] : [], false)
         }
       }
+    } else if (button === RIGHT && !dragged && rallying()) {
+      // Выбрано своё производящее здание: правый щелчок ставит ему точку сбора.
+      const [building] = scene.selection
+      scene.sim.send(scene.player, { type: 'rally', building, x: Math.floor(point.x), y: Math.floor(point.y) })
     } else if (button === RIGHT && !dragged && scene.selection.size) {
       const { sim } = scene
       const x = Math.floor(point.x)

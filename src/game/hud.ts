@@ -152,6 +152,9 @@ export interface HudState {
     /** Готовность первого заказа, от 0 до 1. */
     progress: number
     full: boolean
+    /** Здание, а не MCV: ему можно поставить точку сбора. rally — она, если поставлена. */
+    building: boolean
+    rally: boolean
     options: { unit: UnitType; cost: number; affordable: boolean; materials: Stack[]; missing: BuildingType[] }[]
   } | null
 }
@@ -424,6 +427,8 @@ export function readHud(scene: Scene): HudState {
     queue: [...producer.queue],
     progress: first ? round(Math.min(1, producer.progress / buildTicks(first, sim.time.step))) : 0,
     full: producer.queue.length >= QUEUE_LIMIT,
+    building: !isUnit,
+    rally: producer.rally.length > 0,
     options: producibleBy(sim, entity).map((unit) => ({
       unit,
       cost: UNITS[unit].cost,

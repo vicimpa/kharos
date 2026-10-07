@@ -5,7 +5,7 @@ import { orderHarvest, orderSeek } from './harvesting'
 import { BUILDINGS, type BuildingType } from './buildings'
 import { orderAttack, stopAttack } from './combat'
 import { NONE, isOwn } from './common'
-import { Builds, Harvester, Unit } from './components'
+import { Builds, Building, Harvester, Producer, Unit } from './components'
 import { assignBuilders, cancelBuild, demolish, orderBuild } from './construction'
 import { DEPLOY_SECONDS, PACK_SECONDS, canDeploy, canPack, cancelDeploy, startConverting } from './conversion'
 import { assignHaulers, releaseHauler } from './hauling'
@@ -29,6 +29,8 @@ import { orderGroupMove, type UnitType } from './units'
 export type Command =
   /** Отправить своих юнитов к тайлу (x, y). */
   | { type: 'move'; units: number[]; x: number; y: number }
+  /** Точка сбора своего производящего здания: готовые юниты едут к тайлу (x, y). */
+  | { type: 'rally'; building: number; x: number; y: number }
   /** Развернуть свой MCV в главное здание на месте. */
   | { type: 'deploy'; unit: number }
   | { type: 'cancelDeploy'; unit: number }
@@ -158,6 +160,13 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
     case 'demolish': {
       const builders = Array.isArray(command.builders) ? (command.builders as Entity[]) : []
       return demolish(sim, player, command.building as Entity, builders)
+    }
+    case 'rally': {
+      const building = command.building as Entity
+      const producer = sim.world.get(building, Producer)
+      if (!isTile(command.x, command.y) || !producer || !sim.world.has(building, Building) || !isOwn(sim, player, building)) return false
+      producer.rally = [command.x, command.y]
+      return true
     }
     case 'deploy': {
       const unit = command.unit as Entity

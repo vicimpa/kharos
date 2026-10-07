@@ -438,6 +438,11 @@ function Info({ state, lookAtSelection, narrow }: { state: HudState; lookAtSelec
             </div>
           </>
         )}
+        {production?.building && (
+          <div class="hud__hint">
+            {production.rally ? 'Готовые едут к флажку; правый щелчок по карте — перенести' : 'Правый щелчок по карте — точка сбора готовых'}
+          </div>
+        )}
         {state.tactics?.picking && (
           <div class="hud__hint">Щелчок — патруль до точки; Shift+щелчок — ещё точка к патрулю; правая кнопка или Esc — отмена</div>
         )}

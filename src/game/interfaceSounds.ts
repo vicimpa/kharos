@@ -18,6 +18,7 @@ const ORDER_SOUNDS: Partial<Record<Command['type'], SoundName>> = {
   haul: 'order',
   assist: 'order',
   attack: 'attackOrder',
+  rally: 'place',
   build: 'place',
   pave: 'place',
   unpave: 'place',

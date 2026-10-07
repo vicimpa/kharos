@@ -115,6 +115,28 @@ export function createSelectionPass(gl: WebGL2RenderingContext, scene: Scene): P
         frame(goalX, goalY, PATH_GOAL, PATH_GOAL, pixel * 2, SELECTED)
       }
 
+      // Точка сбора выбранного здания: пунктир от его середины и флажок на месте.
+      for (const entity of scene.selection) {
+        const rally = world.get(entity, Producer)?.rally
+        const building = world.get(entity, Building)
+        const position = world.get(entity, Position)
+        if (!rally?.length || !building || !position) continue
+        const { width, height } = BUILDINGS[building.type]
+        const fromX = position.x + width / 2
+        const fromY = position.y + height / 2
+        const toX = rally[0] + 0.5
+        const toY = rally[1] + 0.5
+        const length = Math.hypot(toX - fromX, toY - fromY)
+        for (let along = 0; along < length; along += PATH_STEP) {
+          const x = toX + ((fromX - toX) / length) * along
+          const y = toY + ((fromY - toY) / length) * along
+          rect(x - camera.x - dot / 2, y - camera.y - dot / 2, dot, dot, SELECTED, PATH_ALPHA)
+        }
+        // Флажок: древко и полотнище.
+        rect(toX - camera.x - pixel, toY - camera.y - 0.9, pixel * 2, 0.9, SELECTED, 1)
+        rect(toX - camera.x + pixel, toY - camera.y - 0.9, 0.45, 0.3, SELECTED, 1)
+      }
+
       for (const entity of scene.selection) {
         const bounds = boundsOf(entity)
         if (!bounds) continue

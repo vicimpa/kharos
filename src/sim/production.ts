@@ -9,7 +9,7 @@ import { put, take } from './inventory'
 import { missingFor } from './logistics'
 import { entriesOf } from './resources'
 import type { Sim } from './sim'
-import { UNITS, freeTilesNear, spawnUnit, unitSpec, type UnitType } from './units'
+import { UNITS, freeTilesNear, orderGroupMove, spawnUnit, unitSpec, type UnitType } from './units'
 
 const NOTHING: UnitType[] = []
 
@@ -127,7 +127,9 @@ export function produceUnits(sim: Sim, time: Time) {
     // Выйти некуда — готовый юнит ждёт внутри, очередь стоит.
     if (!tile) continue
     const player = ownerOf(sim, entity)
-    spawnUnit(sim, producer.queue.shift()!, player, tile.x, tile.y)
+    const unit = spawnUnit(sim, producer.queue.shift()!, player, tile.x, tile.y)
+    // Есть точка сбора — готовый едет туда, на свободное место рядом с ней.
+    if (producer.rally.length) orderGroupMove(sim, [unit], producer.rally[0], producer.rally[1])
     reward(sim, player, 'unit')
     producer.progress = 0
   }
