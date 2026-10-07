@@ -9,7 +9,7 @@ import { entriesOf, totalOf } from './resources'
 import { addCredits, creditsOf, pay, reward, spend } from './economy'
 import { overbuiltPlants } from './income'
 import type { Sim } from './sim'
-import { buildSpeed, onFoundation, paveCost } from './paving'
+import { buildSpeed, paveCost } from './paving'
 import { inCircles, inForeignZone, zoneOf } from './zones'
 import { carrierOf, turnerOf } from './turrets'
 import { UNITS, clearGround, isWalkable, orderMove, standingUnits, unitsIn } from './units'
@@ -50,14 +50,14 @@ function needsZone(type: BuildingType) {
   return zone === undefined && !defense
 }
 
-/** Стоит ли стройка здесь без зоны: здание её требует, а основание не лежит целиком на готовом фундаменте. */
+/** Стоит ли стройка здесь без зоны: здание её требует, а в зоне игрока его нет. Фундамент зону не заменяет. */
 const outOfControl = (sim: Sim, player: number, type: BuildingType, x: number, y: number) =>
-  needsZone(type) && !inControl(sim, player, type, x, y) && !onFoundation(sim, type, x, y)
+  needsZone(type) && !inControl(sim, player, type, x, y)
 
 /**
  * Может ли игрок заложить здесь здание: вид строится строителями, место годится, лежит в своей зоне строительства
- * и не задевает чужую. Своей зоны не требуют здание с собственной зоной (оно начинает новую), оборонительные
- * постройки и здание на сплошном готовом фундаменте: их ставят и вне своих зон, но по-прежнему не в чужих.
+ * и не задевает чужую. Своей зоны не требуют здание с собственной зоной (оно начинает новую) и оборонительные
+ * постройки: их ставят и вне своих зон, но по-прежнему не в чужих.
  */
 export function canBuild(sim: Sim, player: number, type: BuildingType, x: number, y: number) {
   if (!BUILDABLE.includes(type) || !canPlace(sim, type, x, y)) return false

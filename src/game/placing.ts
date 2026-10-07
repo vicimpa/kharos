@@ -1,4 +1,4 @@
-import { BUILDINGS, DEPOSIT_SIZE, Owner, Pave, PAVE_LIMIT, canBuild, canPave, depositNear, paveCost, type BuildingSpec, type BuildingType } from '../sim'
+import { BUILDINGS, DEPOSIT_SIZE, Owner, Pave, PAVE_LIMIT, canBuild, canPave, creditsOf, depositNear, paveCost, type BuildingSpec, type BuildingType } from '../sim'
 import type { PaveTool, Scene } from './scene'
 
 /** Где встанет здание, которое игрок сейчас выбирает место: левый верхний тайл основания и годится ли место. */
@@ -37,9 +37,11 @@ export function placementOf(scene: Scene): Placement | null {
 /** Тайлы, которые накроет укладка покрытия, пока игрок тянет её мышью, и сколько она стоит. */
 export interface PaveStroke {
   tool: PaveTool
-  /** Тайлы x, y подряд; allowed — можно ли тут класть или снимать, по тайлу. */
+  /** Тайлы x, y подряд; allowed — ляжет ли тут покрытие (или снимется), по тайлу. */
   tiles: number[]
   allowed: boolean[]
+  /** Класть тут можно, но кредитов на тайл уже не хватает: он не ляжет. По тайлу. */
+  short: boolean[]
   /** Цена всего, что ляжет; у снятия — ноль. */
   cost: number
 }
@@ -74,6 +76,9 @@ export function paveStrokeOf(scene: Scene): PaveStroke | null {
   tiles.length = Math.min(tiles.length, PAVE_LIMIT * 2)
   const { sim, player } = scene
   const allowed: boolean[] = []
+  const short: boolean[] = []
+  // Кредиты списываются по тайлу в том же порядке: на что не хватит, то и не ляжет.
+  const credits = creditsOf(sim, player)
   let cost = 0
   for (let i = 0; i < tiles.length; i += 2) {
     const x = tiles[i]
@@ -81,11 +86,14 @@ export function paveStrokeOf(scene: Scene): PaveStroke | null {
     if (tool === 'remove') {
       const entity = sim.paving.at(x, y)
       allowed.push(entity !== undefined && sim.world.get(entity, Owner)?.player === player && !sim.world.get(entity, Pave)?.remove)
+      short.push(false)
       continue
     }
-    const ok = canPave(sim, player, tool, x, y)
-    allowed.push(ok)
-    if (ok) cost += paveCost(sim, tool, x, y)
+    const price = canPave(sim, player, tool, x, y) ? paveCost(sim, tool, x, y) : undefined
+    const affordable = price !== undefined && cost + price <= credits
+    allowed.push(affordable)
+    short.push(price !== undefined && !affordable)
+    if (affordable) cost += price
   }
-  return { tool, tiles, allowed, cost }
+  return { tool, tiles, allowed, short, cost }
 }

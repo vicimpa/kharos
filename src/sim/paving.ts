@@ -9,7 +9,7 @@ import type { Sim } from './sim'
 import { inForeignZone } from './zones'
 import { PAVE_KINDS, isPaved, type PaveKind } from './paved'
 
-export { PAVE_KINDS, ROAD_SPEED, createPaving, isPaved, type PaveKind, type Paving } from './paved'
+export { FOUNDATION_SPEED, PAVE_KINDS, ROAD_SPEED, createPaving, isPaved, type PaveKind, type Paving } from './paved'
 
 /** Цена тайла фундамента. */
 export const FOUNDATION_COST = 15
@@ -88,15 +88,6 @@ export function removePave(sim: Sim, player: number, tiles: readonly number[], u
   }
   if (first !== undefined) assignBuilders(sim, player, first, builders)
   return count > 0
-}
-
-/** Стоит ли основание здания с левым верхним углом в (x, y) целиком на готовом фундаменте. */
-export function onFoundation(sim: Sim, type: BuildingType, x: number, y: number) {
-  const { width, height } = BUILDINGS[type]
-  for (let tileY = y; tileY < y + height; tileY++) {
-    for (let tileX = x; tileX < x + width; tileX++) if (!isPaved(sim, 'foundation', tileX, tileY)) return false
-  }
-  return true
 }
 
 /**

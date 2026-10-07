@@ -433,7 +433,7 @@ function Info({ state, lookAtSelection, narrow }: { state: HudState; lookAtSelec
         )}
         {construction?.paving && (
           <div class="hud__hint">
-            {construction.paving.tool === 'remove' ? 'Тяни левой кнопкой, что снять' : `Тяни левой кнопкой: ${construction.paving.tiles} тайл., ${construction.paving.cost} кредитов`}; правая или Esc — хватит
+            {construction.paving.tool === 'remove' ? 'Тяни левой кнопкой, что снять' : `Тяни левой кнопкой: ${construction.paving.tiles} тайл., ${construction.paving.cost} кредитов${construction.paving.short ? `; на ${construction.paving.short} тайл. не хватает кредитов (жёлтые)` : ''}`}; правая или Esc — хватит
           </div>
         )}
         {construction && !construction.placing && !construction.paving && (

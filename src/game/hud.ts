@@ -119,7 +119,7 @@ export interface HudState {
     /** Здание, для которого сейчас выбирается место. */
     placing: BuildingType | null
     /** Покрытие, которое сейчас кладут или снимают, и во что обойдётся протянутое мышью. */
-    paving: { tool: PaveTool; cost: number; tiles: number } | null
+    paving: { tool: PaveTool; cost: number; tiles: number; short: number } | null
     /** power — как здание изменит баланс энергии: больше нуля — даст, меньше — попросит; materials — что привезти на стройку. */
     options: { building: BuildingType; cost: number; affordable: boolean; power: number; materials: Stack[] }[]
   } | null
@@ -420,5 +420,5 @@ export function readHud(scene: Scene): HudState {
 function pavingOf(scene: Scene): NonNullable<HudState['construction']>['paving'] {
   if (!scene.paving) return null
   const stroke = paveStrokeOf(scene)
-  return { tool: scene.paving, cost: stroke?.cost ?? 0, tiles: stroke ? stroke.allowed.filter(Boolean).length : 0 }
+  return { tool: scene.paving, cost: stroke?.cost ?? 0, tiles: stroke ? stroke.allowed.filter(Boolean).length : 0, short: stroke ? stroke.short.filter(Boolean).length : 0 }
 }

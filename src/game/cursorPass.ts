@@ -17,6 +17,8 @@ const FORBIDDEN: Color = [1, 0.3, 0.25]
 const CONTROL: Color = [0.3, 0.6, 1]
 /** Снимаемое покрытие. */
 const REMOVE: Color = [1, 0.65, 0.2]
+/** Покрытие, на которое не хватает кредитов. */
+const SHORT: Color = [1, 0.85, 0.15]
 /** Маршрут грузовиков: цвет, размер точки пунктира в пикселях экрана и шаг пунктира в тайлах. */
 const ROUTE: Color = [1, 0.85, 0.3]
 const ROUTE_DOT = 3
@@ -147,7 +149,10 @@ export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass
         }
         if (stroke) {
           const good = stroke.tool === 'remove' ? REMOVE : ALLOWED
-          for (let i = 0; i < stroke.tiles.length; i += 2) area(stroke.tiles[i], stroke.tiles[i + 1], 1, 1, stroke.allowed[i >> 1] ? good : FORBIDDEN)
+          for (let i = 0; i < stroke.tiles.length; i += 2) {
+            const tile = i >> 1
+            area(stroke.tiles[i], stroke.tiles[i + 1], 1, 1, stroke.allowed[tile] ? good : stroke.short[tile] ? SHORT : FORBIDDEN)
+          }
         }
       }
 

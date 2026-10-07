@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Terrain, terrainAt } from '../src/map/terrain'
 import {
   BRIDGE_COST, Building, CORE, FOUNDATION_COST, Owner, Pave, Position, ROAD_COST, ROAD_SPEED, Site, Unit,
-  buildSpeed, canBuild, canPave, createSim, creditsOf, isPaved, spawnStartingUnits, type Sim,
+  FOUNDATION_SPEED, buildSpeed, canBuild, canPave, canPlace, createSim, creditsOf, isPaved, spawnStartingUnits, type Sim,
 } from '../src/sim'
 import { terrainSpeed } from '../src/sim/units'
 
@@ -75,6 +75,11 @@ test('строители кладут дорогу: тайлы оплачены 
   for (let i = 0; i < tiles.length; i += 2) expect(isPaved(sim, 'road', tiles[i], tiles[i + 1])).toBe(true)
   expect(terrainSpeed(sim, 'buggy', x + 6, y + 9)).toBe(ROAD_SPEED)
   expect(terrainSpeed(sim, 'buggy', x + 6, y + 10)).toBe(1)
+  // По фундаменту — быстрее скалы, но медленнее дороги.
+  lay(sim, 'foundation', x + 6, y + 10)
+  expect(terrainSpeed(sim, 'buggy', x + 6, y + 10)).toBe(FOUNDATION_SPEED)
+  expect(FOUNDATION_SPEED).toBeGreaterThan(1)
+  expect(FOUNDATION_SPEED).toBeLessThan(ROAD_SPEED)
 })
 
 test('дорога по болоту — мост: дороже, болото под ним не вязнет', () => {
@@ -92,12 +97,15 @@ test('дорога по болоту — мост: дороже, болото п
   expect(terrainSpeed(sim, 'tank', swamp.x, swamp.y)).toBe(ROAD_SPEED)
 })
 
-test('фундамент на песке разрешает стройку, и вне зоны тоже; недостроенный снимают с возвратом', () => {
+test('фундамент на песке разрешает стройку, но зону не заменяет', () => {
   const { sim, x, y } = start()
   const sand = find(sim, Terrain.Sand, x + 40, y + 40, 2)
-  expect(canBuild(sim, 1, 'generator', sand.x, sand.y)).toBe(false)
+  expect(canPlace(sim, 'generator', sand.x, sand.y)).toBe(false)
   for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) lay(sim, 'foundation', sand.x + dx, sand.y + dy)
-  expect(canBuild(sim, 1, 'generator', sand.x, sand.y)).toBe(true)
+  expect(canPlace(sim, 'generator', sand.x, sand.y)).toBe(true)
+  // Здание, которому нужна зона, вне её не ставят и на фундаменте; оборону — можно.
+  expect(canBuild(sim, 1, 'generator', sand.x, sand.y)).toBe(false)
+  expect(canBuild(sim, 1, 'turret', sand.x, sand.y)).toBe(true)
   // На песке с фундаментом строят чуть медленнее, чем на голой скале.
   expect(buildSpeed(sim, 'generator', sand.x, sand.y)).toBeLessThan(1)
 
