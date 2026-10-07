@@ -55,7 +55,8 @@ export const resetZones = (sim: Sim) => void (cacheOf(sim.world).zones = undefin
 /**
  * Зоны строительства всех игроков. Зону задаёт главное здание (и любое здание с BuildingSpec.zone), а расширяют готовые здания, стоящие в ней:
  * каждое добавляет свой круг, и по цепочке зона растёт дальше. Расширяет её и готовый фундамент — на клетку вокруг
- * себя, — если его плиты сплошной полосой дотягиваются до зоны: так фундаментом соединяют зоны. Здание, до которого
+ * себя, — если его плиты сплошной полосой дотягиваются до зоны; здание, к которому такая полоса примыкает вплотную,
+ * входит в зону целиком. Так фундаментом соединяют зоны и подхватывают базу, оставшуюся без главного здания. Здание, до которого
  * цепочка от главного не дотягивается, ни в какую зону не входит. Нет главного здания — нет и зоны.
  * Два главных здания дают две зоны; если второе стоит внутри зоны первого, зона у них общая.
  */
@@ -95,6 +96,8 @@ function computeZones(sim: Sim): Map<number, Zone[]> {
     const own = slabs.get(player) ?? []
     /** Фундаменты, уже вошедшие в какую-то зону игрока, по tileKey. */
     const used = new Set<number>()
+    /** Здания, к которым вплотную примыкает фундамент зоны: они входят в неё, как бы далеко ни был их центр. */
+    const touching = new Set<number>()
     const isSlab = (x: number, y: number) => {
       const entity = sim.paving.at(x, y)
       const pave = entity === undefined ? undefined : world.get(entity, Pave)
@@ -112,7 +115,7 @@ function computeZones(sim: Sim): Map<number, Zone[]> {
           grown = false
           const still: number[] = []
           for (let i = 0; i < rest.length; i += 4) {
-            if (inCircles(zone.circles, rest[i + 1], rest[i + 2])) {
+            if (touching.has(rest[i]) || inCircles(zone.circles, rest[i + 1], rest[i + 2])) {
               zone.circles.push(rest[i + 1], rest[i + 2], rest[i + 3])
               zone.buildings.push(rest[i] as Entity)
               grown = any = true
@@ -140,6 +143,8 @@ function computeZones(sim: Sim): Map<number, Zone[]> {
           zone.circles.push(x + 0.5, y + 0.5, FOUNDATION_REACH)
           for (let dy = -1; dy <= 1; dy++) {
             for (let dx = -1; dx <= 1; dx++) {
+              const building = sim.occupancy.at(x + dx, y + dy)
+              if (building !== undefined) touching.add(building)
               const key = tileKey(x + dx, y + dy)
               if ((dx || dy) && !used.has(key) && isSlab(x + dx, y + dy)) {
                 used.add(key)

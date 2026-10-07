@@ -9,7 +9,8 @@ import {
 import { spawnUnit, terrainSpeed } from '../src/sim/units'
 import { canDeploy } from '../src/sim/conversion'
 import { breakSlabs } from '../src/sim/combat'
-import { inCircles, zoneOf } from '../src/sim/zones'
+import { inCircles, zoneOf, zonesOf } from '../src/sim/zones'
+import { placeBuilding } from '../src/sim/buildings'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
 const TICK = 1 / 20
@@ -207,4 +208,30 @@ test('MCV разворачивается на фундаменте, лежаще
   sim.send(1, { type: 'deploy', unit: mcv })
   seconds(sim, 6)
   expect(sim.occupancy.at(sand.x + 1, sand.y + 1)).toBeDefined()
+})
+
+test('полоса фундамента от новой зоны подхватывает базу, оставшуюся без главного здания', () => {
+  const sim = createSim(options)
+  // Ряд скалы: новое главное здание слева, старая база справа, между ними — фундамент.
+  let row = { x: 0, y: 0 }
+  search: for (let y = -200; y < 200; y++) {
+    for (let x = -200; x < 200; x++) {
+      let ok = true
+      for (let ty = y; ty < y + 3 && ok; ty++) for (let tx = x; tx < x + 34 && ok; tx++) ok = terrainAt(sim.land, tx, ty) === Terrain.Rock
+      if (ok) {
+        row = { x, y }
+        break search
+      }
+    }
+  }
+  const { x, y } = row
+  placeBuilding(sim.world, 'command', x, y, 1)
+  const generator = placeBuilding(sim.world, 'generator', x + 26, y, 1)
+  const yard = placeBuilding(sim.world, 'metalYard', x + 30, y, 1)
+  const inZone = (entity: Entity) => zonesOf(sim, 1).some((zone) => zone.buildings.includes(entity))
+  expect(inZone(generator)).toBe(false)
+  for (let tx = x + 3; tx < x + 26; tx++) lay(sim, 'foundation', tx, y + 2)
+  expect(inZone(generator)).toBe(true)
+  // Дальше зону тянет уже само здание: соседнее хранилище тоже в ней.
+  expect(inZone(yard)).toBe(true)
 })
