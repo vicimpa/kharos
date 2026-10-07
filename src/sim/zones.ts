@@ -17,6 +17,16 @@ export function inCircles(circles: readonly number[], x: number, y: number) {
   return false
 }
 
+/** Задевает ли прямоугольник (x, y, width, height) хотя бы один круг. circles — x, y и радиус подряд. */
+function rectInCircles(circles: readonly number[], x: number, y: number, width: number, height: number) {
+  for (let i = 0; i < circles.length; i += 3) {
+    const nearX = Math.max(x, Math.min(circles[i], x + width))
+    const nearY = Math.max(y, Math.min(circles[i + 1], y + height))
+    if (Math.hypot(nearX - circles[i], nearY - circles[i + 1]) <= circles[i + 2]) return true
+  }
+  return false
+}
+
 /** Зона строительства: здание, которое её начало (главное или другое с собственной зоной), и всё, что к нему пристроено. */
 export interface Zone {
   /** Круги, из которых зона состоит: x, y и радиус подряд. */
@@ -91,8 +101,6 @@ function computeZones(sim: Sim): Map<number, Zone[]> {
   const result = new Map<number, Zone[]>()
   for (const player of new Set([...cores.keys(), ...waiting.keys()])) {
     const zones: Zone[] = []
-    /** Центры зданий каждой зоны: x, y подряд, в том же порядке, что zones. */
-    const centers: number[][] = []
     const others = waiting.get(player) ?? []
     // Зону начинает главное здание или шахта, а без них — любое здание, кроме тех, что зону не расширяют (стен).
     // Все ждут очереди: то, что стоит внутри уже выросшей зоны, свою не начинает.
@@ -113,7 +121,6 @@ function computeZones(sim: Sim): Map<number, Zone[]> {
       const at = rest.indexOf(roots[root])
       if (at < 0 || at % 4) continue
       const zone: Zone = { circles: rest.slice(at + 1, at + 4), buildings: [rest[at] as Entity] }
-      const middles = [rest[at + 1], rest[at + 2]]
       rest.splice(at, 4)
       /** Присоединяет здания, до которых зона уже дотянулась; так цепочка растёт на звено за проход. */
       const growBuildings = () => {
@@ -125,7 +132,6 @@ function computeZones(sim: Sim): Map<number, Zone[]> {
             if (touching.has(rest[i]) || inCircles(zone.circles, rest[i + 1], rest[i + 2])) {
               zone.circles.push(rest[i + 1], rest[i + 2], rest[i + 3])
               zone.buildings.push(rest[i] as Entity)
-              middles.push(rest[i + 1], rest[i + 2])
               grown = any = true
             } else {
               still.push(rest[i], rest[i + 1], rest[i + 2], rest[i + 3])
@@ -167,14 +173,17 @@ function computeZones(sim: Sim): Map<number, Zone[]> {
       growBuildings()
       while (growSlabs() && growBuildings());
       zones.push(zone)
-      centers.push(middles)
     }
     // Зоны растут по очереди, и раньше выросшая забирает свои здания: шахта, поставленная до главного здания, начала
-    // свою зону и не дотянулась до него, а зона главного её уже не видит. Зоны, где здание одной стоит внутри другой,
-    // сливаются — так итог не зависит от того, что построено раньше.
+    // свою зону и не дотянулась до него, а зона главного её уже не видит. Поэтому зоны, где основание здания одной
+    // задевает другую, сливаются: итог не зависит от того, что построено раньше, а базы, стоящие почти вплотную, —
+    // одна база, даже если центры их крайних зданий чуть дальше радиуса.
     const covers = (a: number, b: number) => {
-      const points = centers[b]
-      for (let i = 0; i < points.length; i += 2) if (inCircles(zones[a].circles, points[i], points[i + 1])) return true
+      for (const building of zones[b].buildings) {
+        const position = world.get(building, Position)!
+        const { width, height } = BUILDINGS[world.get(building, Building)!.type]
+        if (rectInCircles(zones[a].circles, position.x, position.y, width, height)) return true
+      }
       return false
     }
     for (let merged = true; merged; ) {
@@ -184,9 +193,7 @@ function computeZones(sim: Sim): Map<number, Zone[]> {
           if (!covers(a, b) && !covers(b, a)) continue
           zones[a].circles.push(...zones[b].circles)
           zones[a].buildings.push(...zones[b].buildings)
-          centers[a].push(...centers[b])
           zones.splice(b, 1)
-          centers.splice(b, 1)
           merged = true
         }
       }

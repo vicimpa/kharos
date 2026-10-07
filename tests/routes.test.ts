@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { BUILDINGS, Inventory, Position, amountOf, canPlace, createSim, type BuildingType, type Sim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { Hauler } from '../src/sim/components'
+import { zonesOf } from '../src/sim/zones'
 import { addCredits } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
 
@@ -118,11 +119,16 @@ test('фильтр снимает начатую работу с грузом, �
 })
 
 test('назначенный на здания грузовик возит только по их заявкам, а груз берёт и в чужой для них зоне', () => {
-  const { sim, buildings: [bunker, mine, other], truck } = base(['ammoBunker', 'turret', 'turret'])
+  const { sim, buildings: [bunker], truck } = base(['ammoBunker'])
   sim.world.get(bunker, Inventory)!.items.ammo = 200
+  // Застава из двух турелей в стороне от базы — отдельная зона без хранилищ: свободный грузовик патроны из чужой
+  // зоны к ним не возит.
+  const { x, y } = sim.world.get(bunker, Position)!
+  const mine = placeBuilding(sim.world, 'turret', x + 20, y, 1)
+  const other = placeBuilding(sim.world, 'turret', x + 22, y, 1)
   sim.world.get(mine, Inventory)!.items.ammo = 0
   sim.world.get(other, Inventory)!.items.ammo = 0
-  // Турели — отдельная зона без хранилищ: свободный грузовик патроны из чужой зоны к ним не возит.
+  expect(zonesOf(sim, 1).length).toBe(2)
   seconds(sim, 20)
   expect(amount(sim, mine, 'ammo')).toBe(0)
   sim.send(1, { type: 'serve', units: [truck], buildings: [mine] })

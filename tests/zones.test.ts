@@ -63,3 +63,14 @@ test('после загрузки сохранения зоны те же: ша�
   loaded.advance(1 / 20)
   expect(zonesOf(loaded, 1).length).toBe(2)
 })
+
+test('базы почти вплотную — одна зона: основание здания задевает круг соседней, хоть центр и дальше радиуса', () => {
+  const sim = createSim(options)
+  const { x, y } = rock(sim, 34, 6)
+  // Хранилище металла с центром (x + 1.5, y + 1) и радиусом 5; цех кремния — с зазором в два тайла: его центр
+  // в 5,5 тайла, а край основания — в 3,5.
+  placeBuilding(sim.world, 'command', x - 12, y, 1)
+  placeBuilding(sim.world, 'metalYard', x, y, 1)
+  placeBuilding(sim.world, 'siliconWorks', x + 5, y, 1)
+  expect(zonesOf(sim, 1).length).toBe(1)
+})
