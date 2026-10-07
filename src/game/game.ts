@@ -15,6 +15,7 @@ import { createControls } from './controls'
 import { createCursorPass } from './cursorPass'
 import { createDecalsPass } from './decalsPass'
 import { createFogPass } from './fogPass'
+import { createAlerts } from './alerts'
 import { createShake } from './shake'
 import { createSoundscape } from './soundscape'
 import { createDepositsPass } from './depositsPass'
@@ -183,6 +184,7 @@ export function createGame(
   const audio = showcase ? null : createAudio()
   const shake = createShake()
   const soundscape = audio && createSoundscape(scene, audio, shake)
+  if (!showcase) scene.alerts = createAlerts(scene, audio)
 
   const saveCamera = () => slot && storeCamera(slot, camera)
   let sinceSave = 0
@@ -262,6 +264,7 @@ export function createGame(
     )
 
     soundscape?.update(seconds)
+    scene.alerts?.update(seconds)
     shake.update(seconds)
 
     sinceSave += seconds

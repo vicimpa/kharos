@@ -1,3 +1,4 @@
+import type { Alerts } from './alerts'
 import type { Entity } from '../ecs'
 import type { MapSettings } from '../map/settings'
 import type { BuildingType, PaveKind, Sim, Weather } from '../sim'
@@ -20,6 +21,8 @@ export interface Scene {
   sim: Sim
   /** Номер игрока, за которого играет этот клиент. */
   player: number
+  /** Уведомления игрока; у витрины их нет. */
+  alerts?: Alerts
   camera: Camera
   /** Настройки мира: генератор, размер, отрисовка. */
   settings: MapSettings

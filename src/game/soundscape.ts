@@ -37,7 +37,7 @@ const SHAKE_REACH = 6
 const SHAKE_REACH_PER_SIZE = 8
 /** Чаще этого, в секундах, один и тот же звук не повторяется: сотня винтовок звучит как одна очередь, а не как гул. */
 const MIN_GAP: Record<SoundName, number> = {
-  rifle: 0.04, machinegun: 0.035, cannon: 0.08, launcher: 0.06, laser: 0.06, arc: 0.08, blast: 0.05, bigBlast: 0.1,
+  rifle: 0.04, machinegun: 0.035, cannon: 0.08, launcher: 0.06, laser: 0.06, arc: 0.08, blast: 0.05, bigBlast: 0.1, attacked: 1, spotted: 1,
 }
 /** За краем экрана звук стихает на этом расстоянии, в долях полуширины экрана. */
 const HEARING = 0.8

@@ -1,3 +1,4 @@
+import type { AlertKind } from './alerts'
 import type { Replica } from '../net/replica'
 import { knownReserve } from './knownReserve'
 import type { Entity } from '../ecs'
@@ -12,6 +13,8 @@ import type { PaveTool, Scene } from './scene'
 /** Что интерфейс игрока показывает прямо сейчас. Обычные данные: их можно сравнивать и хранить в состоянии. */
 export interface HudState {
   credits: number
+  /** Уведомления, от старых к новым: at — когда, по нему строка узнаётся между опросами. */
+  alerts: { kind: AlertKind; text: string; x: number; y: number; at: number }[]
   /**
    * Месторождение под указателем мыши на карте: что в нём, сколько осталось и где указатель на экране,
    * чтобы подсказка встала рядом. null — указатель не над месторождением.
@@ -358,6 +361,7 @@ export function readHud(scene: Scene): HudState {
     // Минуты — десятками: интерфейс перерисовывается, только когда состояние изменилось.
     clock: `${String(Math.floor(scene.weather.hour)).padStart(2, '0')}:${Math.floor((scene.weather.hour % 1) * 6)}0`,
     storm: scene.weather.precipitation > 0.05,
+    alerts: (scene.alerts?.current() ?? []).map(({ kind, text, x, y, at }) => ({ kind, text, x, y, at })),
     // Список игроков есть только у копии мира с сервера.
     players: 'players' in sim ? (sim as Replica).players.map(({ player, name, online }) => ({ name, own: player === scene.player, online })) : [],
     income: round(economyOf(sim, player).income),

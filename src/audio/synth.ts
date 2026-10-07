@@ -140,6 +140,20 @@ function explosion(rate: number, variant: number, big: boolean) {
   })
 }
 
+/** Сигнал: тоны по очереди, каждый — tone секунд с паузой gap; квадратная примесь делает его слышным в бою. */
+function signal(rate: number, variant: number, tones: number[], tone: number, gap: number) {
+  let phase = 0
+  return render(rate, tones.length * (tone + gap), variant, (t) => {
+    const index = Math.floor(t / (tone + gap))
+    const local = t - index * (tone + gap)
+    if (index >= tones.length || local > tone) return 0
+    // Варианты чуть разнятся высотой: один и тот же сигнал подряд не звучит как запись.
+    phase += (2 * Math.PI * tones[index] * (1 + variant * 0.012)) / rate
+    const wave = Math.sin(phase) * 0.8 + Math.sign(Math.sin(phase)) * 0.2
+    return wave * attack(local, 0.005) * Math.min(1, (tone - local) / 0.02)
+  })
+}
+
 export const SOUNDS = {
   rifle,
   machinegun,
@@ -149,6 +163,10 @@ export const SOUNDS = {
   arc,
   blast: (rate: number, variant: number) => explosion(rate, variant, false),
   bigBlast: (rate: number, variant: number) => explosion(rate, variant, true),
+  /** Тревога: нас атакуют — два спуска вниз. */
+  attacked: (rate: number, variant: number) => signal(rate, variant, [880, 660, 880, 660], 0.11, 0.03),
+  /** Замечен противник: два коротких восходящих тона. */
+  spotted: (rate: number, variant: number) => signal(rate, variant, [620, 930], 0.09, 0.05),
 } satisfies Record<string, (rate: number, variant: number) => Float32Array>
 
 export type SoundName = keyof typeof SOUNDS

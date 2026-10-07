@@ -326,6 +326,35 @@ body {
   white-space: nowrap;
 }
 
+.hud--alerts {
+  top: 44px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+}
+
+.hud__alert {
+  text-align: left;
+  font-weight: 600;
+  animation: hud-alert 8s linear forwards;
+}
+
+.hud__alert.is-attacked {
+  color: #ff8a7a;
+}
+
+.hud__alert.is-spotted {
+  color: #ffd27a;
+}
+
+/* Строка гаснет к концу своего времени, см. ALERT_SECONDS. */
+@keyframes hud-alert {
+  0%, 75% { opacity: 1; }
+  100% { opacity: 0.25; }
+}
+
 .hud--rewards {
   top: 44px;
   left: 50%;

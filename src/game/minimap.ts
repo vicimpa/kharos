@@ -1,5 +1,6 @@
 import { biomeAt, terrainAt } from '../map/terrain'
 import { Building, DEPOSIT_CELL, Owner, Position, Site, Unit, buildingSpec, depositIn, type Sim } from '../sim'
+import { ALERT_SECONDS } from './alerts'
 import { cssColor } from './resourceColors'
 import type { Scene } from './scene'
 
@@ -123,6 +124,19 @@ export function createMinimap(scene: Scene) {
           context.fillStyle = colorOf(owner.player)
           context.fillRect(toX(position.x) - 1, toY(position.y) - 1, 2, 2)
         }
+      }
+
+      // Уведомления: мигающее кольцо там, где напали или заметили врага.
+      for (const alert of scene.alerts?.current() ?? []) {
+        if (alert.age > ALERT_SECONDS) continue
+        const pulse = (alert.age * 2) % 1
+        context.strokeStyle = alert.kind === 'attacked' ? FOE : '#ffd27a'
+        context.globalAlpha = 1 - pulse
+        context.lineWidth = 2
+        context.beginPath()
+        context.arc(toX(alert.x), toY(alert.y), 3 + pulse * 12, 0, Math.PI * 2)
+        context.stroke()
+        context.globalAlpha = 1
       }
 
       // Рамка экрана.

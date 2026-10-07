@@ -543,6 +543,16 @@ export function Hud({ state, send, place, pave, route, patrol, minimap, lookAt, 
         </div>
       )}
 
+      {state.alerts.length > 0 && (
+        <div class="hud hud--alerts" role="status">
+          {state.alerts.map(({ kind, text, x, y, at }) => (
+            <button key={at} class={`hud__alert is-${kind}`} data-tip="Показать место" onClick={() => lookAt(x, y)}>
+              {text}
+            </button>
+          ))}
+        </div>
+      )}
+
       {fresh.length > 0 && (
         <div class="hud hud--rewards">
           {fresh.map((key) => (
