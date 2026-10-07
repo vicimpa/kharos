@@ -16,6 +16,7 @@ import { createCursorPass } from './cursorPass'
 import { createDecalsPass } from './decalsPass'
 import { createFogPass } from './fogPass'
 import { createAlerts } from './alerts'
+import { createInterfaceSounds } from './interfaceSounds'
 import { createShake } from './shake'
 import { createSoundscape } from './soundscape'
 import { createDepositsPass } from './depositsPass'
@@ -185,6 +186,7 @@ export function createGame(
   const shake = createShake()
   const soundscape = audio && createSoundscape(scene, audio, shake)
   if (!showcase) scene.alerts = createAlerts(scene, audio)
+  const silenceInterface = audio ? createInterfaceSounds(session.sim, audio) : null
 
   const saveCamera = () => slot && storeCamera(slot, camera)
   let sinceSave = 0
@@ -335,6 +337,7 @@ export function createGame(
       window.removeEventListener('pagehide', saveCamera)
       saveCamera()
       controls?.destroy()
+      silenceInterface?.()
       audio?.destroy()
       scene.sim.destroy()
       renderer.destroy()

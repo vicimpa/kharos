@@ -7,7 +7,8 @@ test('звуки синтезируются: конечные, не тишина
   for (const name of SOUND_NAMES) {
     const variants = Array.from({ length: SOUND_VARIANTS }, (_, variant) => SOUNDS[name](RATE, variant))
     for (const data of variants) {
-      expect(data.length).toBeGreaterThan(RATE * 0.05)
+      // Щелчки интерфейса — сотые доли секунды; короче — уже не звук, а треск.
+      expect(data.length).toBeGreaterThan(RATE * 0.02)
       expect(data.length).toBeLessThan(RATE * 2)
       let peak = 0
       let energy = 0

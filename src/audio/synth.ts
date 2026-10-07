@@ -154,6 +154,18 @@ function signal(rate: number, variant: number, tones: number[], tone: number, ga
   })
 }
 
+/** Короткий тон интерфейса: частота скользит от from к to за length секунд, click — щелчок в начале. */
+function blip(rate: number, variant: number, from: number, to: number, length: number, click = 0) {
+  let phase = 0
+  const tick = highpass(rate, 3000)
+  return render(rate, length, variant, (t, noise) => {
+    const frequency = from + (to - from) * Math.min(1, t / length)
+    phase += (2 * Math.PI * frequency * (1 + variant * 0.01)) / rate
+    const tone = (Math.sin(phase) * 0.85 + Math.sign(Math.sin(phase)) * 0.15) * attack(t, 0.003) * decay(t, length / 3)
+    return tone + tick(noise()) * decay(t, 0.004) * click
+  })
+}
+
 export const SOUNDS = {
   rifle,
   machinegun,
@@ -165,6 +177,15 @@ export const SOUNDS = {
   bigBlast: (rate: number, variant: number) => explosion(rate, variant, true),
   /** Тревога: нас атакуют — два спуска вниз. */
   attacked: (rate: number, variant: number) => signal(rate, variant, [880, 660, 880, 660], 0.11, 0.03),
+  /** Интерфейс: щелчок кнопки, касание ячейки при наведении, вход в раздел, отказ. */
+  click: (rate: number, variant: number) => blip(rate, variant, 1400, 1100, 0.05, 0.6),
+  hover: (rate: number, variant: number) => blip(rate, variant, 2200, 2200, 0.025, 0.3),
+  open: (rate: number, variant: number) => blip(rate, variant, 700, 1300, 0.09, 0.3),
+  deny: (rate: number, variant: number) => blip(rate, variant, 220, 160, 0.16, 0.2),
+  /** Приказы: закладка здания, движение, атака. */
+  place: (rate: number, variant: number) => signal(rate, variant, [520, 780], 0.05, 0.02),
+  order: (rate: number, variant: number) => blip(rate, variant, 900, 1250, 0.07, 0.4),
+  attackOrder: (rate: number, variant: number) => signal(rate, variant, [1050, 700], 0.045, 0.015),
   /** Замечен противник: два коротких восходящих тона. */
   spotted: (rate: number, variant: number) => signal(rate, variant, [620, 930], 0.09, 0.05),
 } satisfies Record<string, (rate: number, variant: number) => Float32Array>
