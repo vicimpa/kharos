@@ -521,6 +521,48 @@ body {
   transform: translateX(-50%);
 }
 
+/* Раздел — стопка карточек: за портретом два листа, сдвинутых вправо-вверх, в углу — сколько в нём кнопок. */
+.bar__cell--group::before,
+.bar__cell--group::after {
+  position: absolute;
+  inset: 3px 4px 31px 22%;
+  border: 1px solid rgba(150, 190, 230, 0.55);
+  background: rgba(30, 52, 78, 0.9);
+  content: "";
+}
+
+.bar__cell--group::after {
+  inset: 6px 8px 28px 18%;
+  background: rgba(22, 40, 62, 0.95);
+}
+
+.bar__cell--group > img {
+  z-index: 1;
+  inset: 9px 12px 26px 14%;
+  width: calc(86% - 12px);
+  height: calc(100% - 35px);
+}
+
+.bar__count {
+  position: absolute;
+  z-index: 2;
+  top: 1px;
+  right: 3px;
+  min-width: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: #2b5a85;
+  color: #eef6ff;
+  font-size: 11px;
+  line-height: 14px;
+  text-align: center;
+}
+
+.bar__cell--group kbd,
+.bar__cell--group .bar__label {
+  z-index: 2;
+}
+
 .bar__cell kbd {
   position: absolute;
   top: 1px;

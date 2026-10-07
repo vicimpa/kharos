@@ -223,7 +223,7 @@ function CommandGrid({ slots }: { slots: (Slot | null)[] }) {
         return (
           <button
             key={i}
-            class={slot.active ? 'bar__cell is-active' : 'bar__cell'}
+            class={['bar__cell', slot.group !== undefined && 'bar__cell--group', slot.active && 'is-active'].filter(Boolean).join(' ')}
             disabled={slot.disabled}
             data-tip={slot.label}
             data-card={String(i)}
@@ -231,7 +231,8 @@ function CommandGrid({ slots }: { slots: (Slot | null)[] }) {
           >
             <SlotImage slot={slot} />
             <kbd>{key}</kbd>
-            <span class="bar__label">{slot.label}</span>
+            {slot.group !== undefined && <span class="bar__count">{slot.group}</span>}
+            <span class="bar__label">{slot.group !== undefined ? `${slot.label} ▸` : slot.label}</span>
             {/* В ячейке — только кредиты: полная цена с ресурсами и энергией — в карточке при наведении. */}
             <span class="bar__price">
               {slot.cost !== undefined && <b class={slot.gain ? 'is-gain' : undefined}>{slot.gain ? `+${slot.cost}` : slot.cost}</b>}

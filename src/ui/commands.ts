@@ -47,6 +47,8 @@ export interface Slot {
   good?: Good
   /** Значок покрытия. */
   pave?: PaveIcon
+  /** Раздел, а не действие: сколько в нём открытых кнопок. Рисуется стопкой карточек со счётчиком. */
+  group?: number
   cost?: number
   /** cost — не трата, а доход: продажа, возврат за разбор. */
   gain?: boolean
@@ -103,8 +105,9 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
         { page: 'defense', label: 'Оборона', building: 'wall', title: 'Стены, турели и радар', run: () => open('defense') },
       ]
       // У каждого раздела своё место: закрытый оставляет пустую ячейку, и кнопки не сдвигаются, когда открываются новые.
-      sections.forEach((section, i) => (slots[i] = opened(section.page) ? section : null))
-      slots[sections.length] = { label: 'Покрытие', pave: 'road', title: 'Фундамент, дороги и мосты', run: () => open('paving') }
+      const count = (page: Page) => construction.options.filter(({ building }) => sectionOf(building) === page).length
+      sections.forEach((section, i) => (slots[i] = opened(section.page) ? { ...section, group: count(section.page) } : null))
+      slots[sections.length] = { label: 'Покрытие', pave: 'road', group: PAVE_TOOLS.length, title: 'Фундамент, дороги и мосты', run: () => open('paving') }
     } else if (page === 'paving') {
       PAVE_TOOLS.forEach(({ tool, label, cost, title }, i) => {
         const active = construction.paving?.tool === tool
