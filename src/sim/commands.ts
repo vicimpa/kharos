@@ -2,8 +2,8 @@ import type { Entity } from '../ecs'
 import { setWorking } from './assembly'
 import type { DepositKind } from './deposits'
 import { orderHarvest, orderSeek } from './harvesting'
-import { BUILDINGS, canPlace, durabilityOf, placeBuilding, type BuildingType } from './buildings'
-import { TRAINING_PLAYER, orderAttack, stopAttack } from './combat'
+import { BUILDINGS, type BuildingType } from './buildings'
+import { orderAttack, stopAttack } from './combat'
 import { NONE, isOwn } from './common'
 import { Builds, Harvester, Unit } from './components'
 import { assignBuilders, cancelBuild, demolish, orderBuild } from './construction'
@@ -15,7 +15,7 @@ import { setFilter, setRoute } from './routes'
 import type { Good, Resource } from './resources'
 import type { Sim } from './sim'
 import { buy, closeSale, sell } from './trade'
-import { UNITS, isWalkable, orderGroupMove, spawnUnit, type UnitType } from './units'
+import { orderGroupMove, type UnitType } from './units'
 
 /**
  * Команда — единственный способ игрока повлиять на мир. Клиент не правит сущности сам, а посылает команду;
@@ -25,8 +25,6 @@ import { UNITS, isWalkable, orderGroupMove, spawnUnit, type UnitType } from './u
  * Команды — простые данные, пригодные для JSON. Чтобы добавить команду, допиши вариант сюда и ветку в apply().
  */
 export type Command =
-  /** Отладка: поставить готовое здание бесплатно и где угодно. */
-  | { type: 'placeBuilding'; building: BuildingType; x: number; y: number }
   /** Отправить своих юнитов к тайлу (x, y). */
   | { type: 'move'; units: number[]; x: number; y: number }
   /** Развернуть свой MCV в главное здание на месте. */
@@ -70,8 +68,6 @@ export type Command =
   | { type: 'pave'; kind: PaveKind; tiles: number[]; builders: number[] }
   /** Снять своё покрытие с тайлов (x и y подряд): за недостроенное кредиты возвращаются. */
   | { type: 'unpave'; tiles: number[] }
-  /** Отладка: создать юнит в тайле. enemy — отдать его учебному противнику: с ним можно повоевать. */
-  | { type: 'spawnUnit'; unit: UnitType; x: number; y: number; enemy?: boolean }
 
 const isTile = (x: unknown, y: unknown) => Number.isInteger(x) && Number.isInteger(y)
 
@@ -81,13 +77,6 @@ const isTile = (x: unknown, y: unknown) => Number.isInteger(x) && Number.isInteg
  */
 export function apply(sim: Sim, player: number, command: Command): boolean {
   switch (command.type) {
-    case 'placeBuilding': {
-      if (!Object.hasOwn(BUILDINGS, command.building)) return false
-      if (!canPlace(sim, command.building, command.x, command.y)) return false
-      const durability = durabilityOf(sim, command.building, command.x, command.y)
-      placeBuilding(sim.world, command.building, command.x, command.y, player, durability)
-      return true
-    }
     case 'move': {
       if (!isTile(command.x, command.y) || !Array.isArray(command.units)) return false
       // Чужие, мёртвые и повторяющиеся юниты из списка выбрасываются.
@@ -173,12 +162,6 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
       return orderUnit(sim, player, command.producer as Entity, command.unit)
     case 'cancelProduction':
       return cancelUnit(sim, player, command.producer as Entity)
-    case 'spawnUnit': {
-      if (!Object.hasOwn(UNITS, command.unit) || !isTile(command.x, command.y)) return false
-      if (!isWalkable(sim, command.x, command.y)) return false
-      spawnUnit(sim, command.unit, command.enemy ? TRAINING_PLAYER : player, command.x, command.y)
-      return true
-    }
     default:
       return false
   }

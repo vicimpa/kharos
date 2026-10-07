@@ -1,7 +1,9 @@
 import { expect, test } from 'bun:test'
 import { World, component } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { Building, Position, canPlace, createSim, type Sim } from '../src/sim'
+import { Building, Pave, Position, canPlace, createSim, type Sim } from '../src/sim'
+import { placeBuilding } from '../src/sim/buildings'
+import { addCredits } from '../src/sim/economy'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
 /** Один тик симуляции: по умолчанию их двадцать в секунду. */
@@ -17,27 +19,29 @@ function freeTile(sim: Sim) {
 
 test('команда выполняется в начале следующего тика, а не сразу', () => {
   const sim = createSim(options)
+  addCredits(sim, 1, 1000)
   const { x, y } = freeTile(sim)
-  sim.send(1, { type: 'placeBuilding', building: 'turret', x, y })
-  expect(sim.world.count(Building)).toBe(0)
+  sim.send(1, { type: 'pave', kind: 'road', tiles: [x, y], builders: [] })
+  expect(sim.paving.at(x, y)).toBeUndefined()
 
   expect(sim.advance(TICK)).toBe(1)
-  expect(sim.world.count(Building)).toBe(1)
-  expect(sim.occupancy.at(x, y)).toBeDefined()
+  expect(sim.paving.at(x, y)).toBeDefined()
 })
 
 test('негодная команда отбрасывается', () => {
   const sim = createSim(options)
+  addCredits(sim, 1, 1000)
   const { x, y } = freeTile(sim)
   // Две одинаковые команды за один тик: вторая метит в уже занятый тайл.
-  sim.send(1, { type: 'placeBuilding', building: 'turret', x, y })
-  sim.send(1, { type: 'placeBuilding', building: 'turret', x, y })
+  sim.send(1, { type: 'pave', kind: 'road', tiles: [x, y], builders: [] })
+  sim.send(1, { type: 'pave', kind: 'road', tiles: [x, y], builders: [] })
   // Команды приходят извне и могут быть какими угодно.
-  sim.send(1, { type: 'placeBuilding', building: 'nonsense' as 'turret', x: x + 1, y })
-  sim.send(1, { type: 'placeBuilding', building: 'turret', x: x + 0.5, y })
+  sim.send(1, { type: 'pave', kind: 'nonsense' as 'road', tiles: [x + 1, y], builders: [] })
+  sim.send(1, { type: 'pave', kind: 'road', tiles: [x + 0.5, y], builders: [] })
+  sim.send(1, { type: 'pave', kind: 'road', tiles: 'x' as never, builders: [] })
   sim.send(1, { type: 'explode' } as never)
   sim.advance(TICK)
-  expect(sim.world.count(Building)).toBe(1)
+  expect(sim.world.count(Pave)).toBe(1)
 })
 
 test('за границами карты строить нельзя', () => {
@@ -53,7 +57,7 @@ test('за границами карты строить нельзя', () => {
 test('сохранение восстанавливает мир, тик и номера сущностей', () => {
   const sim = createSim(options)
   const site = freeTile(sim)
-  sim.send(1, { type: 'placeBuilding', building: 'turret', x: site.x, y: site.y })
+  placeBuilding(sim.world, 'turret', site.x, site.y, 1)
   sim.advance(TICK * 3)
   // Через JSON: сохранение должно переживать диск и сеть.
   const save = JSON.parse(JSON.stringify(sim.save()))
@@ -76,16 +80,16 @@ test('сохранение восстанавливает мир, тик и но
   const [first] = sim.world.query(Position, Building)
   expect(loaded.occupancy.at(first[1].x, first[1].y)).toBe(first[0])
   const { x, y } = freeTile(loaded)
-  loaded.send(1, { type: 'placeBuilding', building: 'turret', x, y })
-  loaded.advance(TICK)
+  placeBuilding(loaded.world, 'turret', x, y, 1)
   expect(loaded.occupancy.at(x, y)!).toBeGreaterThanOrEqual(save.world.next)
 })
 
 test('две симуляции с одинаковыми командами дают одинаковый мир', () => {
   const run = (frames: number[]) => {
     const sim = createSim(options)
+    addCredits(sim, 1, 1000)
     const { x, y } = freeTile(sim)
-    sim.send(1, { type: 'placeBuilding', building: 'turret', x, y })
+    sim.send(1, { type: 'pave', kind: 'road', tiles: [x, y, x + 1, y], builders: [] })
     for (const seconds of frames) sim.advance(seconds)
     return sim.save()
   }

@@ -98,7 +98,7 @@ test('шахта ставится только на месторождение �
   expect(canBuild(sim, 1, 'mine', spot.x, spot.y)).toBe(false)
   sim.world.destroy(core)
 
-  sim.send(1, { type: 'spawnUnit', unit: 'builder', x: spot.x - 1, y: spot.y })
+  spawnUnit(sim, 'builder', 1, spot.x - 1, spot.y)
   sim.send(1, { type: 'build', building: 'mine', x: spot.x, y: spot.y, builders: [] })
   seconds(sim, 30)
   // Готовая шахта начинает свою зону: рядом можно строить.

@@ -1,5 +1,5 @@
-import { BUILDINGS, DEPOSIT_SIZE, Owner, PAVE_LIMIT, canBuild, canPave, canPlace, depositNear, isWalkable, paveCost, type BuildingSpec, type BuildingType } from '../sim'
-import type { PaveTool, Scene, Spawn } from './scene'
+import { BUILDINGS, DEPOSIT_SIZE, Owner, PAVE_LIMIT, canBuild, canPave, depositNear, paveCost, type BuildingSpec, type BuildingType } from '../sim'
+import type { PaveTool, Scene } from './scene'
 
 /** Где встанет здание, которое игрок сейчас выбирает место: левый верхний тайл основания и годится ли место. */
 export interface Placement {
@@ -33,26 +33,6 @@ export function placementOf(scene: Scene): Placement | null {
   return { type, x, y, allowed: canBuild(scene.sim, scene.player, type, x, y) }
 }
 
-/** Призрак отладочного спавна: что и где встанет по щелчку и можно ли туда. Здание — серединой под указателем, юнит — в тайле под ним. */
-export interface SpawnGhost {
-  spawn: Spawn
-  x: number
-  y: number
-  allowed: boolean
-}
-
-export function spawnGhostOf(scene: Scene): SpawnGhost | null {
-  const spawn = scene.spawning
-  const tile = scene.camera.pointerTile
-  if (!spawn || !tile) return null
-  if (spawn.kind === 'building') {
-    const { width, height } = BUILDINGS[spawn.type]
-    const x = tile.x - Math.floor(width / 2)
-    const y = tile.y - Math.floor(height / 2)
-    return { spawn, x, y, allowed: canPlace(scene.sim, spawn.type, x, y) }
-  }
-  return { spawn, x: tile.x, y: tile.y, allowed: isWalkable(scene.sim, tile.x, tile.y) }
-}
 
 /** Тайлы, которые накроет укладка покрытия, пока игрок тянет её мышью, и сколько она стоит. */
 export interface PaveStroke {

@@ -693,56 +693,6 @@ body {
   white-space: nowrap;
 }
 
-/* Отладочный спавн: под верхней полосой слева. */
-.debug {
-  top: 44px;
-  left: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 300px;
-  max-height: calc(100% - 268px);
-  padding: 8px;
-}
-
-.debug__tabs {
-  display: flex;
-  gap: 4px;
-}
-
-.debug__tabs button {
-  flex: 1;
-}
-
-.debug__list {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
-  overflow-y: auto;
-}
-
-.hud .debug__list button {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 2px;
-  font-size: 12px;
-}
-
-.debug__list img {
-  width: 40px;
-  height: 40px;
-  object-fit: contain;
-  image-rendering: pixelated;
-}
-
-.debug__list span {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* Подсказка у курсора над месторождением. Мышь сквозь неё проходит на карту. */
 .tip {
   display: flex;

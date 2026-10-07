@@ -22,7 +22,7 @@ import { createPavingPass } from './pavingPass'
 import { startFrames } from './frames'
 import { readHud, type HudState } from './hud'
 import { createMinimap, type Minimap } from './minimap'
-import type { PaveTool, Scene, Spawn } from './scene'
+import type { PaveTool, Scene } from './scene'
 import { createPowerPass } from './powerPass'
 import { createSelectionPass } from './selectionPass'
 import { loadCamera, storeCamera } from './storage'
@@ -70,8 +70,6 @@ export interface Game {
   pave(tool: PaveTool | null): void
   /** Начинает набор маршрута выбранным грузовикам щелчками по зданиям; false — отменяет. */
   route(start: boolean): void
-  /** Выбирает, что ставит отладочный спавн; null — выключает его. */
-  spawn(spawn: Spawn | null): void
   /** Мини-карта нижней панели. */
   readonly minimap: Minimap
   /** Ставит центр экрана в точку карты, в тайлах. */
@@ -121,7 +119,6 @@ export function createGame(
     paving: null,
     paveFrom: null,
     routing: null,
-    spawning: null,
     grid: false,
     weather: weatherAt(session.sim.options, session.sim.time.elapsed),
   }
@@ -230,7 +227,6 @@ export function createGame(
       scene.paving = null
       scene.paveFrom = null
       scene.routing = null
-      scene.spawning = null
       centered = false
     }
     controls?.update(seconds)
@@ -300,10 +296,6 @@ export function createGame(
       scene.paving = tool
       scene.paveFrom = null
       if (tool) scene.placing = null
-    },
-    spawn(spawn) {
-      scene.spawning = spawn
-      if (spawn) scene.placing = null
     },
     minimap: createMinimap(scene),
     lookAt: (x, y) => camera.centerOn(x, y),

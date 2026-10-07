@@ -47,10 +47,7 @@ test('стены и турели ставятся на песке, обычны�
   expect(canPlace(sim, 'generator', sand.x, sand.y)).toBe(false)
   expect(durabilityOf(sim, 'generator', sand.x, sand.y)).toBe(1)
 
-  // Отладочная команда проходит тем же путём определения прочности, что и обычное размещение.
-  sim.send(1, { type: 'placeBuilding', building: 'wall', x: sand.x, y: sand.y })
-  sim.advance(TICK)
-  const wall = sim.occupancy.at(sand.x, sand.y)!
+  const wall = placeBuilding(sim.world, 'wall', sand.x, sand.y, 1, durabilityOf(sim, 'wall', sand.x, sand.y))
   expect(sim.world.get(wall, Health)).toMatchObject({ value: SAND_DURABILITY, max: SAND_DURABILITY })
 })
 

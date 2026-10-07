@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import { createGame, type Game } from '../game/game'
 import type { HudState } from '../game/hud'
 import type { MapSettings } from '../map/settings'
-import { DebugSpawn } from './DebugSpawn'
 import { Hud } from './Hud'
 import { startSession, type Launch } from './launch'
 
@@ -23,7 +22,6 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
   const [error, setError] = useState<unknown>(null)
   const [hud, setHud] = useState<HudState | null>(null)
   const [muted, setMuted] = useState(false)
-  const [debug, setDebug] = useState(false)
 
   // Игра создаётся один раз.
   useEffect(() => {
@@ -79,16 +77,6 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
                 <button onClick={() => gameRef.current?.restart()}>{launch.kind === 'battle' ? 'Новый бой' : 'Заново'}</button>
               )}
               <button
-                class={debug ? 'is-active' : undefined}
-                data-tip="Отладочный спавн: поставить здание, свой юнит или врага, куда щёлкнешь"
-                onClick={() => {
-                  if (debug) gameRef.current?.spawn(null)
-                  setDebug(!debug)
-                }}
-              >
-                Отладка
-              </button>
-              <button
                 data-tip={muted ? 'Включить звук' : 'Выключить звук'}
                 onClick={() => {
                   const game = gameRef.current
@@ -106,7 +94,6 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
           }
         />
       )}
-      {hud && error === null && debug && <DebugSpawn spawning={hud.spawning} spawn={(spawn) => gameRef.current?.spawn(spawn)} />}
       {error !== null && (
         <div class="game__error" role="alert">
           <strong>Игра остановилась</strong>

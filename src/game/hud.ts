@@ -7,7 +7,7 @@ import {
   Position, type Amounts, type BuildingType, type Command, type DepositKind, type Good, type Ore, type Product, type Resource, type UnitType,
 } from '../sim'
 import { paveStrokeOf } from './placing'
-import type { PaveTool, Scene, Spawn } from './scene'
+import type { PaveTool, Scene } from './scene'
 
 /** Что интерфейс игрока показывает прямо сейчас. Обычные данные: их можно сравнивать и хранить в состоянии. */
 export interface HudState {
@@ -17,8 +17,6 @@ export interface HudState {
    * чтобы подсказка встала рядом. null — указатель не над месторождением.
    */
   hover: { kind: DepositKind; left: number | null; x: number; y: number } | null
-  /** Что ставит отладочный спавн; null — он выключен. */
-  spawning: Spawn | null
   /** Награды, которые игрок уже получил, по порядку. */
   rewards: string[]
   /** Время суток в мире, «чч:мм», и идёт ли непогода. */
@@ -339,7 +337,6 @@ export function readHud(scene: Scene): HudState {
   const stock = stockOf(sim, player)
   const state: HudState = {
     credits,
-    spawning: scene.spawning ? { ...scene.spawning } : null,
     hover: hoverOf(scene),
     rewards: [...rewardsOf(sim, player)],
     loaded: sim.time.tick > 0,

@@ -5,6 +5,7 @@ import { isBuildable, terrainAt } from '../src/map/terrain'
 import { Owner, Path, Position, UNITS, Unit, canPlace, createSim, isWalkable, spawnStartingUnits, type Sim, type UnitType } from '../src/sim'
 import { findPath, isClear, smoothPath } from '../src/sim/path'
 import { orderMove, spawnUnit } from '../src/sim/units'
+import { placeBuilding } from '../src/sim/buildings'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
 const TICK = 1 / 20
@@ -278,7 +279,7 @@ test('здание на пути заставляет проложить пут�
   const goalY = y + 1 + Math.sign(y + 1 - fromY) * 4
   sim.send(1, { type: 'move', units: [scout], x: goalX, y: goalY })
   sim.advance(TICK)
-  sim.send(1, { type: 'placeBuilding', building: 'command', x, y })
+  placeBuilding(sim.world, 'command', x, y, 1)
 
   for (let i = 0; i < 20 * 120 && sim.world.has(scout, Path); i++) {
     sim.advance(TICK)

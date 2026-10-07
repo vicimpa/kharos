@@ -8,6 +8,7 @@ import {
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { REWARDS, STARTING_CREDITS } from '../src/sim/economy'
+import { spawnUnit } from '../src/sim/units'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
 const TICK = 1 / 20
@@ -242,8 +243,8 @@ test('в чужой зоне не строят и не разворачиваю�
   expect(canBuild(sim, 2, 'khariteVault', x + 12, y + 3)).toBe(false)
   expect(canBuild(sim, 2, 'khariteVault', x + 18, y + 3)).toBe(true)
 
-  sim.send(2, { type: 'spawnUnit', unit: 'mcv', x: x + 8, y: y + 8 })
-  sim.send(2, { type: 'spawnUnit', unit: 'mcv', x: x + 20, y: y + 9 })
+  spawnUnit(sim, 'mcv', 2, x + 8, y + 8)
+  spawnUnit(sim, 'mcv', 2, x + 20, y + 9)
   sim.advance(TICK)
   const mcvs: Entity[] = []
   for (const [entity, unit, owner] of sim.world.query(Unit, Owner)) if (unit.type === 'mcv' && owner.player === 2) mcvs.push(entity)

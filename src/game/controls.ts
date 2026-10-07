@@ -1,7 +1,7 @@
 import type { Entity } from '../ecs'
 import { DEPOSIT_SIZE, Harvester, depositNear, hasMine, type UnitType, Owner, Position, Repair, isOwn, UNITS, Unit, canAttack, canFight, canHaul, canRepair, isStop, siteAt } from '../sim'
-import { paveStrokeOf, placementOf, spawnGhostOf } from './placing'
-import type { Scene, Spawn } from './scene'
+import { paveStrokeOf, placementOf } from './placing'
+import type { Scene } from './scene'
 
 const KEY_SPEED = 900 // пикселей экрана в секунду
 /** Насколько близко к краю экрана указатель начинает двигать камеру, в пикселях. */
@@ -25,8 +25,7 @@ const RIGHT = 2
  * Колесо — масштаб, WASD, стрелки и указатель у края экрана — камера. T Y U I / G H J K / B N M , — сетка команд
  * нижней панели (её ведёт интерфейс). Ctrl+цифра — запомнить выделенных группой, цифра — выбрать группу,
  * повторно — ещё и навести на неё камеру. Esc — отменить выбор места, затем снять выделение.
- * Пока выбран отладочный спавн (scene.spawning), под указателем виден его призрак; левая кнопка ставит выбранное,
- * правая и Esc — отмена. Alt+G — отладочная сетка.
+ * Alt+G — сетка тайлов.
  */
 export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
   const { camera } = scene
@@ -95,7 +94,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     if (!pressed) return
     if (Math.hypot(event.offsetX - pressed.x, event.offsetY - pressed.y) > CLICK_SLOP) pressed.dragged = true
     if (pressed.button === LEFT) {
-      if (!pressed.dragged || scene.placing || scene.paving || scene.spawning) return
+      if (!pressed.dragged || scene.placing || scene.paving) return
       const from = camera.screenToTile(pressed.x, pressed.y)
       const to = camera.screenToTile(event.offsetX, event.offsetY)
       scene.selectionBox = { fromX: from.x, fromY: from.y, toX: to.x, toY: to.y }
@@ -109,10 +108,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     pressed = null
     const point = camera.screenToTile(event.offsetX, event.offsetY)
 
-    if (scene.spawning) {
-      if (button === LEFT && !dragged) spawnAt(scene.spawning)
-      if (button === RIGHT && !dragged) scene.spawning = null
-    } else if (scene.routing) {
+    if (scene.routing) {
       // Левый щелчок по своему зданию со складом — ещё остановка; правый — маршрут готов.
       if (button === LEFT && !dragged) {
         const building = scene.sim.occupancy.at(Math.floor(point.x), Math.floor(point.y))
@@ -223,14 +219,6 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
   // Правая кнопка занята приказами: меню браузера на холсте не нужно.
   const onContextMenu = (event: Event) => event.preventDefault()
 
-  /** Отладочный спавн под указателем — там же, где его призрак. Проверки — только чтобы не слать заведомо негодную команду. */
-  const spawnAt = (spawn: Spawn) => {
-    const ghost = spawnGhostOf(scene)
-    if (!ghost?.allowed) return
-    const { x, y } = ghost
-    if (spawn.kind === 'building') scene.sim.send(scene.player, { type: 'placeBuilding', building: spawn.type, x, y })
-    else scene.sim.send(scene.player, { type: 'spawnUnit', unit: spawn.type, x, y, enemy: spawn.kind === 'enemy' })
-  }
   const onKeyDown = (event: KeyboardEvent) => {
     // Не трогаем игру, пока пользователь печатает или крутит ползунок в панели.
     if (event.target instanceof HTMLInputElement) return
@@ -257,8 +245,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     if ((event.code === 'Enter' || event.code === 'NumpadEnter') && scene.routing) finishRoute()
     if (event.code === 'Escape') {
       // Сначала отменяется выбор места, и только следующим нажатием — выделение.
-      if (scene.spawning) scene.spawning = null
-      else if (scene.routing) scene.routing = null
+      if (scene.routing) scene.routing = null
       else if (scene.paving) {
         scene.paving = null
         scene.paveFrom = null
