@@ -298,8 +298,10 @@ function volunteer(sim: Sim) {
   const { world, time } = sim
   const idle: Entity[] = []
   for (const [entity] of world.query(Repair, Unit, Owner)) {
-    if (!onTurn(time, entity, RETRY_TICKS)) continue
-    if (world.has(entity, Builds) || world.has(entity, Path) || world.has(entity, Converting)) continue
+    if (!onTurn(time, entity, RETRY_TICKS) || world.has(entity, Converting)) continue
+    // Стройка, которая ждёт материалов, строителя не держит: он берётся за другую работу, а вернётся, когда подвезут.
+    const builds = world.get(entity, Builds)
+    if (builds ? !awaitsMaterials(sim, builds.site as Entity) : world.has(entity, Path)) continue
     idle.push(entity)
   }
   if (!idle.length) return
@@ -307,6 +309,8 @@ function volunteer(sim: Sim) {
   /** type — вид здания, которое строят: такой работе нужна зона строительства. Разбору и починке она не нужна. */
   const sites: { entity: Entity; work: Work; player: number; type?: BuildingType }[] = []
   for (const [entity, , site, owner] of world.query(Position, Site, Owner)) {
+    // Ждущая материалов стройка добровольцев не зовёт: работы для них там нет.
+    if (awaitsMaterials(sim, entity)) continue
     sites.push({ entity, work: workAt(sim, entity)!, player: owner.player, type: site.demolish ? undefined : site.type })
   }
   for (const [entity, , pave, owner] of world.query(Position, Pave, Owner)) {

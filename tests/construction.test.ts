@@ -286,3 +286,23 @@ test('дерево технологий: после главного здани�
   // Главное здание строителям недоступно никогда: его привозит MCV.
   expect(isUnlocked(sim, 1, CORE)).toBe(false)
 })
+
+test('стройка, которая ждёт материалов, строителя не держит: он уходит на другую работу рядом', () => {
+  const { sim, builders, site } = start()
+  // Грузовиков нет — металл космопорту не привезут.
+  for (const truck of unitsOf(sim, 'truck')) sim.world.destroy(truck)
+  const [builder, ...rest] = builders
+  for (const other of rest) sim.world.destroy(other)
+  sim.send(1, { type: 'build', building: 'spaceport', x: site.x, y: site.y, builders: [builder] })
+  seconds(sim, 1)
+  const waiting = siteAt(sim, site.x, site.y)!
+  expect(sim.world.get(builder, Builds)?.site).toBe(waiting)
+  // Рядом — электростанция, ей материалы не нужны; заложена без строителей.
+  sim.send(1, { type: 'build', building: 'generator', x: site.x + 4, y: site.y, builders: [] })
+  seconds(sim, 1)
+  const ready = siteAt(sim, site.x + 4, site.y)!
+  seconds(sim, 15)
+  // Электростанцию строит он — или уже построил.
+  expect(!sim.world.has(ready, Site) || sim.world.get(builder, Builds)?.site === ready).toBe(true)
+  expect(sim.world.has(ready, Building)).toBe(true)
+})
