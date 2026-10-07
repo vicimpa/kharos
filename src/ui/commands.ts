@@ -102,10 +102,9 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
         { page: 'military', label: 'Военное', building: 'factory', title: 'Казармы, заводы, аэродром и техцентр', run: () => open('military') },
         { page: 'defense', label: 'Оборона', building: 'turret', title: 'Стены, турели и радар', run: () => open('defense') },
       ]
-      list([
-        ...sections.filter(({ page }) => opened(page)),
-        { label: 'Покрытие', pave: 'road', title: 'Фундамент, дороги и мосты', run: () => open('paving') },
-      ])
+      // У каждого раздела своё место: закрытый оставляет пустую ячейку, и кнопки не сдвигаются, когда открываются новые.
+      sections.forEach((section, i) => (slots[i] = opened(section.page) ? section : null))
+      slots[sections.length] = { label: 'Покрытие', pave: 'road', title: 'Фундамент, дороги и мосты', run: () => open('paving') }
     } else if (page === 'paving') {
       PAVE_TOOLS.forEach(({ tool, label, cost, title }, i) => {
         const active = construction.paving?.tool === tool
