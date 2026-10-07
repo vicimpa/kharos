@@ -1,5 +1,6 @@
 import type { Entity } from '../ecs'
 import { Biome, Terrain, biomeAt, isPassable, terrainAt, tileKey } from '../map/terrain'
+import { ROAD_SPEED, isPaved } from './paved'
 import { isOwn } from './common'
 import { Armed, Converting, Hauler, Harvester, Health, Owner, Repair, Path, Position, Producer, Unit } from './components'
 import { STARTING_CREDITS, addCredits } from './economy'
@@ -155,10 +156,12 @@ export function isWalkable(sim: Sim, x: number, y: number) {
 /** Медленнее этой доли скорости местность не замедляет: иначе юнит застрял бы навсегда. */
 const SLOWEST = 0.05
 
-/** Доля полной скорости юнита type на тайле (x, y): по скале и в воздухе — 1, песок и болото замедляют, см. Rules. */
+/** Доля полной скорости юнита type на тайле (x, y): по скале и в воздухе — 1, песок и болото замедляют, см. Rules; дорога ускоряет. */
 export function terrainSpeed(sim: Sim, type: UnitType, x: number, y: number) {
   const { kind } = UNITS[type]
   if (kind === 'air') return 1
+  // По дороге и мосту быстрее, чем по скале, и местность под ними не мешает.
+  if (isPaved(sim, 'road', x, y)) return ROAD_SPEED
   const terrain = terrainAt(sim.land, x, y)
   if (terrain === Terrain.Sand) return Math.max(SLOWEST, 1 - sim.rules[`${kind}Sand`])
   if (terrain === Terrain.Swamp) {

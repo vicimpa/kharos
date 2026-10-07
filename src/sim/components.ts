@@ -5,6 +5,7 @@ import type { TurretType } from './turrets'
 import type { UnitType } from './units'
 import type { WeaponType } from './weapons'
 import type { DepositKind } from './deposits'
+import type { PaveKind } from './paved'
 
 /** Место на карте в тайлах. У здания — левый верхний тайл основания, у юнита — его центр. */
 export const Position = component('Position', { x: 0, y: 0 })
@@ -190,6 +191,12 @@ export const Attached = component('Attached', { parent: -1, along: 0, across: 0 
 /** Носитель турелей: какие турели на нём стоят. */
 export const Carrier = component('Carrier', () => ({ turrets: [] as number[] }))
 
+/**
+ * Покрытие тайла: фундамент или дорога (на болоте — мост). Место — сам тайл. work — сколько тиков работы
+ * одного строителя уже вложено; done — достроено и действует. См. paving.ts.
+ */
+export const Pave = component('Pave', { kind: 'road' as PaveKind, work: 0, done: false })
+
 /** Компоненты, которые попадают в сохранение и в сеть. Новый компонент симуляции добавляй сюда. */
 /**
  * Призрак: чужое здание или месторождение, каким клиент видел его последний раз. Живёт только в клиенте: хост
@@ -197,4 +204,4 @@ export const Carrier = component('Carrier', () => ({ turrets: [] as number[] }))
  */
 export const Ghost = component('Ghost', {})
 
-export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Harvester, Inventory, Beam, Assembly, Trade, Armed, Shot, Blast]
+export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Harvester, Inventory, Beam, Assembly, Trade, Armed, Shot, Blast, Pave]

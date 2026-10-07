@@ -9,6 +9,7 @@ import { Builds, Harvester, Unit } from './components'
 import { assignBuilders, cancelBuild, demolish, orderBuild } from './construction'
 import { DEPLOY_SECONDS, PACK_SECONDS, canDeploy, canPack, cancelDeploy, startConverting } from './conversion'
 import { assignHaulers, releaseHauler } from './hauling'
+import { orderPave, removePave, type PaveKind } from './paving'
 import { cancelUnit, orderUnit } from './production'
 import type { Resource } from './resources'
 import type { Sim } from './sim'
@@ -60,6 +61,10 @@ export type Command =
   | { type: 'cancelBuild'; site: number }
   /** Назначить своё готовое здание под разбор и послать к нему своих строителей. Отменяется через cancelBuild. */
   | { type: 'demolish'; building: number; builders: number[] }
+  /** Заложить покрытие в тайлы (x и y подряд) и послать к нему своих строителей. Дорога по болоту — мост. */
+  | { type: 'pave'; kind: PaveKind; tiles: number[]; builders: number[] }
+  /** Снять своё покрытие с тайлов (x и y подряд): за недостроенное кредиты возвращаются. */
+  | { type: 'unpave'; tiles: number[] }
   /** Отладка: создать юнит в тайле. enemy — отдать его учебному противнику: с ним можно повоевать. */
   | { type: 'spawnUnit'; unit: UnitType; x: number; y: number; enemy?: boolean }
 
@@ -131,6 +136,12 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
       return setWorking(sim, player, command.building as Entity, !!command.on)
     case 'cancelBuild':
       return cancelBuild(sim, player, command.site as Entity)
+    case 'pave': {
+      if (!Array.isArray(command.tiles) || !Array.isArray(command.builders)) return false
+      return orderPave(sim, player, command.kind, command.tiles, command.builders as Entity[]) > 0
+    }
+    case 'unpave':
+      return Array.isArray(command.tiles) && removePave(sim, player, command.tiles)
     case 'demolish': {
       const builders = Array.isArray(command.builders) ? (command.builders as Entity[]) : []
       return demolish(sim, player, command.building as Entity, builders)

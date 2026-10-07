@@ -2,6 +2,7 @@ import { World, type Component, type Entity, type Time } from '../ecs'
 import { createLand } from '../map/terrain'
 import { DEFAULT_RULES, boundsOf, type Command, type Sim } from '../sim'
 import { createOccupancy } from '../sim/buildings'
+import { createPaving } from '../sim/paved'
 import { createReceivedTraces } from '../sim/traces'
 import { createVision } from '../sim/vision'
 import { BUILDINGS, type BuildingType } from '../sim/buildings'
@@ -55,6 +56,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
   }
 
   const occupancy = createOccupancy(world)
+  const paving = createPaving(world)
   /** Мир по приветствию: при первом подключении и когда хост начинает мир заново. */
   const meet = ({ options, step, player: own }: Extract<ServerMessage, { type: 'welcome' }>) => {
     player = own
@@ -127,6 +129,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     players: [] as PlayerInfo[],
     world,
     occupancy,
+    paving,
     vision: undefined as unknown as Replica['vision'],
     traces: undefined as unknown as ReturnType<typeof createReceivedTraces>,
     time,
@@ -171,6 +174,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     destroy() {
       close()
       occupancy.destroy()
+      paving.destroy()
       world.clear()
     },
     receive(message: ServerMessage) {

@@ -6,6 +6,7 @@ import { equipStorage, put, type BeamSpec } from './inventory'
 import { ORE_SPECS, PRODUCT_SPECS, WARES, stockedFor, type Amounts, type Good, type Ore, type Product } from './resources'
 import type { Sim } from './sim'
 import { mountTurrets, type MountSpec } from './turrets'
+import { isPaved } from './paved'
 import type { UnitType } from './units'
 
 /** Что симуляция знает о виде здания. Как оно выглядит, знает клиент: см. game/buildings/buildingArt.ts. */
@@ -252,8 +253,8 @@ export function siteAt(sim: Sim, x: number, y: number): Entity | undefined {
 }
 
 /**
- * Можно ли поставить здание левым верхним углом основания в тайл (x, y): основное здание целиком на скале,
- * оборонительное — на скале или песке; внутри границ карты и без других зданий и площадок.
+ * Можно ли поставить здание левым верхним углом основания в тайл (x, y): основное здание целиком на скале
+ * или фундаменте, оборонительное — ещё и на песке; внутри границ карты и без других зданий и площадок.
  * gap — зазор до соседних зданий в тайлах.
  */
 export function canPlace(sim: Sim, type: BuildingType, x: number, y: number, gap = 0) {
@@ -265,7 +266,8 @@ export function canPlace(sim: Sim, type: BuildingType, x: number, y: number, gap
   const accepts = spec.defense ? (terrain: Terrain) => terrain === Terrain.Sand || isBuildable(terrain) : isBuildable
   for (let tileY = y; tileY < y + height; tileY++) {
     for (let tileX = x; tileX < x + width; tileX++) {
-      if (!accepts(terrainAt(sim.land, tileX, tileY))) return false
+      // Готовый фундамент делает песок пригодным для любого здания.
+      if (!accepts(terrainAt(sim.land, tileX, tileY)) && !isPaved(sim, 'foundation', tileX, tileY)) return false
     }
   }
   for (let tileY = y - gap; tileY < y + height + gap; tileY++) {
@@ -284,7 +286,7 @@ export function canPlace(sim: Sim, type: BuildingType, x: number, y: number, gap
 }
 
 /**
- * Максимальная доля прочности здания на этом месте. Оборона на песке получает 70%; на скале и у обычных
+ * Максимальная доля прочности здания на этом месте. Оборона на песке без фундамента получает 70%; на скале и у обычных
  * зданий предел равен единице. Для многотайловой обороны достаточно одного песчаного тайла под основанием.
  */
 export function durabilityOf(sim: Sim, type: BuildingType, x: number, y: number) {
@@ -292,7 +294,7 @@ export function durabilityOf(sim: Sim, type: BuildingType, x: number, y: number)
   if (!spec.defense) return 1
   for (let tileY = y; tileY < y + spec.height; tileY++) {
     for (let tileX = x; tileX < x + spec.width; tileX++) {
-      if (terrainAt(sim.land, tileX, tileY) === Terrain.Sand) return SAND_DURABILITY
+      if (terrainAt(sim.land, tileX, tileY) === Terrain.Sand && !isPaved(sim, 'foundation', tileX, tileY)) return SAND_DURABILITY
     }
   }
   return 1

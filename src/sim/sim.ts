@@ -16,6 +16,7 @@ import { moveUnits } from './movement'
 import { produceUnits } from './production'
 import { refine } from './refining'
 import { followCarriers, restTurrets } from './turrets'
+import { createPaving, type Paving } from './paved'
 import { createTraces, type Traces } from './traces'
 import { createVision, type Vision } from './vision'
 
@@ -106,6 +107,8 @@ export interface Sim {
   readonly world: World
   readonly land: Land
   readonly occupancy: Occupancy
+  /** Какое покрытие — фундамент, дорога, мост — лежит на каком тайле. См. paving.ts. */
+  readonly paving: Paving
   /** Что видит каждый игрок: по ней хост решает, что слать клиенту, а клиент рисует туман. */
   readonly vision: Vision
   /** Следы на земле: колеи, гарь, остовы. См. traces.ts. */
@@ -180,6 +183,7 @@ export function createSim(source: SimOptions | SimSave): Sim {
     world,
     land: createLand(options.generator),
     occupancy: createOccupancy(world),
+    paving: createPaving(world),
     vision: createVision(world, bounds, () => loop.time.tick, options.fog !== false),
     traces: createTraces(world, () => loop.time.tick, loop.time.step),
     rules,
@@ -197,6 +201,7 @@ export function createSim(source: SimOptions | SimSave): Sim {
     }),
     destroy() {
       sim.occupancy.destroy()
+      sim.paving.destroy()
       world.clear()
     },
   }

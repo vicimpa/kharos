@@ -1,5 +1,6 @@
 import type { Entity } from '../ecs'
 import { Biome, Terrain, biomeAt, terrainAt } from '../map/terrain'
+import { isPaved } from './paved'
 import { BUILDINGS, buildingSpec, isWall, type BuildingType } from './buildings'
 import { NONE, isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './common'
 import { Armed, Blast, Building, Converting, Health, Inventory, Owner, Path, Position, Shot, Site, Turret, Unit } from './components'
@@ -486,6 +487,8 @@ export function fight(sim: Sim) {
       const x = Math.floor(mark.x)
       const y = Math.floor(mark.y)
       if (terrainAt(sim.land, x, y) !== Terrain.Swamp || biomeAt(sim.land, x, y) !== Biome.RedWastes) continue
+      // Мост над болотом не жжёт.
+      if (isPaved(sim, 'road', x, y)) continue
       // Отметка попадания: пока стоит в болоте, не чинится и сам не залечивается.
       mark.health.hit = time.tick
       mark.health.value -= burn

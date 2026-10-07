@@ -2,13 +2,14 @@ import type { Entity } from '../ecs'
 import { tileKey } from '../map/terrain'
 import { BUILDABLE, BUILDINGS, BUILD_RATE, CORE, buildingSpec, canPlace, durabilityOf, equip, newBuilding, siteAt, type BuildingSpec, type BuildingType } from './buildings'
 import { NONE, isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './common'
-import { Building, Builds, Converting, Health, Inventory, Owner, Path, Position, Producer, Repair, Site, Unit } from './components'
+import { Building, Builds, Converting, Health, Inventory, Owner, Path, Pave, Position, Producer, Repair, Site, Unit } from './components'
 import { reserveLeft } from './deposits'
 import { amountOf } from './inventory'
 import { entriesOf, totalOf } from './resources'
 import { addCredits, creditsOf, pay, reward, spend } from './economy'
 import { overbuiltPlants } from './income'
 import type { Sim } from './sim'
+import { buildSpeed, onFoundation, paveCost } from './paving'
 import { inCircles, inForeignZone, zoneOf } from './zones'
 import { carrierOf, turnerOf } from './turrets'
 import { UNITS, clearGround, isWalkable, orderMove, standingUnits, unitsIn } from './units'
@@ -49,10 +50,14 @@ function needsZone(type: BuildingType) {
   return zone === undefined && !defense
 }
 
+/** Стоит ли стройка здесь без зоны: здание её требует, а основание не лежит целиком на готовом фундаменте. */
+const outOfControl = (sim: Sim, player: number, type: BuildingType, x: number, y: number) =>
+  needsZone(type) && !inControl(sim, player, type, x, y) && !onFoundation(sim, type, x, y)
+
 /**
  * Может ли игрок заложить здесь здание: вид строится строителями, место годится, лежит в своей зоне строительства
- * и не задевает чужую. Своей зоны не требуют здание с собственной зоной (оно начинает новую) и оборонительные
- * постройки: их ставят и вне своих зон, но по-прежнему не в чужих.
+ * и не задевает чужую. Своей зоны не требуют здание с собственной зоной (оно начинает новую), оборонительные
+ * постройки и здание на сплошном готовом фундаменте: их ставят и вне своих зон, но по-прежнему не в чужих.
  */
 export function canBuild(sim: Sim, player: number, type: BuildingType, x: number, y: number) {
   if (!BUILDABLE.includes(type) || !canPlace(sim, type, x, y)) return false
@@ -60,7 +65,7 @@ export function canBuild(sim: Sim, player: number, type: BuildingType, x: number
   if (inForeignZone(sim, player, x, y, width, height)) return false
   // Шахта встаёт ровно на месторождение, в котором ещё что-то есть.
   if (buildingSpec(type).extract && reserveLeft(sim, x, y) <= 0) return false
-  return !needsZone(type) || inControl(sim, player, type, x, y)
+  return !outOfControl(sim, player, type, x, y)
 }
 
 /** Во сколько раз чинить быстрее, чем строить, по умолчанию: полностью разбитое чинится за половину времени стройки. См. Sim.rules. */
@@ -116,6 +121,8 @@ function workAt(sim: Sim, entity: Entity): Work | undefined {
   const { world } = sim
   const position = world.get(entity, Position)
   if (!position) return undefined
+  const pave = world.get(entity, Pave)
+  if (pave) return pave.done ? undefined : { x: position.x, y: position.y, width: 1, height: 1, radius: 0, cost: paveCost(sim, pave.kind, position.x, position.y) }
   const type = world.get(entity, Site)?.type
   const repair = type === undefined && isRepairable(sim, entity)
   const unit = repair ? world.get(entity, Unit) : undefined
@@ -299,6 +306,9 @@ function volunteer(sim: Sim) {
   for (const [entity, , site, owner] of world.query(Position, Site, Owner)) {
     sites.push({ entity, work: workAt(sim, entity)!, player: owner.player, type: site.demolish ? undefined : site.type })
   }
+  for (const [entity, , pave, owner] of world.query(Position, Pave, Owner)) {
+    if (!pave.done) sites.push({ entity, work: workAt(sim, entity)!, player: owner.player })
+  }
   // Считается недёшево, поэтому только если есть что чинить, и один раз.
   let overbuilt: Set<Entity> | undefined
   const damaged: Entity[] = []
@@ -323,7 +333,7 @@ function volunteer(sim: Sim) {
       let workable = open.get(site.entity)
       if (workable === undefined) {
         const { type, work } = site
-        workable = type === undefined || !needsZone(type) || inControl(sim, player, type, work.x, work.y)
+        workable = type === undefined || !outOfControl(sim, player, type, work.x, work.y)
         open.set(site.entity, workable)
       }
       if (!workable) continue
@@ -381,6 +391,9 @@ export function repairLinks(sim: Sim): RepairLink[] {
 
   const targets: { entity: Entity; work: Work; player: number; demolish: boolean; ordered: boolean }[] = []
   for (const [entity] of world.query(Site, Position, Owner)) targets.push({ entity, work: workAt(sim, entity)!, player: 0, demolish: false, ordered: false })
+  for (const [entity, pave] of world.query(Pave, Position, Owner)) {
+    if (!pave.done) targets.push({ entity, work: workAt(sim, entity)!, player: 0, demolish: false, ordered: false })
+  }
   for (const [entity, health] of world.query(Health, Position, Owner)) {
     // По кому сейчас бьют, не чинят: посланный строитель постоит рядом и возьмётся, когда бой стихнет.
     if (health.value < health.max && isRepairable(sim, entity) && !underFire(sim, entity)) targets.push({ entity, work: workAt(sim, entity)!, player: 0, demolish: false, ordered: false })
@@ -462,12 +475,14 @@ export function awaitsMaterials(sim: Sim, site: Entity) {
  */
 function isStalled(sim: Sim, entity: Entity) {
   const { world } = sim
+  // Покрытие оплачено сразу и ничего не ждёт.
+  if (world.has(entity, Pave)) return false
   const site = world.get(entity, Site)
   // Бесплатная починка не стоит и без кредитов.
   if (!site) return sim.rules.repairCost > 0 && creditsOf(sim, ownerOf(sim, entity)) <= 0
   if (site.demolish) return false
   const { x, y } = world.get(entity, Position)!
-  if (needsZone(site.type) && !inControl(sim, ownerOf(sim, entity), site.type, x, y)) return true
+  if (outOfControl(sim, ownerOf(sim, entity), site.type, x, y)) return true
   return isSiteBlocked(sim, entity) || awaitsMaterials(sim, entity)
 }
 
@@ -530,6 +545,13 @@ export function construct(sim: Sim) {
 
   const workers = workDone(sim)
   for (const [entity, count] of workers) {
+    const pave = world.get(entity, Pave)
+    if (pave) {
+      const { x, y } = world.get(entity, Position)!
+      pave.work += count
+      if (pave.work >= workTicks(paveCost(sim, pave.kind, x, y), time.step)) pave.done = true
+      continue
+    }
     const site = world.get(entity, Site)
     if (!site) {
       // Починка идёт быстрее стройки и оплачивается по мере работы; кончились кредиты — стоит.
@@ -550,7 +572,7 @@ export function construct(sim: Sim) {
       world.destroy(entity)
       continue
     }
-    if (needsZone(site.type) && !inControl(sim, player, site.type, position.x, position.y)) continue
+    if (outOfControl(sim, player, site.type, position.x, position.y)) continue
     if (!world.has(entity, Building)) {
       // Выгонять пробуют не каждый тик: поиск пути недёшев.
       if (!clearSite(sim, entity, onTurn(time, entity, RETRY_TICKS))) continue
@@ -558,8 +580,9 @@ export function construct(sim: Sim) {
       const durability = durabilityOf(sim, site.type, position.x, position.y)
       world.add(entity, Health({ value: durability, max: durability }))
     }
-    // Дальше привезённых материалов стройка не идёт.
-    site.progress = Math.max(site.progress, Math.min(site.progress + count, siteTicks(site.type, time.step) * materialShare(sim, entity)))
+    // Дальше привезённых материалов стройка не идёт. Фундамент под основанием меняет скорость стройки.
+    const speed = buildSpeed(sim, site.type, position.x, position.y)
+    site.progress = Math.max(site.progress, Math.min(site.progress + count * speed, siteTicks(site.type, time.step) * materialShare(sim, entity)))
     if (site.progress < siteTicks(site.type, time.step)) continue
     world.remove(entity, Site)
     // Материалы ушли в здание; склад у готового здания свой.

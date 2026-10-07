@@ -1,0 +1,135 @@
+import { expect, test } from 'bun:test'
+import type { Entity } from '../src/ecs'
+import { DEFAULT_SETTINGS } from '../src/map/settings'
+import { Terrain, terrainAt } from '../src/map/terrain'
+import {
+  BRIDGE_COST, Building, CORE, FOUNDATION_COST, Owner, Pave, Position, ROAD_COST, ROAD_SPEED, Site, Unit,
+  buildSpeed, canBuild, canPave, createSim, creditsOf, isPaved, spawnStartingUnits, type Sim,
+} from '../src/sim'
+import { terrainSpeed } from '../src/sim/units'
+
+const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
+const TICK = 1 / 20
+const seconds = (sim: Sim, time: number) => {
+  for (let i = 0; i < Math.round(time / TICK); i++) sim.advance(TICK)
+}
+function unitsOf(sim: Sim, type: string) {
+  const found: Entity[] = []
+  for (const [entity, unit] of sim.world.query(Unit)) if (unit.type === type) found.push(entity)
+  return found
+}
+
+/** Игрок 1 развернул главное здание на просторной скале; рядом строители. */
+function start() {
+  const sim = createSim(options)
+  const rock = (x: number, y: number) => {
+    for (let tileY = y; tileY < y + 12; tileY++) {
+      for (let tileX = x; tileX < x + 12; tileX++) if (terrainAt(sim.land, tileX, tileY) !== Terrain.Rock) return false
+    }
+    return true
+  }
+  for (let y = 0; y < 400; y++) {
+    for (let x = 0; x < 400; x++) {
+      if (!rock(x, y)) continue
+      spawnStartingUnits(sim, 1, x + 2, y + 2)
+      sim.send(1, { type: 'deploy', unit: unitsOf(sim, 'mcv')[0] })
+      seconds(sim, 6)
+      let core: Entity | undefined
+      for (const [entity, building, owner] of sim.world.query(Building, Owner)) if (building.type === CORE && owner.player === 1) core = entity
+      return { sim, core: core!, builders: unitsOf(sim, 'builder'), x, y }
+    }
+  }
+  throw new Error('В мире не нашлось места под базу')
+}
+
+/** Ближайший к (x, y) квадрат side×side сплошной местности terrain. */
+function find(sim: Sim, terrain: Terrain, x: number, y: number, side: number) {
+  for (let radius = 0; radius < 200; radius++) {
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue
+        let all = true
+        for (let ty = 0; ty < side && all; ty++) for (let tx = 0; tx < side && all; tx++) all = terrainAt(sim.land, x + dx + tx, y + dy + ty) === terrain
+        if (all) return { x: x + dx, y: y + dy }
+      }
+    }
+  }
+  throw new Error('Не нашлось местности')
+}
+
+/** Кладёт готовое покрытие без строителей. */
+const lay = (sim: Sim, kind: 'foundation' | 'road', x: number, y: number) => sim.world.spawn(Position({ x, y }), Pave({ kind, done: true }), Owner({ player: 1 }))
+
+test('строители кладут дорогу: тайлы оплачены сразу, достраиваются и ускоряют наземных', () => {
+  const { sim, builders, x, y } = start()
+  const credits = creditsOf(sim, 1)
+  const tiles = [x + 5, y + 9, x + 6, y + 9, x + 7, y + 9]
+  sim.send(1, { type: 'pave', kind: 'road', tiles, builders })
+  seconds(sim, TICK)
+  expect(creditsOf(sim, 1)).toBe(credits - 3 * ROAD_COST)
+  expect(isPaved(sim, 'road', x + 5, y + 9)).toBe(false)
+  // На уже покрытый тайл второй раз не кладут.
+  expect(canPave(sim, 1, 'road', x + 5, y + 9)).toBe(false)
+  seconds(sim, 15)
+  for (let i = 0; i < tiles.length; i += 2) expect(isPaved(sim, 'road', tiles[i], tiles[i + 1])).toBe(true)
+  expect(terrainSpeed(sim, 'buggy', x + 6, y + 9)).toBe(ROAD_SPEED)
+  expect(terrainSpeed(sim, 'buggy', x + 6, y + 10)).toBe(1)
+})
+
+test('дорога по болоту — мост: дороже, болото под ним не вязнет', () => {
+  const { sim, x, y } = start()
+  const swamp = find(sim, Terrain.Swamp, x, y, 1)
+  expect(terrainSpeed(sim, 'tank', swamp.x, swamp.y)).toBeLessThan(1)
+  // Фундамент на болото не кладут.
+  expect(canPave(sim, 1, 'foundation', swamp.x, swamp.y)).toBe(false)
+  expect(canPave(sim, 1, 'road', swamp.x, swamp.y)).toBe(true)
+  const credits = creditsOf(sim, 1)
+  sim.send(1, { type: 'pave', kind: 'road', tiles: [swamp.x, swamp.y], builders: [] })
+  seconds(sim, TICK)
+  expect(creditsOf(sim, 1)).toBe(credits - BRIDGE_COST)
+  sim.world.get(sim.paving.at(swamp.x, swamp.y)!, Pave)!.done = true
+  expect(terrainSpeed(sim, 'tank', swamp.x, swamp.y)).toBe(ROAD_SPEED)
+})
+
+test('фундамент на песке разрешает стройку, и вне зоны тоже; недостроенный снимают с возвратом', () => {
+  const { sim, x, y } = start()
+  const sand = find(sim, Terrain.Sand, x + 40, y + 40, 2)
+  expect(canBuild(sim, 1, 'generator', sand.x, sand.y)).toBe(false)
+  for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) lay(sim, 'foundation', sand.x + dx, sand.y + dy)
+  expect(canBuild(sim, 1, 'generator', sand.x, sand.y)).toBe(true)
+  // На песке с фундаментом строят чуть медленнее, чем на голой скале.
+  expect(buildSpeed(sim, 'generator', sand.x, sand.y)).toBeLessThan(1)
+
+  const credits = creditsOf(sim, 1)
+  const rock = find(sim, Terrain.Rock, x + 60, y + 60, 1)
+  sim.send(1, { type: 'pave', kind: 'foundation', tiles: [rock.x, rock.y], builders: [] })
+  seconds(sim, TICK)
+  expect(creditsOf(sim, 1)).toBe(credits - FOUNDATION_COST)
+  sim.send(1, { type: 'unpave', tiles: [rock.x, rock.y] })
+  seconds(sim, TICK)
+  expect(sim.paving.at(rock.x, rock.y)).toBeUndefined()
+  expect(creditsOf(sim, 1)).toBe(credits)
+})
+
+test('на фундаменте на скале здание строится вдвое быстрее', () => {
+  const progress = (paved: boolean) => {
+    const { sim, builders, x, y } = start()
+    const at = { x: x + 7, y: y + 4 }
+    if (paved) for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) lay(sim, 'foundation', at.x + dx, at.y + dy)
+    sim.send(1, { type: 'build', building: 'generator', x: at.x, y: at.y, builders })
+    seconds(sim, 4)
+    for (const [, site] of sim.world.query(Site)) return site.progress
+    return Infinity
+  }
+  const bare = progress(false)
+  const paved = progress(true)
+  expect(bare).toBeGreaterThan(0)
+  expect(paved).toBeGreaterThan(bare * 1.5)
+})
+
+test('по покрытию не стреляют и оно не мешает ходить', () => {
+  const { sim, x, y } = start()
+  const entity: Entity = lay(sim, 'road', x + 5, y + 10)
+  expect(sim.occupancy.at(x + 5, y + 10)).toBeUndefined()
+  expect(sim.world.has(entity, Building)).toBe(false)
+})
