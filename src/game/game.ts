@@ -11,12 +11,13 @@ import { createBoundsPass } from './boundsPass'
 import { createBuildingsPass } from './buildings/buildingsPass'
 import { createCombatPasses } from './combatPass'
 import { Camera } from './camera'
+import { CameraMotion } from './cameraMotion'
 import { createControls } from './controls'
 import { createCursorPass } from './cursorPass'
 import { createDecalsPass } from './decalsPass'
 import { createFogPass } from './fogPass'
 import { createAlerts } from './alerts'
-import { createAmbience } from './ambience'
+import { createMachines } from './machines'
 import { createInterfaceSounds } from './interfaceSounds'
 import { createShake } from './shake'
 import { createSoundscape } from './soundscape'
@@ -82,6 +83,8 @@ export interface Game {
   readonly minimap: Minimap
   /** Ставит центр экрана в точку карты, в тайлах. */
   lookAt(x: number, y: number): void
+  /** Камера летит к точке карты, в тайлах. */
+  flyTo(x: number, y: number): void
   /** Оставляет в выделении только юнитов вида type; remove — убирает их. */
   narrow(type: UnitType, remove: boolean): void
   /** Наводит камеру на выделенное. */
@@ -182,13 +185,14 @@ export function createGame(
     camera.inset.top = top ? Math.max(0, Math.min(frame.height, top.bottom - frame.top)) : 0
     camera.inset.bottom = bottom ? Math.max(0, Math.min(frame.height, frame.bottom - bottom.top)) : 0
   }
-  const controls = showcase ? null : createControls(canvas, scene)
+  const motion = new CameraMotion(camera)
+  const controls = showcase ? null : createControls(canvas, scene, motion)
   const audio = showcase ? null : createAudio()
   const shake = createShake()
   const soundscape = audio && createSoundscape(scene, audio, shake)
   if (!showcase) scene.alerts = createAlerts(scene, audio)
   const silenceInterface = audio ? createInterfaceSounds(session.sim, audio) : null
-  const ambience = audio && createAmbience(scene, audio)
+  const machines = audio && createMachines(scene, audio)
 
   const saveCamera = () => slot && storeCamera(slot, camera)
   let sinceSave = 0
@@ -248,7 +252,7 @@ export function createGame(
     else if (!centered) {
       for (const [entity, position] of sim.world.query(Position, Unit)) {
         if (!isOwn(sim, scene.player, entity)) continue
-        camera.centerOn(position.x, position.y)
+        motion.jump(position.x, position.y)
         centered = true
         break
       }
@@ -266,10 +270,11 @@ export function createGame(
       Math.min(sim.bounds.right, Math.max(sim.bounds.left, focus.x)),
       Math.min(sim.bounds.bottom, Math.max(sim.bounds.top, focus.y)),
     )
+    motion.measure(seconds)
 
-    soundscape?.update(seconds)
+    soundscape?.update(seconds, motion.speed)
     scene.alerts?.update(seconds)
-    ambience?.update(seconds)
+    machines?.update(seconds)
     shake.update(seconds)
 
     sinceSave += seconds
@@ -322,7 +327,8 @@ export function createGame(
       if (tool) scene.placing = null
     },
     minimap: createMinimap(scene),
-    lookAt: (x, y) => camera.centerOn(x, y),
+    lookAt: (x, y) => motion.jump(x, y),
+    flyTo: (x, y) => motion.flyTo(x, y),
     lookAtSelection: () => controls?.lookAtSelection(),
     narrow: (type, remove) => controls?.narrow(type, remove),
     moveSelected(x, y) {

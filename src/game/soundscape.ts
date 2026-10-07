@@ -43,11 +43,20 @@ const MIN_GAP: Partial<Record<SoundName, number>> = {
 const HEARING = 0.8
 /** Издалека слышно тише: при таком масштабе (пикселей на тайл) громкость полная, при вдвое меньшем — вдвое тише. */
 const NEAR_ZOOM = 32
+/**
+ * Ветер полёта: с какой скорости камеры над картой, тайлов в секунду, он начинается и на какой свистит во всю силу.
+ * Между ними — по логарифму: клавиши у земли едва шелестят, издалека и с Shift уже дуют, а бросок к группе свистит.
+ */
+const FLIGHT_START = 20
+const FLIGHT_FULL = 500
+/** Ветер погоды, тайлов в секунду, при котором фон дует во всю силу. */
+const STRONG_WIND = 2.5
 
 /**
- * Звуки боя. Раз в кадр смотрит, какие выстрелы и взрывы появились в мире, и даёт им голос: громкость — по тому,
+ * Звуки мира. Раз в кадр смотрит, какие выстрелы и взрывы появились в мире, и даёт им голос: громкость — по тому,
  * насколько они далеко от середины экрана, сторона — по тому, левее они или правее. Взрывы и выстрелы пушек
  * ещё и трясут камеру: тем сильнее, чем взрыв больше и ближе к середине экрана, а на экране — чем крупнее зум.
+ * Под боем — фон по погоде и высоте камеры, а когда камера несётся над картой, свистит ветер полёта.
  */
 export function createSoundscape(scene: Scene, audio: Audio, shake: ReturnType<typeof createShake>) {
   let shots = new Map<Entity, number>()
@@ -81,7 +90,8 @@ export function createSoundscape(scene: Scene, audio: Audio, shake: ReturnType<t
   }
 
   return {
-    update(seconds: number) {
+    /** speed — как быстро камера несётся над картой, тайлов в секунду. */
+    update(seconds: number, speed: number) {
       clock += seconds
       const { world } = scene.sim
       // Новое — то, чего не было в прошлом кадре, или что моложе прежнего с тем же номером.
@@ -107,6 +117,15 @@ export function createSoundscape(scene: Scene, audio: Audio, shake: ReturnType<t
         jolt(blast.size, position.x, position.y)
       }
       blasts = nextBlasts
+
+      audio.flight(seconds, Math.log(speed / FLIGHT_START) / Math.log(FLIGHT_FULL / FLIGHT_START))
+      const { weather, camera } = scene
+      audio.ambience(seconds, {
+        wind: Math.hypot(weather.windX, weather.windY) / STRONG_WIND,
+        precipitation: weather.precipitation,
+        light: weather.light,
+        altitude: camera.altitude,
+      })
     },
   }
 }

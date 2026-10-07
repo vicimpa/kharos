@@ -1,9 +1,12 @@
 import type { Entity } from '../ecs'
 import { DEPOSIT_SIZE, Harvester, Hauler, depositNear, hasMine, type UnitType, Owner, Position, Repair, isOwn, UNITS, Unit, canAttack, canFight, canHaul, canRepair, isStop, siteAt, BUILDINGS, BRIDGE_COST, FOUNDATION_COST, ROAD_COST, creditsOf } from '../sim'
+import type { CameraMotion } from './cameraMotion'
 import { paveStrokeOf, placementOf } from './placing'
 import type { Scene } from './scene'
 
 const KEY_SPEED = 900 // пикселей экрана в секунду
+/** Во сколько раз быстрее камера с зажатым Shift. */
+const KEY_BOOST = 3
 /** Насколько близко к краю экрана указатель начинает двигать камеру, в пикселях. */
 const EDGE = 6
 /** Сколько миллисекунд между двумя нажатиями цифры считается повтором: камера едет к группе. */
@@ -25,12 +28,13 @@ const RIGHT = 2
  * атаковать его; если её тянуть (или среднюю) — двигается камера.
  * Пока выбирается место под здание: левая кнопка закладывает его, и можно сразу следующее; правая и Esc — отмена.
  * Так же с покрытием: левую кнопку тянут от тайла к тайлу.
- * Колесо — масштаб, WASD, стрелки и указатель у края экрана — камера. T Y U I / G H J K / B N M , — сетка команд
+ * Колесо — масштаб, WASD, стрелки и указатель у края экрана — камера, с Shift — втрое быстрее; камера разгоняется
+ * и тормозит, а брошенная мышью катится дальше (см. cameraMotion.ts). T Y U I / G H J K / B N M , — сетка команд
  * нижней панели (её ведёт интерфейс). Ctrl+цифра — запомнить выделенных группой, цифра — выбрать группу,
  * повторно — ещё и навести на неё камеру. Esc — отменить выбор места, затем снять выделение.
  * Alt+G — сетка тайлов.
  */
-export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
+export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: CameraMotion) {
   const { camera } = scene
   const keys = new Set<string>()
   /** Какая кнопка сейчас зажата на холсте и где её нажали, в пикселях экрана. */
@@ -105,13 +109,14 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
       const to = camera.screenToTile(event.offsetX, event.offsetY)
       scene.selectionBox = { fromX: from.x, fromY: from.y, toX: to.x, toY: to.y }
     } else {
-      camera.moveBy(-event.movementX / camera.zoom, -event.movementY / camera.zoom)
+      motion.drag(event.movementX, event.movementY)
     }
   }
   const onPointerUp = (event: PointerEvent) => {
     if (!pressed || event.button !== pressed.button) return
     const { button, dragged } = pressed
     pressed = null
+    if (button !== LEFT) motion.release()
     const point = camera.screenToTile(event.offsetX, event.offsetY)
 
     if (scene.patrolling) {
@@ -217,6 +222,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
   }
   const onPointerCancel = () => {
     pressed = null
+    motion.release()
     scene.selectionBox = null
   }
   const onPointerLeave = () => {
@@ -225,7 +231,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
   const onWheel = (event: WheelEvent) => {
     event.preventDefault()
     // Точка под курсором остаётся на месте.
-    camera.zoomTo(camera.zoom * Math.exp(-event.deltaY * 0.0015), event.offsetX, event.offsetY)
+    motion.zoomBy(Math.exp(-event.deltaY * 0.0015), event.offsetX, event.offsetY)
   }
   // Правая кнопка занята приказами: меню браузера на холсте не нужно.
   const onContextMenu = (event: Event) => event.preventDefault()
@@ -280,7 +286,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     scene.routing = null
     if (stops.length > 1) scene.sim.send(scene.player, { type: 'route', units: [...scene.selection], stops })
   }
-  /** Наводит камеру на середину выделенного. */
+  /** Камера летит к середине выделенного. */
   const lookAtSelection = () => {
     let x = 0
     let y = 0
@@ -293,7 +299,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
       count++
     }
     if (!count) return
-    camera.centerOn(x / count, y / count)
+    motion.flyTo(x / count, y / count)
   }
   const onKeyUp = (event: KeyboardEvent) => keys.delete(event.code)
   const onBlur = () => {
@@ -316,14 +322,14 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
 
   /** Раз в кадр: двигает камеру, пока зажаты клавиши. seconds — время с прошлого кадра. */
   const update = (seconds: number) => {
-    const step = (KEY_SPEED * seconds) / camera.zoom
+    const speed = KEY_SPEED * (keys.has('ShiftLeft') || keys.has('ShiftRight') ? KEY_BOOST : 1)
     // Указатель у края экрана двигает камеру, пока не тянут рамку и камеру мышью.
     const pointer = pressed ? null : screenPointer
     const edgeX = pointer ? Number(pointer.x >= camera.width - EDGE) - Number(pointer.x <= EDGE) : 0
     const edgeY = pointer ? Number(pointer.y >= camera.height - EDGE) - Number(pointer.y <= EDGE) : 0
     const right = Math.sign(Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft')) + edgeX)
     const down = Math.sign(Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp')) + edgeY)
-    if (right || down) camera.moveBy(right * step, down * step)
+    motion.update(seconds, right * speed, down * speed)
 
     // Погибшие и исчезнувшие выпадают из выделения.
     for (const entity of scene.selection) if (!scene.sim.world.alive(entity)) scene.selection.delete(entity)

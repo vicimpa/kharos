@@ -7,7 +7,7 @@ import type { Scene } from './scene'
 const PERIOD = 0.2
 /** Громкость каждой петли при «полном» звучании: фон тише боя и интерфейса. */
 const LEVELS: Record<LoopName, number> = {
-  hum: 0.22, machinery: 0.25, drill: 0.2, engine: 0.22, tracks: 0.28, steps: 0.16, rotor: 0.22, wind: 0.12,
+  hum: 0.22, machinery: 0.25, drill: 0.2, engine: 0.22, tracks: 0.28, steps: 0.16, rotor: 0.22,
 }
 /**
  * Сколько вблизи звучащих набирают полную громкость: один танк уже слышно, десять — громче, но не вдесятеро.
@@ -18,19 +18,17 @@ const SATURATE = 3
 const HEARING = 0.6
 /** Издалека слышно тише: при таком масштабе (пикселей на тайл) громкость полная. */
 const NEAR_ZOOM = 32
-/** Ветер: тихий всегда, в непогоду — во весь голос. */
-const CALM_WIND = 0.35
 
 /** Чем звучит юнит каждого класса на ходу. */
 const UNIT_LOOPS = { infantry: 'steps', vehicle: 'engine', heavy: 'tracks', air: 'rotor' } as const satisfies Record<string, LoopName>
 
 /**
- * Фон: здания, техника на ходу и ветер. Каждый вид звука — одна петля, сколько бы ни звучало источников: громкость —
+ * Звук работы: здания и техника на ходу. Ветер, погода и даль — в audio/ambience.ts. Каждый вид звука — одна петля, сколько бы ни звучало источников: громкость —
  * по тому, сколько их и насколько они близки к середине экрана, сторона — по тому, где они. Звучит только своё
  * работающее: электростанция гудит всегда, шахта бурит, цех и переработка стучат, пока работают, завод — пока
  * в очереди есть заказ. Юнит звучит, только когда едет.
  */
-export function createAmbience(scene: Scene, audio: Audio) {
+export function createMachines(scene: Scene, audio: Audio) {
   let since = PERIOD
   const sum = new Map<LoopName, number>()
   const side = new Map<LoopName, number>()
@@ -82,11 +80,9 @@ export function createAmbience(scene: Scene, audio: Audio) {
       }
 
       for (const name of Object.keys(LEVELS) as LoopName[]) {
-        if (name === 'wind') continue
         const total = sum.get(name) ?? 0
         audio.loop(name, LEVELS[name] * (1 - Math.exp(-total / SATURATE)), total ? (side.get(name) ?? 0) / total : 0)
       }
-      audio.loop('wind', LEVELS.wind * (CALM_WIND + (1 - CALM_WIND) * Math.min(1, scene.weather.precipitation * 2)), 0)
     },
   }
 }

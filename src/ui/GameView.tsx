@@ -84,6 +84,7 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
           patrol={(start) => gameRef.current?.patrol(start)}
           minimap={gameRef.current.minimap}
           lookAt={(x, y) => gameRef.current?.lookAt(x, y)}
+          flyTo={(x, y) => gameRef.current?.flyTo(x, y)}
           lookAtSelection={() => gameRef.current?.lookAtSelection()}
           narrow={(type, remove) => gameRef.current?.narrow(type, remove)}
           moveSelected={(x, y) => gameRef.current?.moveSelected(x, y)}

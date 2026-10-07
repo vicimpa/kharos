@@ -21,8 +21,10 @@ interface HudProps {
   /** Начать набор точек патруля бойцам; false — отменить. */
   patrol: (start: boolean) => void
   minimap: Minimap
-  /** Камера в точку карты, в тайлах. */
+  /** Камера в точку карты, в тайлах: сразу. */
   lookAt: (x: number, y: number) => void
+  /** Камера летит к точке карты, в тайлах. */
+  flyTo: (x: number, y: number) => void
   /** Камера на выделенное. */
   lookAtSelection: () => void
   /** Оставить в выделении только этот вид юнитов; remove — убрать его. */
@@ -454,7 +456,7 @@ function Info({ state, lookAtSelection, narrow }: { state: HudState; lookAtSelec
 }
 
 /** Интерфейс игрока: верхняя полоса со счётом и нижняя панель — мини-карта, выбранное, сетка команд. */
-export function Hud({ state, send, place, pave, route, patrol, minimap, lookAt, lookAtSelection, narrow, moveSelected, menu }: HudProps) {
+export function Hud({ state, send, place, pave, route, patrol, minimap, lookAt, flyTo, lookAtSelection, narrow, moveSelected, menu }: HudProps) {
   const selected = state.units.length > 0 || state.building !== null
   const fresh = useNewRewards(state.rewards, state.loaded)
 
@@ -547,7 +549,7 @@ export function Hud({ state, send, place, pave, route, patrol, minimap, lookAt, 
       {state.alerts.length > 0 && (
         <div class="hud hud--alerts" role="status">
           {state.alerts.map(({ kind, text, x, y, at }) => (
-            <button key={at} class={`hud__alert is-${kind}`} data-tip="Показать место" onClick={() => lookAt(x, y)}>
+            <button key={at} class={`hud__alert is-${kind}`} data-tip="Показать место" onClick={() => flyTo(x, y)}>
               {text}
             </button>
           ))}
