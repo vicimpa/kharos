@@ -1,4 +1,4 @@
-import { loadMuted, loadVolume, wasActivated } from './audio'
+import { loadLevel, loadMuted, loadVolume, wasActivated } from './audio'
 import { SOUNDS, random, reverbImpulse, type SoundName } from './synth'
 
 /** Громкость музыки при полной громкости игры. */
@@ -62,7 +62,8 @@ export function createMenuMusic(): MenuMusic {
   const buffers = new Map<SoundName, AudioBuffer>()
   const next = random(Date.now() % 100000)
   const between = ([from, to]: number[]) => from + next() * (to - from)
-  const level = () => (loadMuted() ? 0 : LEVEL * loadVolume())
+  const level = () => (loadMuted() ? 0 : LEVEL * loadVolume() * loadLevel('music'))
+  const clickLevel = () => (loadMuted() ? 0 : loadVolume() * loadLevel('interface'))
 
   const start = () => {
     // Браузер всё же создал звук приглушённым — нажатие его будит.
@@ -80,7 +81,7 @@ export function createMenuMusic(): MenuMusic {
     master.gain.linearRampToValueAtTime(level(), audio.currentTime + FADE_IN)
     master.connect(audio.destination)
     clicks = audio.createGain()
-    clicks.gain.value = loadMuted() ? 0 : loadVolume()
+    clicks.gain.value = clickLevel()
     clicks.connect(audio.destination)
     for (const name of ['click', 'hover', 'deny'] as const) {
       const data = SOUNDS[name](rate, 0)
@@ -224,7 +225,7 @@ export function createMenuMusic(): MenuMusic {
   return {
     refresh() {
       if (context && master) master.gain.setTargetAtTime(level(), context.currentTime, 0.1)
-      if (context && clicks) clicks.gain.setTargetAtTime(loadMuted() ? 0 : loadVolume(), context.currentTime, 0.05)
+      if (context && clicks) clicks.gain.setTargetAtTime(clickLevel(), context.currentTime, 0.05)
     },
     destroy() {
       for (const event of events) window.removeEventListener(event, start)

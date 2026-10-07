@@ -1,6 +1,6 @@
 import type { ComponentChildren } from 'preact'
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { loadMuted, loadVolume, storeMuted, storeVolume } from '../audio/audio'
+import { CHANNELS, loadLevel, loadMuted, loadVolume, storeLevel, storeMuted, storeVolume, type Channel } from '../audio/audio'
 import { createMenuMusic, type MenuMusic } from '../audio/music'
 import { createSlot, deleteSave, exportSave, importSave, listSaves, renameSave, type SaveSlot } from '../game/storage'
 import { DEFAULT_SETTINGS } from '../map/settings'
@@ -554,6 +554,7 @@ interface SettingsProps {
 function Settings({ back, onSound }: SettingsProps) {
   const [muted, setMuted] = useState(loadMuted)
   const [volume, setVolume] = useState(loadVolume)
+  const [levels, setLevels] = useState(() => Object.fromEntries(CHANNELS.map(({ channel }) => [channel, loadLevel(channel)])) as Record<Channel, number>)
   return (
     <Window title="Настройки" back={back}>
       <div class="menu__form">
@@ -571,7 +572,7 @@ function Settings({ back, onSound }: SettingsProps) {
           Звук и музыка
         </label>
         <label class="menu__field menu__field--slider">
-          <span>Громкость</span>
+          <span>Общая</span>
           <input
             type="range"
             min={0}
@@ -587,6 +588,27 @@ function Settings({ back, onSound }: SettingsProps) {
           />
           <output>{Math.round(volume * 100)}%</output>
         </label>
+        {/* Громкость групп — доля общей. */}
+        {CHANNELS.map(({ channel, label }) => (
+          <label key={channel} class="menu__field menu__field--slider">
+            <span>{label}</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={levels[channel]}
+              disabled={muted}
+              onInput={(event) => {
+                const value = Number(event.currentTarget.value)
+                storeLevel(channel, value)
+                setLevels({ ...levels, [channel]: value })
+                onSound()
+              }}
+            />
+            <output>{Math.round(levels[channel] * 100)}%</output>
+          </label>
+        ))}
       </div>
     </Window>
   )

@@ -70,6 +70,37 @@ export const storeVolume = (value: number) => {
   }
 }
 
+/** Группы звука со своей громкостью: каждая ещё и под общей. */
+export const CHANNELS = [
+  { channel: 'music', label: 'Музыка' },
+  { channel: 'battle', label: 'Бой' },
+  { channel: 'world', label: 'Мир' },
+  { channel: 'interface', label: 'Интерфейс' },
+] as const
+export type Channel = (typeof CHANNELS)[number]['channel']
+const LEVEL_KEY = 'kharos.level.'
+
+/** Громкость группы по выбору игрока, от 0 до 1. */
+export const loadLevel = (channel: Channel) => {
+  try {
+    const value = Number(localStorage.getItem(LEVEL_KEY + channel) ?? 1)
+    return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 1
+  } catch {
+    return 1
+  }
+}
+
+export const storeLevel = (channel: Channel, value: number) => {
+  try {
+    localStorage.setItem(LEVEL_KEY + channel, String(value))
+  } catch {
+    // Без хранилища выбор живёт до перезагрузки.
+  }
+}
+
+/** Звуки интерфейса: кнопки, приказы, уведомления. Остальные разовые звуки — бой. */
+const INTERFACE_SOUNDS = new Set<SoundName>(['click', 'hover', 'open', 'deny', 'place', 'order', 'attackOrder', 'attacked', 'spotted'])
+
 /**
  * Нажимал ли игрок что-нибудь на этой странице: тогда браузер разрешает звук сразу, без нового нажатия. Так звук
  * не молчит при переходе из меню в игру и обратно. Браузер без userActivation спрашивает нажатие, как раньше.
@@ -87,6 +118,7 @@ export function createAudio(): Audio {
   const buffers = new Map<SoundName, AudioBuffer[]>()
   let flight: Flight | null = null
   let ambience: Ambience | null = null
+  const buses = new Map<Channel, GainNode>()
   let voices = 0
   const loops = new Map<LoopName, { gain: GainNode; panner: StereoPannerNode }>()
   /** Как быстро петля догоняет новую громкость, в секундах: без этого она бы щёлкала. */
@@ -111,6 +143,14 @@ export function createAudio(): Audio {
     master = context.createGain()
     master.gain.value = level()
     master.connect(compressor)
+    // Группы: бой, мир (ветер, даль, полёт, работа зданий и техники) и интерфейс — каждая со своей громкостью.
+    for (const channel of ['battle', 'world', 'interface'] as const) {
+      const bus = context.createGain()
+      bus.gain.value = loadLevel(channel)
+      bus.connect(master)
+      buses.set(channel, bus)
+    }
+    const world = buses.get('world')!
     const rate = context.sampleRate
     const toBuffer = (channels: Float32Array<ArrayBuffer>[]) => {
       const buffer = context!.createBuffer(channels.length, channels[0].length, rate)
@@ -129,12 +169,12 @@ export function createAudio(): Audio {
       ...NOISE_SECONDS.map(([color, seconds]) => () => {
         noises[color] = toBuffer([noiseLoop(rate, seconds, 1, color), noiseLoop(rate, seconds, 2, color)])
       }),
-      () => (flight = createFlight(context!, master!, noises as Noises)),
+      () => (flight = createFlight(context!, world, noises as Noises)),
       () => (impulse = toBuffer(reverbImpulse(rate, REVERB_SECONDS, 1))),
       ...DISTANT_NAMES.map((name) => () => {
         distant.set(name, Array.from({ length: SOUND_VARIANTS }, (_, variant) => toBuffer([DISTANT_SOUNDS[name](rate, variant)])))
       }),
-      () => (ambience = createAmbience(context!, master!, noises as Noises, impulse, distant)),
+      () => (ambience = createAmbience(context!, world, noises as Noises, impulse, distant)),
     ]
     const work = () => {
       if (!context) return
@@ -150,7 +190,7 @@ export function createAudio(): Audio {
       const gain = context.createGain()
       gain.gain.value = 0
       const panner = context.createStereoPanner()
-      source.connect(gain).connect(panner).connect(master)
+      source.connect(gain).connect(panner).connect(world)
       // Петли разной длины начинаются вразнобой: так их стыки не совпадают.
       source.start(0, Math.random() * buffer.duration)
       loops.set(name, { gain, panner })
@@ -178,7 +218,7 @@ export function createAudio(): Audio {
       gain.gain.value = volume
       const panner = context.createStereoPanner()
       panner.pan.value = Math.max(-1, Math.min(1, pan))
-      source.connect(gain).connect(panner).connect(master)
+      source.connect(gain).connect(panner).connect(buses.get(INTERFACE_SOUNDS.has(name) ? 'interface' : 'battle')!)
       voices++
       source.onended = () => {
         voices--

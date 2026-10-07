@@ -36,10 +36,11 @@ export function createInterfaceSounds(sim: Sim, audio: Audio) {
   }
   let hovered: Element | null = null
   const over = (event: PointerEvent) => {
-    const cell = event.target instanceof Element ? event.target.closest('.bar__cell:not(.bar__cell--empty)') : null
+    // Касание — у любой кнопки интерфейса, как в меню: у сетки команд, верхней полосы, ленты уведомлений.
+    const cell = button(event.target)
     if (cell === hovered) return
     hovered = cell
-    if (cell) play('hover', HOVER_VOLUME)
+    if (cell && !cell.disabled) play('hover', HOVER_VOLUME)
   }
   document.addEventListener('pointerdown', down, true)
   document.addEventListener('pointerover', over)
