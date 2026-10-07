@@ -9,6 +9,7 @@ import { acceptsDelivery, deliveryFor, dispatch, mineOre, offersPickup, refinery
 import { GOODS, resourceOf, type Good } from './resources'
 import type { Sim } from './sim'
 import { UNITS } from './units'
+import { runRoutes } from './routes'
 
 /** Сколько ресурсов помещается в грузовик. */
 export const TRUCK_CAPACITY = UNITS.truck.inventory
@@ -59,13 +60,15 @@ function dropJob(sim: Sim, truck: Entity) {
 }
 
 /**
- * Снимает грузовик с работы и с шахты. Дальше он свободен: работу ему даст диспетчер зон (см. logistics.ts),
+ * Снимает грузовик с работы, с шахты и с маршрута. Дальше он свободен: работу ему даст диспетчер зон (см. logistics.ts),
  * а груз в кузове он сначала отвезёт в хранилище или на переработку.
  */
 export function releaseHauler(sim: Sim, truck: Entity) {
   const hauler = sim.world.get(truck, Hauler)
   if (!hauler) return
   hauler.mine = NONE
+  hauler.route = []
+  hauler.stop = 0
   dropJob(sim, truck)
 }
 
@@ -149,6 +152,8 @@ export function haul(sim: Sim) {
     hauler.loading = false
     // Харвестер, пока копает, — забота harvesting.ts: сюда он попадает, только когда везёт руду.
     if (!hauler.full && world.has(entity, Harvester)) continue
+    // Грузовик с маршрутом ездит по нему сам: см. routes.ts.
+    if (hauler.route.length && !world.has(entity, Harvester)) continue
     if (hauler.mine !== NONE && !canHaul(sim, owner.player, hauler.mine as Entity)) {
       // Шахты больше нет: грузовик свободен. Груз остаётся в кузове.
       released.push(entity)
@@ -274,6 +279,7 @@ export function haul(sim: Sim) {
     if (hauler.to === NONE && from !== NONE && returnsTo(sim, from, resource)) hauler.to = from
   }
 
+  runRoutes(sim)
   if (time.tick % DISPATCH_TICKS === 0) dispatch(sim)
   for (const { truck, building, toBuilding } of seeking) seek(sim, truck, building, toBuilding)
 }

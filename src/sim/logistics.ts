@@ -150,7 +150,7 @@ const NOTHING_OFFERED: Good[] = []
  * своего рецепта: изделия и остатки прежнего рецепта. Пусто — ничего. Сколько груза есть на деле, решает
  * availableIn; шахту это не касается, её руду берут только заявкой.
  */
-function offersOf(sim: Sim, entity: Entity): readonly Good[] {
+export function offersOf(sim: Sim, entity: Entity): readonly Good[] {
   const type = sim.world.get(entity, Building)?.type
   if (type === undefined || sim.world.has(entity, Site)) return NOTHING_OFFERED
   const spec = buildingSpec(type)
@@ -338,7 +338,7 @@ const isIdle = (sim: Sim, truck: Entity) => {
   const { world } = sim
   const hauler = world.get(truck, Hauler)!
   const cargo = world.get(truck, Inventory)
-  return !world.has(truck, Harvester) && hauler.mine === NONE && hauler.from === NONE && hauler.to === NONE && (!cargo || loadOf(cargo) <= 1e-9) && !world.has(truck, Path) && !world.has(truck, Converting)
+  return !world.has(truck, Harvester) && !hauler.route.length && hauler.mine === NONE && hauler.from === NONE && hauler.to === NONE && (!cargo || loadOf(cargo) <= 1e-9) && !world.has(truck, Path) && !world.has(truck, Converting)
 }
 
 /**
@@ -377,9 +377,11 @@ export function dispatch(sim: Sim) {
 
     for (const truck of trucks) {
       const room = world.get(truck, Inventory)?.capacity ?? 0
+      const { filter } = world.get(truck, Hauler)!
+      const carries = (resource: Good) => !filter.length || filter.includes(resource)
       let best: (Job & { score: number }) | undefined
       for (const request of requests) {
-        if (request.amount < MIN_JOB) continue
+        if (request.amount < MIN_JOB || !carries(request.resource)) continue
         for (const source of request.source === 'mines' ? mines : request.zone.buildings) {
           if (source === request.to || !offersOf(sim, source).includes(request.resource)) continue
           // Руду шахты, у которой уже есть привязанный грузовик, свободные не возят.
@@ -395,6 +397,7 @@ export function dispatch(sim: Sim) {
         // Заявок нет — увозит готовое из переработки и цехов; куда именно, решит, когда наберёт груз.
         for (const source of outlets) {
           for (const resource of offersOf(sim, source)) {
+            if (!carries(resource)) continue
             const available = availableIn(sim, flows, source, resource)
             const inventory = world.get(source, Inventory)!
             const holds = Math.min(inventory.limits[resource] ?? inventory.capacity, inventory.capacity)

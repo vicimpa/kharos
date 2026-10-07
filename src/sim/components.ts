@@ -92,7 +92,7 @@ export const Deposit = component('Deposit', { mined: 0 })
  * from на склад to; from = -1 — работы нет, to = -1 — куда везти, решится, когда наберёт груз. full — груз набран
  * и едет к to; loading — в этот тик идёт погрузка или выгрузка; waiting — уже получил приказ подъехать к лучу.
  */
-export const Hauler = component('Hauler', {
+export const Hauler = component('Hauler', () => ({
   mine: -1,
   from: -1,
   to: -1,
@@ -101,7 +101,15 @@ export const Hauler = component('Hauler', {
   full: false,
   loading: false,
   waiting: false,
-})
+  /**
+   * Маршрут игрока: здания-остановки, которые грузовик объезжает по кругу вместо заявок зон; stop — к какой
+   * остановке он едет сейчас. Пусто — маршрута нет. См. routes.ts.
+   */
+  route: [] as number[],
+  stop: 0,
+  /** Какие грузы грузовик возит по заявкам и маршруту; пусто — любые. */
+  filter: [] as Good[],
+}))
 
 /**
  * Склад: груз, который лежит в здании или едет в юните. items — сколько какого груза, вместе с рудой; capacity —

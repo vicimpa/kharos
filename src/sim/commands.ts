@@ -11,7 +11,8 @@ import { DEPLOY_SECONDS, PACK_SECONDS, canDeploy, canPack, cancelDeploy, startCo
 import { assignHaulers, releaseHauler } from './hauling'
 import { orderPave, removePave, type PaveKind } from './paving'
 import { cancelUnit, orderUnit } from './production'
-import type { Resource } from './resources'
+import { setFilter, setRoute } from './routes'
+import type { Good, Resource } from './resources'
 import type { Sim } from './sim'
 import { buy, closeSale, sell } from './trade'
 import { UNITS, isWalkable, orderGroupMove, spawnUnit, type UnitType } from './units'
@@ -61,6 +62,10 @@ export type Command =
   | { type: 'cancelBuild'; site: number }
   /** Назначить своё готовое здание под разбор и послать к нему своих строителей. Отменяется через cancelBuild. */
   | { type: 'demolish'; building: number; builders: number[] }
+  /** Дать своим грузовикам маршрут: свои здания-остановки по кругу. Меньше двух остановок — снять маршрут. */
+  | { type: 'route'; units: number[]; stops: number[] }
+  /** Какие грузы возить своим грузовикам; пусто — любые. */
+  | { type: 'filter'; units: number[]; goods: Good[] }
   /** Заложить покрытие в тайлы (x и y подряд) и послать к нему своих строителей. Дорога по болоту — мост. */
   | { type: 'pave'; kind: PaveKind; tiles: number[]; builders: number[] }
   /** Снять своё покрытие с тайлов (x и y подряд): за недостроенное кредиты возвращаются. */
@@ -136,6 +141,10 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
       return setWorking(sim, player, command.building as Entity, !!command.on)
     case 'cancelBuild':
       return cancelBuild(sim, player, command.site as Entity)
+    case 'route':
+      return Array.isArray(command.units) && Array.isArray(command.stops) && setRoute(sim, player, command.units as Entity[], command.stops as Entity[])
+    case 'filter':
+      return Array.isArray(command.units) && Array.isArray(command.goods) && setFilter(sim, player, command.units as Entity[], command.goods)
     case 'pave': {
       if (!Array.isArray(command.tiles) || !Array.isArray(command.builders)) return false
       return orderPave(sim, player, command.kind, command.tiles, command.builders as Entity[]) > 0

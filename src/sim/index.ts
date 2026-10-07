@@ -2,6 +2,7 @@ export { BUILDABLE, BUILDINGS, BUILDING_TYPES, CORE, SAND_DURABILITY, buildingSp
 export { TURN, isOwn, wrap } from './common'
 export { BUILD_RATE } from './buildings'
 export type { BuildingSpec, BuildingType, Occupancy } from './buildings'
+export { ROUTE_LIMIT, carries, isStop } from './routes'
 export { BRIDGE_COST, FOUNDATION_COST, FOUNDATION_ROCK, FOUNDATION_SAND, PAVE_KINDS, PAVE_LIMIT, ROAD_COST, ROAD_SPEED, buildSpeed, canPave, isPaved, onFoundation, paveCost } from './paving'
 export type { PaveKind, Paving } from './paving'
 export type { Command } from './commands'
