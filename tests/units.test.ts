@@ -342,3 +342,19 @@ test('путь, оборванный лимитом поиска, юнит пр�
   const [atX, atY] = tileOf(sim, buggy)
   expect(Math.hypot(atX - goal![0], atY - goal![1])).toBeLessThan(2)
 })
+
+test('юниты, едущие через одну точку навстречу друг другу, доезжают, а не кружат хороводом', () => {
+  for (const type of ['buggy', 'infantry', 'tank'] as const) {
+    const sim = createSim({ generator: { ...DEFAULT_SETTINGS.generator, seed: 7 }, size: 256 })
+    const units: Entity[] = []
+    // По кругу, каждый — к противоположной точке: все пересекаются в центре, и двоим может достаться один тайл.
+    for (let i = 0; i < 24; i++) {
+      const angle = (i / 24) * Math.PI * 2
+      const unit = spawnUnit(sim, type, 1, Math.cos(angle) * 8, Math.sin(angle) * 8)
+      orderMove(sim, unit, Math.floor(-Math.cos(angle) * 8), Math.floor(-Math.sin(angle) * 8))
+      units.push(unit)
+    }
+    for (let tick = 0; tick < 20 * 100 && units.some((unit) => sim.world.has(unit, Path)); tick++) sim.advance(1 / 20)
+    expect(units.filter((unit) => sim.world.has(unit, Path))).toEqual([])
+  }
+})
