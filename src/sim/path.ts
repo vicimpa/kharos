@@ -1,6 +1,9 @@
 /** Можно ли юниту находиться в тайле. */
 export type Walkable = (x: number, y: number) => boolean
-/** Во сколько раз шаг по тайлу дороже шага по ровному: 1 — ровное, больше — медленная местность. Не меньше 1. */
+/**
+ * Во сколько раз шаг по тайлу дороже шага по ровному: 1 — ровное, больше — медленная местность, меньше — дорога.
+ * Не меньше fastest, переданного в findPath.
+ */
 export type Slowness = (x: number, y: number) => number
 
 const EVEN: Slowness = () => 1
@@ -93,21 +96,21 @@ let generation = 0
  * Если до цели не дойти, ведёт к ближайшему к ней тайлу, до которого дойти можно.
  * near — на сколько тайлов достаточно подойти к цели: путь кончается в первом найденном тайле не дальше этого.
  * limit — сколько тайлов поиск осматривает, прежде чем сдаться. slowness — цена шага по тайлу: путь ищется самый быстрый,
- * а не самый короткий.
+ * а не самый короткий; fastest — самая низкая цена шага, какая бывает у этого юнита (дорога).
  */
-export function findPath(walkable: Walkable, fromX: number, fromY: number, toX: number, toY: number, near = 0, limit = SEARCH_LIMIT, slowness = EVEN): number[] {
+export function findPath(walkable: Walkable, fromX: number, fromY: number, toX: number, toY: number, near = 0, limit = SEARCH_LIMIT, slowness = EVEN, fastest = 1): number[] {
   if (Math.abs(toX - fromX) < HALF - 1 && Math.abs(toY - fromY) < HALF - 1) {
-    const path = findNearPath(walkable, fromX, fromY, toX, toY, near, limit, slowness)
+    const path = findNearPath(walkable, fromX, fromY, toX, toY, near, limit, slowness, fastest)
     if (path) return path
   }
-  return findFarPath(walkable, fromX, fromY, toX, toY, near, limit, slowness)
+  return findFarPath(walkable, fromX, fromY, toX, toY, near, limit, slowness, fastest)
 }
 
 /**
  * Поиск пути внутри окна вокруг старта. Возвращает null, если цель не найдена, а поиск упёрся в край окна:
  * тогда путь, возможно, лежит за ним, и искать надо без окна.
  */
-function findNearPath(walkable: Walkable, fromX: number, fromY: number, toX: number, toY: number, near: number, limit: number, slowness: Slowness): number[] | null {
+function findNearPath(walkable: Walkable, fromX: number, fromY: number, toX: number, toY: number, near: number, limit: number, slowness: Slowness, fastest: number): number[] | null {
   if (!stamps) {
     stamps = new Uint32Array(WINDOW * WINDOW)
     costs = new Float64Array(WINDOW * WINDOW)
@@ -122,7 +125,8 @@ function findNearPath(walkable: Walkable, fromX: number, fromY: number, toX: num
   const distance = (x: number, y: number) => {
     const dx = Math.abs(toX - x)
     const dy = Math.abs(toY - y)
-    return Math.max(dx, dy) + (DIAGONAL - 1) * Math.min(dx, dy)
+    // Оценка остатка не дороже самого быстрого пути: иначе поиск не заметил бы дорогу в стороне.
+    return (Math.max(dx, dy) + (DIAGONAL - 1) * Math.min(dx, dy)) * fastest
   }
   /** Можно ли в тайл окна; спрашивает walkable один раз за поиск. */
   const free = (index: number, x: number, y: number) => {
@@ -195,14 +199,15 @@ function findNearPath(walkable: Walkable, fromX: number, fromY: number, toX: num
 }
 
 /** То же, что findPath, но без окна: тайлы хранятся в словарях. Медленнее, зато годится для пути любой длины. */
-function findFarPath(walkable: Walkable, fromX: number, fromY: number, toX: number, toY: number, near: number, limit: number, slowness: Slowness): number[] {
+function findFarPath(walkable: Walkable, fromX: number, fromY: number, toX: number, toY: number, near: number, limit: number, slowness: Slowness, fastest: number): number[] {
   // Тайлы нумеруются относительно старта: поиск не уходит дальше SEARCH_LIMIT шагов, этого окна хватает.
   const SPAN = 1 << 15
   const key = (x: number, y: number) => (y - fromY + SPAN / 2) * SPAN + (x - fromX + SPAN / 2)
   const distance = (x: number, y: number) => {
     const dx = Math.abs(toX - x)
     const dy = Math.abs(toY - y)
-    return Math.max(dx, dy) + (DIAGONAL - 1) * Math.min(dx, dy)
+    // Оценка остатка не дороже самого быстрого пути: иначе поиск не заметил бы дорогу в стороне.
+    return (Math.max(dx, dy) + (DIAGONAL - 1) * Math.min(dx, dy)) * fastest
   }
 
   const cost = new Map<number, number>()
@@ -254,7 +259,8 @@ function findFarPath(walkable: Walkable, fromX: number, fromY: number, toX: numb
 
 /**
  * Свободен ли прямой путь между двумя точками (в тайлах, дробных) с запасом по бокам. Со slowness прямая годится,
- * только если на ней нет тайлов медленнее концов: спрямление не должно срезать угол через болото.
+ * только если на ней нет тайлов медленнее концов: спрямление не должно срезать угол через болото. Если хоть один конец
+ * на дороге, прямая не заходит на тайлы медленнее него: иначе спрямление уводило бы с дороги.
  */
 export function isClear(walkable: Walkable, fromX: number, fromY: number, toX: number, toY: number, slowness = EVEN) {
   const dx = toX - fromX
@@ -264,7 +270,10 @@ export function isClear(walkable: Walkable, fromX: number, fromY: number, toX: n
   const sideX = (-dy / length) * CLEARANCE
   const sideY = (dx / length) * CLEARANCE
   const steps = Math.ceil(length / 0.2)
-  const slowest = Math.max(slowness(Math.floor(fromX), Math.floor(fromY)), slowness(Math.floor(toX), Math.floor(toY)))
+  const from = slowness(Math.floor(fromX), Math.floor(fromY))
+  const to = slowness(Math.floor(toX), Math.floor(toY))
+  // С дороги прямая не сходит: срезав по обочине, юнит ехал бы медленнее, чем по найденному пути.
+  const slowest = Math.min(from, to) < 1 ? Math.min(from, to) : Math.max(from, to)
   for (let i = 0; i <= steps; i++) {
     const x = fromX + (dx * i) / steps
     const y = fromY + (dy * i) / steps

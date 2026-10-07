@@ -2,7 +2,7 @@ import type { Entity } from '../ecs'
 import { Biome, Terrain, biomeAt, isPassable, terrainAt, tileKey } from '../map/terrain'
 import { FOUNDATION_SPEED, ROAD_SPEED, isPaved } from './paved'
 import { isOwn } from './common'
-import { Armed, Converting, Hauler, Harvester, Health, Owner, Repair, Path, Position, Producer, Unit } from './components'
+import { Armed, Converting, Hauler, Harvester, Health, Owner, Repair, Path, Pave, Position, Producer, Unit } from './components'
 import { STARTING_CREDITS, addCredits } from './economy'
 import { equipStorage, type BeamSpec } from './inventory'
 import type { Amounts } from './resources'
@@ -156,13 +156,53 @@ export function isWalkable(sim: Sim, x: number, y: number) {
 /** Медленнее этой доли скорости местность не замедляет: иначе юнит застрял бы навсегда. */
 const SLOWEST = 0.05
 
+/**
+ * Сколько тайлов в поперечнике покрытия нужно юниту, чтобы ехать по нему быстрее: юниту шире тайла — полоса в два.
+ */
+const paveWidthOf = (type: UnitType) => (UNITS[type].radius > 0.5 ? 2 : 1)
+
+/** Хватает ли юниту ширины покрытия в тайле (x, y): тайл лежит в квадрате готового покрытия его ширины. */
+function pavedFor(sim: Sim, type: UnitType, x: number, y: number) {
+  const width = paveWidthOf(type)
+  const paved = (tileX: number, tileY: number) => isPaved(sim, 'road', tileX, tileY) || isPaved(sim, 'foundation', tileX, tileY)
+  for (let top = y - width + 1; top <= y; top++) {
+    search: for (let left = x - width + 1; left <= x; left++) {
+      for (let tileY = top; tileY < top + width; tileY++) for (let tileX = left; tileX < left + width; tileX++) if (!paved(tileX, tileY)) continue search
+      return true
+    }
+  }
+  return false
+}
+
+/** На сколько тайлов в стороне от прямоугольника между началом и целью пути ещё ищут дорогу. */
+const ROAD_DETOUR = 12
+
+/** Лежит ли готовая дорога рядом с прямоугольником между двумя тайлами. */
+function roadNear(sim: Sim, fromX: number, fromY: number, toX: number, toY: number) {
+  const left = Math.min(fromX, toX) - ROAD_DETOUR
+  const right = Math.max(fromX, toX) + ROAD_DETOUR
+  const top = Math.min(fromY, toY) - ROAD_DETOUR
+  const bottom = Math.max(fromY, toY) + ROAD_DETOUR
+  for (const [, position, pave] of sim.world.query(Position, Pave)) {
+    if (pave.done && pave.kind === 'road' && position.x >= left && position.x <= right && position.y >= top && position.y <= bottom) return true
+  }
+  return false
+}
+
+/** Самая высокая доля скорости, какая бывает у юнита: по нему поиск пути оценивает, сколько ещё ехать. */
+export const fastestOf = (type: UnitType) => (UNITS[type].kind === 'heavy' || UNITS[type].kind === 'air' ? 1 : ROAD_SPEED)
+
 /** Доля полной скорости юнита type на тайле (x, y): по скале и в воздухе — 1, песок и болото замедляют, см. Rules; дорога ускоряет. */
 export function terrainSpeed(sim: Sim, type: UnitType, x: number, y: number) {
   const { kind } = UNITS[type]
   if (kind === 'air') return 1
-  // По дороге и мосту быстрее, чем по скале, по фундаменту — чуть быстрее; местность под ними не мешает.
-  if (isPaved(sim, 'road', x, y)) return ROAD_SPEED
-  if (isPaved(sim, 'foundation', x, y)) return FOUNDATION_SPEED
+  // Покрытие убирает замедление местности: болото под мостом не вязнет. Быстрее скалы по нему едут колёсные и пехота,
+  // и то, если покрытие не уже их самих; гусеничным всё равно, по чему ехать.
+  const road = isPaved(sim, 'road', x, y)
+  if (road || isPaved(sim, 'foundation', x, y)) {
+    if (kind === 'heavy' || !pavedFor(sim, type, x, y)) return 1
+    return road ? ROAD_SPEED : FOUNDATION_SPEED
+  }
   const terrain = terrainAt(sim.land, x, y)
   if (terrain === Terrain.Sand) return Math.max(SLOWEST, 1 - sim.rules[`${kind}Sand`])
   if (terrain === Terrain.Swamp) {
@@ -306,7 +346,9 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
   // Шаг по тайлу стоит столько, сколько по нему ехать: медленные пески и болота путь объезжает, если выходит быстрее.
   const slowness = (tileX: number, tileY: number) => 1 / terrainSpeed(sim, type, tileX, tileY)
   // Подход на расстояние ищется недолго: не вышло обойти — юнит встанет поближе и попробует оттуда.
-  const tiles = findPath(walkable, fromX, fromY, x, y, near, near ? APPROACH_LIMIT : limit, slowness)
+  // Оценка с запасом на дорогу дороже обычной — поиск осматривает больше тайлов; нужна она, только если дорога рядом.
+  const fastest = fastestOf(type) > 1 && roadNear(sim, fromX, fromY, x, y) ? 1 / fastestOf(type) : 1
+  const tiles = findPath(walkable, fromX, fromY, x, y, near, near ? APPROACH_LIMIT : limit, slowness, fastest)
   // Уже достаточно близко, а идти всё равно велят: значит, надо подойти вплотную. Цель рядом — и искать недолго.
   if (near && !tiles.length && (fromX - x) ** 2 + (fromY - y) ** 2 <= near * near) return orderMove(sim, entity, x, y, ignore, tries, 0, APPROACH_LIMIT)
   // Юнит идёт по центрам тайлов.

@@ -3,10 +3,10 @@ import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Terrain, terrainAt } from '../src/map/terrain'
 import {
-  BRIDGE_COST, Building, CORE, FOUNDATION_COST, Owner, Pave, Position, ROAD_COST, ROAD_SPEED, Site, Unit,
+  BRIDGE_COST, Building, Path, CORE, FOUNDATION_COST, Owner, Pave, Position, ROAD_COST, ROAD_SPEED, Site, Unit,
   FOUNDATION_SPEED, buildSpeed, canBuild, canPave, canPlace, createSim, creditsOf, isPaved, spawnStartingUnits, type Sim,
 } from '../src/sim'
-import { spawnUnit, terrainSpeed } from '../src/sim/units'
+import { orderMove, spawnUnit, terrainSpeed } from '../src/sim/units'
 import { canDeploy } from '../src/sim/conversion'
 import { breakSlabs } from '../src/sim/combat'
 import { inCircles, zoneOf, zonesOf } from '../src/sim/zones'
@@ -98,7 +98,9 @@ test('дорога по болоту — мост: дороже, болото п
   seconds(sim, TICK)
   expect(creditsOf(sim, 1)).toBe(credits - BRIDGE_COST)
   sim.world.get(sim.paving.at(swamp.x, swamp.y)!, Pave)!.done = true
-  expect(terrainSpeed(sim, 'tank', swamp.x, swamp.y)).toBe(ROAD_SPEED)
+  // Колёсные по мосту едут быстрее, гусеничные — как по скале: болото под мостом не вязнет, но и дорога им не помогает.
+  expect(terrainSpeed(sim, 'buggy', swamp.x, swamp.y)).toBe(ROAD_SPEED)
+  expect(terrainSpeed(sim, 'tank', swamp.x, swamp.y)).toBe(1)
 })
 
 test('фундамент на песке разрешает стройку, но зону не заменяет', () => {
@@ -238,4 +240,43 @@ test('полоса фундамента соединяет зону главно
   expect(zonesOf(sim, 1).length).toBe(1)
   expect(zoneWith(generator)).toBe(zoneWith(core))
   expect(zoneWith(yard)).toBe(zoneWith(core))
+})
+
+test('широкому юниту узкая дорога не помогает: ему нужна полоса в два тайла', () => {
+  const { sim, x, y } = start()
+  for (let dx = 0; dx < 4; dx++) lay(sim, 'road', x + 4 + dx, y + 9)
+  expect(terrainSpeed(sim, 'truck', x + 5, y + 9)).toBe(ROAD_SPEED)
+  expect(terrainSpeed(sim, 'harvester', x + 5, y + 9)).toBe(1)
+  for (let dx = 0; dx < 4; dx++) lay(sim, 'road', x + 4 + dx, y + 10)
+  expect(terrainSpeed(sim, 'harvester', x + 5, y + 9)).toBe(ROAD_SPEED)
+  expect(terrainSpeed(sim, 'harvester', x + 5, y + 10)).toBe(ROAD_SPEED)
+})
+
+test('путь колёсных сворачивает на дорогу, если по ней быстрее; гусеничные едут напрямик', () => {
+  const sim = createSim(options)
+  // Полоса скалы 30×7: дорога идёт вдоль неё в двух тайлах от прямой между началом и целью.
+  let at = { x: 0, y: 0 }
+  search: for (let ty = -200; ty < 200; ty++) {
+    for (let tx = -200; tx < 200; tx++) {
+      let ok = true
+      for (let yy = ty; yy < ty + 7 && ok; yy++) for (let xx = tx; xx < tx + 30 && ok; xx++) ok = terrainAt(sim.land, xx, yy) === Terrain.Rock
+      if (ok) {
+        at = { x: tx, y: ty }
+        break search
+      }
+    }
+  }
+  const row = at.y + 5
+  for (let tx = at.x + 1; tx < at.x + 29; tx++) lay(sim, 'road', tx, row)
+  const onRoad = (type: 'buggy' | 'tank') => {
+    const unit = spawnUnit(sim, type, 1, at.x + 1, at.y + 2)
+    orderMove(sim, unit, at.x + 28, at.y + 2)
+    const points = sim.world.get(unit, Path)!.points
+    sim.world.destroy(unit)
+    let count = 0
+    for (let i = 0; i < points.length; i += 2) if (Math.floor(points[i + 1]) === row) count++
+    return count
+  }
+  expect(onRoad('buggy')).toBeGreaterThan(0)
+  expect(onRoad('tank')).toBe(0)
 })
