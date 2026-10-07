@@ -115,11 +115,8 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     const point = camera.screenToTile(event.offsetX, event.offsetY)
 
     if (scene.patrolling) {
-      // Левый щелчок — точка патруля; с Shift — набор продолжается, без — патруль уходит. Правый — патруль по набранному.
-      if (button === LEFT && !dragged) {
-        scene.patrolling.push(Math.floor(point.x), Math.floor(point.y))
-        if (!event.shiftKey) finishPatrol()
-      }
+      // Левый щелчок — ещё точка патруля; правый — патруль уходит по набранным.
+      if (button === LEFT && !dragged) scene.patrolling.push(Math.floor(point.x), Math.floor(point.y))
       if (button === RIGHT && !dragged) finishPatrol()
     } else if (scene.routing) {
       // Левый щелчок по своему зданию со складом — ещё остановка; правый — маршрут готов.

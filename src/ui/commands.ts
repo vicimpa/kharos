@@ -187,7 +187,7 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
     slots[4] = {
       label: tactics.picking === null ? 'Патруль' : `Патруль: ${tactics.picking}`,
       active: tactics.picking !== null || tactics.patrolling > 0,
-      title: 'Щёлкни точку на карте — бойцы будут ходить туда и обратно; с Shift — ещё точка; правая кнопка или Enter — готово, Esc — отмена',
+      title: 'Щёлкай точки на карте по порядку — бойцы будут обходить их по кругу; правая кнопка или Enter — в путь, Esc — отмена',
       run: () => patrol(tactics.picking === null),
     }
   }
