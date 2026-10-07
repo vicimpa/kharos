@@ -267,8 +267,12 @@ const command: BuildingArt = {
 
     slab(g, 12, -8, 24, 24, 5, STEEL)
     windows(g, [14, 19, 26, 31], 11)
-    tower(g, 24, 3, 7, 3, STEEL)
-    lamp(g, light, 24, 0, 3, pulse(t))
+    // Платформа пушки: на ней стоит турель главного здания (см. mounts в sim/buildings.ts).
+    g.circle(24, 6, 9.5, INK)
+    g.circle(24, 6, 8.5, IRON[1])
+    g.circle(24, 6, 7, IRON[0])
+    for (const [x, y] of [[17, 6], [31, 6], [24, -1], [24, 13]]) g.rect(x - 0.5, y - 0.5, 1, 1, IRON[2])
+    lamp(g, light, 14, -5, 2, pulse(t))
 
     tower(g, 38, 20, 2, 7, IRON)
     bulb(g, light, 37, 12, chase(t * 2, 0))

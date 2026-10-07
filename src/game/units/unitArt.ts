@@ -132,7 +132,7 @@ function legs(p: Pen, phase: number) {
   }
 }
 
-/** MCV: широкая гусеничная машина с кабиной спереди и куполом будущего ядра. */
+/** MCV: широкая гусеничная машина с кабиной спереди и пушкой будущего ядра на крыше. */
 const mcv: UnitArt = (g, angle, team, phase) => {
   const p = pen(g, angle)
   for (const side of [-8, 8]) {
@@ -145,9 +145,8 @@ const mcv: UnitArt = (g, angle, team, phase) => {
   p.bar(-10, 11, -5, 2, STEEL[2])
   p.bar(6, 11, 0, 10, STEEL[3])
   p.bar(8, 10, 0, 6, team[2])
-  p.dot(-3, 0, 5, INK)
-  p.dot(-3, 0, 4, team[0])
-  p.dot(-4, -1, 2, team[1])
+  // Пушка будущего ядра едет на крыше, стволами вперёд.
+  coreGun(p, -3, 15, team)
 }
 
 /** Строитель: небольшая колёсная машина со стрелой. */
@@ -623,21 +622,25 @@ const gunnerTurret: UnitArt = (g, angle, team) => {
   p.dot(-1, -0.6, 0.9, team[2])
 }
 
-/** Пушка главного здания: широкий купол цвета команды и спаренный излучатель с голубыми линзами. */
-const coreTurret: UnitArt = (g, angle, team) => {
-  const p = pen(g, angle)
-  for (const side of [-1.8, 1.8]) {
-    p.bar(2, 12, side, 2.4, INK)
-    p.bar(2.5, 11.5, side, 1.2, IRON[3])
-    p.dot(11.6, side, 1.1, ENERGY[1])
-    p.dot(11.6, side, 0.5, ENERGY[2])
+/**
+ * Пушка главного здания: широкий купол цвета команды с линзой и спаренный излучатель с голубыми концами. Купол —
+ * along пикселей вперёд от центра, стволы длиной reach. Та же пушка стоит на крыше главного здания и на MCV.
+ */
+function coreGun(p: Pen, along: number, reach: number, team: TeamColors) {
+  for (const side of [-2.2, 2.2]) {
+    p.bar(along + 2, along + reach, side, 2.8, INK)
+    p.bar(along + 2.5, along + reach - 0.5, side, 1.4, IRON[3])
+    p.dot(along + reach, side, 1.3, ENERGY[1])
+    p.dot(along + reach, side, 0.6, ENERGY[2])
   }
-  p.dot(0, 0, 6.4, INK)
-  p.dot(0, 0, 5.4, STEEL[2])
-  p.dot(-0.8, 0, 4.2, team[0])
-  p.dot(-1.6, -1.6, 1.8, team[1])
-  p.dot(1.5, 0, 1.6, INK)
-  p.dot(1.5, 0, 1, ENERGY[0])
+  p.dot(along, 0, 7.2, INK)
+  p.dot(along, 0, 6.2, STEEL[2])
+  p.dot(along - 0.8, 0, 4.8, team[0])
+  p.dot(along - 1.8, -1.8, 2, team[1])
+  p.dot(along + 2.2, 0, 1.8, INK)
+  p.dot(along + 2.2, 0, 1.1, ENERGY[0])
 }
+
+const coreTurret: UnitArt = (g, angle, team) => coreGun(pen(g, angle), 0, 14, team)
 
 export const TURRET_ART = { gunner: gunnerTurret, arc: arcTurret, cannon: cannonTurret, rocket: rocketTurret, repair: repairTurret, core: coreTurret } satisfies Record<TurretType, UnitArt>
