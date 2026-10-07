@@ -2,7 +2,7 @@
 
 Многопользовательская браузерная RTS в духе Rusted Warfare и Rust. Игрок начинает не с готовой базы, а с машины-основателя (MCV) и пары строителей. Дальше он разворачивает поселение на процедурной карте, добывает и перерабатывает руду, налаживает грузовую логистику и защищает базу.
 
-![База у месторождения](docs/screenshots/base.png)
+![База на фундаменте у перекрёстка дорог](docs/screenshots/base.png)
 
 ## Что уже есть
 
@@ -17,8 +17,8 @@
 
 | | |
 | --- | --- |
-| ![Оборона отбивает волну](docs/screenshots/defense.png) | ![Танковый бой](docs/screenshots/battle.png) |
-| ![Ночная стройка](docs/screenshots/night.png) | ![Интерфейс игры](docs/screenshots/interface.png) |
+| ![Стена с турелями держит штурм](docs/screenshots/defense.png) | ![Бой техники и авиации](docs/screenshots/battle.png) |
+| ![База ночью](docs/screenshots/night.png) | ![Меню стройки с описанием здания](docs/screenshots/interface.png) |
 
 ## Запуск
 
