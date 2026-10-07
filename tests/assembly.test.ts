@@ -3,7 +3,7 @@ import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import {
   Assembly, Building, BUILDINGS, BUY_MARKUP, BUY_SECONDS, Health, Inventory, PRODUCT_SPECS, RESOURCE_SPECS, Trade, buyPrice, creditsOf, UNITS, WEAPONS, amountOf, canPlace, createSim, cycleSeconds,
-  stockOf, type BuildingType, type Good, type Sim,
+  hasRoom, stockOf, type BuildingType, type Good, type Sim,
 } from '../src/sim'
 import { STORES, placeBuilding, storeFor } from '../src/sim/buildings'
 import type { Amounts, Ware } from '../src/sim/resources'
@@ -53,26 +53,38 @@ function base(extra: BuildingType[]) {
   throw new Error('Не нашлось места под базу')
 }
 
-test('завод стройблоков собирает их из сырья хранилищ, отвозит в хранилище и встаёт на норме', () => {
-  const { sim, x, y, store, stash, buildings } = base(['blockPlant'])
+test('завод стройблоков собирает их из сырья хранилищ, отвозит в хранилище и встаёт, когда сырьё кончилось', () => {
+  const { sim, x, y, stash, buildings } = base(['blockPlant'])
   const [workshop] = buildings
   expect(sim.world.get(workshop, Assembly)!.recipe).toBe('blocks')
-  stash({ metal: 60, silicon: 30 })
+  stash({ metal: 20, silicon: 10 })
   sim.send(1, { type: 'work', building: workshop, on: true })
   for (let i = 0; i < 2; i++) spawnUnit(sim, 'truck', 1, x + 2 + i * 2, y + 5)
 
   const blocks = () => stockOf(sim, 1).items.blocks ?? 0
-  const { stock, recipe } = PRODUCT_SPECS.blocks
-  // Норма — 20 блоков: 60 секунд сборки плюс подвоз.
-  until(sim, () => blocks() + good(sim, workshop, 'blocks') >= stock)
+  // Сырья — на 10 сборок: нормы нет, цех съедает его целиком.
+  until(sim, () => blocks() + good(sim, workshop, 'blocks') >= 10)
   seconds(sim, cycleSeconds('blocks') * 5)
-  const made = blocks() + good(sim, workshop, 'blocks')
-  expect(made).toBe(stock)
-  // Сырьё ушло ровно на сделанное, а что осталось лишнего — лежит в хранилищах и у цеха про запас.
-  const metalLeft = (stockOf(sim, 1).items.metal ?? 0) + good(sim, workshop, 'metal')
-  expect(metalLeft).toBeCloseTo(60 - stock * recipe.metal)
+  expect(blocks() + good(sim, workshop, 'blocks')).toBe(10)
+  expect((stockOf(sim, 1).items.metal ?? 0) + good(sim, workshop, 'metal')).toBeCloseTo(0)
   // Свободные грузовики увезли готовое в хранилища: цех не копит его у себя.
   expect(blocks()).toBeGreaterThan(0)
+})
+
+test('цех встаёт, когда готовому некуда лечь', () => {
+  const { sim, x, y, stash, buildings } = base(['ammoPlant'])
+  const [plant] = buildings
+  stash({ metal: 500 })
+  sim.send(1, { type: 'work', building: plant, on: true })
+  for (let i = 0; i < 2; i++) spawnUnit(sim, 'truck', 1, x + 2 + i * 2, y + 5)
+  seconds(sim, 240)
+  const metal = () => (stockOf(sim, 1).items.metal ?? 0) + good(sim, plant, 'metal')
+  const before = metal()
+  seconds(sim, 30)
+  // Бункер и склад цеха полны: металл больше не тратится, хотя его ещё много.
+  expect(metal()).toBe(before)
+  expect(before).toBeGreaterThan(100)
+  expect(hasRoom(sim, plant)).toBe(false)
 })
 
 test('новый завод выключен: сырья не заказывает; выключенный доделывает сборку, а сырьё увозят', () => {

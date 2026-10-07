@@ -349,15 +349,15 @@ function Info({ state, lookAtSelection, narrow }: { state: HudState; lookAtSelec
               <Stacks items={assembly.inputs} /> → <Res resource={assembly.recipe} amount={assembly.yield} /> за {assembly.seconds} с
             </div>
             <Progress value={assembly.progress}>
-              {PRODUCT_NAMES[assembly.recipe]}: {assembly.have} из {assembly.stock} —{' '}
+              {PRODUCT_NAMES[assembly.recipe]} в зоне: {assembly.have} —{' '}
               {!assembly.on
                 ? assembly.progress > 0
                   ? 'выключен, доделывает сборку'
                   : 'выключен'
                 : assembly.progress > 0
                   ? 'собирает'
-                  : assembly.have >= assembly.stock
-                    ? 'норма набрана, ждёт'
+                  : assembly.full
+                    ? 'хранилища полны, ждёт'
                     : 'ждёт сырья'}
             </Progress>
             {!assembly.on && <div class="hud__hint is-short">Завод выключен: включи его в сетке справа</div>}

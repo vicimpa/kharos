@@ -39,24 +39,18 @@ export function setWorking(sim: Sim, player: number, entity: Entity, on: boolean
 }
 
 /**
- * Раз в тик: цеха собирают изделия. Сборка начинается, когда на складе есть сырьё на неё и место под готовое,
- * а изделий у зоны меньше нормы (ProductSpec.stock), — тогда сырьё сразу уходит в работу. При нехватке энергии
+ * Раз в тик: цеха собирают изделия. Сборка начинается, когда на складе есть сырьё на неё и место под готовое, —
+ * тогда сырьё сразу уходит в работу. Хранилища полны — грузовикам некуда увезти готовое, склад цеха забивается,
+ * и цех встаёт сам. При нехватке энергии
  * сборка идёт медленнее. Готовое кладётся на склад цеха, откуда его разбирают заявки и вывозят грузовики
  * (см. logistics.ts).
  */
 export function assemble(sim: Sim, time: Time) {
   const { world } = sim
   const working: Entity[] = []
-  const zones = new Map<number, readonly Zone[]>()
-  for (const [entity, assembly, , owner] of world.query(Assembly, Inventory, Owner)) {
+  for (const [entity, assembly] of world.query(Assembly, Inventory)) {
     if (world.has(entity, Site)) continue
-    if (assembly.progress > 0) {
-      working.push(entity)
-      continue
-    }
-    if (!assembly.on || !canStart(sim, entity)) continue
-    if (!zones.has(owner.player)) zones.set(owner.player, zonesOf(sim, owner.player))
-    if (stockedIn(sim, zones.get(owner.player)!, entity, assembly.recipe) < productSpec(assembly.recipe).stock) working.push(entity)
+    if (assembly.progress > 0 || (assembly.on && canStart(sim, entity))) working.push(entity)
   }
   if (!working.length) return
   // Считается недёшево, поэтому только когда есть что собирать, и один раз за тик.
@@ -81,8 +75,7 @@ export function assemble(sim: Sim, time: Time) {
 
 /**
  * Сколько изделия уже есть у зоны цеха: в хранилищах и на складах всех её цехов, а ещё в кузовах грузовиков
- * игрока — иначе цех не видел бы того, что везут из него в хранилище, и собирал бы сверх нормы. По этому числу
- * цех решает, дошёл ли он до нормы. Цех вне зон считает только свой склад и грузовики.
+ * игрока. Цех вне зон считает только свой склад и грузовики.
  */
 export function stockedIn(sim: Sim, zones: readonly Zone[], entity: Entity, product: Product) {
   const { world } = sim
@@ -99,7 +92,7 @@ export function stockedIn(sim: Sim, zones: readonly Zone[], entity: Entity, prod
   return total
 }
 
-/** Сколько изделия рецепта цеха уже есть у его зоны: столько интерфейс показывает рядом с нормой. */
+/** Сколько изделия рецепта цеха уже есть у его зоны: столько показывает интерфейс. */
 export function productStock(sim: Sim, entity: Entity) {
   const assembly = sim.world.get(entity, Assembly)
   const player = sim.world.get(entity, Owner)?.player
@@ -107,10 +100,16 @@ export function productStock(sim: Sim, entity: Entity) {
   return stockedIn(sim, zonesOf(sim, player), entity, assembly.recipe)
 }
 
+/** Есть ли у цеха место под готовое одной сборки: нет — хранилища полны, и цех стоит. */
+export function hasRoom(sim: Sim, entity: Entity) {
+  const assembly = sim.world.get(entity, Assembly)!
+  return roomFor(sim.world.get(entity, Inventory)!, assembly.recipe) >= productSpec(assembly.recipe).yield - EPSILON
+}
+
 /** Можно ли начать сборку: сырьё на месте и под готовое есть место. */
 function canStart(sim: Sim, entity: Entity) {
   const assembly = sim.world.get(entity, Assembly)!
   const inventory = sim.world.get(entity, Inventory)!
-  if (roomFor(inventory, assembly.recipe) < productSpec(assembly.recipe).yield - EPSILON) return false
+  if (!hasRoom(sim, entity)) return false
   return recipeOf(assembly.recipe).every(([resource, amount]) => amountOf(inventory, resource) >= amount - EPSILON)
 }

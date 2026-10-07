@@ -2,7 +2,7 @@ import type { Replica } from '../net/replica'
 import { knownReserve } from './knownReserve'
 import type { Entity } from '../ecs'
 import {
-  Assembly, Harvester, BUILDABLE, isUnlocked, buyPrice, roomFor, BUILDINGS, Building, Converting, Hauler, Health, CORE, GOODS, PRODUCT_SPECS, REFINE_RATE, RESOURCES, RESOURCE_SPECS, buildingSpec, cycleSeconds, isOwn, missingRequirements, producibleBy, productStock, Trade, Inventory, amountOf, loadOf, deliveredTo, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit, unitSpec,
+  Assembly, Harvester, BUILDABLE, isUnlocked, buyPrice, roomFor, BUILDINGS, Building, Converting, Hauler, Health, CORE, GOODS, PRODUCT_SPECS, REFINE_RATE, RESOURCES, RESOURCE_SPECS, buildingSpec, cycleSeconds, isOwn, missingRequirements, producibleBy, productStock, hasRoom, Trade, Inventory, amountOf, loadOf, deliveredTo, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit, unitSpec,
   awaitsMaterials, buildTicks, canDemolish, canFight, canDeploy, canPack, depositAt, depositNear, DEPOSIT_SIZE, entriesOf, isDeployBlocked, creditsOf, economyOf, isSiteBlocked, materialsFor, reserveLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, spareOf, zoneEconomies, zonesOf,
   Position, Tactics, isDefeated, stanceOf, type Stance, type Amounts, type BuildingType, type Command, type DepositKind, type Good, type Ore, type Product, type Resource, type UnitType,
 } from '../sim'
@@ -60,7 +60,7 @@ export interface HudState {
   /** Переработка: какую руду она принимает и сколько в секунду. */
   refinery: { ore: Ore; intake: number } | null
   /**
-   * Завод изделий: что собирает, включён ли, готовность нынешней сборки от 0 до 1, норма и сколько изделия уже
+   * Завод изделий: что собирает, включён ли, готовность нынешней сборки от 0 до 1 и сколько изделия уже
    * есть у зоны; inputs — из чего одна сборка, yield — сколько штук она даёт и за сколько секунд.
    */
   assembly: {
@@ -69,7 +69,8 @@ export interface HudState {
     on: boolean
     progress: number
     have: number
-    stock: number
+    /** Готовому некуда лечь: хранилища полны, цех стоит. */
+    full: boolean
     inputs: Stack[]
     yield: number
     seconds: number
@@ -290,7 +291,7 @@ export function readHud(scene: Scene): HudState {
         on: assembling.on,
         progress: round(Math.min(1, assembling.progress / cycleSeconds(assembling.recipe))),
         have: Math.floor(productStock(sim, entity)),
-        stock: spec.stock,
+        full: !hasRoom(sim, entity),
         inputs: exactOf(spec.recipe),
         yield: spec.yield,
         seconds: cycleSeconds(assembling.recipe),

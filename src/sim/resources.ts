@@ -46,25 +46,22 @@ export const resourceOf = (ore: Ore): Resource => ORE_SPECS[ore].resource
 export const ORE_OF = Object.fromEntries(ORES.map((ore) => [ORE_SPECS[ore].resource, ore])) as Record<Resource, Ore>
 
 /**
- * Рецепт изделия: что уходит на одну сборку и сколько штук она даёт. stock — норма: цех собирает, пока изделий
- * в хранилищах его зоны и на складах цехов меньше её. Без нормы цех съел бы всё сырьё зоны и забил хранилища.
+ * Рецепт изделия: что уходит на одну сборку и сколько штук она даёт. Нормы нет: цех собирает, пока готовому есть
+ * куда лечь, — хранилища не бесконечны, а лишний цех игрок выключает сам.
  */
 export interface ProductSpec {
   recipe: Partial<Record<Resource, number>>
   yield: number
-  stock: number
 }
 
 /**
  * Изделия сборочного цеха — по одному на каждую петлю игры (§3.7 design.md): стройблоки — стройке, боеприпасы —
- * турелям, компоненты — верхнему тиру. Их не продают: космопорт торгует только ресурсами. Нормы — на два машинных
- * завода, на полную перезарядку одной турели (цех делает 10 патронов в секунду и быстро её восполнит) и на два
- * разрядника.
+ * турелям, компоненты — верхнему тиру. Их не продают: космопорт торгует только ресурсами.
  */
 export const PRODUCT_SPECS = {
-  blocks: { recipe: { metal: 2, silicon: 1 }, yield: 1, stock: 20 },
-  ammo: { recipe: { metal: 1 }, yield: 10, stock: 120 },
-  parts: { recipe: { silicon: 2, kharite: 1 }, yield: 1, stock: 6 },
+  blocks: { recipe: { metal: 2, silicon: 1 }, yield: 1 },
+  ammo: { recipe: { metal: 1 }, yield: 10 },
+  parts: { recipe: { silicon: 2, kharite: 1 }, yield: 1 },
 } satisfies Record<string, ProductSpec>
 
 export type Product = keyof typeof PRODUCT_SPECS
