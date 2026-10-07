@@ -1194,6 +1194,14 @@ const cannonTurret: BuildingArt = {
   },
 }
 
+/** Лазерная турель: голубое кольцо излучателя. */
+const laserTurret: BuildingArt = {
+  ...BUILDINGS.laserTurret,
+  draw(g, t, light) {
+    emplacement(g, t, light, ARC[1])
+  },
+}
+
 export const BUILDING_ART = {
   techCenter,
   airfield,
@@ -1224,4 +1232,5 @@ export const BUILDING_ART = {
   turret,
   rocketTurret,
   cannonTurret,
+  laserTurret,
 } satisfies Record<BuildingType, BuildingArt>

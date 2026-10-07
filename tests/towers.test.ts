@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { Health, Position, TOWER_RANGE, TRAINING_PLAYER, Unit, WEAPONS, createSim } from '../src/sim'
+import { Health, Inventory, Position, TOWER_RANGE, TRAINING_PLAYER, Unit, WEAPONS, createSim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { spawnUnit } from '../src/sim/units'
 
@@ -30,4 +30,13 @@ test('главное здание бьёт по всей своей зоне, и
   expect(hurt('buggy', 12, 1)).toBe(true)
   expect(hurt('drone', 1, 12)).toBe(true)
   expect(hurt('buggy', -14, 1)).toBe(false)
+})
+
+test('лазерная турель бьёт танк без всяких патронов, на дальности лазера с надбавкой здания', () => {
+  const sim = newSim()
+  const tower = placeBuilding(sim.world, 'laserTurret', 0, 0, 1)
+  expect(sim.world.has(tower, Inventory)).toBe(false)
+  const tank = spawnUnit(sim, 'tank', TRAINING_PLAYER, 9, 0)
+  for (let i = 0; i < 20 * 5; i++) sim.advance(0.05)
+  expect(!sim.world.alive(tank) || sim.world.get(tank, Health)!.value < 1).toBe(true)
 })

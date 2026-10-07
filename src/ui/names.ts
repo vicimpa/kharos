@@ -51,6 +51,7 @@ export const BUILDING_NAMES: Record<BuildingType, string> = {
   turret: 'Пулемётная турель',
   rocketTurret: 'Ракетная турель',
   cannonTurret: 'Пушечная турель',
+  laserTurret: 'Лазерная турель',
 }
 
 /** За что выдана награда. */

@@ -25,7 +25,7 @@ export type Page = 'root' | 'economy' | 'storage' | 'industry' | 'military' | 'p
 const SECTIONS: Partial<Record<Page, BuildingType[]>> = {
   storage: ['metalYard', 'siliconStore', 'fuelTank', 'khariteVault', 'blockYard', 'ammoBunker', 'partsLocker'],
   industry: ['smelter', 'siliconWorks', 'distillery', 'enricher', 'blockPlant', 'ammoPlant', 'partsPlant'],
-  military: ['barracks', 'factory', 'airfield', 'techCenter', 'radar', 'wall', 'turret', 'rocketTurret', 'cannonTurret'],
+  military: ['barracks', 'factory', 'airfield', 'techCenter', 'radar', 'wall', 'turret', 'rocketTurret', 'cannonTurret', 'laserTurret'],
 }
 const sectionOf = (building: BuildingType): Page =>
   (Object.keys(SECTIONS) as Page[]).find((page) => SECTIONS[page]!.includes(building)) ?? 'economy'
