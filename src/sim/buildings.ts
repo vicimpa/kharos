@@ -218,7 +218,7 @@ export const BUILDABLE: BuildingType[] = [
 export const REQUIRES: Partial<Record<BuildingType, readonly BuildingType[]>> = {
   generator: ['command'],
   wall: ['command'],
-  turret: ['command'],
+  turret: ['radar'],
   matter: ['generator'],
   mine: ['generator'],
   radar: ['generator'],

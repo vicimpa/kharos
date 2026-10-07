@@ -259,8 +259,8 @@ test('дерево технологий: после главного здани�
   const { sim, site } = start()
   sim.rules.techTree = true
   expect(isUnlocked(sim, 1, 'generator')).toBe(true)
-  expect(isUnlocked(sim, 1, 'turret')).toBe(true)
-  for (const type of ['matter', 'mine', 'radar', 'smelter', 'factory', 'rocketTurret'] as const) expect(isUnlocked(sim, 1, type)).toBe(false)
+  expect(isUnlocked(sim, 1, 'wall')).toBe(true)
+  for (const type of ['matter', 'mine', 'radar', 'smelter', 'factory', 'turret', 'rocketTurret'] as const) expect(isUnlocked(sim, 1, type)).toBe(false)
   expect(canBuild(sim, 1, 'radar', site.x, site.y)).toBe(false)
 
   // Недостроенная электростанция ничего не открывает, готовая — открывает.
@@ -275,7 +275,7 @@ test('дерево технологий: после главного здани�
   expect(isUnlocked(sim, 2, 'radar')).toBe(false)
 
   placeBuilding(sim.world, 'radar', site.x + 3, site.y + 4, 1)
-  for (const type of ['barracks', 'factory', 'airfield', 'rocketTurret'] as const) expect(isUnlocked(sim, 1, type)).toBe(true)
+  for (const type of ['barracks', 'factory', 'airfield', 'turret', 'rocketTurret'] as const) expect(isUnlocked(sim, 1, type)).toBe(true)
   expect(isUnlocked(sim, 1, 'techCenter')).toBe(false)
   // Снесли электростанцию — новый радар не заложить, но военное держится на стоящем радаре.
   sim.world.destroy(generator)
