@@ -143,11 +143,12 @@ export function moveUnits(sim: Sim, time: Time) {
   /** Увидевшие дорогу на ходу: перестраивают путь с ней. */
   const roadward: { entity: Entity; x: number; y: number; near: number }[] = []
   /** Юнит не может идти дальше: прокладывает путь заново или, если уже пробовал, встаёт. */
-  const giveUp = (entity: Entity, path: { goalX: number; goalY: number; tries: number; near: number; wait: number; direct: boolean; stuck: boolean }) => {
-    // Ехал напрямую: путь ему проложит planPaths, по очереди с другими упёршимися.
+  const giveUp = (entity: Entity, path: { goalX: number; goalY: number; tries: number; near: number; wait: number; direct: boolean; stuck: boolean }, walled = true) => {
+    // Ехал напрямую: упёрся в местность или здание — путь ему проложит planPaths, по очереди с другими упёршимися.
+    // Мешают только юниты — толпа разъедется сама, искать путь незачем.
     if (path.direct) {
       path.wait = 0
-      path.stuck = true
+      if (walled) path.stuck = true
     }
     else if (path.tries >= MAX_TRIES) stopped.push(entity)
     // Сверх нормы — юнит просто ждёт дальше и попробует в следующий тик.
@@ -227,7 +228,7 @@ export function moveUnits(sim: Sim, time: Time) {
         giveUp(entity, path)
         continue
       } else if (++path.wait >= WAIT_TICKS) {
-        giveUp(entity, path)
+        giveUp(entity, path, !blocker)
         continue
       } else if (blocker && path.wait === YIELD_TICKS && asked.length < YIELD_SEARCHES) {
         const room = radius + blocker.radius + 1
