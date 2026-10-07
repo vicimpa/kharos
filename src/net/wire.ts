@@ -11,12 +11,12 @@ const round = (_key: string, value: unknown) =>
 
 /**
  * Каким компонент уходит игроку viewer: только то, что нужно клиенту, или undefined — не уходит вовсе.
- * Путь — только своему: чужой клиенту не нужен и выдал бы, куда идёт враг; из пути — только точки, по ним рисуется
- * дорожка выбранного. Прошлое место и поворот юнита и турели клиент помнит сам, место турели на носителе находит сам,
+ * Прошлое место и поворот юнита и турели клиент помнит сам, место турели на носителе находит сам,
  * перезарядку считает по тику её конца, см. replica.ts. Всё, что меняется каждый тик без нужды, уходило бы каждый тик.
  */
-function wire(component: Component<any>, data: any, viewer: number, owner: number | undefined, tick: number): object | undefined {
-  if (component === Path) return owner === viewer ? { points: data.points } : undefined
+function wire(component: Component<any>, data: any, tick: number): object | undefined {
+  // Путь — свой у каждого игрока, см. pathOf.
+  if (component === Path) return undefined
   // Место и поворот юнита идут движением, см. codec.ts.
   if (component === Unit) {
     const { prevX: _x, prevY: _y, prevFacing: _previous, facing: _facing, ...rest } = data
@@ -40,20 +40,38 @@ export interface Wired {
 }
 
 /**
- * Сущность, какой она уходит игроку viewer; пусто — сущности в сети нечего показать. Турель на носителе клиент
- * ставит на место сам: её место меняется с каждым шагом носителя.
+ * Сущность, какой она уходит любому игроку, кроме пути; пусто — сущности в сети нечего показать. Не зависит от того,
+ * кто смотрит: хост собирает её раз за тик и раздаёт всем, кто её видит. Турель на носителе клиент ставит на место
+ * сам: её место меняется с каждым шагом носителя.
  */
-export function wireOf(world: World, entity: Entity, viewer: number, tick: number): Wired {
-  const owner = world.get(entity, Owner)?.player
+export function sharedWireOf(world: World, entity: Entity, tick: number): Wired {
   const mounted = world.has(entity, Attached) && world.has(entity, Turret)
   const parts = new Map<string, string>()
   for (const component of SAVED) {
     const data = world.get(entity, component)
     if (data === undefined) continue
-    const shown = wire(component, data, viewer, owner, tick)
+    const shown = wire(component, data, tick)
     if (shown !== undefined) parts.set(component.key, JSON.stringify(shown, round))
   }
   const position = mounted ? undefined : world.get(entity, Position)
   if (!position) return { parts }
   return { parts, motion: quantize(position.x, position.y, world.get(entity, Unit)?.facing) }
+}
+
+/**
+ * JSON пути сущности для игрока viewer или undefined. Путь — только своему: чужой клиенту не нужен и выдал бы,
+ * куда идёт враг; из пути — только точки, по ним рисуется дорожка выбранного.
+ */
+export function pathOf(world: World, entity: Entity, viewer: number) {
+  const path = world.get(entity, Path)
+  if (!path || world.get(entity, Owner)?.player !== viewer) return undefined
+  return JSON.stringify({ points: path.points }, round)
+}
+
+/** Сущность, какой она уходит игроку viewer: общее для всех и его путь. */
+export function wireOf(world: World, entity: Entity, viewer: number, tick: number): Wired {
+  const shared = sharedWireOf(world, entity, tick)
+  const path = pathOf(world, entity, viewer)
+  if (path === undefined) return shared
+  return { parts: new Map(shared.parts).set(Path.key, path), motion: shared.motion }
 }

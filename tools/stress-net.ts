@@ -1,7 +1,7 @@
 /**
  * Нагрузка на сеть: хост с двумя игроками, у каждого армия из N юнитов, армии сходятся в бою.
  * Печатает время тика хоста вместе с рассылкой и сколько байт в секунду уходит игроку. Туман выключен: игрок видит всё.
- * bun tools/stress-net.ts [N]
+ * bun tools/stress-net.ts [N] [игроков]
  */
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { createHost } from '../src/net/host'
@@ -9,11 +9,13 @@ import { createSim, Unit, Owner } from '../src/sim'
 import { spawnUnit } from '../src/sim/units'
 
 const n = Number(process.argv[2] ?? 1000)
+/** Сколько игроков подключено; армии — у первых двух, остальные смотрят. */
+const players = Number(process.argv[3] ?? 2)
 const sim = createSim({ generator: DEFAULT_SETTINGS.generator, size: 1024, rules: { techTree: false }, fog: false })
 const host = createHost(sim)
 let bytes = 0
 host.join((text) => (bytes += Buffer.byteLength(text)))
-host.join(() => {})
+for (let i = 1; i < players; i++) host.join(() => {})
 // Игроки 1 и 2 получили стартовые наборы где-то на карте; армии ставятся у начала мира.
 const types = ['infantry', 'buggy', 'tank', 'rocketeer'] as const
 const side = Math.ceil(Math.sqrt(n))
@@ -36,4 +38,4 @@ for (let i = 0; i < ticks; i++) {
 }
 let units = 0
 for (const _ of sim.world.query(Unit, Owner)) units++
-console.log(`N=${n}×2 тик хоста с рассылкой=${(hostTime / ticks).toFixed(1)}мс игроку=${(bytes / (ticks / 20) / 1024).toFixed(0)} КБ/с живых=${units}`)
+console.log(`N=${n}×2 игроков=${players} тик хоста с рассылкой=${(hostTime / ticks).toFixed(1)}мс игроку=${(bytes / (ticks / 20) / 1024).toFixed(0)} КБ/с живых=${units}`)

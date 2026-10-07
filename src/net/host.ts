@@ -1,7 +1,7 @@
 import { Terrain, terrainAt } from '../map/terrain'
 import { isDefeated, isWalkable, shownTo, spawnStartingUnits, wipePlayer, type Command, type Sim, type SimSave } from '../sim'
-import { Owner, Position } from '../sim/components'
-import { wireOf, type Wired } from './wire'
+import { Owner, Path, Position } from '../sim/components'
+import { pathOf, sharedWireOf, type Wired } from './wire'
 import { encodeDelta, type Motion } from './codec'
 import type { ServerData } from './protocol'
 import type { Trace } from '../sim/traces'
@@ -122,14 +122,23 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
   }
   let stateSize = 0
 
+  /** Сущности, какими они уходят всем, кроме пути, — собранные в этом тике, см. sharedWireOf. */
+  const common: { tick: number; sim: Sim | undefined; wired: Map<number, Wired> } = { tick: -1, sim: undefined, wired: new Map() }
+
   /** Мир глазами игрока: только то, что он видит. Вкладки одного игрока смотрят на один и тот же. */
   const view = (player: number, cache?: Map<number, View>) => {
     let found = cache?.get(player)
     if (found === undefined) {
       found = new Map()
+      const tick = sim.time.tick
+      if (common.tick !== tick || common.sim !== sim) Object.assign(common, { tick, sim, wired: new Map() })
       for (const entity of sim.world.all) {
         if (!shownTo(sim, player, entity)) continue
-        const wired = wireOf(sim.world, entity, player, sim.time.tick)
+        // Общее для всех собирается раз за тик — у первого, кто увидел сущность; путь — свой у каждого.
+        let wired = common.wired.get(entity)
+        if (!wired) common.wired.set(entity, (wired = sharedWireOf(sim.world, entity, tick)))
+        const path = pathOf(sim.world, entity, player)
+        if (path !== undefined) wired = { parts: new Map(wired.parts).set(Path.key, path), motion: wired.motion }
         if (wired.parts.size || wired.motion) found.set(entity, wired)
       }
       cache?.set(player, found)
