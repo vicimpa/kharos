@@ -87,6 +87,11 @@ export class World {
   private iterating = 0
   private deferred: (() => void)[] = []
 
+  /** Все живые сущности. Только читать: менять — через spawn() и destroy(). */
+  get all(): ReadonlySet<Entity> {
+    return this.entities
+  }
+
   /** Число живых сущностей. */
   get size() {
     return this.entities.size

@@ -5,6 +5,8 @@ import type { ServerMessage } from '../src/net/protocol'
 import { createReplica, type Replica } from '../src/net/replica'
 import { Building, Ghost, Owner, Player, Position, Unit, createSim, shownTo } from '../src/sim'
 import { SAVED } from '../src/sim/components'
+import { wireOf } from '../src/net/wire'
+import type { Entity } from '../src/ecs'
 import { placeBuilding } from '../src/sim/buildings'
 
 const STEP = 1 / 20
@@ -88,7 +90,10 @@ test('приказ клиента выполняет сервер, а клиен
     sim.advance(STEP)
   }
   expect(sim.time.tick).toBe(host.sim.time.tick)
-  expect(sim.world.get(unit, Position)).toEqual(host.sim.world.get(unit as never, Position)!)
+  // Место приходит округлённым до тысячной тайла, см. wire.ts.
+  const there = host.sim.world.get(unit as never, Position)!
+  expect(sim.world.get(unit, Position)!.x).toBeCloseTo(there.x, 2)
+  expect(sim.world.get(unit, Position)!.y).toBeCloseTo(there.y, 2)
   expect(sim.world.get(unit, Position)!.x).toBeGreaterThan(from.x + 1)
 })
 
@@ -242,10 +247,15 @@ test('мир клиента, собранный из изменений, сов�
   const start = host.sim.world.get(unitsOf(host.sim as never, 1)[0]! as never, Position)!
   first.sim.send(1, { type: 'move', units: unitsOf(first.sim, 1), x: Math.floor(target.x), y: Math.floor(target.y) })
   second.sim.send(2, { type: 'move', units: unitsOf(second.sim, 2), x: Math.floor(start.x), y: Math.floor(start.y) })
-  const seen = (sim: Replica) =>
-    JSON.parse(JSON.stringify(sim.world.snapshot(SAVED, (entity) => !sim.world.has(entity, Ghost)).entities.sort(([a], [b]) => a - b)))
-  const truth = (player: number) =>
-    JSON.parse(JSON.stringify(host.sim.world.snapshot(SAVED, (entity) => shownTo(host.sim, player, entity)).entities.sort(([a], [b]) => a - b)))
+  // Сравнивается то, что уходит в сеть: хост шлёт не все поля и округляет дробные, см. wire.ts.
+  const wired = (world: Replica['world'], player: number, keep: (entity: Entity) => boolean) =>
+    [...world.all]
+      .filter(keep)
+      .sort((a, b) => a - b)
+      .map((entity) => [entity, Object.fromEntries([...wireOf(world, entity, player)].map(([key, json]) => [key, JSON.parse(json)]))])
+      .filter(([, data]) => Object.keys(data).length)
+  const seen = (sim: Replica, player = 1) => wired(sim.world, player, (entity) => !sim.world.has(entity, Ghost))
+  const truth = (player: number) => wired(host.sim.world as never, player, (entity) => shownTo(host.sim, player, entity as never))
   for (let tick = 1; tick <= 600; tick++) {
     host.advance(STEP)
     // Первый клиент применяет каждое изменение, второй — пачками по несколько.
@@ -254,7 +264,7 @@ test('мир клиента, собранный из изменений, сов�
     if (tick % 50 === 0) expect(seen(first.sim)).toEqual(truth(1))
   }
   second.sim.advance(STEP)
-  expect(seen(second.sim)).toEqual(truth(2))
+  expect(seen(second.sim, 2)).toEqual(truth(2))
 })
 
 test('сдавшийся на сервере начинает заново: новый стартовый набор, а до поражения — нельзя', () => {

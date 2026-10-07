@@ -1,6 +1,7 @@
 import { Terrain, terrainAt } from '../map/terrain'
 import { isDefeated, isWalkable, shownTo, spawnStartingUnits, wipePlayer, type Command, type Sim, type SimSave } from '../sim'
-import { Owner, Position, SAVED } from '../sim/components'
+import { Owner, Position } from '../sim/components'
+import { wireOf } from './wire'
 import type { Trace } from '../sim/traces'
 import { cleanName, type PlayerInfo, type ServerMessage } from './protocol'
 
@@ -120,8 +121,10 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
     let found = cache?.get(player)
     if (found === undefined) {
       found = new Map()
-      for (const [id, data] of sim.world.snapshot(SAVED, (entity) => shownTo(sim, player, entity)).entities) {
-        found.set(id, new Map(Object.entries(data).map(([key, value]) => [key, JSON.stringify(value)])))
+      for (const entity of sim.world.all) {
+        if (!shownTo(sim, player, entity)) continue
+        const components = wireOf(sim.world, entity, player)
+        if (components.size) found.set(entity, components)
       }
       cache?.set(player, found)
     }

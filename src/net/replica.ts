@@ -6,7 +6,7 @@ import { createPaving } from '../sim/paved'
 import { createReceivedTraces } from '../sim/traces'
 import { createVision } from '../sim/vision'
 import { BUILDINGS, type BuildingType } from '../sim/buildings'
-import { Ghost, SAVED } from '../sim/components'
+import { Ghost, Position, SAVED, Unit } from '../sim/components'
 import { SAVE_VERSION, type SimSave } from '../sim/sim'
 import type { ClientMessage, PlayerInfo, ServerMessage } from './protocol'
 
@@ -153,7 +153,16 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
       // Изменения идут одно за другим, поэтому применяются все пришедшие.
       const last = pending[pending.length - 1]!
       const ticks = last.tick - time.tick
+      // Прошлое место и поворот юнитов хост не шлёт: это то, что было до пришедших изменений.
+      const before = new Map<Entity, [number, number, number]>()
+      for (const [entity, position, unit] of world.query(Position, Unit)) before.set(entity, [position.x, position.y, unit.facing])
       for (const delta of pending) apply(delta)
+      for (const [entity, position, unit] of world.query(Position, Unit)) {
+        const [x, y, facing] = before.get(entity) ?? [position.x, position.y, unit.facing]
+        unit.prevX = x
+        unit.prevY = y
+        unit.prevFacing = facing
+      }
       world.flush()
       time.tick = last.tick
       // Чужое здание, ушедшее в туман, остаётся на карте призраком, пока его место не окажется в обзоре.
