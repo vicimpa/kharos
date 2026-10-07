@@ -37,6 +37,8 @@ export interface Rules {
   repairCost: number
   /** Сколько секунд после попадания цель не чинится: ремонт — между боями, а не под огнём. Ноль — чинят и под огнём. */
   repairPause: number
+  /** Дерево технологий: здание строится, когда стоят нужные для него, см. REQUIRES. Выключено — открыто всё. */
+  techTree: boolean
   /**
    * Замедление наземных юнитов по местности, доля скорости от 0 до 1: колёсная техника (vehicle), гусеничная
    * (heavy) и пехота — на песке и на болоте. По скале все идут в полную силу, летающим местность не мешает.
@@ -57,6 +59,7 @@ export const DEFAULT_RULES: Rules = {
   repairSpeed: REPAIR_SPEED,
   repairCost: REPAIR_COST,
   repairPause: REPAIR_PAUSE,
+  techTree: true,
   vehicleSand: 0.1,
   vehicleSwamp: 0.8,
   heavySand: 0,

@@ -1,6 +1,6 @@
 import type { Entity } from '../ecs'
 import { tileKey } from '../map/terrain'
-import { BUILDABLE, BUILDINGS, BUILD_RATE, CORE, buildingSpec, canPlace, durabilityOf, equip, newBuilding, siteAt, type BuildingSpec, type BuildingType } from './buildings'
+import { BUILDINGS, BUILD_RATE, CORE, buildingSpec, canPlace, durabilityOf, equip, isUnlocked, newBuilding, siteAt, type BuildingSpec, type BuildingType } from './buildings'
 import { NONE, isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './common'
 import { Building, Builds, Converting, Health, Inventory, Owner, Path, Pave, Position, Producer, Repair, Site, Unit } from './components'
 import { reserveLeft } from './deposits'
@@ -61,13 +61,11 @@ const outOfControl = (sim: Sim, player: number, type: BuildingType, x: number, y
  * постройки: их ставят и вне своих зон, но по-прежнему не в чужих.
  */
 export function canBuild(sim: Sim, player: number, type: BuildingType, x: number, y: number) {
-  if (!BUILDABLE.includes(type) || !canPlace(sim, type, x, y)) return false
+  if (!isUnlocked(sim, player, type) || !canPlace(sim, type, x, y)) return false
   const { width, height }: BuildingSpec = BUILDINGS[type]
   if (inForeignZone(sim, player, x, y, width, height)) return false
   // Шахта встаёт ровно на месторождение, в котором ещё что-то есть.
   if (buildingSpec(type).extract && reserveLeft(sim, x, y) <= 0) return false
-  // Главное здание строители ставят только в своей зоне: на новое место его привозит MCV.
-  if (type === CORE) return inControl(sim, player, type, x, y)
   return !outOfControl(sim, player, type, x, y)
 }
 

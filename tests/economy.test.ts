@@ -13,7 +13,7 @@ import { NONE } from '../src/sim/common'
 import { spawnUnit } from '../src/sim/units'
 import { refineryFor, spaceFor } from '../src/sim/logistics'
 
-const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
+const options = { generator: DEFAULT_SETTINGS.generator, size: 1024, rules: { techTree: false } }
 const TICK = 1 / 20
 const seconds = (sim: Sim, time: number) => {
   for (let i = 0; i < Math.round(time / TICK); i++) sim.advance(TICK)

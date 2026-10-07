@@ -205,10 +205,58 @@ export const CORE: BuildingType = 'command'
 export const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[]
 /** Что возводят строители. Остальные здания появятся вместе с тем, для чего они нужны. */
 export const BUILDABLE: BuildingType[] = [
-  'command', 'generator', 'matter', 'mine', 'smelter', 'siliconWorks', 'distillery', 'enricher', 'blockPlant', 'ammoPlant', 'partsPlant',
+  'generator', 'matter', 'mine', 'smelter', 'siliconWorks', 'distillery', 'enricher', 'blockPlant', 'ammoPlant', 'partsPlant',
   'metalYard', 'siliconStore', 'fuelTank', 'khariteVault', 'blockYard', 'ammoBunker', 'partsLocker', 'spaceport', 'barracks', 'factory', 'airfield', 'techCenter',
   'radar', 'wall', 'turret', 'rocketTurret', 'cannonTurret', 'laserTurret',
 ]
+
+/**
+ * Дерево технологий: здание появляется в списке строителя, когда у игрока стоят готовыми все здания из его списка.
+ * Снесли нужное — новое такое не заложить, пока его не восстановят; построенное остаётся. Главное здание
+ * строители не ставят: его привозит MCV. Покрытия доступны всегда.
+ */
+export const REQUIRES: Partial<Record<BuildingType, readonly BuildingType[]>> = {
+  generator: ['command'],
+  wall: ['command'],
+  turret: ['command'],
+  matter: ['generator'],
+  mine: ['generator'],
+  radar: ['generator'],
+  spaceport: ['generator'],
+  smelter: ['mine'],
+  siliconWorks: ['mine'],
+  distillery: ['mine'],
+  enricher: ['mine'],
+  metalYard: ['smelter'],
+  siliconStore: ['siliconWorks'],
+  fuelTank: ['distillery'],
+  khariteVault: ['enricher'],
+  blockPlant: ['smelter'],
+  ammoPlant: ['smelter'],
+  partsPlant: ['siliconWorks'],
+  blockYard: ['blockPlant'],
+  ammoBunker: ['ammoPlant'],
+  partsLocker: ['partsPlant'],
+  barracks: ['radar'],
+  factory: ['radar'],
+  airfield: ['radar'],
+  rocketTurret: ['radar'],
+  cannonTurret: ['radar'],
+  techCenter: ['factory'],
+  laserTurret: ['techCenter'],
+}
+
+/** Каких готовых зданий из списка у игрока нет. */
+export function missingBuildings(sim: Sim, player: number, needs: readonly BuildingType[] | undefined): BuildingType[] {
+  if (!needs?.length) return []
+  const have = new Set<BuildingType>()
+  for (const [entity, building] of sim.world.query(Building)) if (needs.includes(building.type) && isReady(sim, player, entity)) have.add(building.type)
+  return needs.filter((type) => !have.has(type))
+}
+
+/** Открыто ли игроку здание: строится строителями и все нужные для него здания стоят. */
+export const isUnlocked = (sim: Sim, player: number, type: BuildingType) =>
+  BUILDABLE.includes(type) && (!sim.rules.techTree || missingBuildings(sim, player, REQUIRES[type]).length === 0)
 
 /** Хранилища — по одному на каждое готовое. */
 export const STORES = BUILDING_TYPES.filter((type) => buildingSpec(type).stores)

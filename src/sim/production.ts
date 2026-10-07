@@ -1,6 +1,6 @@
 import type { Entity, Time } from '../ecs'
 import { tileKey } from '../map/terrain'
-import { BUILDINGS, CORE, buildingSpec, isReady, type BuildingType } from './buildings'
+import { BUILDINGS, CORE, buildingSpec, missingBuildings, type BuildingType } from './buildings'
 import { isOwn, ownerOf } from './common'
 import { Building, Converting, Inventory, Position, Producer, Site, Unit } from './components'
 import { addCredits, pay, reward } from './economy'
@@ -24,13 +24,8 @@ export function producibleBy(sim: Sim, entity: Entity): UnitType[] {
   return (type && buildingSpec(type).produces) || NOTHING
 }
 /** Каких зданий из требований юнита у игрока нет готовыми: пусто — заказывать можно. */
-export function missingRequirements(sim: Sim, player: number, unit: UnitType): BuildingType[] {
-  const requires = unitSpec(unit).requires as readonly BuildingType[] | undefined
-  if (!requires?.length) return []
-  const have = new Set<BuildingType>()
-  for (const [entity, building] of sim.world.query(Building)) if (requires.includes(building.type) && isReady(sim, player, entity)) have.add(building.type)
-  return requires.filter((type) => !have.has(type))
-}
+export const missingRequirements = (sim: Sim, player: number, unit: UnitType): BuildingType[] =>
+  missingBuildings(sim, player, unitSpec(unit).requires as readonly BuildingType[] | undefined)
 
 /** Сколько заказов помещается в очередь. */
 export const QUEUE_LIMIT = 5

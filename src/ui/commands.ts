@@ -1,8 +1,8 @@
 import type { HudState, Stack } from '../game/hud'
 import type { PaveIcon } from '../game/portraits'
 import type { PaveTool } from '../game/scene'
-import { BRIDGE_COST, DEPOSIT_TYPES, FOUNDATION_COST, LEASH, ORES, ROAD_COST, WARES, type Stance, type BuildingType, type Command, type DepositKind, type Good } from '../sim'
-import { BUILDING_NAMES, RESOURCE_NAMES, UNIT_NAMES, goodName } from './names'
+import { BRIDGE_COST, BUILDING_TYPES, DEPOSIT_TYPES, REQUIRES, FOUNDATION_COST, LEASH, ORES, ROAD_COST, WARES, type Stance, type BuildingType, type Command, type DepositKind, type Good } from '../sim'
+import { BUILDING_INFO, BUILDING_NAMES, RESOURCE_NAMES, UNIT_NAMES, goodName } from './names'
 
 /** Клавиши ячеек сетки команд по порядку: три ряда по четыре, как на клавиатуре, справа от WASD. */
 export const GRID_KEYS = ['KeyT', 'KeyY', 'KeyU', 'KeyI', 'KeyG', 'KeyH', 'KeyJ', 'KeyK', 'KeyB', 'KeyN', 'KeyM', 'Comma'] as const
@@ -29,6 +29,12 @@ const SECTIONS: Partial<Record<Page, BuildingType[]>> = {
   military: ['barracks', 'factory', 'airfield', 'techCenter'],
   defense: ['wall', 'turret', 'rocketTurret', 'cannonTurret', 'laserTurret', 'radar'],
 }
+/** Описание здания для карточки: что делает и какие здания открывает. */
+function aboutOf(building: BuildingType) {
+  const opens = BUILDING_TYPES.filter((type) => REQUIRES[type]?.includes(building))
+  return opens.length ? `${BUILDING_INFO[building]}. Открывает: ${opens.map((type) => BUILDING_NAMES[type]).join(', ')}` : BUILDING_INFO[building]
+}
+
 const sectionOf = (building: BuildingType): Page =>
   (Object.keys(SECTIONS) as Page[]).find((page) => SECTIONS[page]!.includes(building)) ?? 'economy'
 
@@ -48,6 +54,9 @@ export interface Slot {
   materials?: Stack[]
   disabled?: boolean
   active?: boolean
+  /** Что это такое: описание на карточке. */
+  about?: string
+  /** Пояснение или почему кнопка недоступна. */
   title?: string
   run(): void
 }
@@ -84,12 +93,17 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
 
   if (construction) {
     if (page === 'root') {
+      // Раздел появляется, когда в нём открыто хоть одно здание; покрытие доступно всегда.
+      const opened = (page: Page) => construction.options.some(({ building }) => sectionOf(building) === page)
+      const sections: (Slot & { page: Page })[] = [
+        { page: 'economy', label: 'Хозяйство', building: 'generator', title: 'Энергия, добыча и торговля', run: () => open('economy') },
+        { page: 'storage', label: 'Склады', building: 'metalYard', title: 'Хранилища ресурсов и изделий', run: () => open('storage') },
+        { page: 'industry', label: 'Переработка', building: 'smelter', title: 'Переработка руды и заводы изделий', run: () => open('industry') },
+        { page: 'military', label: 'Военное', building: 'factory', title: 'Казармы, заводы, аэродром и техцентр', run: () => open('military') },
+        { page: 'defense', label: 'Оборона', building: 'turret', title: 'Стены, турели и радар', run: () => open('defense') },
+      ]
       list([
-        { label: 'Хозяйство', building: 'mine', title: 'Энергия, добыча и торговля', run: () => open('economy') },
-        { label: 'Склады', building: 'metalYard', title: 'Хранилища ресурсов и изделий', run: () => open('storage') },
-        { label: 'Переработка', building: 'smelter', title: 'Переработка руды и заводы изделий', run: () => open('industry') },
-        { label: 'Военное', building: 'factory', title: 'Казармы, заводы, аэродром и техцентр', run: () => open('military') },
-        { label: 'Оборона', building: 'turret', title: 'Стены, турели и радар', run: () => open('defense') },
+        ...sections.filter(({ page }) => opened(page)),
         { label: 'Покрытие', pave: 'road', title: 'Фундамент, дороги и мосты', run: () => open('paving') },
       ])
     } else if (page === 'paving') {
@@ -123,6 +137,7 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
           power,
           materials,
           active: construction.placing === building,
+          about: aboutOf(building),
           disabled: !construction.available || !affordable,
           title: !construction.available ? 'Своей зоны нет: сначала разверни MCV' : affordable ? undefined : 'Не хватает кредитов',
           run: () => place(construction.placing === building ? null : building),
@@ -168,6 +183,7 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
       slots[CONVERT] = {
         label: conversion.kind === 'deploy' ? 'Развернуть' : 'Свернуть в MCV',
         building: 'command',
+        about: conversion.kind === 'deploy' ? BUILDING_INFO.command : undefined,
         disabled: !conversion.possible,
         title: conversion.possible ? undefined : 'Нужна свободная скала или фундамент 3×3 под машиной',
         run: () => send(conversion.command),

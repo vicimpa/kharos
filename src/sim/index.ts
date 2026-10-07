@@ -1,4 +1,4 @@
-export { BUILDABLE, BUILDINGS, BUILDING_TYPES, CORE, SAND_DURABILITY, buildingSpec, canPlace, durabilityOf, siteAt } from './buildings'
+export { BUILDABLE, BUILDINGS, REQUIRES, isUnlocked, missingBuildings, BUILDING_TYPES, CORE, SAND_DURABILITY, buildingSpec, canPlace, durabilityOf, siteAt } from './buildings'
 export { TURN, isOwn, wrap } from './common'
 export { BUILD_RATE } from './buildings'
 export type { BuildingSpec, BuildingType, Occupancy } from './buildings'

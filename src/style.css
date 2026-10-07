@@ -567,6 +567,10 @@ body {
   font-size: 12px;
 }
 
+.card__text.is-warn {
+  color: #e6a35a;
+}
+
 .card__price {
   display: flex;
   flex-wrap: wrap;

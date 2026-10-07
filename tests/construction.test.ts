@@ -6,11 +6,11 @@ import {
   BUILDINGS, Building, Builds, CORE, Owner, Position, Site, Unit,
   canBuild, canPlace, createSim, creditsOf, isWalkable, rewardsOf, siteAt, spawnStartingUnits, type Sim,
 } from '../src/sim'
-import { BUILD_RATE } from '../src/sim/buildings'
+import { BUILD_RATE, isUnlocked, placeBuilding } from '../src/sim/buildings'
 import { WORK_RADIUS } from '../src/sim/construction'
 import { spawnUnit } from '../src/sim/units'
 
-const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
+const options = { generator: DEFAULT_SETTINGS.generator, size: 1024, rules: { techTree: false } }
 const TICK = 1 / 20
 const seconds = (sim: Sim, time: number) => {
   for (let i = 0; i < Math.round(time / TICK); i++) sim.advance(TICK)
@@ -141,8 +141,8 @@ test('строить можно только в радиусе контроля,
   const credits = creditsOf(sim, 1)
   expect(canBuild(sim, 1, 'generator', site.x + 60, site.y)).toBe(false)
   expect(canBuild(sim, 2, 'generator', site.x, site.y)).toBe(false)
-  // Главное здание строители возводят только в своей зоне: на новое место его привозит MCV.
-  expect(canBuild(sim, 1, CORE, site.x, site.y)).toBe(true)
+  // Главное здание строители не возводят: его привозит MCV.
+  expect(canBuild(sim, 1, CORE, site.x, site.y)).toBe(false)
   expect(canBuild(sim, 1, CORE, site.x + 60, site.y)).toBe(false)
   sim.send(2, { type: 'build', building: 'generator', x: site.x, y: site.y, builders })
   sim.send(1, { type: 'build', building: 'windtrap', x: site.x, y: site.y, builders })
@@ -253,4 +253,34 @@ test('свободный строитель сам берётся за стро�
   sim.send(1, { type: 'move', units: [builders[0]], x: Math.floor(position.x) - 1, y: Math.floor(position.y) })
   seconds(sim, 3)
   expect(sim.world.has(builders[0], Builds)).toBe(false)
+})
+
+test('дерево технологий: после главного здания — электростанция, после неё шахта и радар, после радара — военное', () => {
+  const { sim, site } = start()
+  sim.rules.techTree = true
+  expect(isUnlocked(sim, 1, 'generator')).toBe(true)
+  expect(isUnlocked(sim, 1, 'turret')).toBe(true)
+  for (const type of ['matter', 'mine', 'radar', 'smelter', 'factory', 'rocketTurret'] as const) expect(isUnlocked(sim, 1, type)).toBe(false)
+  expect(canBuild(sim, 1, 'radar', site.x, site.y)).toBe(false)
+
+  // Недостроенная электростанция ничего не открывает, готовая — открывает.
+  sim.send(1, { type: 'build', building: 'generator', x: site.x, y: site.y, builders: unitsOf(sim, 'builder') })
+  sim.advance(TICK)
+  expect(isUnlocked(sim, 1, 'radar')).toBe(false)
+  const generator = placeBuilding(sim.world, 'generator', site.x - 3, site.y + 4, 1)
+  expect(isUnlocked(sim, 1, 'radar')).toBe(true)
+  expect(isUnlocked(sim, 1, 'mine')).toBe(true)
+  expect(isUnlocked(sim, 1, 'factory')).toBe(false)
+  // Чужое здание не в счёт.
+  expect(isUnlocked(sim, 2, 'radar')).toBe(false)
+
+  placeBuilding(sim.world, 'radar', site.x + 3, site.y + 4, 1)
+  for (const type of ['barracks', 'factory', 'airfield', 'rocketTurret'] as const) expect(isUnlocked(sim, 1, type)).toBe(true)
+  expect(isUnlocked(sim, 1, 'techCenter')).toBe(false)
+  // Снесли электростанцию — новый радар не заложить, но военное держится на стоящем радаре.
+  sim.world.destroy(generator)
+  expect(isUnlocked(sim, 1, 'radar')).toBe(false)
+  expect(isUnlocked(sim, 1, 'barracks')).toBe(true)
+  // Главное здание строителям недоступно никогда: его привозит MCV.
+  expect(isUnlocked(sim, 1, CORE)).toBe(false)
 })

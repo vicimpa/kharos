@@ -194,7 +194,8 @@ function SlotCard({ slot, hotkey }: { slot: Slot; hotkey: string }) {
       <div class="card__title">
         {slot.label} <kbd>{hotkey}</kbd>
       </div>
-      {slot.title && <div class="card__text">{slot.title}</div>}
+      {slot.about && <div class="card__text">{slot.about}</div>}
+      {slot.title && <div class={slot.about && slot.disabled ? 'card__text is-warn' : 'card__text'}>{slot.title}</div>}
       {price ? (
         <div class="card__price">
           {slot.cost !== undefined && (
