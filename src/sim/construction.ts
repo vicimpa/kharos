@@ -10,7 +10,7 @@ import { addCredits, creditsOf, pay, reward, spend } from './economy'
 import { overbuiltPlants } from './income'
 import type { Sim } from './sim'
 import { buildSpeed, paveCost } from './paving'
-import { inCircles, inForeignZone, zoneOf } from './zones'
+import { inCircles, inForeignZone, resetZones, zoneOf } from './zones'
 import { carrierOf, turnerOf } from './turrets'
 import { UNITS, clearGround, isWalkable, orderMove, standingUnits, unitsIn } from './units'
 
@@ -554,7 +554,10 @@ export function construct(sim: Sim) {
     if (pave) {
       const { x, y } = world.get(entity, Position)!
       pave.work += count
-      if (pave.work >= workTicks(paveCost(sim, pave.kind, x, y), time.step)) pave.done = true
+      if (pave.work < workTicks(paveCost(sim, pave.kind, x, y), time.step)) continue
+      pave.done = true
+      // Готовый фундамент расширяет зону.
+      if (pave.kind === 'foundation') resetZones(sim)
       continue
     }
     const site = world.get(entity, Site)

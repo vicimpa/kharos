@@ -7,6 +7,8 @@ import {
   FOUNDATION_SPEED, buildSpeed, canBuild, canPave, canPlace, createSim, creditsOf, isPaved, spawnStartingUnits, type Sim,
 } from '../src/sim'
 import { terrainSpeed } from '../src/sim/units'
+import { breakSlabs } from '../src/sim/combat'
+import { inCircles, zoneOf } from '../src/sim/zones'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
 const TICK = 1 / 20
@@ -158,4 +160,38 @@ test('по покрытию не стреляют и оно не мешает х
   const entity: Entity = lay(sim, 'road', x + 5, y + 10)
   expect(sim.occupancy.at(x + 5, y + 10)).toBeUndefined()
   expect(sim.world.has(entity, Building)).toBe(false)
+})
+
+test('фундамент, сплошь примыкающий к зоне, расширяет её на клетку вокруг себя; отдельный — нет', () => {
+  const { sim, x, y } = start()
+  // Полоса скалы или песка от базы наружу, дальше зоны главного здания.
+  const row = y + 6
+  let end = x + 6
+  const usable = (tx: number) => [Terrain.Rock, Terrain.Sand].includes(terrainAt(sim.land, tx, row) as never)
+  while (usable(end + 1) && end < x + 40) end++
+  expect(end).toBeGreaterThanOrEqual(x + 22)
+  const beyond = end + 1
+  // Отдельный островок за пределами зоны зону не тянет.
+  lay(sim, 'foundation', end, row)
+  expect(inCircles(zoneOf(sim, 1), end + 0.5, row + 0.5)).toBe(false)
+  for (let tx = x + 6; tx < end; tx++) lay(sim, 'foundation', tx, row)
+  expect(inCircles(zoneOf(sim, 1), end + 0.5, row + 0.5)).toBe(true)
+  expect(inCircles(zoneOf(sim, 1), beyond + 0.5, row + 0.5)).toBe(true)
+  expect(inCircles(zoneOf(sim, 1), beyond + 2.5, row + 0.5)).toBe(false)
+  // Разрыв полосы — и дальний конец из зоны выпадает.
+  sim.world.destroy(sim.paving.at(x + 18, row)!)
+  expect(inCircles(zoneOf(sim, 1), end + 0.5, row + 0.5)).toBe(false)
+})
+
+test('наземный взрыв разбивает фундамент под собой, пуля — нет', () => {
+  const { sim, x, y } = start()
+  for (let dx = 0; dx < 3; dx++) lay(sim, 'foundation', x + 4 + dx, y + 10)
+  breakSlabs(sim, x + 5.5, y + 10.5, 0.2)
+  expect(sim.paving.at(x + 5, y + 10)).toBeDefined()
+  breakSlabs(sim, x + 5.5, y + 10.5, 1)
+  expect(sim.paving.at(x + 5, y + 10)).toBeUndefined()
+  expect(sim.paving.at(x + 4, y + 10)).toBeDefined()
+  breakSlabs(sim, x + 5, y + 10.5, 3)
+  expect(sim.paving.at(x + 4, y + 10)).toBeUndefined()
+  expect(sim.paving.at(x + 6, y + 10)).toBeUndefined()
 })

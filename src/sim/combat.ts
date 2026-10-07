@@ -3,7 +3,7 @@ import { Biome, Terrain, biomeAt, terrainAt } from '../map/terrain'
 import { isPaved } from './paved'
 import { BUILDINGS, buildingSpec, isWall, type BuildingType } from './buildings'
 import { NONE, isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './common'
-import { Armed, Blast, Building, Converting, Health, Inventory, Owner, Path, Position, Shot, Site, Turret, Unit } from './components'
+import { Armed, Blast, Building, Converting, Health, Inventory, Owner, Path, Pave, Position, Shot, Site, Turret, Unit } from './components'
 import { releaseHauler } from './hauling'
 import { amountOf, take } from './inventory'
 import { searchedTiles } from './path'
@@ -510,5 +510,25 @@ export function fight(sim: Sim) {
   for (const { x, y, size, ground } of blasts) {
     world.spawn(Position({ x, y }), Blast({ size, life: Math.round((0.25 + size * 0.2) / time.step) }))
     if (ground) sim.traces.add({ kind: 'scar', x, y, size })
+    if (ground) breakSlabs(sim, x, y, size)
   }
+}
+
+/** Взрыв меньше этого — пуля: фундамент от неё не трескается. */
+const SLAB_BLAST = 0.5
+
+/** Наземный взрыв разбивает фундамент: плиты, чьи центры в его радиусе, и ту, на которую он пришёлся. Пуля — нет. */
+export function breakSlabs(sim: Sim, x: number, y: number, size: number) {
+  if (size < SLAB_BLAST) return
+  const radius = size / 2
+  const broken: Entity[] = []
+  for (let tileY = Math.floor(y - radius); tileY <= Math.floor(y + radius); tileY++) {
+    for (let tileX = Math.floor(x - radius); tileX <= Math.floor(x + radius); tileX++) {
+      const entity = sim.paving.at(tileX, tileY)
+      if (entity === undefined || sim.world.get(entity, Pave)?.kind !== 'foundation') continue
+      const hit = tileX === Math.floor(x) && tileY === Math.floor(y)
+      if (hit || Math.hypot(tileX + 0.5 - x, tileY + 0.5 - y) <= radius) broken.push(entity)
+    }
+  }
+  for (const entity of broken) sim.world.destroy(entity)
 }
