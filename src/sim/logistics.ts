@@ -395,14 +395,23 @@ export function dispatch(sim: Sim) {
     const bound = new Set<Entity>()
     for (const [, hauler] of world.query(Hauler)) if (hauler.mine !== NONE) bound.add(hauler.mine as Entity)
 
+    // Назначенные на здания грузовики берут груз в любой зоне игрока, а не только в зоне заказчика.
+    let everywhere: Entity[] | undefined
+    const anyZone = () => (everywhere ??= [...new Set(zonesOf(sim, player).flatMap((zone) => zone.buildings))])
+
     for (const truck of trucks) {
       const room = world.get(truck, Inventory)?.capacity ?? 0
-      const { filter } = world.get(truck, Hauler)!
+      const hauler = world.get(truck, Hauler)!
+      const { filter } = hauler
       const carries = (resource: Good) => !filter.length || filter.includes(resource)
+      // Снесённые и потерянные здания из назначения выпадают; не осталось ни одного — грузовик снова общий.
+      if (hauler.serve.length) hauler.serve = hauler.serve.filter((building) => isReady(sim, player, building as Entity) && world.has(building as Entity, Inventory))
+      const serving = hauler.serve.length ? new Set(hauler.serve) : undefined
       let best: (Job & { score: number }) | undefined
       for (const request of requests) {
         if (request.amount < MIN_JOB || !carries(request.resource)) continue
-        for (const source of request.source === 'mines' ? mines : request.zone.buildings) {
+        if (serving && !serving.has(request.to)) continue
+        for (const source of request.source === 'mines' ? mines : serving ? anyZone() : request.zone.buildings) {
           if (source === request.to || !offersOf(sim, source).includes(request.resource)) continue
           // Руду шахты, у которой уже есть привязанный грузовик, свободные не возят.
           if (request.source === 'mines' && bound.has(source)) continue
@@ -413,7 +422,7 @@ export function dispatch(sim: Sim) {
           best = { from: source, to: request.to, resource: request.resource, amount: Math.min(request.amount, available, room), score }
         }
       }
-      if (!best) {
+      if (!best && !serving) {
         // Заявок нет — увозит готовое из переработки и цехов; куда именно, решит, когда наберёт груз.
         for (const source of outlets) {
           for (const resource of offersOf(sim, source)) {
@@ -445,7 +454,6 @@ export function dispatch(sim: Sim) {
         }
       }
       if (!best) continue
-      const hauler = world.get(truck, Hauler)!
       hauler.from = best.from
       hauler.to = best.to
       hauler.resource = best.resource

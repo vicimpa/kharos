@@ -108,7 +108,7 @@ export interface HudState {
    * Выбранные грузовики (не харвестеры): кому слать маршрут и фильтр. routed — сколько из них ездят по маршруту,
    * filter — фильтр первого из них, routing — сколько остановок игрок уже набрал, null — не набирает.
    */
-  haul: { units: number[]; routed: number; filter: Good[]; routing: number | null } | null
+  haul: { units: number[]; routed: number; served: number; filter: Good[]; routing: number | null; serving: number | null } | null
   /** Стройка, если выбранное здание ещё не достроено. */
   site: {
     entity: number
@@ -257,11 +257,12 @@ export function readHud(scene: Scene): HudState {
       cargo.items = stacksOf(items)
       cargo.capacity += inventory.capacity
       if (hauler.mine >= 0) cargo.bound++
-      else if (hauler.from >= 0 || hauler.to >= 0 || hauler.route.length) cargo.busy++
+      else if (hauler.from >= 0 || hauler.to >= 0 || hauler.route.length || hauler.serve.length) cargo.busy++
       if (!world.has(entity, Harvester)) {
-        haul ??= { units: [], routed: 0, filter: [...hauler.filter], routing: scene.routing ? scene.routing.length : null }
+        haul ??= { units: [], routed: 0, served: 0, filter: [...hauler.filter], routing: scene.routing ? scene.routing.length : null, serving: scene.serving ? scene.serving.length : null }
         haul.units.push(entity)
         if (hauler.route.length) haul.routed++
+        if (hauler.serve.length) haul.served++
       }
     }
     const built = world.get(entity, Building)

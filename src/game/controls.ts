@@ -143,6 +143,17 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
         if (building !== undefined && building !== last && isStop(scene.sim, scene.player, building)) scene.routing.push(building)
       }
       if (button === RIGHT && !dragged) finishRoute()
+    } else if (scene.serving) {
+      // Левый щелчок по своему зданию со складом — отметить его или снять отметку; правый — готово.
+      if (button === LEFT && !dragged) {
+        const building = scene.sim.occupancy.at(Math.floor(point.x), Math.floor(point.y))
+        if (building !== undefined && isStop(scene.sim, scene.player, building)) {
+          const at = scene.serving.indexOf(building)
+          if (at >= 0) scene.serving.splice(at, 1)
+          else scene.serving.push(building)
+        }
+      }
+      if (button === RIGHT && !dragged) finishServe()
     } else if (scene.paving) {
       if (button === RIGHT && !dragged) scene.paving = null
       const stroke = button === LEFT ? paveStrokeOf(scene) : null
@@ -275,19 +286,21 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
       lastGroup = { digit, at: now }
     }
     if ((event.code === 'Enter' || event.code === 'NumpadEnter') && scene.routing) finishRoute()
+    if ((event.code === 'Enter' || event.code === 'NumpadEnter') && scene.serving) finishServe()
     // P — патруль, как в StarCraft: дальше щелчок по карте.
     if (event.code === 'KeyP' && !event.ctrlKey && !event.metaKey && !event.altKey) {
       let fighters = false
       for (const entity of scene.selection) fighters ||= canFight(scene.sim, entity)
       if (fighters) {
         scene.patrolling = true
-        scene.placing = scene.paving = scene.routing = null
+        scene.placing = scene.paving = scene.routing = scene.serving = null
       }
     }
     if (event.code === 'Escape') {
       // Сначала отменяется выбор места, и только следующим нажатием — выделение.
       if (scene.patrolling) scene.patrolling = false
       else if (scene.routing) scene.routing = null
+      else if (scene.serving) scene.serving = null
       else if (scene.paving) {
         scene.paving = null
         scene.paveFrom = null
@@ -300,6 +313,12 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
     const stops = scene.routing ?? []
     scene.routing = null
     if (stops.length > 1) scene.sim.send(scene.player, { type: 'route', units: [...scene.selection], stops })
+  }
+  /** Назначает выбранным грузовикам отмеченные здания; ничего не отмечено — набор просто кончается. */
+  const finishServe = () => {
+    const buildings = scene.serving ?? []
+    scene.serving = null
+    if (buildings.length) scene.sim.send(scene.player, { type: 'serve', units: [...scene.selection], buildings })
   }
   /** Камера летит к середине выделенного. */
   const lookAtSelection = () => {
@@ -369,6 +388,11 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
       let trucks = false
       for (const entity of scene.selection) trucks ||= scene.sim.world.has(entity, Hauler) && !scene.sim.world.has(entity, Harvester)
       if (!trucks) scene.routing = null
+    }
+    if (scene.serving) {
+      let trucks = false
+      for (const entity of scene.selection) trucks ||= scene.sim.world.has(entity, Hauler) && !scene.sim.world.has(entity, Harvester)
+      if (!trucks) scene.serving = null
     }
     // Покрытие кладут и снимают строители.
     if (scene.paving) {

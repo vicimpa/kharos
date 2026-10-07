@@ -3,6 +3,7 @@ import { isReady } from './buildings'
 import { NONE, isOwn, onTurn } from './common'
 import { Beam, Converting, Hauler, Harvester, Inventory, Owner, Path, Unit } from './components'
 import { amountOf, approach, beamFor, reaches, roomFor, transfer } from './inventory'
+import { releaseHauler } from './hauling'
 import { acceptsDelivery, offersOf, spareOf } from './logistics'
 import { GOODS, type Good } from './resources'
 import type { Sim } from './sim'
@@ -58,6 +59,26 @@ export function setRoute(sim: Sim, player: number, units: Entity[], stops: Entit
     hauler.full = hauler.loading = hauler.waiting = false
     hauler.route = route.length > 1 ? [...route] : []
     hauler.stop = 0
+    world.remove(truck, Path)
+  }
+  return trucks.length > 0
+}
+
+/** Сколько зданий может обслуживать грузовик. */
+export const SERVE_LIMIT = 16
+
+/**
+ * Назначает грузовики игрока обслуживать здания: дальше они возят только по их заявкам, беря груз в любых своих
+ * хранилищах, цехах и шахтах. Годятся свои готовые здания со складом, повторы выбрасываются; пустой список снимает
+ * назначение. Грузовик бросает прежнюю работу, шахту и маршрут; груз в кузове сначала отвезёт в хранилище.
+ */
+export function setServe(sim: Sim, player: number, units: Entity[], buildings: Entity[]) {
+  const { world } = sim
+  const serve = [...new Set(buildings)].filter((building) => isStop(sim, player, building)).slice(0, SERVE_LIMIT)
+  const trucks = [...new Set(units)].filter((entity) => world.has(entity, Hauler) && world.has(entity, Unit) && !world.has(entity, Harvester) && isOwn(sim, player, entity))
+  for (const truck of trucks) {
+    releaseHauler(sim, truck)
+    world.get(truck, Hauler)!.serve = serve
     world.remove(truck, Path)
   }
   return trucks.length > 0

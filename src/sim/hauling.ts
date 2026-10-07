@@ -88,6 +88,7 @@ export function releaseHauler(sim: Sim, truck: Entity) {
   if (!hauler) return
   hauler.mine = NONE
   hauler.pickup = NONE
+  hauler.serve = []
   hauler.route = []
   hauler.stop = 0
   dropJob(sim, truck)

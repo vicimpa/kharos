@@ -11,7 +11,7 @@ import { DEPLOY_SECONDS, PACK_SECONDS, canDeploy, canPack, cancelDeploy, startCo
 import { assignHaulers, assignPickup, releaseHauler } from './hauling'
 import { orderPave, removePave, type PaveKind } from './paving'
 import { cancelUnit, orderUnit } from './production'
-import { setFilter, setRoute } from './routes'
+import { setFilter, setRoute, setServe } from './routes'
 import { surrender } from './defeat'
 import { clearTactics, orderPatrol, setStance, type Stance } from './tactics'
 import type { Good, Resource } from './resources'
@@ -68,6 +68,8 @@ export type Command =
   | { type: 'demolish'; building: number; builders: number[] }
   /** Дать своим грузовикам маршрут: свои здания-остановки по кругу. Меньше двух остановок — снять маршрут. */
   | { type: 'route'; units: number[]; stops: number[] }
+  /** Своим грузовикам — возить только по заявкам этих своих зданий. Пусто — снять назначение. */
+  | { type: 'serve'; units: number[]; buildings: number[] }
   /** Какие грузы возить своим грузовикам; пусто — любые. */
   | { type: 'filter'; units: number[]; goods: Good[] }
   /** Сдаться: проиграть сразу — все свои юниты и здания исчезают. */
@@ -153,6 +155,8 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
       return Array.isArray(command.units) && Array.isArray(command.points) && orderPatrol(sim, player, command.units as Entity[], command.points, !!command.append)
     case 'route':
       return Array.isArray(command.units) && Array.isArray(command.stops) && setRoute(sim, player, command.units as Entity[], command.stops as Entity[])
+    case 'serve':
+      return Array.isArray(command.units) && Array.isArray(command.buildings) && setServe(sim, player, command.units as Entity[], command.buildings as Entity[])
     case 'filter':
       return Array.isArray(command.units) && Array.isArray(command.goods) && setFilter(sim, player, command.units as Entity[], command.goods)
     case 'pave': {

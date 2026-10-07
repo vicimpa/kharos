@@ -68,6 +68,7 @@ interface Actions {
   place: (building: BuildingType | null) => void
   pave: (tool: PaveTool | null) => void
   route: (start: boolean) => void
+  serve: (start: boolean) => void
   patrol: (start: boolean) => void
   open: (page: Page) => void
 }
@@ -88,7 +89,7 @@ const PAVE_TOOLS: { tool: PaveTool; label: string; cost?: number; title: string 
 ]
 
 /** Сетка команд для выбранного: GRID_SIZE ячеек, пустые — null. */
-export function commandsOf(state: HudState, page: Page, { send, place, pave, route, patrol, open }: Actions): (Slot | null)[] {
+export function commandsOf(state: HudState, page: Page, { send, place, pave, route, serve, patrol, open }: Actions): (Slot | null)[] {
   const slots: (Slot | null)[] = Array(GRID_SIZE).fill(null)
   const list = (items: Slot[]) => items.slice(0, LIST).forEach((slot, i) => (slots[i] = slot))
   const { construction, production, conversion, assembly, trade, site, demolish, credits } = state
@@ -228,6 +229,15 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
         active: filter.length > 0,
         title: 'Какие грузы возить по заявкам и маршруту',
         run: () => open('filter'),
+      }
+      slots[3] = {
+        label: haul.serving === null ? 'Обслуживать' : `Обслуживать: ${haul.serving}`,
+        active: haul.serving !== null,
+        title: 'Щёлкай по своим зданиям: грузовики будут возить только по их заявкам, а груз брать в любой своей зоне. Правая кнопка или Enter — готово, Esc — отмена',
+        run: () => serve(haul.serving === null),
+      }
+      if (haul.served > 0) {
+        slots[4] = { label: 'Снять назначение', title: 'Грузовики вернутся к заявкам зон', run: () => send({ type: 'serve', units, buildings: [] }) }
       }
     } else if (page === 'filter') {
       /** Руда в фильтре — вся сразу: по видам её различает месторождение, а не игрок. */

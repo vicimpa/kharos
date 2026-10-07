@@ -81,6 +81,7 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
           place={(building) => gameRef.current?.place(building)}
           pave={(tool) => gameRef.current?.pave(tool)}
           route={(start) => gameRef.current?.route(start)}
+          serve={(start) => gameRef.current?.serve(start)}
           patrol={(start) => gameRef.current?.patrol(start)}
           minimap={gameRef.current.minimap}
           lookAt={(x, y) => gameRef.current?.lookAt(x, y)}

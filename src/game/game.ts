@@ -75,6 +75,8 @@ export interface Game {
   pave(tool: PaveTool | null): void
   /** Начинает набор маршрута выбранным грузовикам щелчками по зданиям; false — отменяет. */
   route(start: boolean): void
+  /** Начинает выбор зданий, которые будут обслуживать выбранные грузовики; false — отменяет. */
+  serve(start: boolean): void
   /** Проигравший начинает заново: на сервере — новый стартовый набор в новом месте, в локальной игре — новый мир. */
   respawn(): void
   /** Начинает выбор точки патруля выбранным бойцам; false — отменяет. */
@@ -130,6 +132,7 @@ export function createGame(
     paving: null,
     paveFrom: null,
     routing: null,
+    serving: null,
     patrolling: false,
     grid: false,
     weather: weatherAt(session.sim.options, session.sim.time.elapsed),
@@ -244,6 +247,7 @@ export function createGame(
       scene.paving = null
       scene.paveFrom = null
       scene.routing = null
+      scene.serving = null
       scene.patrolling = false
       centered = false
     }
@@ -316,11 +320,15 @@ export function createGame(
     },
     patrol(start) {
       scene.patrolling = start
-      if (start) scene.placing = scene.paving = scene.routing = null
+      if (start) scene.placing = scene.paving = scene.routing = scene.serving = null
     },
     route(start) {
       scene.routing = start ? [] : null
-      if (start) scene.placing = scene.paving = null
+      if (start) scene.placing = scene.paving = scene.serving = null
+    },
+    serve(start) {
+      scene.serving = start ? [] : null
+      if (start) scene.placing = scene.paving = scene.routing = null
     },
     pave(tool) {
       scene.paving = tool

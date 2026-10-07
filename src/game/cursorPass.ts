@@ -21,6 +21,8 @@ const REMOVE: Color = [1, 0.65, 0.2]
 const SHORT: Color = [1, 0.85, 0.15]
 /** Маршрут грузовиков: цвет, размер точки пунктира в пикселях экрана и шаг пунктира в тайлах. */
 const ROUTE: Color = [1, 0.85, 0.3]
+/** Здания, которые обслуживают выбранные грузовики: только рамки, без пунктира. */
+const SERVE: Color = [0.45, 0.85, 1]
 const ROUTE_DOT = 3
 const ROUTE_STEP = 0.5
 
@@ -28,6 +30,8 @@ const ROUTE_STEP = 0.5
 interface DrawnRoute {
   stops: { x: number; y: number; width: number; height: number }[]
   closed: boolean
+  /** Только рамки зданий, без пунктира между ними: назначение грузовиков, а не маршрут. */
+  marks?: boolean
 }
 
 /** Маршруты для показа: набираемый игроком и маршруты выбранных грузовиков, каждый по разу. */
@@ -47,6 +51,18 @@ function routesOf(scene: Scene): DrawnRoute[] {
     routes.push({ stops: entities.map(stopOf).filter((stop) => stop !== null), closed })
   }
   if (scene.routing) add(scene.routing, false)
+  // Назначение: отмечаемые сейчас здания и назначенные выбранным грузовикам.
+  const marks = (entities: readonly number[]) => {
+    const key = `serve:${entities.join()}`
+    if (!entities.length || seen.has(key)) return
+    seen.add(key)
+    routes.push({ stops: entities.map(stopOf).filter((stop) => stop !== null), closed: false, marks: true })
+  }
+  if (scene.serving) marks(scene.serving)
+  for (const entity of scene.selection) {
+    const serve = world.get(entity, Hauler)?.serve
+    if (serve?.length) marks(serve)
+  }
   for (const entity of scene.selection) {
     const route = world.get(entity, Hauler)?.route
     if (route?.length) add(route, true)
@@ -114,11 +130,11 @@ export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass
 
       rects.clear()
       // Маршруты грузовиков: остановки в рамке, между ними — пунктир по кругу.
-      for (const { stops, closed } of routes) {
+      for (const { stops, closed, marks } of routes) {
         const size = ROUTE_DOT / camera.zoom
         const centers = stops.map(({ x, y, width, height }) => ({ x: x + width / 2, y: y + height / 2 }))
-        for (const { x, y, width, height } of stops) area(x, y, width, height, ROUTE)
-        const legs = closed ? centers.length : centers.length - 1
+        for (const { x, y, width, height } of stops) area(x, y, width, height, marks ? SERVE : ROUTE)
+        const legs = marks ? 0 : closed ? centers.length : centers.length - 1
         for (let i = 0; i < legs; i++) {
           const from = centers[i]
           const to = centers[(i + 1) % centers.length]

@@ -116,3 +116,32 @@ test('фильтр снимает начатую работу с грузом, �
   seconds(sim, 5)
   expect(hauler.from === -1 || hauler.resource !== 'metal').toBe(true)
 })
+
+test('назначенный на здания грузовик возит только по их заявкам, а груз берёт и в чужой для них зоне', () => {
+  const { sim, buildings: [bunker, mine, other], truck } = base(['ammoBunker', 'turret', 'turret'])
+  sim.world.get(bunker, Inventory)!.items.ammo = 200
+  sim.world.get(mine, Inventory)!.items.ammo = 0
+  sim.world.get(other, Inventory)!.items.ammo = 0
+  // Турели — отдельная зона без хранилищ: свободный грузовик патроны из чужой зоны к ним не возит.
+  seconds(sim, 20)
+  expect(amount(sim, mine, 'ammo')).toBe(0)
+  sim.send(1, { type: 'serve', units: [truck], buildings: [mine] })
+  // Турель заказывает, пока не наберёт три четверти запаса и больше.
+  until(sim, () => amount(sim, mine, 'ammo') >= sim.world.get(mine, Inventory)!.capacity * 0.75)
+  seconds(sim, 20)
+  expect(amount(sim, other, 'ammo')).toBe(0)
+})
+
+test('назначение: чужие и без склада здания выбрасываются, приказ идти снимает его, снесённое выпадает', () => {
+  const { sim, buildings: [yard, turret], truck } = base(['metalYard', 'turret'])
+  const hauler = sim.world.get(truck, Hauler)!
+  sim.send(1, { type: 'serve', units: [truck], buildings: [yard, turret, 99999] })
+  sim.advance(TICK)
+  expect(hauler.serve).toEqual([yard, turret])
+  sim.world.destroy(yard)
+  seconds(sim, 1)
+  expect(hauler.serve).toEqual([turret])
+  sim.send(1, { type: 'move', units: [truck], x: 0, y: 0 })
+  sim.advance(TICK)
+  expect(hauler.serve).toEqual([])
+})
