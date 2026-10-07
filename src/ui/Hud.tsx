@@ -434,8 +434,8 @@ function Info({ state, lookAtSelection, narrow }: { state: HudState; lookAtSelec
             </div>
           </>
         )}
-        {state.tactics?.picking !== null && state.tactics?.picking !== undefined && (
-          <div class="hud__hint">Точки патруля: {state.tactics.picking}. Левая кнопка — ещё точка; правая или Enter — в путь, Esc — отмена</div>
+        {state.tactics?.picking && (
+          <div class="hud__hint">Щелчок — патруль до точки; Shift+щелчок — ещё точка к патрулю; правая кнопка или Esc — отмена</div>
         )}
         {construction?.paving && (
           <div class="hud__hint">

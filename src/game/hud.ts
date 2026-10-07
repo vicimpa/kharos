@@ -44,9 +44,9 @@ export interface HudState {
   army: { armed: number; health: number } | null
   /**
    * Тактика выбранных бойцов: кому слать стойку и патруль; stance — общая стойка или null, если у них разные;
-   * patrolling — сколько из них в патруле; picking — сколько точек патруля игрок уже набрал, null — не набирает.
+   * patrolling — сколько из них в патруле; picking — игрок выбирает точку патруля.
    */
-  tactics: { units: number[]; stance: Stance | null; patrolling: number; picking: number | null } | null
+  tactics: { units: number[]; stance: Stance | null; patrolling: number; picking: boolean } | null
   /** Выбранное здание, если выбрано оно. */
   building: BuildingType | null
   /** Месторождение под выбранной шахтой: что в нём и сколько осталось. */
@@ -224,7 +224,7 @@ export function readHud(scene: Scene): HudState {
       if (canFight(sim, entity)) {
         armed++
         const stance = stanceOf(sim, entity)
-        tactics ??= { units: [], stance, patrolling: 0, picking: scene.patrolling ? scene.patrolling.length / 2 : null }
+        tactics ??= { units: [], stance, patrolling: 0, picking: scene.patrolling }
         tactics.units.push(entity)
         if (tactics.stance !== stance) tactics.stance = null
         if (world.get(entity, Tactics)?.patrol.length) tactics.patrolling++

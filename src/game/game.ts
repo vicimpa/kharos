@@ -71,7 +71,7 @@ export interface Game {
   pave(tool: PaveTool | null): void
   /** Начинает набор маршрута выбранным грузовикам щелчками по зданиям; false — отменяет. */
   route(start: boolean): void
-  /** Начинает набор точек патруля выбранным бойцам щелчками по карте; false — отменяет. */
+  /** Начинает выбор точки патруля выбранным бойцам; false — отменяет. */
   patrol(start: boolean): void
   /** Мини-карта нижней панели. */
   readonly minimap: Minimap
@@ -122,7 +122,7 @@ export function createGame(
     paving: null,
     paveFrom: null,
     routing: null,
-    patrolling: null,
+    patrolling: false,
     grid: false,
     weather: weatherAt(session.sim.options, session.sim.time.elapsed),
   }
@@ -232,7 +232,7 @@ export function createGame(
       scene.paving = null
       scene.paveFrom = null
       scene.routing = null
-      scene.patrolling = null
+      scene.patrolling = false
       centered = false
     }
     controls?.update(seconds)
@@ -295,7 +295,7 @@ export function createGame(
       if (building) scene.paving = null
     },
     patrol(start) {
-      scene.patrolling = start ? [] : null
+      scene.patrolling = start
       if (start) scene.placing = scene.paving = scene.routing = null
     },
     route(start) {

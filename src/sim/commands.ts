@@ -68,7 +68,7 @@ export type Command =
   /** Стойка своих вооружённых юнитов: как они воюют без приказа. */
   | { type: 'stance'; units: number[]; stance: Stance }
   /** Послать своих вооружённых юнитов в патруль: по кругу от их места через точки (x и y подряд) и обратно. */
-  | { type: 'patrol'; units: number[]; points: number[] }
+  | { type: 'patrol'; units: number[]; points: number[]; append?: boolean }
   /** Заложить покрытие в тайлы (x и y подряд) и послать к нему своих строителей. Дорога по болоту — мост. */
   | { type: 'pave'; kind: PaveKind; tiles: number[]; builders: number[] }
   /** Снять своё покрытие с тайлов (x и y подряд) своими строителями: недостроенное — сразу с возвратом, готовое разберут. */
@@ -139,7 +139,7 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
     case 'stance':
       return Array.isArray(command.units) && setStance(sim, player, command.units as Entity[], command.stance)
     case 'patrol':
-      return Array.isArray(command.units) && Array.isArray(command.points) && orderPatrol(sim, player, command.units as Entity[], command.points)
+      return Array.isArray(command.units) && Array.isArray(command.points) && orderPatrol(sim, player, command.units as Entity[], command.points, !!command.append)
     case 'route':
       return Array.isArray(command.units) && Array.isArray(command.stops) && setRoute(sim, player, command.units as Entity[], command.stops as Entity[])
     case 'filter':

@@ -115,9 +115,13 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     const point = camera.screenToTile(event.offsetX, event.offsetY)
 
     if (scene.patrolling) {
-      // Левый щелчок — ещё точка патруля; правый — патруль уходит по набранным.
-      if (button === LEFT && !dragged) scene.patrolling.push(Math.floor(point.x), Math.floor(point.y))
-      if (button === RIGHT && !dragged) finishPatrol()
+      // Щелчок — патруль до точки, и выбор кончается; Shift+щелчок — ещё точка к патрулю, выбор продолжается.
+      if (button === LEFT && !dragged) {
+        const units = [...scene.selection]
+        scene.sim.send(scene.player, { type: 'patrol', units, points: [Math.floor(point.x), Math.floor(point.y)], append: event.shiftKey })
+        if (!event.shiftKey) scene.patrolling = false
+      }
+      if (button === RIGHT && !dragged) scene.patrolling = false
     } else if (scene.routing) {
       // Левый щелчок по своему зданию со складом — ещё остановка; правый — маршрут готов.
       if (button === LEFT && !dragged) {
@@ -250,10 +254,18 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
       lastGroup = { digit, at: now }
     }
     if ((event.code === 'Enter' || event.code === 'NumpadEnter') && scene.routing) finishRoute()
-    if ((event.code === 'Enter' || event.code === 'NumpadEnter') && scene.patrolling) finishPatrol()
+    // P — патруль, как в StarCraft: дальше щелчок по карте.
+    if (event.code === 'KeyP' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      let fighters = false
+      for (const entity of scene.selection) fighters ||= canFight(scene.sim, entity)
+      if (fighters) {
+        scene.patrolling = true
+        scene.placing = scene.paving = scene.routing = null
+      }
+    }
     if (event.code === 'Escape') {
       // Сначала отменяется выбор места, и только следующим нажатием — выделение.
-      if (scene.patrolling) scene.patrolling = null
+      if (scene.patrolling) scene.patrolling = false
       else if (scene.routing) scene.routing = null
       else if (scene.paving) {
         scene.paving = null
@@ -261,12 +273,6 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
       } else if (scene.placing) scene.placing = null
       else scene.selection.clear()
     }
-  }
-  /** Посылает выбранных бойцов в патруль по набранным точкам; без точек набор просто кончается. */
-  const finishPatrol = () => {
-    const points = scene.patrolling ?? []
-    scene.patrolling = null
-    if (points.length) scene.sim.send(scene.player, { type: 'patrol', units: [...scene.selection], points })
   }
   /** Отдаёт набранный маршрут выбранным грузовикам; меньше двух остановок — набор просто кончается. */
   const finishRoute = () => {
@@ -335,7 +341,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     if (scene.patrolling) {
       let fighters = false
       for (const entity of scene.selection) fighters ||= canFight(scene.sim, entity)
-      if (!fighters) scene.patrolling = null
+      if (!fighters) scene.patrolling = false
     }
     // Маршрут набирают грузовикам: без них набор отменяется.
     if (scene.routing) {

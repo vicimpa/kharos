@@ -2,7 +2,7 @@ import { setBlend } from '../gl'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites, createWhiteTexture } from '../render/sprites'
 import type { Entity } from '../ecs'
-import { BUILDINGS, Building, CONTROL_RADIUS, Hauler, Position, Tactics, Unit, allZones } from '../sim'
+import { BUILDINGS, Building, CONTROL_RADIUS, Hauler, Position, Tactics, allZones } from '../sim'
 import { paveStrokeOf, placementOf } from './placing'
 import type { Scene } from './scene'
 
@@ -63,11 +63,6 @@ function routesOf(scene: Scene): DrawnRoute[] {
   for (const entity of scene.selection) {
     const patrol = world.get(entity, Tactics)?.patrol
     if (patrol?.length) tiles(patrol, true)
-  }
-  if (scene.patrolling?.length) {
-    const first = [...scene.selection].find((entity) => world.has(entity, Unit))
-    const at = first === undefined ? undefined : world.get(first, Position)
-    tiles(at ? [Math.floor(at.x), Math.floor(at.y), ...scene.patrolling] : scene.patrolling, false)
   }
   return routes
 }

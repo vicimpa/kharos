@@ -137,3 +137,17 @@ test('«держать позицию» на юните с турелью: по�
   expect(Math.abs(run('hold'))).toBeLessThan(0.5)
   expect(run('defensive')).toBeGreaterThan(1)
 })
+
+test('Shift к патрулю: точка добавляется к идущему патрулю, без Shift — патруль новый', () => {
+  const { sim, x, y } = field()
+  const ours = put(sim, 'buggy', 1, x + 2, y)
+  sim.send(1, { type: 'patrol', units: [ours], points: [x + 10, y] })
+  sim.advance(TICK)
+  sim.send(1, { type: 'patrol', units: [ours], points: [x + 20, y + 2], append: true })
+  sim.advance(TICK)
+  expect(sim.world.get(ours, Tactics)!.patrol).toEqual([x + 2, y, x + 10, y, x + 20, y + 2])
+  seconds(sim, 2)
+  sim.send(1, { type: 'patrol', units: [ours], points: [x + 30, y] })
+  sim.advance(TICK)
+  expect(sim.world.get(ours, Tactics)!.patrol.slice(2)).toEqual([x + 30, y])
+})

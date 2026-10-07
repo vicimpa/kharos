@@ -60,9 +60,10 @@ export function setStance(sim: Sim, player: number, units: Entity[], stance: Sta
 
 /**
  * Посылает своих вооружённых юнитов в патруль: каждый ходит по кругу от тайла, где стоит, через точки (x, y подряд)
- * и обратно. По пути бьёт врагов по своей стойке, а после боя продолжает обход.
+ * и обратно. По пути бьёт врагов по своей стойке, а после боя продолжает обход. append — точки добавляются к уже
+ * идущему патрулю; кто не патрулировал, начинает патруль от своего места.
  */
-export function orderPatrol(sim: Sim, player: number, units: Entity[], points: number[]) {
+export function orderPatrol(sim: Sim, player: number, units: Entity[], points: number[], append = false) {
   const stops: number[] = []
   for (let i = 0; i + 1 < points.length && stops.length < PATROL_LIMIT * 2; i += 2) {
     if (Number.isInteger(points[i]) && Number.isInteger(points[i + 1])) stops.push(points[i], points[i + 1])
@@ -72,6 +73,10 @@ export function orderPatrol(sim: Sim, player: number, units: Entity[], points: n
   for (const entity of fighters) {
     const { x, y } = sim.world.get(entity, Position)!
     const tactics = tacticsOf(sim, entity)
+    if (append && tactics.patrol.length) {
+      tactics.patrol.push(...stops.slice(0, Math.max(0, (PATROL_LIMIT + 1) * 2 - tactics.patrol.length)))
+      continue
+    }
     tactics.patrol = [Math.floor(x), Math.floor(y), ...stops]
     tactics.leg = 1
     tactics.away = false
