@@ -460,13 +460,21 @@ export function repairLinks(sim: Sim): RepairLink[] {
  * Какую долю стройки позволяют привезённые материалы, от 0 до 1: строить дальше привезённого нельзя.
  * Здание без материалов строится целиком.
  */
+/** Недостача материалов меньше этого считается погрешностью: см. materialShare. */
+export const MATERIAL_EPSILON = 1e-6
+
 export function materialShare(sim: Sim, site: Entity) {
   const { world } = sim
   const type = world.get(site, Site)?.type
   const materials = type === undefined ? undefined : buildingSpec(type).materials
   const inventory = world.get(site, Inventory)
   if (!materials || !inventory) return 1
-  return Math.min(1, ...entriesOf(materials).map(([resource, amount]) => amountOf(inventory, resource) / amount))
+  // Луч переносит груз долями, и на площадке может оказаться на крошку меньше нужного. Такую недостачу никто не
+  // повезёт (заявки — целыми единицами), поэтому она считается привезённой: иначе стройка навсегда встала бы на 99,99%.
+  return Math.min(1, ...entriesOf(materials).map(([resource, amount]) => {
+    const have = amountOf(inventory, resource)
+    return have >= amount - MATERIAL_EPSILON ? 1 : have / amount
+  }))
 }
 
 /** Стройка дошла до того, что позволяют привезённые материалы, и ждёт подвоза. */

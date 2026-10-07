@@ -3,7 +3,7 @@ import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Terrain, terrainAt } from '../src/map/terrain'
 import {
-  BUILDINGS, Building, Builds, CORE, Owner, Position, Site, Unit,
+  BUILDINGS, Building, Builds, CORE, Inventory, Owner, Position, Site, Unit,
   canBuild, canPlace, createSim, creditsOf, isWalkable, rewardsOf, siteAt, spawnStartingUnits, type Sim,
 } from '../src/sim'
 import { BUILD_RATE, isUnlocked, placeBuilding } from '../src/sim/buildings'
@@ -305,4 +305,15 @@ test('стройка, которая ждёт материалов, строит
   // Электростанцию строит он — или уже построил.
   expect(!sim.world.has(ready, Site) || sim.world.get(builder, Builds)?.site === ready).toBe(true)
   expect(sim.world.has(ready, Building)).toBe(true)
+})
+
+test('стройка, которой не хватает лишь погрешности материалов, достраивается', () => {
+  const { sim, builders, site } = start()
+  sim.send(1, { type: 'build', building: 'spaceport', x: site.x, y: site.y, builders })
+  seconds(sim, 1)
+  const building = siteAt(sim, site.x, site.y)!
+  // Луч переносит груз долями: на площадке может оказаться на крошку меньше нужного.
+  sim.world.get(building, Inventory)!.items.metal = BUILDINGS.spaceport.materials!.metal! - 5e-7
+  seconds(sim, 120)
+  expect(sim.world.has(building, Site)).toBe(false)
 })

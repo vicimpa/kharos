@@ -117,7 +117,8 @@ export function missingFor(sim: Sim, entity: Entity): Amounts {
   const missing: Amounts = {}
   for (const [resource, amount] of entriesOf(materialsFor(sim, entity) ?? {})) {
     const lack = amount - spareOf(sim, entity, resource)
-    if (lack > 1e-9) missing[resource] = lack
+    // Крошку меньше погрешности не ждут: стройка её прощает (см. materialShare).
+    if (lack > 1e-6) missing[resource] = lack
   }
   return missing
 }
