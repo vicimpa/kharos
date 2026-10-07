@@ -21,7 +21,8 @@ const RIGHT = 2
  * а Shift по уже выбранному юниту — снять его. Двойной щелчок или Ctrl+щелчок по юниту — все свои юниты этого вида на экране.
  * Правая кнопка — приказ выбранным идти в точку, строителям по своей стройке — строить её, вооружённым по врагу —
  * атаковать его; если её тянуть (или среднюю) — двигается камера.
- * Пока выбирается место под здание: левая кнопка закладывает его (с Shift — можно сразу следующее), правая и Esc — отмена.
+ * Пока выбирается место под здание: левая кнопка закладывает его, и можно сразу следующее; правая и Esc — отмена.
+ * Так же с покрытием: левую кнопку тянут от тайла к тайлу.
  * Колесо — масштаб, WASD, стрелки и указатель у края экрана — камера. T Y U I / G H J K / B N M , — сетка команд
  * нижней панели (её ведёт интерфейс). Ctrl+цифра — запомнить выделенных группой, цифра — выбрать группу,
  * повторно — ещё и навести на неё камеру. Esc — отменить выбор места, затем снять выделение.
@@ -86,7 +87,10 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
     if (pressed) return
     pressed = { button: event.button, x: event.offsetX, y: event.offsetY, dragged: false }
     // Покрытие тянут от тайла, где зажали левую кнопку.
-    if (scene.paving && event.button === LEFT) scene.paveFrom = camera.screenToTile(event.offsetX, event.offsetY)
+    if (scene.paving && event.button === LEFT) {
+      const { x, y } = camera.screenToTile(event.offsetX, event.offsetY)
+      scene.paveFrom = { x: Math.floor(x), y: Math.floor(y) }
+    }
     canvas.setPointerCapture(event.pointerId)
   }
   const onPointerMove = (event: PointerEvent) => {
@@ -123,11 +127,9 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
       if (stroke) {
         const tiles = stroke.tiles.filter((_, i) => stroke.allowed[i >> 1])
         if (tiles.length) {
-          scene.sim.send(scene.player, stroke.tool === 'remove'
-            ? { type: 'unpave', tiles }
-            : { type: 'pave', kind: stroke.tool, tiles, builders: [...scene.selection] })
+          const builders = [...scene.selection]
+          scene.sim.send(scene.player, stroke.tool === 'remove' ? { type: 'unpave', tiles, builders } : { type: 'pave', kind: stroke.tool, tiles, builders })
         }
-        if (!event.shiftKey) scene.paving = null
       }
     } else if (scene.placing) {
       if (button === RIGHT && !dragged) scene.placing = null
@@ -135,7 +137,6 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
       if (placement?.allowed) {
         const { type, x, y } = placement
         scene.sim.send(scene.player, { type: 'build', building: type, x, y, builders: [...scene.selection] })
-        if (!event.shiftKey) scene.placing = null
       }
     } else if (button === LEFT) {
       const box = scene.selectionBox
@@ -318,8 +319,8 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
       for (const entity of scene.selection) trucks ||= scene.sim.world.get(entity, Unit)?.type === 'truck'
       if (!trucks) scene.routing = null
     }
-    // Покрытие кладут строители, а снимают и без них.
-    if (scene.paving && scene.paving !== 'remove') {
+    // Покрытие кладут и снимают строители.
+    if (scene.paving) {
       let builders = false
       for (const entity of scene.selection) builders ||= scene.sim.world.get(entity, Unit)?.type === 'builder'
       if (!builders) scene.paving = null

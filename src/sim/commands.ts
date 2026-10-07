@@ -66,8 +66,8 @@ export type Command =
   | { type: 'filter'; units: number[]; goods: Good[] }
   /** Заложить покрытие в тайлы (x и y подряд) и послать к нему своих строителей. Дорога по болоту — мост. */
   | { type: 'pave'; kind: PaveKind; tiles: number[]; builders: number[] }
-  /** Снять своё покрытие с тайлов (x и y подряд): за недостроенное кредиты возвращаются. */
-  | { type: 'unpave'; tiles: number[] }
+  /** Снять своё покрытие с тайлов (x и y подряд) своими строителями: недостроенное — сразу с возвратом, готовое разберут. */
+  | { type: 'unpave'; tiles: number[]; builders: number[] }
 
 const isTile = (x: unknown, y: unknown) => Number.isInteger(x) && Number.isInteger(y)
 
@@ -139,7 +139,7 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
       return orderPave(sim, player, command.kind, command.tiles, command.builders as Entity[]) > 0
     }
     case 'unpave':
-      return Array.isArray(command.tiles) && removePave(sim, player, command.tiles)
+      return Array.isArray(command.tiles) && Array.isArray(command.builders) && removePave(sim, player, command.tiles, command.builders as Entity[])
     case 'demolish': {
       const builders = Array.isArray(command.builders) ? (command.builders as Entity[]) : []
       return demolish(sim, player, command.building as Entity, builders)

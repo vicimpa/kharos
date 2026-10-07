@@ -1,4 +1,4 @@
-import { BUILDINGS, DEPOSIT_SIZE, Owner, PAVE_LIMIT, canBuild, canPave, depositNear, paveCost, type BuildingSpec, type BuildingType } from '../sim'
+import { BUILDINGS, DEPOSIT_SIZE, Owner, Pave, PAVE_LIMIT, canBuild, canPave, depositNear, paveCost, type BuildingSpec, type BuildingType } from '../sim'
 import type { PaveTool, Scene } from './scene'
 
 /** Где встанет здание, которое игрок сейчас выбирает место: левый верхний тайл основания и годится ли место. */
@@ -80,7 +80,7 @@ export function paveStrokeOf(scene: Scene): PaveStroke | null {
     const y = tiles[i + 1]
     if (tool === 'remove') {
       const entity = sim.paving.at(x, y)
-      allowed.push(entity !== undefined && sim.world.get(entity, Owner)?.player === player)
+      allowed.push(entity !== undefined && sim.world.get(entity, Owner)?.player === player && !sim.world.get(entity, Pave)?.remove)
       continue
     }
     const ok = canPave(sim, player, tool, x, y)

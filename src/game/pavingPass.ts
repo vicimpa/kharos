@@ -9,7 +9,7 @@ import type { Scene } from './scene'
 
 /** Пикселей спрайта на тайл, как у местности. */
 const ART_TILE = 16
-/** Недостроенное покрытие просвечивает: видно, что его ещё кладут. */
+/** Недостроенное и разбираемое покрытие просвечивает: видно, что над ним работают. */
 const UNFINISHED_ALPHA = 0.45
 
 /** Соседи тайла битами: сверху, справа, снизу, слева. Край рисуется там, где соседа нет. */
@@ -138,7 +138,7 @@ export function createPavingPass(gl: WebGL2RenderingContext, scene: Scene): Pass
           const mask = (same(0, -1) ? UP : 0) | (same(1, 0) ? RIGHT : 0) | (same(0, 1) ? DOWN : 0) | (same(-1, 0) ? LEFT : 0)
           const look: Look = pave.kind === 'foundation' ? 'foundation' : terrainAt(sim.land, x, y) === Terrain.Swamp ? 'bridge' : 'road'
           const frame = frameOf(look, mask)
-          const alpha = pave.done ? 1 : UNFINISHED_ALPHA
+          const alpha = pave.done && !pave.remove ? 1 : UNFINISHED_ALPHA
           sprites.push(x - camera.x, y - camera.y, 1, 1, frame.u, frame.v, frame.width, frame.height, alpha, alpha, alpha, alpha)
         }
       }

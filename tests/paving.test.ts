@@ -58,7 +58,8 @@ function find(sim: Sim, terrain: Terrain, x: number, y: number, side: number) {
 }
 
 /** Кладёт готовое покрытие без строителей. */
-const lay = (sim: Sim, kind: 'foundation' | 'road', x: number, y: number) => sim.world.spawn(Position({ x, y }), Pave({ kind, done: true }), Owner({ player: 1 }))
+const lay = (sim: Sim, kind: 'foundation' | 'road', x: number, y: number) =>
+  sim.world.spawn(Position({ x, y }), Pave({ kind, done: true, work: 1 }), Owner({ player: 1 }))
 
 test('строители кладут дорогу: тайлы оплачены сразу, достраиваются и ускоряют наземных', () => {
   const { sim, builders, x, y } = start()
@@ -100,15 +101,32 @@ test('фундамент на песке разрешает стройку, и �
   // На песке с фундаментом строят чуть медленнее, чем на голой скале.
   expect(buildSpeed(sim, 'generator', sand.x, sand.y)).toBeLessThan(1)
 
+})
+
+test('снимают покрытие строители: недостроенное — сразу с возвратом, готовое разбирают; без строителей — никак', () => {
+  const { sim, builders, x, y } = start()
   const credits = creditsOf(sim, 1)
-  const rock = find(sim, Terrain.Rock, x + 60, y + 60, 1)
-  sim.send(1, { type: 'pave', kind: 'foundation', tiles: [rock.x, rock.y], builders: [] })
+  const far = find(sim, Terrain.Rock, x + 60, y + 60, 1)
+  sim.send(1, { type: 'pave', kind: 'foundation', tiles: [far.x, far.y], builders: [] })
   seconds(sim, TICK)
   expect(creditsOf(sim, 1)).toBe(credits - FOUNDATION_COST)
-  sim.send(1, { type: 'unpave', tiles: [rock.x, rock.y] })
+  sim.send(1, { type: 'unpave', tiles: [far.x, far.y], builders: [] })
   seconds(sim, TICK)
-  expect(sim.paving.at(rock.x, rock.y)).toBeUndefined()
-  expect(creditsOf(sim, 1)).toBe(credits)
+  expect(sim.paving.at(far.x, far.y)).toBeDefined()
+  const before = creditsOf(sim, 1)
+  sim.send(1, { type: 'unpave', tiles: [far.x, far.y], builders })
+  seconds(sim, TICK)
+  expect(sim.paving.at(far.x, far.y)).toBeUndefined()
+  expect(creditsOf(sim, 1)).toBe(before + FOUNDATION_COST)
+
+  const near = lay(sim, 'road', x + 6, y + 9)
+  sim.send(1, { type: 'unpave', tiles: [x + 6, y + 9], builders })
+  seconds(sim, TICK)
+  // Пока разбирают, дорога ещё работает.
+  expect(sim.world.get(near, Pave)!.remove).toBe(true)
+  expect(isPaved(sim, 'road', x + 6, y + 9)).toBe(true)
+  seconds(sim, 10)
+  expect(sim.paving.at(x + 6, y + 9)).toBeUndefined()
 })
 
 test('на фундаменте на скале здание строится вдвое быстрее', () => {

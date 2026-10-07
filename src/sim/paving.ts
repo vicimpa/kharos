@@ -2,7 +2,7 @@ import type { Entity } from '../ecs'
 import { Terrain, isPassable, terrainAt } from '../map/terrain'
 import { BUILDINGS, siteAt, type BuildingType } from './buildings'
 import { isOwn } from './common'
-import { Pave, Owner, Position } from './components'
+import { Owner, Pave, Position, Repair, Unit } from './components'
 import { assignBuilders } from './construction'
 import { addCredits, pay } from './economy'
 import type { Sim } from './sim'
@@ -64,17 +64,29 @@ export function orderPave(sim: Sim, player: number, kind: PaveKind, tiles: reado
   return count
 }
 
-/** Снимает своё покрытие с тайлов: недостроенное возвращает кредиты целиком, готовое просто убирают. */
-export function removePave(sim: Sim, player: number, tiles: readonly number[]) {
+/**
+ * Снимает своё покрытие с тайлов строителями: недостроенное отменяется сразу, с возвратом кредитов целиком, готовое
+ * строители разбирают, как здание, — без возврата. Без своих строителей среди units не снимают ничего.
+ */
+export function removePave(sim: Sim, player: number, tiles: readonly number[], units: Entity[]) {
+  const builders = units.filter((entity) => isOwn(sim, player, entity) && sim.world.has(entity, Repair) && sim.world.has(entity, Unit))
+  if (!builders.length) return false
+  let first: Entity | undefined
   let count = 0
   for (let i = 0; i + 1 < tiles.length && i < PAVE_LIMIT * 2; i += 2) {
     const entity = sim.paving.at(tiles[i], tiles[i + 1])
     if (entity === undefined || !isOwn(sim, player, entity)) continue
     const pave = sim.world.get(entity, Pave)!
-    if (!pave.done) addCredits(sim, player, paveCost(sim, pave.kind, tiles[i], tiles[i + 1]))
-    sim.world.destroy(entity)
     count++
+    if (!pave.done) {
+      addCredits(sim, player, paveCost(sim, pave.kind, tiles[i], tiles[i + 1]))
+      sim.world.destroy(entity)
+      continue
+    }
+    pave.remove = true
+    first ??= entity
   }
+  if (first !== undefined) assignBuilders(sim, player, first, builders)
   return count > 0
 }
 

@@ -122,7 +122,7 @@ function workAt(sim: Sim, entity: Entity): Work | undefined {
   const position = world.get(entity, Position)
   if (!position) return undefined
   const pave = world.get(entity, Pave)
-  if (pave) return pave.done ? undefined : { x: position.x, y: position.y, width: 1, height: 1, radius: 0, cost: paveCost(sim, pave.kind, position.x, position.y) }
+  if (pave) return pave.done && !pave.remove ? undefined : { x: position.x, y: position.y, width: 1, height: 1, radius: 0, cost: paveCost(sim, pave.kind, position.x, position.y) }
   const type = world.get(entity, Site)?.type
   const repair = type === undefined && isRepairable(sim, entity)
   const unit = repair ? world.get(entity, Unit) : undefined
@@ -307,7 +307,7 @@ function volunteer(sim: Sim) {
     sites.push({ entity, work: workAt(sim, entity)!, player: owner.player, type: site.demolish ? undefined : site.type })
   }
   for (const [entity, , pave, owner] of world.query(Position, Pave, Owner)) {
-    if (!pave.done) sites.push({ entity, work: workAt(sim, entity)!, player: owner.player })
+    if (!pave.done || pave.remove) sites.push({ entity, work: workAt(sim, entity)!, player: owner.player })
   }
   // Считается недёшево, поэтому только если есть что чинить, и один раз.
   let overbuilt: Set<Entity> | undefined
@@ -392,7 +392,7 @@ export function repairLinks(sim: Sim): RepairLink[] {
   const targets: { entity: Entity; work: Work; player: number; demolish: boolean; ordered: boolean }[] = []
   for (const [entity] of world.query(Site, Position, Owner)) targets.push({ entity, work: workAt(sim, entity)!, player: 0, demolish: false, ordered: false })
   for (const [entity, pave] of world.query(Pave, Position, Owner)) {
-    if (!pave.done) targets.push({ entity, work: workAt(sim, entity)!, player: 0, demolish: false, ordered: false })
+    if (!pave.done || pave.remove) targets.push({ entity, work: workAt(sim, entity)!, player: 0, demolish: false, ordered: false })
   }
   for (const [entity, health] of world.query(Health, Position, Owner)) {
     // По кому сейчас бьют, не чинят: посланный строитель постоит рядом и возьмётся, когда бой стихнет.
@@ -403,7 +403,7 @@ export function repairLinks(sim: Sim): RepairLink[] {
   for (const target of targets) {
     const site = world.get(target.entity, Site)
     target.player = ownerOf(sim, target.entity)
-    target.demolish = !!site?.demolish
+    target.demolish = !!site?.demolish || !!world.get(target.entity, Pave)?.remove
     // Электростанцию, которой не хватило бы и целой, чинят только посланные к ней: иначе починка зря жгла бы кредиты.
     target.ordered = !site && world.has(target.entity, Building) && (overbuilt ??= overbuiltPlants(sim)).has(target.entity)
   }
@@ -546,6 +546,11 @@ export function construct(sim: Sim) {
   const workers = workDone(sim)
   for (const [entity, count] of workers) {
     const pave = world.get(entity, Pave)
+    if (pave?.remove) {
+      pave.work -= count * DEMOLISH_SPEED
+      if (pave.work <= 0) world.destroy(entity)
+      continue
+    }
     if (pave) {
       const { x, y } = world.get(entity, Position)!
       pave.work += count

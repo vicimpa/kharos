@@ -60,7 +60,7 @@ interface Actions {
 const PAVE_TOOLS: { tool: PaveTool; label: string; cost?: number; title: string }[] = [
   { tool: 'foundation', label: 'Фундамент', cost: FOUNDATION_COST, title: 'Здания на нём строятся вдвое быстрее; на песке разрешает стройку, и вне зоны тоже. Тяни мышью прямоугольник' },
   { tool: 'road', label: 'Дорога', cost: ROAD_COST, title: `Наземные едут быстрее; по болоту — мост за ${BRIDGE_COST} за тайл. Тяни мышью линию` },
-  { tool: 'remove', label: 'Снять', title: 'Убрать своё покрытие: за недостроенное кредиты вернутся. Тяни мышью прямоугольник' },
+  { tool: 'remove', label: 'Снять', title: 'Строители разберут своё покрытие; недостроенное отменится с возвратом кредитов. Тяни мышью прямоугольник' },
 ]
 
 /** Сетка команд для выбранного: GRID_SIZE ячеек, пустые — null. */

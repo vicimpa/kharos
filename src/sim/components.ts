@@ -201,9 +201,10 @@ export const Carrier = component('Carrier', () => ({ turrets: [] as number[] }))
 
 /**
  * Покрытие тайла: фундамент или дорога (на болоте — мост). Место — сам тайл. work — сколько тиков работы
- * одного строителя уже вложено; done — достроено и действует. См. paving.ts.
+ * одного строителя уже вложено; done — достроено и действует; remove — строители его разбирают: work идёт к нулю,
+ * и в нуле покрытие исчезает, а до тех пор действует. См. paving.ts.
  */
-export const Pave = component('Pave', { kind: 'road' as PaveKind, work: 0, done: false })
+export const Pave = component('Pave', { kind: 'road' as PaveKind, work: 0, done: false, remove: false })
 
 /** Компоненты, которые попадают в сохранение и в сеть. Новый компонент симуляции добавляй сюда. */
 /**

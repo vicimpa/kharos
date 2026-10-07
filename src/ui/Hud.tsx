@@ -433,13 +433,13 @@ function Info({ state, lookAtSelection, narrow }: { state: HudState; lookAtSelec
         )}
         {construction?.paving && (
           <div class="hud__hint">
-            {construction.paving.tool === 'remove' ? 'Тяни левой кнопкой, что снять' : `Тяни левой кнопкой: ${construction.paving.tiles} тайл., ${construction.paving.cost} кредитов`}; с Shift — ещё раз; правая или Esc — отмена
+            {construction.paving.tool === 'remove' ? 'Тяни левой кнопкой, что снять' : `Тяни левой кнопкой: ${construction.paving.tiles} тайл., ${construction.paving.cost} кредитов`}; правая или Esc — хватит
           </div>
         )}
         {construction && !construction.placing && !construction.paving && (
           <div class="hud__hint">Строит здания и чинит своё: правый щелчок по стройке или повреждённому. Здания — в сетке справа</div>
         )}
-        {construction?.placing && <div class="hud__hint">Левая кнопка — заложить, с Shift — ещё одно; правая или Esc — отмена</div>}
+        {construction?.placing && <div class="hud__hint">Левая кнопка — заложить, можно ещё и ещё; правая или Esc — хватит</div>}
         {construction && !construction.available && <div class="hud__hint is-short">Строить негде: сначала разверни MCV в главное здание</div>}
       </div>
     </div>
