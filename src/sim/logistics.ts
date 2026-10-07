@@ -385,8 +385,12 @@ export function dispatch(sim: Sim) {
       if (spec.refines || spec.assembles || spec.trades) outlets.push(entity)
       else if (spec.extract) mines.push(entity)
     }
-    // Дропы ничьи: их подбирает любой.
-    for (const [entity] of world.query(Drop, Inventory)) outlets.push(entity)
+    // Дропы ничьи: их подбирает любой, но сам — только в своих зонах. За дропом на другом краю карты грузовик
+    // без приказа не едет.
+    const zones = zonesOf(sim, player)
+    for (const [entity, , , position] of world.query(Drop, Inventory, Position)) {
+      if (zones.some((zone) => inCircles(zone.circles, position.x + 0.5, position.y + 0.5))) outlets.push(entity)
+    }
     // У шахты с привязанным грузовиком есть свой возчик: свободные её руду не трогают и занимаются готовым.
     const bound = new Set<Entity>()
     for (const [, hauler] of world.query(Hauler)) if (hauler.mine !== NONE) bound.add(hauler.mine as Entity)

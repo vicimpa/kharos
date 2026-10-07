@@ -71,6 +71,15 @@ test('стройка поверх дропа его уничтожает', () =>
   until(sim, () => drops(sim).length === 0, 30)
 })
 
+test('за дропом вне своих зон свободный грузовик сам не едет', () => {
+  const { sim, x, y, truck } = base(['metalYard'])
+  const drop = dropItems(sim, x + 400, y, { metal: 10 })!
+  const start = { ...sim.world.get(truck, Position)! }
+  for (let i = 0; i < 5 / TICK; i++) sim.advance(TICK)
+  expect(amount(sim, drop, 'metal')).toBe(10)
+  expect(sim.world.get(truck, Position)).toEqual(start)
+})
+
 test('груз падает к уже лежащему дропу того же тайла', () => {
   const { sim, x, y } = base([])
   dropItems(sim, x + 2.4, y + 6.7, { metal: 3 })
