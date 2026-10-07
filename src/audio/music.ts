@@ -1,5 +1,5 @@
 import { loadMuted, loadVolume } from './audio'
-import { random, reverbImpulse } from './synth'
+import { SOUNDS, random, reverbImpulse, type SoundName } from './synth'
 
 /** Громкость музыки при полной громкости игры. */
 const LEVEL = 0.32
@@ -28,6 +28,16 @@ const MELODY = [74, 77, 79, 81, 84, 86]
 const MELODY_GAP = [1.2, 3]
 /** Насколько вперёд планируются ноты, в секундах: точное время — у звука, а не у таймера. */
 const AHEAD = 0.6
+/** Громкость звуков кнопок относительно громкости игры: те же, что у кнопок в игре. */
+const CLICK_LEVEL = 0.35
+const HOVER_LEVEL = 0.12
+/** Что в меню звучит под пальцем: кнопки, ссылки, галочки и переключатели. */
+const PRESSABLE = '.menu button, .menu a, .menu input[type=checkbox], .menu input[type=radio], .menu select'
+/** Ползунок тикает, пока его тянут, но не чаще этого, в секундах: иначе трещал бы. */
+const SLIDE_GAP = 0.06
+/** Высота тика ползунка: у левого края — в столько раз ниже обычного, у правого — во столько выше. */
+const SLIDE_LOW = 0.7
+const SLIDE_HIGH = 1.5
 
 const midi = (note: number) => 440 * Math.pow(2, (note - 69) / 12)
 
@@ -39,13 +49,17 @@ export interface MenuMusic {
 }
 
 /**
- * Музыка главного меню: медленные минорные аккорды под эхо и неспешная мелодия поверх. Браузер не даёт играть звук,
- * пока игрок ничего не нажал, — музыка вступает с первым его действием. Громкость и выключение — те же, что у игры.
+ * Музыка главного меню: медленные минорные аккорды под эхо и неспешная мелодия поверх, и звуки кнопок — те же, что
+ * в игре. Браузер не даёт играть звук, пока игрок ничего не нажал, — музыка вступает с первым его действием, и этот
+ * же щелчок уже звучит. Громкость и выключение — те же, что у игры.
  */
 export function createMenuMusic(): MenuMusic {
   let context: AudioContext | null = null
   let master: GainNode | null = null
   let timer: ReturnType<typeof setInterval> | undefined
+  /** Звуки кнопок: мимо музыки и её эха, сразу на выход. */
+  let clicks: GainNode | null = null
+  const buffers = new Map<SoundName, AudioBuffer>()
   const next = random(Date.now() % 100000)
   const between = ([from, to]: number[]) => from + next() * (to - from)
   const level = () => (loadMuted() ? 0 : LEVEL * loadVolume())
@@ -61,6 +75,15 @@ export function createMenuMusic(): MenuMusic {
     master.gain.setValueAtTime(0, audio.currentTime)
     master.gain.linearRampToValueAtTime(level(), audio.currentTime + FADE_IN)
     master.connect(audio.destination)
+    clicks = audio.createGain()
+    clicks.gain.value = loadMuted() ? 0 : loadVolume()
+    clicks.connect(audio.destination)
+    for (const name of ['click', 'hover', 'deny'] as const) {
+      const data = SOUNDS[name](rate, 0)
+      const buffer = audio.createBuffer(1, data.length, rate)
+      buffer.copyToChannel(data, 0)
+      buffers.set(name, buffer)
+    }
 
     const reverb = audio.createConvolver()
     const channels = reverbImpulse(rate, REVERB_SECONDS, 3)
@@ -143,15 +166,65 @@ export function createMenuMusic(): MenuMusic {
     timer = setInterval(schedule, 200)
   }
 
+  const play = (name: SoundName, volume: number, pitch = 1) => {
+    const buffer = buffers.get(name)
+    if (!context || !clicks || !buffer || context.state !== 'running') return
+    const source = context.createBufferSource()
+    source.buffer = buffer
+    source.playbackRate.value = pitch
+    const gain = context.createGain()
+    gain.gain.value = volume
+    source.connect(gain).connect(clicks)
+    source.onended = () => {
+      source.disconnect()
+      gain.disconnect()
+    }
+    source.start()
+  }
+  let slidAt = -Infinity
+  /** Ползунок сдвинули: тик тем выше, чем он правее. Громкость он берёт уже новую — у ползунка громкости так её и слышно. */
+  const slide = (event: Event) => {
+    const range = event.target
+    if (!(range instanceof HTMLInputElement) || range.type !== 'range' || !range.closest('.menu') || !context) return
+    if (context.currentTime - slidAt < SLIDE_GAP) return
+    slidAt = context.currentTime
+    const min = Number(range.min || 0)
+    const max = Number(range.max || 100)
+    const share = max > min ? (Number(range.value) - min) / (max - min) : 0.5
+    play('hover', CLICK_LEVEL, SLIDE_LOW + (SLIDE_HIGH - SLIDE_LOW) * share)
+  }
+  const pressable = (target: EventTarget | null) => (target instanceof Element ? target.closest<HTMLElement>(PRESSABLE) : null)
+  const down = (event: PointerEvent) => {
+    // Первый щелчок сам заводит звук и уже звучит.
+    start()
+    const pressed = pressable(event.target)
+    if (!pressed) return
+    play((pressed as HTMLButtonElement).disabled ? 'deny' : 'click', CLICK_LEVEL)
+  }
+  let hovered: Element | null = null
+  const over = (event: PointerEvent) => {
+    const target = pressable(event.target)
+    if (target === hovered) return
+    hovered = target
+    if (target && !(target as HTMLButtonElement).disabled) play('hover', HOVER_LEVEL)
+  }
   const events = ['pointerdown', 'keydown'] as const
   for (const event of events) window.addEventListener(event, start)
+  document.addEventListener('pointerdown', down, true)
+  document.addEventListener('pointerover', over)
+  // После обработчиков меню: громкость к этому времени уже новая.
+  document.addEventListener('input', slide)
 
   return {
     refresh() {
       if (context && master) master.gain.setTargetAtTime(level(), context.currentTime, 0.1)
+      if (context && clicks) clicks.gain.setTargetAtTime(loadMuted() ? 0 : loadVolume(), context.currentTime, 0.05)
     },
     destroy() {
       for (const event of events) window.removeEventListener(event, start)
+      document.removeEventListener('pointerdown', down, true)
+      document.removeEventListener('pointerover', over)
+      document.removeEventListener('input', slide)
       clearInterval(timer)
       if (!context || !master) return
       const closing = context
