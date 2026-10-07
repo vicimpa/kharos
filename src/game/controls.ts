@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { DEPOSIT_SIZE, Harvester, depositNear, hasMine, type UnitType, Owner, Position, Repair, isOwn, UNITS, Unit, canAttack, canFight, canHaul, canRepair, isStop, siteAt } from '../sim'
+import { DEPOSIT_SIZE, Harvester, depositNear, hasMine, type UnitType, Owner, Position, Repair, isOwn, UNITS, Unit, canAttack, canFight, canHaul, canRepair, isStop, siteAt, BUILDINGS, BRIDGE_COST, FOUNDATION_COST, ROAD_COST, creditsOf } from '../sim'
 import { paveStrokeOf, placementOf } from './placing'
 import type { Scene } from './scene'
 
@@ -13,6 +13,8 @@ const CLICK_SLOP = 4
 /** Насколько мимо юнита можно щёлкнуть, чтобы всё равно выбрать его. В пикселях экрана. */
 const PICK_MARGIN = 6
 const LEFT = 0
+/** Почём тайл покрытия бывает: дорога по болоту — мост — дороже. Режим держится, пока хватает на самый дешёвый. */
+const PAVE_COSTS = { foundation: [FOUNDATION_COST], road: [ROAD_COST, BRIDGE_COST] } as const
 const RIGHT = 2
 
 /**
@@ -313,6 +315,10 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene) {
       for (const entity of scene.selection) builders ||= scene.sim.world.get(entity, Unit)?.type === 'builder'
       if (!builders) scene.placing = null
     }
+    // Не хватает кредитов даже на одно здание или тайл покрытия — режим выбора выключается.
+    const credits = creditsOf(scene.sim, scene.player)
+    if (scene.placing && credits < BUILDINGS[scene.placing].cost) scene.placing = null
+    if (scene.paving && scene.paving !== 'remove' && credits < Math.min(...PAVE_COSTS[scene.paving])) scene.paving = null
     // Маршрут набирают грузовикам: без них набор отменяется.
     if (scene.routing) {
       let trucks = false

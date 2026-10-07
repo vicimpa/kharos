@@ -77,6 +77,15 @@ export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass
       const rect = (x: number, y: number, width: number, height: number, [r, g, b]: Color, alpha: number) =>
         rects.push(x, y, width, height, 0, 0, 1, 1, r * alpha, g * alpha, b * alpha, alpha)
 
+      /** Рамка прямоугольника. */
+      const frame = (left: number, top: number, width: number, height: number, color: Color) => {
+        const x = left - camera.x
+        const y = top - camera.y
+        rect(x, y, width, BORDER, color, BORDER_ALPHA)
+        rect(x, y + height - BORDER, width, BORDER, color, BORDER_ALPHA)
+        rect(x, y + BORDER, BORDER, height - BORDER * 2, color, BORDER_ALPHA)
+        rect(x + width - BORDER, y + BORDER, BORDER, height - BORDER * 2, color, BORDER_ALPHA)
+      }
       /** Залитый прямоугольник с рамкой. */
       const area = (left: number, top: number, width: number, height: number, color: Color) => {
         const x = left - camera.x
@@ -133,7 +142,8 @@ export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass
         }
         if (placement) {
           const { width, height } = BUILDINGS[placement.type]
-          area(placement.x, placement.y, width, height, placement.allowed ? ALLOWED : FORBIDDEN)
+          // Само здание рисует призраком проход зданий: здесь — только обводка основания.
+          frame(placement.x, placement.y, width, height, placement.allowed ? ALLOWED : FORBIDDEN)
         }
         if (stroke) {
           const good = stroke.tool === 'remove' ? REMOVE : ALLOWED

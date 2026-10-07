@@ -6,6 +6,7 @@ import type { Pass } from '../../render/renderer'
 import { createSpriteProgram, createSprites } from '../../render/sprites'
 import type { Entity } from '../../ecs'
 import { Assembly, BUILDING_TYPES, Building, Inventory, Position, Site, amountOf, buildingSpec, siteTicks, type BuildingType } from '../../sim'
+import { placementOf } from '../placing'
 import type { Scene } from '../scene'
 import { ART_FRAMES, ART_TILE, BUILDING_ART, WALL_CONNECTION, type BuildingArt } from './buildingArt'
 
@@ -27,6 +28,9 @@ const VISIBLE_MARGIN = 5
 const WORK_HOLD = 0.6
 /** Цвет недостроенного: чертёж здания, сквозь который видно землю. Альфа меньше половины — тени от лучей он не даёт. */
 const BLUEPRINT = [0.3, 0.6, 1, 0.4] as const
+/** Призрак здания, которому выбирают место: полупрозрачное здание, красное — если туда нельзя. Теней он не даёт. */
+const GHOST = [0.7, 0.7, 0.7, 0.7] as const
+const GHOST_FORBIDDEN = [0.7, 0.14, 0.1, 0.7] as const
 
 /** Огонь чертежа: место в пикселях спрайта и яркость в каждом кадре. */
 interface ArtLight {
@@ -109,6 +113,7 @@ export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): P
   // Тени лежат под всеми зданиями, иначе тень соседа ляжет на стену.
   const shadows = createSprites(gl, program)
   const sprites = createSprites(gl, program)
+  const ghosts = createSprites(gl, program)
   const visible: Visible[] = []
 
   return {
@@ -163,7 +168,8 @@ export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): P
         if (!world.has(entity, Building)) see(position, site.type, 0, 0)
       }
       if (step % 64 === 0) for (const entity of activity.keys()) if (!world.has(entity, Building)) activity.delete(entity)
-      if (!visible.length) return
+      const placement = placementOf(scene)
+      if (!visible.length && !placement) return
       // Нижние здания рисуются позже и перекрывают верхние.
       visible.sort((a, b) => a.bottom - b.bottom)
 
@@ -201,10 +207,22 @@ export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): P
         }
       }
 
+      // Призрак выбираемого места — поверх всех зданий, своим слоем: тенью от лучей он не служит.
+      ghosts.clear()
+      if (placement) {
+        const sheet = sheets.get(placement.type)![0]
+        const { u, v, width: frameWidth, height: frameHeight } = sheet.frames[step % ART_FRAMES]
+        ghosts.push(
+          placement.x - pad - camera.x, placement.y - pad - camera.y, sheet.art.width + pad * 2, sheet.art.height + pad * 2,
+          u, v, frameWidth, frameHeight, ...(placement.allowed ? GHOST : GHOST_FORBIDDEN),
+        )
+      }
+
       setBlend(gl, 'alpha')
       program.use(view, { uTexture: atlas.texture })
       shadows.draw()
       sprites.draw()
+      ghosts.draw()
     },
     drawOccluders(view) {
       setBlend(gl, 'alpha')
@@ -213,6 +231,7 @@ export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): P
     },
     destroy() {
       shadows.destroy()
+      ghosts.destroy()
       sprites.destroy()
       program.destroy()
       atlas.texture.destroy()
