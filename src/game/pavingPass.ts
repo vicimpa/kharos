@@ -39,7 +39,7 @@ function drawFoundation(mask: number) {
   return image
 }
 
-/** Дорога: укатанное покрытие с зернистостью, по открытым сторонам — бордюр, по оси — прерывистая разметка. */
+/** Дорога: укатанное покрытие с зернистостью, по открытым сторонам — бордюр. */
 function drawRoad(mask: number) {
   const image = new Pixmap(ART_TILE, ART_TILE)
   image.rect(0, 0, ART_TILE, ART_TILE, 0x45403b)
@@ -49,10 +49,6 @@ function drawRoad(mask: number) {
   if (!(mask & DOWN)) image.rect(0, ART_TILE - 2, ART_TILE, 2, curb)
   if (!(mask & LEFT)) image.rect(0, 0, 2, ART_TILE, curb)
   if (!(mask & RIGHT)) image.rect(ART_TILE - 2, 0, 2, ART_TILE, curb)
-  // Разметка идёт вдоль дороги: по горизонтали, если есть сосед слева или справа, иначе по вертикали.
-  const line = 0xc9b25a
-  if (mask & (LEFT | RIGHT)) image.rect(4, 7, 8, 2, line)
-  if (mask & (UP | DOWN) && !(mask & (LEFT | RIGHT))) image.rect(7, 4, 2, 8, line)
   return image
 }
 
