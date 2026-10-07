@@ -12,7 +12,7 @@ import { breakSlabs } from '../src/sim/combat'
 import { inCircles, zoneOf, zonesOf } from '../src/sim/zones'
 import { placeBuilding } from '../src/sim/buildings'
 
-const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
+const options = { generator: DEFAULT_SETTINGS.generator, size: 1024, rules: { techTree: false } }
 const TICK = 1 / 20
 const seconds = (sim: Sim, time: number) => {
   for (let i = 0; i < Math.round(time / TICK); i++) sim.advance(TICK)
