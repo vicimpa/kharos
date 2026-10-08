@@ -2,7 +2,7 @@ import type { Entity } from '../ecs'
 import { inputsOf } from './assembly'
 import { BUILDINGS, buildingSpec, isReady, type BuildingSpec } from './buildings'
 import { NONE, isOwn } from './common'
-import { Assembly, Building, Converting, Drop, Hauler, Harvester, Inventory, Owner, Path, Position, Producer, Site, Trade, Unit } from './components'
+import { Assembly, Building, Builds, Converting, Drop, Hauler, Harvester, Inventory, Owner, Path, Position, Producer, Site, Supply, Trade, Unit } from './components'
 import { depositAt } from './deposits'
 import { amountOf, loadOf, roomFor } from './inventory'
 import { entriesOf, GOODS, isOre, isProduct, ORE_OF, WARES, stockedFor, type Amounts, type Good, type Ore, type Resource } from './resources'
@@ -12,10 +12,10 @@ import { unitSpec } from './units'
 import { inCircles, zonesOf, type Zone } from './zones'
 
 /**
- * Зональные заявки. Всё, что потребляет груз, само заказывает его у своей зоны строительства: стройка — материалы
- * на здание, производитель — материалы на первый заказ очереди, космопорт — товар по заявке на продажу, переработка
- * — руду из шахт (её берут где угодно: месторождение решает, где шахта, а не зона), цех — сырьё своего рецепта,
- * турель — патроны. Свободные грузовики игрока берут самую важную заявку и везут груз из хранилищ, переработки
+ * Зональные заявки. Всё, что потребляет груз, само заказывает его у своей зоны строительства: производитель —
+ * материалы на первый заказ очереди, космопорт — товар по заявке на продажу, переработка — руду из шахт (её берут
+ * где угодно: месторождение решает, где шахта, а не зона), цех — сырьё своего рецепта, турель — патроны. Материалы
+ * на стройку везёт её строитель (см. supply.ts), а не грузовики. Свободные грузовики игрока берут самую важную заявку и везут груз из хранилищ, переработки
  * и цехов той же зоны. Когда заявок нет, они развозят готовое по хранилищам. Руду без переработки никто не возит:
  * она копится в шахте, пока завод не построят.
  * Игроку не нужно указывать каждому грузовику, что и куда везти.
@@ -33,10 +33,10 @@ export interface Request {
 }
 
 /**
- * Что важнее везти: стройка, потом руда на переработку и патроны турелям — без них стоит добыча и молчит
- * оборона, — потом сырьё производству юнитов и цехам, потом товар на продажу.
+ * Что важнее везти: руда на переработку и патроны турелям — без них стоит добыча и молчит оборона, — потом сырьё
+ * производству юнитов и цехам, потом товар на продажу. Материалы на стройку грузовики не возят: это дело строителей.
  */
-export const PRIORITY = { site: 4, refine: 3, ammo: 3, production: 2, trade: 1 } as const
+export const PRIORITY = { refine: 3, ammo: 3, production: 2, trade: 1 } as const
 
 /**
  * Турель заказывает патроны, когда расстреляла столько своего запаса: по одному патрону грузовики не возят,
@@ -72,13 +72,23 @@ const add = (map: Map<Entity, Amounts>, entity: Entity, resource: Good, amount: 
  * Что сейчас везут грузовики. Набравший груз везёт то, что в кузове; ещё не набравший обещал привезти и забрать
  * столько, сколько в его работе.
  */
-function flowsOf(sim: Sim, except = NONE as Entity): Flows {
+export function flowsOf(sim: Sim, except = NONE as Entity): Flows {
   const flows: Flows = { incoming: new Map(), outgoing: new Map() }
   for (const [truck, hauler, cargo] of sim.world.query(Hauler, Inventory)) {
     if (truck === except || (hauler.from === NONE && hauler.to === NONE)) continue
     const carried = amountOf(cargo, hauler.resource)
     if (hauler.to !== NONE) add(flows.incoming, hauler.to as Entity, hauler.resource, hauler.full ? carried : Math.max(carried, hauler.amount))
     if (hauler.from !== NONE && !hauler.full) add(flows.outgoing, hauler.from as Entity, hauler.resource, hauler.amount - carried)
+  }
+  // Строители, везущие материалы на свою стройку: то, что в кузове, уже едет туда, а набираемое — обещано.
+  for (const [builder, supply, builds, cargo] of sim.world.query(Supply, Builds, Inventory)) {
+    if (builder === except) continue
+    for (const resource of GOODS) {
+      const carried = amountOf(cargo, resource)
+      const coming = supply.from !== NONE && supply.resource === resource ? Math.max(carried, supply.amount) : carried
+      add(flows.incoming, builds.site as Entity, resource, coming)
+    }
+    if (supply.from !== NONE) add(flows.outgoing, supply.from as Entity, supply.resource, supply.amount - amountOf(cargo, supply.resource))
   }
   return flows
 }
@@ -195,14 +205,12 @@ export function requestsOf(sim: Sim, player: number, flows = flowsOf(sim)): Requ
     if (zone) requests.push({ to, resource, amount: left, priority, zone, source })
   }
 
-  // Стройки и производство: материалы, которых нет на месте.
-  for (const [entity, owner] of world.query(Owner, Inventory)) {
-    if (owner.player !== player) continue
-    const site = world.has(entity, Site)
-    if (!site && !world.has(entity, Producer)) continue
-    if (!site && (!isReady(sim, player, entity) || world.has(entity, Converting))) continue
+  // Производство: материалы первого заказа, которых нет на месте. Материалы на стройку возят строители, см. supply.ts.
+  for (const [entity, owner] of world.query(Owner, Inventory, Producer)) {
+    if (owner.player !== player || world.has(entity, Site)) continue
+    if (!isReady(sim, player, entity) || world.has(entity, Converting)) continue
     // Недостачу заказывают целыми единицами: иначе остаток меньше MIN_JOB не привёз бы никто и заказ встал бы навсегда.
-    for (const [resource, amount] of entriesOf(missingFor(sim, entity))) need(entity, resource, Math.ceil(amount - 1e-6), site ? PRIORITY.site : PRIORITY.production)
+    for (const [resource, amount] of entriesOf(missingFor(sim, entity))) need(entity, resource, Math.ceil(amount - 1e-6), PRIORITY.production)
   }
   // Переработка: своя руда из своих шахт, в какой бы зоне они ни стояли.
   for (const [entity, owner, inventory, building] of world.query(Owner, Inventory, Building)) {

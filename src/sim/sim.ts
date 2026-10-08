@@ -1,15 +1,18 @@
-import { Loop, World, type System, type Time, type WorldSnapshot } from '../ecs'
+import { Loop, World, type Entity, type System, type Time, type WorldSnapshot } from '../ecs'
 import type { WeatherOptions } from './weather'
 import { createLand, type GeneratorConfig, type Land } from '../map/terrain'
 import { buildingSpec, createOccupancy, type Occupancy } from './buildings'
 import { fight, recover } from './combat'
 import { assemble } from './assembly'
 import { apply, type Command } from './commands'
-import { Building, Inventory, SAVED, Site } from './components'
+import { Building, Inventory, SAVED, Site, Unit } from './components'
 import { REPAIR_COST, REPAIR_PAUSE, REPAIR_SPEED, construct } from './construction'
 import { convert } from './conversion'
 import { harvest } from './harvesting'
 import { haul } from './hauling'
+import { supply } from './supply'
+import { equipStorage } from './inventory'
+import { unitSpec } from './units'
 import { earn } from './income'
 import { trade } from './trade'
 import { moveUnits, planPaths } from './movement'
@@ -179,6 +182,7 @@ export function createSim(source: SimOptions | SimSave): Sim {
       // Турели встают на носители, уже сдвинувшиеся за этот тик.
       () => followCarriers(sim),
       // После движения: работающий строитель поворачивается к стройке, и поворот сглаживается, как у идущих.
+      () => supply(sim),
       () => construct(sim),
       () => harvest(sim),
       () => haul(sim),
@@ -239,6 +243,10 @@ export function createSim(source: SimOptions | SimSave): Sim {
  * само, когда его развезут. Стройки не трогаются: их склад — под материалы.
  */
 function refreshStorage(sim: Sim) {
+  // Юнит, которому склад и луч дали позже, чем его сохранили, — например, строитель, — получает их при загрузке.
+  const missing: Entity[] = []
+  for (const [entity, unit] of sim.world.query(Unit)) if (unitSpec(unit.type).inventory && !sim.world.has(entity, Inventory)) missing.push(entity)
+  for (const entity of missing) equipStorage(sim.world, entity, unitSpec(sim.world.get(entity, Unit)!.type))
   for (const [entity, building, inventory] of sim.world.query(Building, Inventory)) {
     if (sim.world.has(entity, Site)) continue
     const spec = buildingSpec(building.type)
