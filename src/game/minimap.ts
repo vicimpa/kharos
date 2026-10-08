@@ -1,5 +1,5 @@
 import { biomeAt, terrainAt, type Land } from '../map/terrain'
-import { Building, DEPOSIT_CELL, Owner, Position, Site, Unit, buildingSpec, depositIn, type Sim } from '../sim'
+import { Building, DEPOSIT_CELL, Owner, Position, Site, Unit, buildingSpec, depositsIn, type Sim } from '../sim'
 import { ALERT_SECONDS } from './alerts'
 import { cssColor } from './resourceColors'
 import type { Scene } from './scene'
@@ -55,8 +55,7 @@ export function createMinimap(scene: Scene) {
     deposits = []
     for (let cellY = Math.floor(top / DEPOSIT_CELL); cellY * DEPOSIT_CELL < bottom; cellY++) {
       for (let cellX = Math.floor(left / DEPOSIT_CELL); cellX * DEPOSIT_CELL < right; cellX++) {
-        const spot = depositIn(sim, cellX, cellY)
-        if (spot) deposits.push({ x: spot.x + 1, y: spot.y + 1, color: cssColor(spot.kind) })
+        for (const spot of depositsIn(sim, cellX, cellY)) deposits.push({ x: spot.x + 1, y: spot.y + 1, color: cssColor(spot.kind) })
       }
     }
   }

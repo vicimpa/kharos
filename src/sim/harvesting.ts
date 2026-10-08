@@ -3,7 +3,7 @@ import { isBuildable, terrainAt, tileKey } from '../map/terrain'
 import { buildingSpec, isReady, siteAt } from './buildings'
 import { NONE, isOwn, onTurn } from './common'
 import { Building, Converting, Site, Hauler, Harvester, Inventory, Owner, Path, Position, Unit } from './components'
-import { DEPOSIT_CELL, DEPOSIT_KINDS, DEPOSIT_SIZE, DEPOSIT_TYPES, depositAt, depositIn, reserveLeft, takeReserve, type DepositKind, type DepositSpot } from './deposits'
+import { DEPOSIT_CELL, DEPOSIT_KINDS, DEPOSIT_SIZE, DEPOSIT_TYPES, depositAt, depositsIn, reserveLeft, takeReserve, type DepositKind, type DepositSpot } from './deposits'
 import { amountOf, loadOf, put, roomFor } from './inventory'
 import { GOODS, ORE_OF, type Ore } from './resources'
 import type { Sim } from './sim'
@@ -69,16 +69,17 @@ function nearestDeposit(sim: Sim, player: number, x: number, y: number, refined:
   const bottom = Math.floor((y + HARVEST_SEARCH) / DEPOSIT_CELL)
   for (let cellY = top; cellY <= bottom; cellY++) {
     for (let cellX = from; cellX <= to; cellX++) {
-      const spot = depositIn(sim, cellX, cellY)
-      if (!spot || (kind && spot.kind !== kind) || reserveLeft(sim, spot.x, spot.y) <= 0 || hasMine(sim, spot)) continue
-      if (!sim.vision.exploredIn(player, spot.x, spot.y, DEPOSIT_SIZE, DEPOSIT_SIZE)) continue
-      const center = centerOf(spot)
-      const distance = Math.hypot(center.x - x, center.y - y)
-      if (distance > HARVEST_SEARCH) continue
-      const score = distance + (refined.has(ORE_OF[spot.kind]) ? 0 : NO_REFINERY)
-      if (score >= bestScore) continue
-      best = spot
-      bestScore = score
+      for (const spot of depositsIn(sim, cellX, cellY)) {
+        if ((kind && spot.kind !== kind) || reserveLeft(sim, spot.x, spot.y) <= 0 || hasMine(sim, spot)) continue
+        if (!sim.vision.exploredIn(player, spot.x, spot.y, DEPOSIT_SIZE, DEPOSIT_SIZE)) continue
+        const center = centerOf(spot)
+        const distance = Math.hypot(center.x - x, center.y - y)
+        if (distance > HARVEST_SEARCH) continue
+        const score = distance + (refined.has(ORE_OF[spot.kind]) ? 0 : NO_REFINERY)
+        if (score >= bestScore) continue
+        best = spot
+        bestScore = score
+      }
     }
   }
   return best

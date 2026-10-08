@@ -64,7 +64,7 @@ export interface DepositSpot {
 }
 
 /** Посчитанные месторождения клеток. count — сколько было сущностей Deposit: появилась новая — правки могли измениться. */
-const cache = new WeakMap<Land, { count: number; cells: Map<string, DepositSpot | null> }>()
+const cache = new WeakMap<Land, { count: number; cells: Map<string, DepositSpot[]> }>()
 
 /** Забывает посчитанные месторождения: после правки карты или месторождений в редакторе. */
 export function forgetDeposits(sim: Sim) {
@@ -72,10 +72,20 @@ export function forgetDeposits(sim: Sim) {
 }
 
 /**
- * Месторождение клетки (cellX, cellY) или null. Как и местность, оно не хранится, а считается из сида:
- * в любой клетке мира ответ всегда один и тот же. Месторождение лежит на скале — там, где можно строить; что в нём, решает биом.
+ * Месторождение клетки (cellX, cellY) или null: то, что положил генератор, а если его нет — первое положенное
+ * редактором. Все месторождения клетки — depositsIn.
  */
 export function depositIn(sim: Sim, cellX: number, cellY: number): DepositSpot | null {
+  return depositsIn(sim, cellX, cellY)[0] ?? null
+}
+
+/**
+ * Месторождения клетки (cellX, cellY), левым верхним тайлом в ней. Как и местность, они не хранятся, а считаются из
+ * сида: генератор кладёт в клетку не больше одного, на скалу — туда, где можно строить; что в нём, решает биом.
+ * Поверх — правки редактора, см. компонент Deposit: он может убрать и поменять это месторождение и положить ещё.
+ * Месторождение генератора — первым.
+ */
+export function depositsIn(sim: Sim, cellX: number, cellY: number): DepositSpot[] {
   const { land, world } = sim
   const count = world.count(Deposit)
   let cached = cache.get(land)
@@ -84,23 +94,25 @@ export function depositIn(sim: Sim, cellX: number, cellY: number): DepositSpot |
   const key = `${cellX},${cellY}`
   const known = cells.get(key)
   if (known !== undefined) return known
-  const spot = withEdits(sim, cellX, cellY, generatedIn(sim, cellX, cellY))
-  cells.set(key, spot)
-  return spot
+  const spots = withEdits(sim, cellX, cellY, generatedIn(sim, cellX, cellY))
+  cells.set(key, spots)
+  return spots
 }
 
 /** Правки редактора в клетке поверх месторождения генератора: см. компонент Deposit. */
-function withEdits(sim: Sim, cellX: number, cellY: number, generated: DepositSpot | null): DepositSpot | null {
+function withEdits(sim: Sim, cellX: number, cellY: number, generated: DepositSpot | null): DepositSpot[] {
   let spot = generated
+  const added: DepositSpot[] = []
   for (const [, position, deposit] of sim.world.query(Position, Deposit)) {
     if (Math.floor(position.x / DEPOSIT_CELL) !== cellX || Math.floor(position.y / DEPOSIT_CELL) !== cellY) continue
-    // Положенное редактором заменяет месторождение генератора.
-    if (deposit.kind && !deposit.gone) return { x: position.x, y: position.y, kind: deposit.kind, reserve: Math.max(0, deposit.reserve) }
-    if (!generated || position.x !== generated.x || position.y !== generated.y) continue
-    if (deposit.gone) spot = null
-    else if (deposit.reserve >= 0) spot = { ...generated, reserve: deposit.reserve }
+    if (generated && position.x === generated.x && position.y === generated.y) {
+      if (deposit.gone) spot = null
+      else spot = { ...generated, ...(deposit.kind && { kind: deposit.kind }), ...(deposit.reserve >= 0 && { reserve: deposit.reserve }) }
+    } else if (deposit.kind && !deposit.gone) added.push({ x: position.x, y: position.y, kind: deposit.kind, reserve: Math.max(0, deposit.reserve) })
   }
-  return spot
+  // Порядок положенных — по месту: не зависит от порядка сущностей.
+  added.sort((a, b) => a.y - b.y || a.x - b.x)
+  return spot ? [spot, ...added] : added
 }
 
 /** Месторождение, которое генератор кладёт в клетку, без правок. */
@@ -132,8 +144,7 @@ function generatedIn(sim: Sim, cellX: number, cellY: number): DepositSpot | null
 
 /** Месторождение с левым верхним тайлом ровно в (x, y) или null. */
 export function depositAt(sim: Sim, x: number, y: number): DepositSpot | null {
-  const spot = depositIn(sim, Math.floor(x / DEPOSIT_CELL), Math.floor(y / DEPOSIT_CELL))
-  return spot && spot.x === x && spot.y === y ? spot : null
+  return depositsIn(sim, Math.floor(x / DEPOSIT_CELL), Math.floor(y / DEPOSIT_CELL)).find((spot) => spot.x === x && spot.y === y) ?? null
 }
 
 /** Ближайшее к точке месторождение не дальше reach тайлов (от точки до его центра) или null. */
@@ -146,12 +157,12 @@ export function depositNear(sim: Sim, x: number, y: number, reach: number): Depo
   const bottom = Math.floor((y + reach) / DEPOSIT_CELL)
   for (let cellY = top; cellY <= bottom; cellY++) {
     for (let cellX = from; cellX <= to; cellX++) {
-      const spot = depositIn(sim, cellX, cellY)
-      if (!spot) continue
-      const distance = Math.hypot(spot.x + DEPOSIT_SIZE / 2 - x, spot.y + DEPOSIT_SIZE / 2 - y)
-      if (distance <= bestDistance) {
-        best = spot
-        bestDistance = distance
+      for (const spot of depositsIn(sim, cellX, cellY)) {
+        const distance = Math.hypot(spot.x + DEPOSIT_SIZE / 2 - x, spot.y + DEPOSIT_SIZE / 2 - y)
+        if (distance <= bestDistance) {
+          best = spot
+          bestDistance = distance
+        }
       }
     }
   }

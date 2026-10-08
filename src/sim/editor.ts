@@ -2,7 +2,7 @@ import type { Entity } from '../ecs'
 import { Terrain, isBuildable, isCliffFoot, setTile, terrainAt, tileBytes, tileKey } from '../map/terrain'
 import { BUILDINGS, canPlace, placeBuilding, type BuildingType } from './buildings'
 import { Attached, Building, Carrier, Deposit, Ghost, Turret, Health, Inventory, Owner, Path, Player, Position, Unit } from './components'
-import { DEPOSIT_CELL, DEPOSIT_SIZE, depositEntity, depositAt, depositIn, depositNear, forgetDeposits, reserveLeft, type DepositKind, type DepositSpot } from './deposits'
+import { DEPOSIT_CELL, DEPOSIT_SIZE, depositEntity, depositAt, depositsIn, depositNear, forgetDeposits, reserveLeft, type DepositKind, type DepositSpot } from './deposits'
 import { creditsOf, addCredits } from './economy'
 import { releaseHauler } from './hauling'
 import type { Good } from './resources'
@@ -183,29 +183,30 @@ function depositRecord(sim: Sim, x: number, y: number) {
   return sim.world.get(entity, Deposit)!
 }
 
-/** Можно ли положить месторождение левым верхним тайлом в (x, y): там, где встала бы шахта, — скала не у подножия обрыва. */
-export function canPutDeposit(sim: Sim, x: number, y: number) {
+/**
+ * Можно ли положить месторождение левым верхним тайлом в (x, y): там, где встала бы шахта, — скала не у подножия
+ * обрыва, — и не внахлёст с другим месторождением. ignore — месторождение, которое сюда переносят: ему не мешает оно само.
+ */
+export function canPutDeposit(sim: Sim, x: number, y: number, ignore?: DepositSpot) {
   const { bounds, land } = sim
   if (x < bounds.left || y < bounds.top || x + DEPOSIT_SIZE > bounds.right || y + DEPOSIT_SIZE > bounds.bottom) return false
-  // Месторождение не выходит за свою клетку: в клетке оно одно.
-  if (Math.floor(x / DEPOSIT_CELL) !== Math.floor((x + DEPOSIT_SIZE - 1) / DEPOSIT_CELL)) return false
-  if (Math.floor(y / DEPOSIT_CELL) !== Math.floor((y + DEPOSIT_SIZE - 1) / DEPOSIT_CELL)) return false
+  for (let cellY = Math.floor((y - DEPOSIT_SIZE) / DEPOSIT_CELL); cellY <= Math.floor((y + DEPOSIT_SIZE) / DEPOSIT_CELL); cellY++) {
+    for (let cellX = Math.floor((x - DEPOSIT_SIZE) / DEPOSIT_CELL); cellX <= Math.floor((x + DEPOSIT_SIZE) / DEPOSIT_CELL); cellX++) {
+      for (const other of depositsIn(sim, cellX, cellY)) {
+        if (ignore && other.x === ignore.x && other.y === ignore.y) continue
+        if (Math.abs(other.x - x) < DEPOSIT_SIZE && Math.abs(other.y - y) < DEPOSIT_SIZE) return false
+      }
+    }
+  }
   for (let tileY = y; tileY < y + DEPOSIT_SIZE; tileY++) {
     for (let tileX = x; tileX < x + DEPOSIT_SIZE; tileX++) if (!isBuildable(terrainAt(land, tileX, tileY)) || isCliffFoot(land, tileX, tileY)) return false
   }
   return true
 }
 
-/**
- * Кладёт месторождение вида kind с запасом reserve левым верхним тайлом в (x, y). В клетке месторождение одно: прежнее
- * в ней исчезает.
- */
-export function putDeposit(sim: Sim, x: number, y: number, kind: DepositKind, reserve: number) {
-  if (!canPutDeposit(sim, x, y)) return false
-  const cellX = Math.floor(x / DEPOSIT_CELL)
-  const cellY = Math.floor(y / DEPOSIT_CELL)
-  const old = depositIn(sim, cellX, cellY)
-  if (old && (old.x !== x || old.y !== y)) removeDeposit(sim, old)
+/** Кладёт ещё одно месторождение вида kind с запасом reserve левым верхним тайлом в (x, y); прежние остаются, где были. */
+export function putDeposit(sim: Sim, x: number, y: number, kind: DepositKind, reserve: number, ignore?: DepositSpot) {
+  if (!canPutDeposit(sim, x, y, ignore)) return false
   Object.assign(depositRecord(sim, x, y), { kind, reserve: Math.max(0, Math.round(reserve)), mined: 0, gone: false })
   forgetDeposits(sim)
   return true
@@ -302,17 +303,12 @@ export function entitiesIn(sim: Sim, left: number, top: number, right: number, b
   return found
 }
 
-/**
- * Переносит месторождение левым верхним тайлом в (x, y) вместе с видом и остатком. В чужую клетку, где своё
- * месторождение уже есть, — нельзя: в клетке оно одно. Возвращает новое место или null.
- */
+/** Переносит месторождение левым верхним тайлом в (x, y) вместе с видом и остатком. Возвращает новое место или null. */
 export function moveDeposit(sim: Sim, spot: DepositSpot, x: number, y: number): DepositSpot | null {
   if (spot.x === x && spot.y === y) return spot
-  if (!canPutDeposit(sim, x, y)) return null
-  const there = depositIn(sim, Math.floor(x / DEPOSIT_CELL), Math.floor(y / DEPOSIT_CELL))
-  if (there && (there.x !== spot.x || there.y !== spot.y)) return null
+  if (!canPutDeposit(sim, x, y, spot)) return null
   const left = reserveLeft(sim, spot.x, spot.y)
   removeDeposit(sim, spot)
-  putDeposit(sim, x, y, spot.kind, left)
+  putDeposit(sim, x, y, spot.kind, left, spot)
   return depositAt(sim, x, y)
 }

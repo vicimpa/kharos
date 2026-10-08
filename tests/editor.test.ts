@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { DEFAULT_CONFIG, Terrain, setTile, terrainAt } from '../src/map/terrain'
 import { Attached, Building, Ghost, Health, Inventory, Owner, Position, Unit, createSim, creditsOf, type Sim } from '../src/sim'
 import { addPlayer, depositUnder, entitiesIn, entityAt, erase, moveDeposit, moveGhost, moveGroup, moveUnit, paint, playersOf, putBuilding, putDeposit, putUnit, removeDeposit, setCredits, setDeposit, setHealth, setOwner, setStock } from '../src/sim/editor'
-import { depositAt, depositIn, reserveLeft } from '../src/sim/deposits'
+import { depositAt, depositIn, depositNear, depositsIn, reserveLeft } from '../src/sim/deposits'
 import { editTile } from '../src/sim/landMemory'
 
 const world = () => {
@@ -62,7 +62,7 @@ test('деньги, прочность, склад и владелец прав�
   }
 })
 
-test('месторождения: запас и вид правятся, новое заменяет прежнее в клетке, убранного нет — и всё это в сохранении', () => {
+test('месторождения: запас и вид правятся, новые ложатся сколько угодно рядом с прежними, убранного нет — всё в сохранении', () => {
   const sim = world()
   const spot = depositIn(sim, 0, 0)!
   expect(spot).not.toBeNull()
@@ -71,18 +71,25 @@ test('месторождения: запас и вид правятся, нов�
   expect(reserveLeft(sim, spot.x, spot.y)).toBe(50)
   expect(reserveLeft(reload(sim), spot.x, spot.y)).toBe(50)
 
-  const x = spot.x === 2 ? 6 : 2
-  expect(putDeposit(sim, x, 2, 'fuel', 900)).toBe(true)
-  expect(depositAt(sim, spot.x, spot.y)).toBeNull()
-  expect(depositIn(sim, 0, 0)).toMatchObject({ x, y: 2, kind: 'fuel', reserve: 900 })
-  expect(depositUnder(sim, x + 1.5, 3.5)).toMatchObject({ x, y: 2 })
+  // Много новых в одной клетке, прежнее — на месте. Внахлёст — нельзя.
+  const free = [] as { x: number; y: number }[]
+  for (let y = 0; y < 38 && free.length < 6; y += 3) for (let x = 0; x < 38 && free.length < 6; x += 3) if (Math.abs(x - spot.x) >= 3 || Math.abs(y - spot.y) >= 3) free.push({ x, y })
+  for (const { x, y } of free) expect(putDeposit(sim, x, y, 'fuel', 900)).toBe(true)
+  expect(putDeposit(sim, free[0].x + 1, free[0].y, 'fuel', 900)).toBe(false)
+  expect(depositsIn(sim, 0, 0)).toHaveLength(free.length + 1)
+  expect(depositAt(sim, spot.x, spot.y)!.kind).toBe('kharite')
+  expect(depositsIn(reload(sim), 0, 0)).toHaveLength(free.length + 1)
+  expect(depositUnder(sim, free[1].x + 1.5, free[1].y + 1.5)).toMatchObject(free[1])
+  // Добытое из нового — свой счёт.
+  expect(depositNear(sim, free[2].x + 1, free[2].y + 1, 0.5)).toMatchObject(free[2])
 
-  removeDeposit(sim, depositIn(sim, 0, 0)!)
-  expect(depositIn(sim, 0, 0)).toBeNull()
-  expect(depositIn(reload(sim), 0, 0)).toBeNull()
+  removeDeposit(sim, depositAt(sim, free[0].x, free[0].y)!)
+  removeDeposit(sim, depositAt(sim, spot.x, spot.y)!)
+  expect(depositAt(sim, spot.x, spot.y)).toBeNull()
+  expect(depositsIn(reload(sim), 0, 0)).toHaveLength(free.length - 1)
   // На песок не кладётся.
-  paint(sim, 10, 10, 3, { terrain: Terrain.Sand })
-  expect(putDeposit(sim, 9, 9, 'metal', 100)).toBe(false)
+  paint(sim, 30, 30, 3, { terrain: Terrain.Sand })
+  expect(putDeposit(sim, 29, 29, 'metal', 100)).toBe(false)
 })
 
 test('призрак юнита не выбирается, краснеет там, где не встать, и не в счёт мира', () => {
@@ -120,15 +127,17 @@ test('юниты и здания тащатся вместе: всё или ни
   expect(blocked).toBeDefined()
 })
 
-test('месторождение тащится с видом и остатком, но не в клетку с другим', () => {
+test('месторождение тащится с видом и остатком, но не внахлёст с другим', () => {
   const sim = world()
   const spot = depositIn(sim, 0, 0)!
   setDeposit(sim, spot, 'fuel', 300)
-  const x = spot.x === 2 ? 6 : 2
+  const x = spot.x < 10 ? 20 : 2
+  expect(putDeposit(sim, x + 6, 2, 'metal', 10)).toBe(true)
   const moved = moveDeposit(sim, depositAt(sim, spot.x, spot.y)!, x, 2)!
   expect(moved).toMatchObject({ x, y: 2, kind: 'fuel' })
   expect(reserveLeft(sim, x, 2)).toBe(300)
   expect(depositAt(sim, spot.x, spot.y)).toBeNull()
-  const other = depositIn(sim, -1, 0)
-  if (other) expect(moveDeposit(sim, moved, other.x === -38 ? -36 : -38, 2)).toBeNull()
+  // Сдвиг на тайл — внахлёст с самим собой — можно.
+  expect(moveDeposit(sim, moved, x + 1, 2)).toMatchObject({ x: x + 1 })
+  expect(moveDeposit(sim, depositAt(sim, x + 1, 2)!, x + 5, 2)).toBeNull()
 })

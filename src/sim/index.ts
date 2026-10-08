@@ -18,7 +18,7 @@ export { CONTROL_RADIUS, EXPAND_RADIUS, allZones, zoneOf, zonesOf } from './zone
 export type { Zone } from './zones'
 export type { RepairLink } from './construction'
 export { canDeploy, canPack, deploySite, isDeployBlocked } from './conversion'
-export { DEPOSIT_CELL, DEPOSIT_KINDS, DEPOSIT_SIZE, DEPOSIT_TYPES, depositAt, depositIn, depositNear, reserveLeft } from './deposits'
+export { DEPOSIT_CELL, DEPOSIT_KINDS, DEPOSIT_SIZE, DEPOSIT_TYPES, depositAt, depositIn, depositsIn, depositNear, reserveLeft } from './deposits'
 export type { DepositKind, DepositSpot } from './deposits'
 export { REWARDS, creditsOf, rewardsOf } from './economy'
 export type { Reward } from './economy'
