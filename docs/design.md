@@ -706,6 +706,16 @@ Factorio ценен отношениями «сколько чего корми�
 
 - [ ] 9.1. Продумать P2P: игра с друзьями без своего сервера.
 
+### Сервер под Node и Deno
+
+Сейчас сервер выходит только для Bun (`kharos-server-bun.js` и бинарники): WebSocket и проверка Let's Encrypt
+держатся на `Bun.serve`. Нужны ещё `kharos-server-node.js` и `kharos-server-deno.js`.
+
+- [ ] Прослойка `serve` в server/: HTTP-ответ, WebSocket (open, message, close), TLS, остановка — и по реализации на
+      рантайм. Пакет `ws` не тащить; хочется uSockets, как внутри Bun: для Node — uWebSockets.js (нативный аддон с
+      GitHub, не из npm), для Deno — он же через Node-API или встроенный `Deno.upgradeWebSocket`. Решить и проверить.
+- [ ] Сборки в CI и строки о них в описании релиза и ридми.
+
 ### Этап 10. Нативная игра
 
 Своя оболочка на Rust вместо браузера, по образцу [mystralnative](https://github.com/mystralengine/mystralnative): та же
