@@ -104,7 +104,7 @@ export function Menu({ play }: MenuProps) {
   return (
     <div class="menu">
       <h1 class="menu__logo">
-        <img src="/favicon.svg" alt="" />
+        <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" />
         KHAROS
       </h1>
       {screen === 'main' && (
