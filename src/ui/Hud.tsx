@@ -257,7 +257,9 @@ function Info({ state, lookAtSelection, narrow }: { state: HudState; lookAtSelec
 
   const title =
     building !== null
-      ? `${site ? (site.demolish ? 'Разбор: ' : 'Стройка: ') : ''}${BUILDING_NAMES[building]}`
+      ? state.buildings > 1
+        ? state.mixed ? `Зданий: ${state.buildings}` : `${BUILDING_NAMES[building]} ×${state.buildings}`
+        : `${site ? (site.demolish ? 'Разбор: ' : 'Стройка: ') : ''}${BUILDING_NAMES[building]}`
       : units.map(({ type, count }) => (count > 1 ? `${UNIT_NAMES[type]} ×${count}` : UNIT_NAMES[type])).join(', ')
 
   return (

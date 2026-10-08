@@ -66,8 +66,11 @@ export interface HudState {
    * Завод изделий: что собирает, включён ли, готовность нынешней сборки от 0 до 1 и сколько изделия уже
    * есть у зоны; inputs — из чего одна сборка, yield — сколько штук она даёт и за сколько секунд.
    */
-  /** Выбранное своё готовое здание — потребитель энергии, кроме завода изделий: его можно выключить. */
-  switchable: { building: number; on: boolean } | null
+  /** Выбранные свои готовые здания — потребители энергии, кроме заводов изделий: их можно выключить. on — включено хоть одно. */
+  switchable: { buildings: number[]; on: boolean } | null
+  /** Сколько выбрано зданий и площадок; mixed — они разных видов. */
+  buildings: number
+  mixed: boolean
   assembly: {
     plant: number
     recipe: Product
@@ -123,8 +126,8 @@ export interface HudState {
     /** Здание разбирают: готовность идёт к нулю. */
     demolish: boolean
   } | null
-  /** Разбор, если выбрано своё готовое здание, которое можно разобрать. refund — сколько кредитов вернётся. */
-  demolish: { building: number; refund: number } | null
+  /** Разбор выбранных своих готовых зданий, которые можно разобрать. refund — сколько кредитов вернётся за все. */
+  demolish: { buildings: number[]; refund: number } | null
   /** Что можно построить, если среди выбранного есть строитель. */
   construction: {
     /** Здание, для которого сейчас выбирается место. */
@@ -147,9 +150,15 @@ export interface HudState {
     /** Команда отмены, если идущее превращение можно отменить. */
     cancel: Command | null
   } | null
-  /** Производство, если среди выбранного ровно один производитель: MCV или готовое здание, выпускающее юнитов. */
+  /**
+   * Производство, если среди выбранного один производитель — MCV или готовое здание, выпускающее юнитов, — или
+   * несколько зданий одного вида. producer — кому идёт заказ: наименее занятому; busiest — самый занятый: его очередь
+   * видна и отменяется; count — сколько их.
+   */
   production: {
     producer: number
+    busiest: number
+    count: number
     queue: UnitType[]
     /** Готовность первого заказа, от 0 до 1. */
     progress: number
@@ -209,6 +218,9 @@ export function readHud(scene: Scene): HudState {
   let refinery: HudState['refinery'] = null
   let assembly: HudState['assembly'] = null
   let switchable: HudState['switchable'] = null
+  let buildingCount = 0
+  let mixed = false
+  let firstKind: BuildingType | undefined
   let harvest: HudState['harvest'] = null
   let ammo: HudState['ammo'] = null
   let materials: HudState['materials'] = null
@@ -293,7 +305,9 @@ export function readHud(scene: Scene): HudState {
     }
     if (ready && spec!.ammo && inventory) ammo = { have: Math.floor(amountOf(inventory, 'ammo')), capacity: inventory.capacity }
     if (ready && (spec!.power ?? 0) < 0 && !world.has(entity, Assembly) && isOwn(sim, player, entity)) {
-      switchable = { building: entity, on: !world.has(entity, Off) }
+      switchable ??= { buildings: [], on: false }
+      switchable.buildings.push(entity)
+      switchable.on ||= !world.has(entity, Off)
     }
     const assembling = ready ? world.get(entity, Assembly) : undefined
     if (assembling && isOwn(sim, player, entity)) {
@@ -355,7 +369,17 @@ export function readHud(scene: Scene): HudState {
       const progress = round(Math.min(1, work.progress / siteTicks(work.type, sim.time.step)))
       site = { entity, started: world.has(entity, Building), blocked: isSiteBlocked(sim, entity), progress, demolish: work.demolish }
     }
-    if (canDemolish(sim, player, entity)) demolish = { building: entity, refund: refundOf(world.get(entity, Building)!.type) }
+    if (canDemolish(sim, player, entity)) {
+      demolish ??= { buildings: [], refund: 0 }
+      demolish.buildings.push(entity)
+      demolish.refund += refundOf(world.get(entity, Building)!.type)
+    }
+    const kind = world.get(entity, Building)?.type ?? world.get(entity, Site)?.type
+    if (kind) {
+      buildingCount++
+      firstKind ??= kind
+      mixed ||= firstKind !== kind
+    }
     if (producibleBy(sim, entity).length) producers.push(entity)
   }
 
@@ -388,6 +412,8 @@ export function readHud(scene: Scene): HudState {
     refinery,
     assembly,
     switchable,
+    buildings: buildingCount,
+    mixed,
     harvest,
     ammo,
     materials,
@@ -413,13 +439,14 @@ export function readHud(scene: Scene): HudState {
     conversion: null,
     production: null,
   }
-  if (producers.length !== 1) return state
-
-  // Производитель один. У MCV и главного здания есть ещё и превращение.
-  const [entity] = producers
+  // Производителей несколько — заказ получает наименее занятый, если все они здания одного вида.
+  const type = world.get(producers[0], Building)?.type
+  if (!producers.length || (producers.length > 1 && producers.some((entity) => world.get(entity, Building)?.type !== type || !type))) return state
+  const entity = producers.reduce((best, entity) => (world.get(entity, Producer)!.queue.length < world.get(best, Producer)!.queue.length ? entity : best))
+  const many = producers.length > 1
   const converting = world.get(entity, Converting)
   const isUnit = world.has(entity, Unit)
-  if (isUnit || world.get(entity, Building)?.type === CORE) state.conversion = {
+  if (!many && (isUnit || world.get(entity, Building)?.type === CORE)) state.conversion = {
     kind: isUnit ? 'deploy' : 'pack',
     command: isUnit ? { type: 'deploy', unit: entity } : { type: 'pack', building: entity },
     possible: isUnit ? canDeploy(sim, player, entity) : canPack(sim, player, entity),
@@ -428,13 +455,17 @@ export function readHud(scene: Scene): HudState {
     cancel: converting && isUnit ? { type: 'cancelDeploy', unit: entity } : null,
   }
 
-  const producer = world.get(entity, Producer)!
+  // Видна и отменяется очередь самого занятого из выбранных: заказы, наоборот, идут наименее занятому.
+  const busiest = producers.reduce((best, entity) => (world.get(entity, Producer)!.queue.length > world.get(best, Producer)!.queue.length ? entity : best))
+  const producer = world.get(busiest, Producer)!
   const [first] = producer.queue
   state.production = {
     producer: entity,
+    busiest,
+    count: producers.length,
     queue: [...producer.queue],
     progress: first ? round(Math.min(1, producer.progress / buildTicks(first, sim.time.step))) : 0,
-    full: producer.queue.length >= QUEUE_LIMIT,
+    full: world.get(entity, Producer)!.queue.length >= QUEUE_LIMIT,
     building: !isUnit,
     rally: producer.rally.length > 0,
     options: producibleBy(sim, entity).map((unit) => ({

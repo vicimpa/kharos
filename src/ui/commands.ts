@@ -178,7 +178,7 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
       slots[trade ? BACK : CANCEL] = {
         label: 'Отменить заказ',
         title: 'Последний в очереди; кредиты вернутся',
-        run: () => send({ type: 'cancelProduction', producer: production.producer }),
+        run: () => send({ type: 'cancelProduction', producer: production.busiest }),
       }
     }
   }
@@ -290,8 +290,8 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
     slots[SWITCH] = {
       label: switchable.on ? 'Выключить' : 'Включить',
       active: switchable.on,
-      title: switchable.on ? 'Здание перестанет брать энергию у зоны и работать' : 'Здание снова возьмёт энергию у зоны и заработает',
-      run: () => send({ type: 'work', building: switchable.building, on: !switchable.on }),
+      title: switchable.on ? 'Перестанет брать энергию у зоны и работать' : 'Снова возьмёт энергию у зоны и заработает',
+      run: () => switchable.buildings.forEach((building) => send({ type: 'work', building, on: !switchable.on })),
     }
   }
 
@@ -377,7 +377,7 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
       cost: demolish.refund,
       gain: true,
       title: 'Здание разберут строители; когда закончат, вернётся половина цены',
-      run: () => send({ type: 'demolish', building: demolish.building, builders: [] }),
+      run: () => demolish.buildings.forEach((building) => send({ type: 'demolish', building, builders: [] })),
     }
   }
   return slots

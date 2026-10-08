@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { Building, DEPOSIT_SIZE, Harvester, Producer, Hauler, depositNear, hasMine, type UnitType, Owner, Position, Repair, isOwn, UNITS, Unit, canAttack, canFight, canHaul, canRepair, canSupply, dropAt, isStop, siteAt, BUILDINGS, BRIDGE_COST, FOUNDATION_COST, ROAD_COST, creditsOf } from '../sim'
+import { type BuildingType, Building, Site, DEPOSIT_SIZE, Harvester, Producer, Hauler, depositNear, hasMine, type UnitType, Owner, Position, Repair, isOwn, UNITS, Unit, canAttack, canFight, canHaul, canRepair, canSupply, dropAt, isStop, siteAt, BUILDINGS, BRIDGE_COST, FOUNDATION_COST, ROAD_COST, creditsOf } from '../sim'
 import type { CameraMotion } from './cameraMotion'
 import { paveStrokeOf, placementOf } from './placing'
 import type { Scene } from './scene'
@@ -60,6 +60,24 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
     return found
   }
 
+  /** Свои здания и площадки, середина которых попала в прямоугольник в тайлах; type — только этого вида. */
+  const buildingsInBox = (left: number, top: number, right: number, bottom: number, type?: BuildingType) => {
+    const { world } = scene.sim
+    const found: Entity[] = []
+    for (const [entity, position, owner] of world.query(Position, Owner)) {
+      if (owner.player !== scene.player) continue
+      const kind = world.get(entity, Building)?.type ?? world.get(entity, Site)?.type
+      if (!kind || (type && kind !== type)) continue
+      const x = position.x + BUILDINGS[kind].width / 2
+      const y = position.y + BUILDINGS[kind].height / 2
+      if (x >= left && x <= right && y >= top && y <= bottom) found.push(entity)
+    }
+    return found
+  }
+  const typeOf = (entity: Entity) => scene.sim.world.get(entity, Building)?.type ?? scene.sim.world.get(entity, Site)?.type
+  /** Прошлый щелчок по зданию: для двойного щелчка. */
+  let lastBuildingClick: { building: Entity; at: number } | null = null
+
   /** Юнит под точкой в тайлах: ближайший из тех, в чей круг она попала. own — искать среди своих или среди чужих. */
   const unitAt = (x: number, y: number, own = true) => {
     const { world } = scene.sim
@@ -84,18 +102,22 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
   /** Прошлый щелчок по юниту: для двойного щелчка. */
   let lastClick: { unit: Entity; at: number } | null = null
 
-  /** Выбрано одно своё производящее здание: правый щелчок задаёт ему точку сбора. */
+  /** Выбраны только свои производящие здания: правый щелчок задаёт им всем точку сбора. */
   const rallying = () => {
     const { world } = scene.sim
-    if (scene.selection.size !== 1) return false
-    const [entity] = scene.selection
-    return world.has(entity, Building) && world.has(entity, Producer) && isOwn(scene.sim, scene.player, entity)
+    if (!scene.selection.size) return false
+    for (const entity of scene.selection) {
+      if (!world.has(entity, Building) || !world.has(entity, Producer) || !isOwn(scene.sim, scene.player, entity)) return false
+    }
+    return true
   }
 
+  /** Выбирает units — юнитов или здания; add — добавить к выбранным. Здания с юнитами вместе не выбираются. */
   const select = (units: Entity[], add: boolean) => {
     if (!add) scene.selection.clear()
-    // Здание с юнитами вместе не выбирается.
-    for (const entity of scene.selection) if (!scene.sim.world.has(entity, Unit)) scene.selection.delete(entity)
+    const { world } = scene.sim
+    const buildings = units.length > 0 && !world.has(units[0], Unit)
+    for (const entity of scene.selection) if (world.has(entity, Unit) === buildings) scene.selection.delete(entity)
     for (const entity of units) scene.selection.add(entity)
   }
 
@@ -188,13 +210,13 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
       const box = scene.selectionBox
       scene.selectionBox = null
       if (dragged && box) {
-        const found = unitsInBox(
-          Math.min(box.fromX, box.toX),
-          Math.min(box.fromY, box.toY),
-          Math.max(box.fromX, box.toX),
-          Math.max(box.fromY, box.toY),
-        )
-        select(found, event.shiftKey)
+        const left = Math.min(box.fromX, box.toX)
+        const top = Math.min(box.fromY, box.toY)
+        const right = Math.max(box.fromX, box.toX)
+        const bottom = Math.max(box.fromY, box.toY)
+        // Юниты в рамке главнее: здания выбираются, только если юнитов в ней нет.
+        const units = unitsInBox(left, top, right, bottom)
+        select(units.length ? units : buildingsInBox(left, top, right, bottom), event.shiftKey)
       } else {
         const unit = unitAt(point.x, point.y)
         const now = performance.now()
@@ -208,18 +230,25 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
           scene.selection.delete(unit)
         } else if (unit !== undefined) select([unit], event.shiftKey)
         else {
-          // Не юнит — тогда, может быть, своё здание или площадка. Здание выбирается только одно и без юнитов.
+          // Не юнит — тогда, может быть, своё здание или площадка: с Shift — добавить или снять, двойной щелчок
+          // или Ctrl — все свои здания этого вида на экране.
           const tileX = Math.floor(point.x)
           const tileY = Math.floor(point.y)
           const building = scene.sim.occupancy.at(tileX, tileY) ?? siteAt(scene.sim, tileX, tileY)
           const own = building !== undefined && isOwn(scene.sim, scene.player, building)
-          select(own ? [building] : [], false)
+          const twice = own && lastBuildingClick?.building === building && now - lastBuildingClick.at < DOUBLE_TAP
+          lastBuildingClick = own ? { building, at: now } : null
+          if (own && (twice || event.ctrlKey || event.metaKey)) {
+            const { from, to } = camera.visible
+            select(buildingsInBox(from.x, from.y, to.x, to.y, typeOf(building)), event.shiftKey)
+          } else if (own && event.shiftKey && scene.selection.has(building)) scene.selection.delete(building)
+          else if (own) select([building], event.shiftKey)
+          else if (!event.shiftKey) select([], false)
         }
       }
     } else if (button === RIGHT && !dragged && rallying()) {
-      // Выбрано своё производящее здание: правый щелчок ставит ему точку сбора.
-      const [building] = scene.selection
-      scene.sim.send(scene.player, { type: 'rally', building, x: Math.floor(point.x), y: Math.floor(point.y) })
+      // Выбраны свои производящие здания: правый щелчок ставит им точку сбора.
+      for (const building of scene.selection) scene.sim.send(scene.player, { type: 'rally', building, x: Math.floor(point.x), y: Math.floor(point.y) })
     } else if (button === RIGHT && !dragged && scene.selection.size) {
       const { sim } = scene
       const x = Math.floor(point.x)
