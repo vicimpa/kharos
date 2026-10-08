@@ -108,16 +108,16 @@ export function rememberLast(launch: Launch) {
   }
 }
 
-/** Последняя игра для «Продолжить»: сервер или слот, взятый свежим из списка; иначе — самое свежее сохранение. */
+/**
+ * Последняя игра для «Продолжить»: сервер или слот, взятый свежим из списка. Это ссылка ровно на неё: удалённый слот
+ * не подменяется другим — тогда продолжать нечего, null.
+ */
 export function lastLaunch(): Launch | null {
   try {
-    const last = parseLaunch(localStorage.getItem(LAST_KEY))
-    if (last) return last
+    return parseLaunch(localStorage.getItem(LAST_KEY))
   } catch {
-    // Тогда — самое свежее сохранение.
+    return null
   }
-  const slot = listSaves()[0]
-  return slot ? { kind: 'save', slot } : null
 }
 
 /** Игра из сохранённого текста: слот — по id из нынешнего списка, удалённый — null. */

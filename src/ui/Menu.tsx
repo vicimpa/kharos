@@ -92,7 +92,8 @@ export function Menu({ play }: MenuProps) {
   const [saves, setSaves] = useState(listSaves)
   const refresh = () => setSaves(listSaves())
   const home = () => setScreen('main')
-  const [last] = useState(lastLaunch)
+  // Считается заново при каждом показе: слот могли удалить в «Сохранениях».
+  const last = lastLaunch()
   const lastTitle = !last ? undefined : last.kind === 'save' ? `${last.slot.name} — ${playtime(last.slot.tick)}` : last.kind === 'server' ? `Сервер ${last.url}` : undefined
   // Музыка звучит, пока открыто меню, и стихает, когда начинается игра.
   const music = useRef<MenuMusic | null>(null)
