@@ -7,6 +7,7 @@ import type { WeaponType } from './weapons'
 import type { DepositKind } from './deposits'
 import type { PaveKind } from './paved'
 import type { Stance } from './tactics'
+import type { Command } from './commands'
 
 /** Место на карте в тайлах. У здания — левый верхний тайл основания, у юнита — его центр. */
 export const Position = component('Position', { x: 0, y: 0 })
@@ -236,6 +237,12 @@ export const Drop = component('Drop')
  */
 export const Tactics = component('Tactics', () => ({ stance: 'defensive' as Stance, patrol: [] as number[], leg: 0, away: false, homeX: 0, homeY: 0 }))
 
+/**
+ * Очередь приказов юнита, отданных с Shift: следующий он берёт, когда закончит нынешнее дело. group — общий номер
+ * приказа, отданного нескольким юнитам сразу: такой приказ они берут вместе, чтобы встать строем. См. orders.ts.
+ */
+export const Orders = component('Orders', () => ({ list: [] as { group: number; command: Command }[] }))
+
 /** Обречённый: игрок сдался, и через left тиков юнит или здание взорвётся. См. defeat.ts. */
 export const Doomed = component('Doomed', { left: 0 })
 
@@ -246,4 +253,4 @@ export const Doomed = component('Doomed', { left: 0 })
  */
 export const Ghost = component('Ghost', {})
 
-export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Harvester, Inventory, Beam, Assembly, Trade, Armed, Shot, Blast, Pave, Drop, Tactics, Doomed]
+export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Harvester, Inventory, Beam, Assembly, Trade, Armed, Shot, Blast, Pave, Drop, Tactics, Doomed, Orders]

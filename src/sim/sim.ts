@@ -19,6 +19,7 @@ import { followCarriers, restTurrets } from './turrets'
 import { createPaving, type Paving } from './paved'
 import { createTraces, type Traces } from './traces'
 import { createVision, type Vision } from './vision'
+import { followOrders } from './orders'
 import { patrol } from './tactics'
 
 /** Границы карты в тайлах. Правая и нижняя — не включая. */
@@ -187,6 +188,8 @@ export function createSim(source: SimOptions | SimSave): Sim {
       () => fight(sim),
       // После боя: вставшие без цели продолжают патруль или возвращаются на место.
       () => patrol(sim),
+      // После всех дел тика: освободившиеся берут следующий приказ из очереди.
+      () => followOrders(sim),
       // После работ и боя: кому не досталось ни того, ни другого, — те турели разворачиваются по корпусу.
       () => restTurrets(sim),
       () => recover(sim),

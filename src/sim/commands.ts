@@ -9,6 +9,7 @@ import { Builds, Building, Harvester, Producer, Unit } from './components'
 import { assignBuilders, cancelBuild, demolish, orderBuild } from './construction'
 import { DEPLOY_SECONDS, PACK_SECONDS, canDeploy, canPack, cancelDeploy, startConverting } from './conversion'
 import { assignHaulers, assignPickup, assignSupply, releaseHauler } from './hauling'
+import { clearOrders, queueOrder, unitsOf } from './orders'
 import { orderPave, removePave, type PaveKind } from './paving'
 import { cancelUnit, orderUnit } from './production'
 import { setFilter, setRoute, setServe } from './routes'
@@ -26,7 +27,7 @@ import { orderGroupMove, type UnitType } from './units'
  *
  * Команды — простые данные, пригодные для JSON. Чтобы добавить команду, допиши вариант сюда и ветку в apply().
  */
-export type Command =
+export type Command = (
   /** Отправить своих юнитов к тайлу (x, y). */
   | { type: 'move'; units: number[]; x: number; y: number }
   /** Точка сбора своего производящего здания: готовые юниты едут к тайлу (x, y). */
@@ -84,6 +85,10 @@ export type Command =
   | { type: 'pave'; kind: PaveKind; tiles: number[]; builders: number[] }
   /** Снять своё покрытие с тайлов (x и y подряд) своими строителями: недостроенное — сразу с возвратом, готовое разберут. */
   | { type: 'unpave'; tiles: number[]; builders: number[] }
+) & {
+  /** С Shift: приказ встаёт юнитам в конец очереди, а не заменяет нынешнее дело. См. orders.ts. */
+  queue?: boolean
+}
 
 const isTile = (x: unknown, y: unknown) => Number.isInteger(x) && Number.isInteger(y)
 
@@ -92,6 +97,9 @@ const isTile = (x: unknown, y: unknown) => Number.isInteger(x) && Number.isInteg
  * уже проверил: негодная молча отбрасывается. Возвращает, выполнена ли она.
  */
 export function apply(sim: Sim, player: number, command: Command): boolean {
+  if (command.queue) return queueOrder(sim, player, command)
+  // Приказ без Shift забывает очередь; стойка и фильтр груза — не приказы, а настройки.
+  if (command.type !== 'stance' && command.type !== 'filter') clearOrders(sim, unitsOf(command).filter((entity) => isOwn(sim, player, entity)))
   switch (command.type) {
     case 'move': {
       if (!isTile(command.x, command.y) || !Array.isArray(command.units)) return false
