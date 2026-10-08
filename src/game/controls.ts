@@ -39,6 +39,8 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
   const keys = new Set<string>()
   /** Какая кнопка сейчас зажата на холсте и где её нажали, в пикселях экрана. */
   let pressed: { button: number; x: number; y: number; dragged: boolean } | null = null
+  /** Угол рамки выделения на карте, в тайлах: камера может уехать, пока рамку тянут, а угол остаётся на месте. */
+  let anchor: { x: number; y: number } | null = null
   /** Группы по цифрам 1–9 и 0. */
   const groups = new Map<string, Entity[]>()
   let lastGroup: { digit: string; at: number } | null = null
@@ -100,6 +102,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
   const onPointerDown = (event: PointerEvent) => {
     if (pressed) return
     pressed = { button: event.button, x: event.offsetX, y: event.offsetY, dragged: false }
+    anchor = event.button === LEFT ? camera.screenToTile(event.offsetX, event.offsetY) : null
     // Покрытие тянут от тайла, где зажали левую кнопку.
     if (scene.paving && event.button === LEFT) {
       const { x, y } = camera.screenToTile(event.offsetX, event.offsetY)
@@ -112,13 +115,16 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
     if (!pressed) return
     if (Math.hypot(event.offsetX - pressed.x, event.offsetY - pressed.y) > CLICK_SLOP) pressed.dragged = true
     if (pressed.button === LEFT) {
-      if (!pressed.dragged || scene.placing || scene.paving) return
-      const from = camera.screenToTile(pressed.x, pressed.y)
-      const to = camera.screenToTile(event.offsetX, event.offsetY)
-      scene.selectionBox = { fromX: from.x, fromY: from.y, toX: to.x, toY: to.y }
+      if (pressed.dragged) stretchBox()
     } else {
       motion.drag(event.movementX, event.movementY)
     }
+  }
+  /** Тянет рамку от угла на карте до указателя. */
+  const stretchBox = () => {
+    if (!pressed?.dragged || !anchor || !camera.pointer || scene.placing || scene.paving) return
+    const to = camera.screenToTile(camera.pointer.x, camera.pointer.y)
+    scene.selectionBox = { fromX: anchor.x, fromY: anchor.y, toX: to.x, toY: to.y }
   }
   const onPointerUp = (event: PointerEvent) => {
     if (!pressed || event.button !== pressed.button) return
@@ -126,6 +132,12 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
     pressed = null
     if (button !== LEFT) motion.release()
     const point = camera.screenToTile(event.offsetX, event.offsetY)
+    // Рамка в наборе патруля — обычное выделение: набор кончается.
+    // Так же и щелчок по своему невыбранному юниту — выбрать его.
+    if (scene.patrolling && button === LEFT) {
+      const unit = dragged ? undefined : unitAt(point.x, point.y)
+      if (dragged || (unit !== undefined && !scene.selection.has(unit))) scene.patrolling = false
+    }
 
     if (scene.patrolling) {
       // Щелчок — патруль до точки, и выбор кончается; Shift+щелчок — ещё точка к патрулю, выбор продолжается.
@@ -256,6 +268,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
   }
   const onPointerCancel = () => {
     pressed = null
+    anchor = null
     motion.release()
     scene.selectionBox = null
   }
@@ -365,13 +378,14 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
   /** Раз в кадр: двигает камеру, пока зажаты клавиши. seconds — время с прошлого кадра. */
   const update = (seconds: number) => {
     const speed = KEY_SPEED * (keys.has('ShiftLeft') || keys.has('ShiftRight') ? KEY_BOOST : 1)
-    // Указатель у края экрана двигает камеру, пока не тянут рамку и камеру мышью.
-    const pointer = pressed ? null : screenPointer
+    // Указатель у края экрана двигает камеру, пока камеру не тянут мышью; рамку тянуть можно — она растёт за край.
+    const pointer = pressed && pressed.button !== LEFT ? null : screenPointer
     const edgeX = pointer ? Number(pointer.x >= camera.width - EDGE) - Number(pointer.x <= EDGE) : 0
     const edgeY = pointer ? Number(pointer.y >= camera.height - EDGE) - Number(pointer.y <= EDGE) : 0
     const right = Math.sign(Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft')) + edgeX)
     const down = Math.sign(Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp')) + edgeY)
     motion.update(seconds, right * speed, down * speed)
+    stretchBox()
 
     // Погибшие и исчезнувшие выпадают из выделения.
     for (const entity of scene.selection) if (!scene.sim.world.alive(entity)) scene.selection.delete(entity)
