@@ -11,7 +11,7 @@ import { put } from './inventory'
 import { spawnSandbox } from './sandbox'
 import type { Sim } from './sim'
 import { setStance } from './tactics'
-import { freeTilesNear, spawnUnit, type UnitType } from './units'
+import { UNIT_TYPES, freeTilesNear, spawnUnit, type UnitType } from './units'
 
 /**
  * Сценки для фона главного меню: каждая заводит мир (create) и потом ведёт его (drive, раз в полсекунды). drive
@@ -106,12 +106,15 @@ function construction(): Scene {
   }
 }
 
+/** Веса армии, где никто не берётся: от них считаются составы сценок, чтобы новые типы юнитов не влезали сами. */
+const NONE = Object.fromEntries(UNIT_TYPES.map((type) => [type, 0])) as Record<UnitType, number>
+
 /** Стороны, откуда может идти враг: оборона разворачивается к ней. */
 const SIDES = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }]
 /** Насколько волна может прийти в стороне от оси обороны, тайлов. */
 const WAVE_SPREAD = 8
 /** Чем идут волны: наземные бойцы. Бюджет первой волны и прибавка к каждой следующей. */
-const WAVE_WEIGHTS: Partial<Record<UnitType, number>> = { infantry: 2, rocketeer: 1, buggy: 1, lancer: 1, tank: 1, tesla: 0.5, carrier: 0, drone: 0, gunship: 0 }
+const WAVE_WEIGHTS: Partial<Record<UnitType, number>> = { ...NONE, infantry: 2, rocketeer: 1, buggy: 1, lancer: 1, tank: 1, tesla: 0.5 }
 const WAVE_BUDGET = 1200
 const WAVE_GROWTH = 500
 const WAVES = 6
@@ -119,7 +122,7 @@ const WAVES = 6
 const WAVE_DISTANCE = 20
 /** Кто защищает базу вместе с турелями: случайный отряд такой цены, и при нём строители. */
 const GUARD_BUDGET = 1500
-const GUARD_WEIGHTS: Partial<Record<UnitType, number>> = { infantry: 2, rocketeer: 2, buggy: 1, lancer: 1, tank: 1, tesla: 0.5, carrier: 0, drone: 0, gunship: 0 }
+const GUARD_WEIGHTS: Partial<Record<UnitType, number>> = { ...NONE, infantry: 2, rocketeer: 2, buggy: 1, lancer: 1, tank: 1, tesla: 0.5 }
 
 /**
  * Оборона: главное здание, перед ним случайное укрепление (см. fortification) лицом к случайной стороне, защитники
@@ -212,8 +215,6 @@ function battle(budget: number, weights: Partial<Record<UnitType, number>> = {})
     drive: (sim, player) => driveBattle(sim, player),
   })
 }
-
-const NONE = { infantry: 0, rocketeer: 0, buggy: 0, lancer: 0, tank: 0, tesla: 0, carrier: 0, drone: 0, gunship: 0 }
 
 /** Сценки фона меню: у каждой своё состояние, поэтому create() даёт новую на каждый мир. */
 export const SCENES = {
