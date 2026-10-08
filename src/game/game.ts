@@ -58,6 +58,8 @@ export type GameSession = Omit<Session, 'sim'> & { sim: Sim & { readonly generat
 export interface GameOptions {
   slot?: string
   showcase?: boolean
+  /** Редактор сохранений: мир стоит, и уведомлений о врагах и атаках нет — в нём враги ставятся руками. */
+  editor?: boolean
 }
 
 export interface Game {
@@ -117,7 +119,7 @@ export function createGame(
   settings: MapSettings,
   onError: (error: unknown) => void,
   session: GameSession,
-  { slot, showcase = false }: GameOptions = {},
+  { slot, showcase = false, editor = false }: GameOptions = {},
 ): Game {
   const camera = new Camera()
   // Камера возвращается туда, где была, только вместе с миром: в новом мире слота места ещё нет.
@@ -203,7 +205,7 @@ export function createGame(
   const audio = showcase ? null : createAudio()
   const shake = createShake()
   const soundscape = audio && createSoundscape(scene, audio, shake)
-  if (!showcase) scene.alerts = createAlerts(scene, audio)
+  if (!showcase && !editor) scene.alerts = createAlerts(scene, audio)
   const interfaceSounds = audio ? createInterfaceSounds(session.sim, audio) : null
   const machines = audio && createMachines(scene, audio)
 

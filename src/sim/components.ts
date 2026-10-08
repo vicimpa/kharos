@@ -95,8 +95,13 @@ export const Site = component('Site', { type: 'generator' as BuildingType, progr
  */
 export const Builds = component('Builds', { site: 0, ordered: true })
 
-/** Месторождение, из которого уже добывали: mined — сколько из него забрано. Место — левый верхний тайл месторождения. */
-export const Deposit = component('Deposit', { mined: 0 })
+/**
+ * Месторождение, из которого уже добывали или которое правили в редакторе. Место — левый верхний тайл месторождения;
+ * mined — сколько из него забрано. Правка редактора: kind — вид ('' — как у генератора), reserve — изначальный запас
+ * (−1 — как у генератора), gone — месторождения здесь нет. Месторождение с kind заменяет то, что генератор положил
+ * в его клетку, см. depositIn.
+ */
+export const Deposit = component('Deposit', { mined: 0, kind: '' as DepositKind | '', reserve: -1, gone: false })
 
 /**
  * Грузовик. Груз лежит в его складе (Inventory). mine — шахта, к которой его привязал игрок; -1 — свободен:
@@ -259,7 +264,8 @@ export const Doomed = component('Doomed', { left: 0 })
 /**
  * Призрак: чужое здание или месторождение, каким клиент видел его последний раз. Живёт только в клиенте: хост
  * о нём не знает и не шлёт, пока место в тумане. Пропадает, когда место снова в обзоре, а здания там нет.
+ * В редакторе призрак — юнит под указателем, который встанет по щелчку; blocked — встать ему там нельзя.
  */
-export const Ghost = component('Ghost', {})
+export const Ghost = component('Ghost', { blocked: false })
 
 export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Harvester, Inventory, Beam, Assembly, Trade, Armed, Shot, Blast, Pave, Drop, Tactics, Doomed, Orders, Off]

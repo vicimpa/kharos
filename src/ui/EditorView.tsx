@@ -24,20 +24,42 @@ import {
   type SimSave,
   type UnitType,
 } from '../sim'
-import { addPlayer, describeTile, entityAt, erase, moveUnit, paint, playersOf, putBuilding, putUnit, setCredits, setHealth, setOwner, setStock, type Brush } from '../sim/editor'
+import { DEPOSIT_CELL, DEPOSIT_KINDS, DEPOSIT_SIZE, DEPOSIT_TYPES, depositAt, reserveLeft, type DepositKind } from '../sim/deposits'
+import {
+  addPlayer,
+  depositUnder,
+  describeTile,
+  entityAt,
+  erase,
+  moveGhost,
+  moveUnit,
+  paint,
+  playersOf,
+  putBuilding,
+  putDeposit,
+  putUnit,
+  removeDeposit,
+  setCredits,
+  setDeposit as setDepositOf,
+  setHealth,
+  setOwner,
+  setStock,
+  type Brush,
+} from '../sim/editor'
 import type { Launch } from './launch'
 import { download } from './Menu'
-import { BUILDING_NAMES, UNIT_NAMES, goodName } from './names'
+import { BUILDING_NAMES, RESOURCE_NAMES, UNIT_NAMES, goodName } from './names'
 
 /** Как часто панель сверяется с миром, в миллисекундах. */
 const PANEL_INTERVAL = 150
 
-type Tool = 'select' | 'paint' | 'building' | 'unit' | 'erase'
+type Tool = 'select' | 'paint' | 'building' | 'unit' | 'deposit' | 'erase'
 const TOOLS: [Tool, string][] = [
   ['select', 'Выбор'],
   ['paint', 'Карта'],
   ['building', 'Здания'],
   ['unit', 'Юниты'],
+  ['deposit', 'Ресурсы'],
   ['erase', 'Снос'],
 ]
 const TERRAINS: [Terrain | undefined, string][] = [
@@ -92,10 +114,17 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
   /** Панель перерисовывается по счётчику: мир меняется мимо Preact. */
   const [, setFrame] = useState(0)
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null)
+  /** Вид и запас месторождения, которое кладёт инструмент «Ресурсы». */
+  const [kind, setKind] = useState<DepositKind>('metal')
+  const [reserve, setReserve] = useState(DEPOSIT_KINDS.metal.max)
+  /** Выбранное месторождение: левый верхний тайл. */
+  const [deposit, setDeposit] = useState<{ x: number; y: number } | null>(null)
+  /** Призрак юнита под указателем, см. moveGhost. */
+  const ghostRef = useRef<Entity | undefined>(undefined)
 
   // Обработчики холста читают свежее состояние через ref: игра создаётся один раз.
-  const state = useRef({ tool, player, brush, size, building, unit })
-  state.current = { tool, player, brush, size, building, unit }
+  const state = useRef({ tool, player, brush, size, building, unit, kind, reserve, deposit })
+  state.current = { tool, player, brush, size, building, unit, kind, reserve, deposit }
 
   useEffect(() => {
     let closed = false
@@ -108,7 +137,7 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
         // Симуляция стоит: кадры игры зовут advance, а тиков нет.
         const frozen: Sim = Object.create(sim, { advance: { value: () => 0 } })
         simRef.current = sim
-        const game = createGame(canvasRef.current!, settings, setError, { sim: frozen, player: state.current.player })
+        const game = createGame(canvasRef.current!, settings, setError, { sim: frozen, player: state.current.player }, { editor: true })
         gameRef.current = game
         game.scene.edit = createEdit(game, sim)
         const first = playersOf(sim)[0]
@@ -150,7 +179,7 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
     let last = ''
     return {
       press(point, phase, shift) {
-        const { tool, player, brush, size, building, unit } = state.current
+        const { tool, player, brush, size, building, unit, kind, reserve } = state.current
         const x = Math.floor(point.x)
         const y = Math.floor(point.y)
         const tile = `${x},${y}`
@@ -174,6 +203,14 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
         } else if (tool === 'unit' && phase === 'down') {
           if (putUnit(sim, unit, x, y, player) === undefined) setStatus(`${UNIT_NAMES[unit]} здесь не встанет`)
           else touched()
+        } else if (tool === 'deposit' && phase === 'down') {
+          // Щелчок по месторождению выбирает его, по пустому месту — кладёт новое левым верхним тайлом сюда.
+          const spot = depositUnder(sim, point.x, point.y)
+          if (spot) setDeposit({ x: spot.x, y: spot.y })
+          else if (putDeposit(sim, x, y, kind, reserve)) {
+            setDeposit({ x, y })
+            touched()
+          } else setStatus('Месторождение ложится на скалу не у подножия обрыва, целиком в своей клетке')
         } else if (tool === 'select') {
           if (phase === 'down') {
             const target = entityAt(sim, point.x, point.y)
@@ -190,8 +227,18 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
         }
       },
       hover(tile) {
-        const { tool, size } = state.current
+        const { tool, size, unit, player, deposit } = state.current
         setHover(tile)
+        // Месторождение под указателем или выбранное — в рамке.
+        if (tool === 'deposit') {
+          const spot = (tile && depositUnder(sim, tile.x + 0.5, tile.y + 0.5)) ?? deposit
+          scene.selectionBox = spot ? { fromX: spot.x, fromY: spot.y, toX: spot.x + DEPOSIT_SIZE, toY: spot.y + DEPOSIT_SIZE, hits: [] } : null
+          dropGhost()
+          return
+        }
+        // Юнит, который встанет по щелчку, виден под указателем призраком.
+        if (tool === 'unit' && tile) ghostRef.current = moveGhost(sim, ghostRef.current, unit, player, tile.x, tile.y)
+        else dropGhost()
         // Кисть карты показана рамкой: сколько тайлов она накроет.
         if (tool !== 'paint' || !tile) {
           if (tool !== 'select') scene.selectionBox = null
@@ -203,10 +250,18 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
     }
   }
 
+  /** Убирает призрак юнита: он не часть мира. */
+  const dropGhost = () => {
+    const sim = simRef.current
+    if (sim && ghostRef.current !== undefined) erase(sim, ghostRef.current)
+    ghostRef.current = undefined
+  }
+
   const save = async () => {
     const sim = simRef.current
     const opened = openedRef.current
     if (!sim || !opened) return
+    dropGhost()
     const { fog: _, ...rest } = sim.save()
     // Без тумана разведанной была бы вся карта: игроки получают прежнее разведанное.
     const save: SimSave = { ...rest, ...(opened.save.fog === false && { fog: false }), explored: opened.save.explored }
@@ -234,6 +289,7 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
   const players = sim ? playersOf(sim) : []
   const selected = game ? [...game.scene.selection].filter((entity) => sim?.world.alive(entity)) : []
   const tile = hover && sim ? describeTile(sim, hover.x, hover.y) : null
+  const spot = deposit && sim ? depositAt(sim, deposit.x, deposit.y) : null
 
   return (
     <main class="game editor">
@@ -313,6 +369,31 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
                     {UNIT_NAMES[type]}
                   </button>
                 ))}
+              </div>
+            )}
+            {tool === 'deposit' && (
+              <div class="editor__options">
+                <Choice label="Новое месторождение" options={DEPOSIT_TYPES.map((type) => [type, RESOURCE_NAMES[type]])} value={kind} set={(type) => (setKind(type), setReserve(DEPOSIT_KINDS[type].max))} />
+                <label class="editor__field">
+                  Запас
+                  <input type="number" min={0} step={100} value={reserve} onChange={(event) => setReserve(Number(event.currentTarget.value) || 0)} />
+                </label>
+                <p class="editor__note">Щелчок по месторождению — выбрать, по скале — положить новое. В клетке {DEPOSIT_CELL}×{DEPOSIT_CELL} оно одно: прежнее исчезнет.</p>
+                {spot && (
+                  <>
+                    <h3>
+                      {RESOURCE_NAMES[spot.kind]} · {spot.x}, {spot.y}
+                    </h3>
+                    <Choice label="Вид" options={DEPOSIT_TYPES.map((type) => [type, RESOURCE_NAMES[type]])} value={spot.kind} set={(type) => (setDepositOf(sim, spot, type, reserveLeft(sim, spot.x, spot.y)), touched())} />
+                    <label class="editor__field">
+                      Осталось
+                      <input type="number" min={0} step={100} value={reserveLeft(sim, spot.x, spot.y)} onChange={(event) => (setDepositOf(sim, spot, spot.kind, Number(event.currentTarget.value) || 0), touched())} />
+                    </label>
+                    <button class="menu__danger" onClick={() => (removeDeposit(sim, spot), setDeposit(null), touched())}>
+                      Убрать месторождение
+                    </button>
+                  </>
+                )}
               </div>
             )}
             {tool === 'select' && <p class="editor__note">Щелчок — выбрать, Shift — добавить. Юнита можно тащить мышью.</p>}

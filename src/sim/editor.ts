@@ -1,7 +1,8 @@
 import type { Entity } from '../ecs'
-import { Terrain, isCliffFoot, setTile, terrainAt, tileBytes, tileKey } from '../map/terrain'
+import { Terrain, isBuildable, isCliffFoot, setTile, terrainAt, tileBytes, tileKey } from '../map/terrain'
 import { canPlace, placeBuilding, type BuildingType } from './buildings'
-import { Attached, Carrier, Health, Inventory, Owner, Path, Player, Position, Unit } from './components'
+import { Attached, Carrier, Deposit, Ghost, Health, Inventory, Owner, Path, Player, Position, Unit } from './components'
+import { DEPOSIT_CELL, DEPOSIT_SIZE, depositEntity, depositIn, depositNear, forgetDeposits, type DepositKind, type DepositSpot } from './deposits'
 import { creditsOf, addCredits } from './economy'
 import { releaseHauler } from './hauling'
 import type { Good } from './resources'
@@ -45,6 +46,8 @@ export function paint(sim: Sim, x: number, y: number, size: number, brush: Brush
       for (const known of landMemory.known.values()) known.delete(key)
     }
   }
+  // Месторождения лежат только на скале: после правки карты они считаются заново.
+  forgetDeposits(sim)
 }
 
 /** Игроки мира, по возрастанию номера. */
@@ -141,6 +144,7 @@ export function entityAt(sim: Sim, x: number, y: number): Entity | undefined {
   let best: Entity | undefined
   let nearest = Infinity
   for (const [entity, position, unit] of sim.world.query(Position, Unit)) {
+    if (sim.world.has(entity, Ghost)) continue
     const distance = Math.hypot(position.x - x, position.y - y)
     if (distance <= Math.max(0.5, UNITS[unit.type].radius) && distance < nearest) {
       nearest = distance
@@ -156,4 +160,77 @@ export function describeTile(sim: Sim, x: number, y: number) {
   const terrain = terrainAt(sim.land, x, y)
   const mountain = terrain === Terrain.Mountain
   return { terrain, tier: mountain ? undefined : relief & 3, cliff: !mountain && (relief & 4) !== 0, foot: isCliffFoot(sim.land, x, y) }
+}
+
+/** Месторождение под точкой (x, y): то, на чьи тайлы она попала, или null. */
+export function depositUnder(sim: Sim, x: number, y: number): DepositSpot | null {
+  const spot = depositNear(sim, x, y, DEPOSIT_SIZE)
+  return spot && x >= spot.x && x < spot.x + DEPOSIT_SIZE && y >= spot.y && y < spot.y + DEPOSIT_SIZE ? spot : null
+}
+
+/** Запись правок месторождения с левым верхним тайлом (x, y): сущность Deposit там, новая — если её нет. */
+function depositRecord(sim: Sim, x: number, y: number) {
+  const entity = depositEntity(sim, x, y) ?? sim.world.spawn(Position({ x, y }), Deposit())
+  return sim.world.get(entity, Deposit)!
+}
+
+/** Можно ли положить месторождение левым верхним тайлом в (x, y): там, где встала бы шахта, — скала не у подножия обрыва. */
+export function canPutDeposit(sim: Sim, x: number, y: number) {
+  const { bounds, land } = sim
+  if (x < bounds.left || y < bounds.top || x + DEPOSIT_SIZE > bounds.right || y + DEPOSIT_SIZE > bounds.bottom) return false
+  // Месторождение не выходит за свою клетку: в клетке оно одно.
+  if (Math.floor(x / DEPOSIT_CELL) !== Math.floor((x + DEPOSIT_SIZE - 1) / DEPOSIT_CELL)) return false
+  if (Math.floor(y / DEPOSIT_CELL) !== Math.floor((y + DEPOSIT_SIZE - 1) / DEPOSIT_CELL)) return false
+  for (let tileY = y; tileY < y + DEPOSIT_SIZE; tileY++) {
+    for (let tileX = x; tileX < x + DEPOSIT_SIZE; tileX++) if (!isBuildable(terrainAt(land, tileX, tileY)) || isCliffFoot(land, tileX, tileY)) return false
+  }
+  return true
+}
+
+/**
+ * Кладёт месторождение вида kind с запасом reserve левым верхним тайлом в (x, y). В клетке месторождение одно: прежнее
+ * в ней исчезает.
+ */
+export function putDeposit(sim: Sim, x: number, y: number, kind: DepositKind, reserve: number) {
+  if (!canPutDeposit(sim, x, y)) return false
+  const cellX = Math.floor(x / DEPOSIT_CELL)
+  const cellY = Math.floor(y / DEPOSIT_CELL)
+  const old = depositIn(sim, cellX, cellY)
+  if (old && (old.x !== x || old.y !== y)) removeDeposit(sim, old)
+  Object.assign(depositRecord(sim, x, y), { kind, reserve: Math.max(0, Math.round(reserve)), mined: 0, gone: false })
+  forgetDeposits(sim)
+  return true
+}
+
+/** Меняет месторождению вид и сколько в нём осталось. */
+export function setDeposit(sim: Sim, spot: DepositSpot, kind: DepositKind, left: number) {
+  Object.assign(depositRecord(sim, spot.x, spot.y), { kind, reserve: Math.max(0, Math.round(left)), mined: 0, gone: false })
+  forgetDeposits(sim)
+}
+
+/** Убирает месторождение. */
+export function removeDeposit(sim: Sim, spot: DepositSpot) {
+  Object.assign(depositRecord(sim, spot.x, spot.y), { kind: '', gone: true })
+  forgetDeposits(sim)
+}
+
+/**
+ * Призрак юнита под указателем: юнит, который встанет по щелчку, нарисован полупрозрачным. Он в мире, но не в счёт:
+ * его не выбрать, а перед сохранением его убирают. Возвращает призрак; undefined — показывать нечего.
+ */
+export function moveGhost(sim: Sim, ghost: Entity | undefined, type: UnitType, player: number, x: number, y: number): Entity | undefined {
+  const { world } = sim
+  if (ghost !== undefined && world.alive(ghost) && world.get(ghost, Unit)?.type === type && world.get(ghost, Owner)?.player === player) {
+    const position = world.get(ghost, Position)!
+    Object.assign(position, { x: x + 0.5, y: y + 0.5 })
+    Object.assign(world.get(ghost, Unit)!, { prevX: x + 0.5, prevY: y + 0.5 })
+    world.get(ghost, Ghost)!.blocked = !canPut(sim, type, x, y)
+    followCarriers(sim)
+    return ghost
+  }
+  if (ghost !== undefined) erase(sim, ghost)
+  const entity = spawnUnit(sim, type, player, x, y)
+  world.add(entity, Ghost({ blocked: !canPut(sim, type, x, y) }))
+  followCarriers(sim)
+  return entity
 }

@@ -5,7 +5,7 @@ import type { Pass } from '../../render/renderer'
 import { createSpriteProgram, createSprites } from '../../render/sprites'
 import type { Entity } from '../../ecs'
 import {
-  Armed, Attached, Building, Owner, Position, TURN, TURRET_TYPES, Turret, UNIT_TYPES, Unit, WEAPONS, flies, weaponOf, wrap, type ShotKind, type TurretType,
+  Armed, Attached, Building, Ghost, Owner, Position, TURN, TURRET_TYPES, Turret, UNIT_TYPES, Unit, WEAPONS, flies, weaponOf, wrap, type ShotKind, type TurretType,
   type UnitType,
 } from '../../sim'
 import type { Scene } from '../scene'
@@ -15,6 +15,8 @@ import { GAIT_PHASES, GAIT_STEP, TEAMS, TURRET_ART, TURRET_FRAME, UNIT_ART, UNIT
 const SPRITE_TILES = UNIT_FRAME / 16
 const TURRET_TILES = TURRET_FRAME / 16
 const SHADOW_ALPHA = 0.4
+/** Непрозрачность призрака юнита в редакторе. */
+const GHOST_ALPHA = 0.55
 /** Тень — силуэт юнита, сдвинутый вправо вниз на столько тайлов. */
 const SHADOW_SHIFT = 2 / 16
 /** Летающий высоко: его тень бледнее и лежит дальше. */
@@ -124,6 +126,10 @@ export function createUnitsPasses(gl: WebGL2RenderingContext, scene: Scene): { g
     return since < back ? (RECOIL[weapon.shot] * (1 - since / back)) / 16 : 0
   }
 
+  /** Цвет спрайта: призрак (юнит, который редактор поставит по щелчку) полупрозрачный, а где ему не встать — красный. */
+  const tint = (ghost: { blocked: boolean } | undefined): [number, number, number, number] =>
+    !ghost ? [1, 1, 1, 1] : ghost.blocked ? [GHOST_ALPHA, GHOST_ALPHA * 0.3, GHOST_ALPHA * 0.3, GHOST_ALPHA] : [GHOST_ALPHA, GHOST_ALPHA, GHOST_ALPHA, GHOST_ALPHA]
+
   const layer = (air: boolean, emplacements = false): Pass => {
     // Тени лежат под всеми юнитами, иначе тень соседа ляжет на кабину.
     const shadows = createSprites(gl, program)
@@ -155,20 +161,21 @@ export function createUnitsPasses(gl: WebGL2RenderingContext, scene: Scene): { g
             const top = y - forwardY * kick - camera.y - SPRITE_TILES / 2
             // Свет встаёт на узел сетки пиксель-арта, иначе его пиксели не совпадут с пикселями земли.
             const snap = (value: number) => Math.round(value * 16) / 16
+            const ghost = world.get(entity, Ghost)
             const { lamps, beam } = UNIT_LIGHTS[unit.type]
-            for (const lamp of lamps) {
+            if (!ghost) for (const lamp of lamps) {
               const lampX = snap(x + lamp.along * forwardX - lamp.across * forwardY)
               const lampY = snap(y + lamp.along * forwardY + lamp.across * forwardX)
               lights.add(lampX, lampY, lamp.glow * 2, lamp.glow, 1)
             }
-            lights.beam(snap(x + beam.along * forwardX), snap(y + beam.along * forwardY), facing, beam.length, beam.near, beam.spread, beam.level)
+            if (!ghost) lights.beam(snap(x + beam.along * forwardX), snap(y + beam.along * forwardY), facing, beam.length, beam.near, beam.spread, beam.level)
 
             const direction = directionOf(facing)
             const team: Team = owner.player === scene.player ? 'own' : 'foe'
             const phase = phaseOf(entity, unit.type, x, y)
             const { u, v, width: frameWidth, height: frameHeight } = framesOf(team, unit.type, phase)[direction]
             shadows.push(left + shadowShift, top + shadowShift, SPRITE_TILES, SPRITE_TILES, u, v, frameWidth, frameHeight, 0, 0, 0, shadowAlpha)
-            sprites.push(left, top, SPRITE_TILES, SPRITE_TILES, u, v, frameWidth, frameHeight, 1, 1, 1, 1)
+            sprites.push(left, top, SPRITE_TILES, SPRITE_TILES, u, v, frameWidth, frameHeight, ...tint(ghost))
           }
         }
         // Турели — поверх всех юнитов слоя: на своём носителе они должны лежать сверху.
@@ -190,7 +197,7 @@ export function createUnitsPasses(gl: WebGL2RenderingContext, scene: Scene): { g
           const turretShadowShift = mountedOnBuilding ? SHADOW_SHIFT : shadowShift
           const turretShadowAlpha = mountedOnBuilding ? SHADOW_ALPHA : shadowAlpha
           shadows.push(left + turretShadowShift / 2, top + turretShadowShift / 2, TURRET_TILES, TURRET_TILES, u, v, frameWidth, frameHeight, 0, 0, 0, turretShadowAlpha)
-          sprites.push(left, top, TURRET_TILES, TURRET_TILES, u, v, frameWidth, frameHeight, 1, 1, 1, 1)
+          sprites.push(left, top, TURRET_TILES, TURRET_TILES, u, v, frameWidth, frameHeight, ...tint(world.get(attached.parent as never, Ghost)))
         }
         if (!air && !emplacements && frame % FORGET_FRAMES === 0) {
           for (const [entity, track] of walked) if (frame - track.seen > FORGET_FRAMES) walked.delete(entity)

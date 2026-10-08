@@ -63,19 +63,49 @@ export interface DepositSpot {
   reserve: number
 }
 
-const cache = new WeakMap<Land, Map<string, DepositSpot | null>>()
+/** Посчитанные месторождения клеток. count — сколько было сущностей Deposit: появилась новая — правки могли измениться. */
+const cache = new WeakMap<Land, { count: number; cells: Map<string, DepositSpot | null> }>()
+
+/** Забывает посчитанные месторождения: после правки карты или месторождений в редакторе. */
+export function forgetDeposits(sim: Sim) {
+  cache.delete(sim.land)
+}
 
 /**
  * Месторождение клетки (cellX, cellY) или null. Как и местность, оно не хранится, а считается из сида:
  * в любой клетке мира ответ всегда один и тот же. Месторождение лежит на скале — там, где можно строить; что в нём, решает биом.
  */
 export function depositIn(sim: Sim, cellX: number, cellY: number): DepositSpot | null {
-  const { land, bounds } = sim
-  let cells = cache.get(land)
-  if (!cells) cache.set(land, (cells = new Map()))
+  const { land, world } = sim
+  const count = world.count(Deposit)
+  let cached = cache.get(land)
+  if (!cached || cached.count !== count) cache.set(land, (cached = { count, cells: new Map() }))
+  const { cells } = cached
   const key = `${cellX},${cellY}`
   const known = cells.get(key)
   if (known !== undefined) return known
+  const spot = withEdits(sim, cellX, cellY, generatedIn(sim, cellX, cellY))
+  cells.set(key, spot)
+  return spot
+}
+
+/** Правки редактора в клетке поверх месторождения генератора: см. компонент Deposit. */
+function withEdits(sim: Sim, cellX: number, cellY: number, generated: DepositSpot | null): DepositSpot | null {
+  let spot = generated
+  for (const [, position, deposit] of sim.world.query(Position, Deposit)) {
+    if (Math.floor(position.x / DEPOSIT_CELL) !== cellX || Math.floor(position.y / DEPOSIT_CELL) !== cellY) continue
+    // Положенное редактором заменяет месторождение генератора.
+    if (deposit.kind && !deposit.gone) return { x: position.x, y: position.y, kind: deposit.kind, reserve: Math.max(0, deposit.reserve) }
+    if (!generated || position.x !== generated.x || position.y !== generated.y) continue
+    if (deposit.gone) spot = null
+    else if (deposit.reserve >= 0) spot = { ...generated, reserve: deposit.reserve }
+  }
+  return spot
+}
+
+/** Месторождение, которое генератор кладёт в клетку, без правок. */
+function generatedIn(sim: Sim, cellX: number, cellY: number): DepositSpot | null {
+  const { land, bounds } = sim
 
   const seed = land.config.seed + SALT
   let spot: DepositSpot | null = null
@@ -97,7 +127,6 @@ export function depositIn(sim: Sim, cellX: number, cellY: number): DepositSpot |
       break
     }
   }
-  cells.set(key, spot)
   return spot
 }
 
