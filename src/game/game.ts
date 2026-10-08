@@ -97,6 +97,8 @@ export interface Game {
   muted: boolean
   /** Поверх игры открыто меню: управление выключено, звук тише. Сама игра идёт дальше. */
   paused: boolean
+  /** Зовётся, когда Escape нечего отменять: интерфейс открывает меню игры. */
+  set onMenu(value: () => void)
   /** Перечитывает настройки звука: их поменяли в меню. */
   refreshSound(): void
   /** Останавливает игру и освобождает ресурсы. */
@@ -354,6 +356,9 @@ export function createGame(
     },
     set muted(value) {
       if (audio) audio.muted = value
+    },
+    set onMenu(value: () => void) {
+      if (controls) controls.onMenu = value
     },
     get paused() {
       return controls?.paused ?? false

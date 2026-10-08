@@ -61,6 +61,7 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
       setConnecting(false)
       if (closed) return session.sim.destroy()
       gameRef.current = createGame(canvasRef.current!, settings, setError, session, { slot: launch.kind === 'save' ? launch.slot.id : undefined })
+      gameRef.current.onMenu = () => setPaused(true)
     }
     const attempt = (password?: string) =>
       start(password).catch((error: unknown) => {

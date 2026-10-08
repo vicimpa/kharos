@@ -357,7 +357,9 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
         scene.paving = null
         scene.paveFrom = null
       } else if (scene.placing) scene.placing = null
-      else scene.selection.clear()
+      else if (scene.selection.size) scene.selection.clear()
+      // Отменять нечего — Escape открывает меню игры.
+      else onMenu()
     }
   }
   /** Отдаёт набранный маршрут выбранным грузовикам; меньше двух остановок — набор просто кончается. */
@@ -388,6 +390,8 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
     motion.flyTo(x / count, y / count)
   }
   const onKeyUp = (event: KeyboardEvent) => keys.delete(event.code)
+  /** Открыть меню игры: его рисует интерфейс, см. Game.onMenu. */
+  let onMenu = () => {}
   /** Открыто меню поверх игры: клавиши и край экрана камеру не двигают. Мышь меню и так закрывает. */
   let paused = false
   const onBlur = () => {
@@ -460,6 +464,9 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
   return {
     update,
     lookAtSelection,
+    set onMenu(value: () => void) {
+      onMenu = value
+    },
     get paused() {
       return paused
     },
