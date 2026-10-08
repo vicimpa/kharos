@@ -1,9 +1,9 @@
 import type { Entity } from '../ecs'
 import { isReady } from './buildings'
 import { NONE, isOwn, onTurn } from './common'
-import { Beam, Converting, Hauler, Harvester, Inventory, Owner, Path, Unit } from './components'
-import { amountOf, approach, beamFor, reaches, roomFor, transfer } from './inventory'
-import { releaseHauler } from './hauling'
+import { Converting, Hauler, Harvester, Inventory, Owner, Path, Unit } from './components'
+import { amountOf, beamFor, reaches, roomFor, transfer } from './inventory'
+import { releaseHauler, seekBeam, seekDue } from './hauling'
 import { acceptsDelivery, offersOf, spareOf } from './logistics'
 import { GOODS, type Good } from './resources'
 import type { Sim } from './sim'
@@ -148,7 +148,7 @@ export function runRoutes(sim: Sim) {
     const retry = onTurn(time, truck, RETRY_TICKS)
     const here = route[hauler.stop]
     if (!reaches(sim, truck, here) && !reaches(sim, here, truck)) {
-      if (retry || !hauler.waiting) seeking.push({ truck, building: here })
+      if (seekDue(sim, truck, hauler)) seeking.push({ truck, building: here })
       hauler.waiting = true
       continue
     }
@@ -198,8 +198,5 @@ export function runRoutes(sim: Sim) {
     hauler.route = []
     hauler.stop = 0
   }
-  for (const { truck, building } of seeking) {
-    const beam = beamFor(sim, truck, building) ?? beamFor(sim, building, truck)
-    if (beam !== undefined) approach(sim, truck, building, world.get(beam, Beam)!.radius)
-  }
+  for (const { truck, building } of seeking) seekBeam(sim, truck, building, beamFor(sim, truck, building) ?? beamFor(sim, building, truck))
 }

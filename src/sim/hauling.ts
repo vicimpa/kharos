@@ -145,10 +145,30 @@ function requesterFor(sim: Sim, truck: Entity, resource: Good): Entity {
   return best
 }
 
+/** Самая долгая отсрочка подъезда после промахов — в RETRY_TICKS: 2^5, около полуминуты. */
+const MAX_BACKOFF = 5
+
+/**
+ * Пора ли грузовику, который не дотягивается до здания, снова искать подъезд: только что получивший работу трогается
+ * сразу, остальные — раз в RETRY_TICKS, а после промахов — всё реже. Поиск подъезда к недоступному зданию — с десяток
+ * поисков пути, и без отсрочки несколько таких грузовиков съедали весь тик сервера.
+ */
+export function seekDue(sim: Sim, truck: Entity, hauler: { waiting: boolean; misses: number }) {
+  if (!hauler.waiting) return true
+  return onTurn(sim.time, truck, RETRY_TICKS << Math.min(hauler.misses, MAX_BACKOFF))
+}
+
+/** Подводит грузовик к зданию на длину луча; не нашёл подъезда — промах, следующая попытка позже, см. seekDue. */
+export function seekBeam(sim: Sim, truck: Entity, building: Entity, beam: Entity | undefined) {
+  if (beam === undefined) return
+  const hauler = sim.world.get(truck, Hauler)!
+  if (approach(sim, truck, building, sim.world.get(beam, Beam)!.radius)) hauler.misses = 0
+  else hauler.misses++
+}
+
 /** Подводит грузовик к зданию на длину луча, который перенесёт ресурс между ними. */
 function seek(sim: Sim, truck: Entity, building: Entity, toBuilding: boolean) {
-  const beam = toBuilding ? beamFor(sim, truck, building) : beamFor(sim, building, truck)
-  if (beam !== undefined) approach(sim, truck, building, sim.world.get(beam, Beam)!.radius)
+  seekBeam(sim, truck, building, toBuilding ? beamFor(sim, truck, building) : beamFor(sim, building, truck))
 }
 
 /** Раз в тик: шахты добывают руду в свои склады, пока там есть место; что и как быстро — решает месторождение. */
@@ -283,8 +303,7 @@ export function haul(sim: Sim) {
     const building = (hauler.full ? hauler.to : hauler.from) as Entity
     const toBuilding = hauler.full
     if (!(toBuilding ? reaches(sim, entity, building) : reaches(sim, building, entity))) {
-      // Только что получивший работу трогается сразу, не нашедший места — раз в RETRY_TICKS.
-      if (retry || !hauler.waiting) seeking.push({ truck: entity, building, toBuilding })
+      if (seekDue(sim, entity, hauler)) seeking.push({ truck: entity, building, toBuilding })
       hauler.waiting = true
       continue
     }

@@ -83,6 +83,9 @@ const STEPS = [
 const WINDOW = 512
 const HALF = WINDOW / 2
 
+/** Лежит ли цель за окном поиска: путь к ней findPath ведёт только до края окна, дальше юнит ищет на ходу. */
+export const beyondWindow = (fromX: number, fromY: number, toX: number, toY: number) => Math.abs(toX - fromX) >= HALF - 1 || Math.abs(toY - fromY) >= HALF - 1
+
 /** Память поиска в окне, одна на все поиски. Тайл относится к текущему поиску, если его метка равна generation. */
 let stamps: Uint32Array | undefined
 let costs: Float64Array
@@ -100,7 +103,7 @@ let generation = 0
  * а не самый короткий; fastest — самая низкая цена шага, какая бывает у этого юнита (дорога).
  */
 export function findPath(walkable: Walkable, fromX: number, fromY: number, toX: number, toY: number, near = 0, limit = SEARCH_LIMIT, slowness = EVEN, fastest = 1): number[] {
-  if (Math.abs(toX - fromX) < HALF - 1 && Math.abs(toY - fromY) < HALF - 1) {
+  if (!beyondWindow(fromX, fromY, toX, toY)) {
     const path = findNearPath(walkable, fromX, fromY, toX, toY, near, limit, slowness, fastest)
     if (path) return path
   } else {

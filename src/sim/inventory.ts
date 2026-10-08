@@ -3,6 +3,7 @@ import { tileKey } from '../map/terrain'
 import { BUILDINGS, siteAt } from './buildings'
 import { Beam, Building, Drop, Inventory, Path, Position, Site, Unit } from './components'
 import { GOODS, type Amounts, type Good } from './resources'
+import { beyondWindow } from './path'
 import type { Sim } from './sim'
 import { UNITS, isWalkable, onFoot, orderMove, standingUnits } from './units'
 
@@ -171,6 +172,9 @@ export function approach(sim: Sim, entity: Entity, building: Entity, radius: num
     if (Math.floor(position.x) === x && Math.floor(position.y) === y) return true
     orderMove(sim, entity, x, y, ignore)
     const points = world.get(entity, Path)?.points
+    // Место за окном поиска: путь доходит лишь до края окна, остальное юнит найдёт на ходу (см. movement.ts).
+    // Требовать от такого пути конца в самом месте — значит не уехать никогда и перебирать места каждую попытку.
+    if (beyondWindow(Math.floor(position.x), Math.floor(position.y), x, y)) return points !== undefined && points.length > 0
     return points !== undefined && Math.floor(points[points.length - 2]) === x && Math.floor(points[points.length - 1]) === y
   }
   const tries = places.slice(0, APPROACH_TRIES)
