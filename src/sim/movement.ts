@@ -4,7 +4,7 @@ import { onTurn, ownerOf, turnToward, wrap } from './common'
 import { Path, Position, Unit } from './components'
 import { searchedTiles } from './path'
 import type { Sim } from './sim'
-import { UNITS, canStand, fastestOf, flies, orderMove, roadInSight, stepAside, terrainSpeed } from './units'
+import { UNITS, canStand, fastestOf, flies, onFoot, orderMove, roadInSight, stepAside, terrainSpeed } from './units'
 
 /** Сколько тиков юнит ждёт, не в силах сдвинуться, прежде чем проложить путь заново. */
 const WAIT_TICKS = 20
@@ -71,6 +71,8 @@ interface Body {
   radius: number
   /** Летающий: с наземными он не сталкивается. */
   air: boolean
+  /** Пехота: ей можно на кромку обрыва, см. isWalkable. */
+  foot: boolean
   /** Едет куда-то: тогда из двух встречных уступает тот, у кого номер больше. */
   moving: boolean
   unit: { facing: number }
@@ -93,7 +95,7 @@ export function moveUnits(sim: Sim, time: Time) {
     unit.prevFacing = unit.facing
     // Сетка строится по местам на начало тика: за тик юнит сдвигается куда меньше, чем на ячейку.
     const key = tileKey(Math.floor(position.x / CELL), Math.floor(position.y / CELL))
-    const body = { entity, position, radius: UNITS[unit.type].radius, air: flies(unit.type), moving: world.has(entity, Path), unit, owner: ownerOf(sim, entity) }
+    const body = { entity, position, radius: UNITS[unit.type].radius, air: flies(unit.type), foot: onFoot(unit.type), moving: world.has(entity, Path), unit, owner: ownerOf(sim, entity) }
     if (body.radius > LARGE) {
       large.push(body)
       continue
@@ -163,7 +165,7 @@ export function moveUnits(sim: Sim, time: Time) {
     const sign = (other.position.x - x) * sideX + (other.position.y - y) * sideY >= 0 ? 1 : -1
     const toX = other.position.x + sideX * sign * PUSH
     const toY = other.position.y + sideY * sign * PUSH
-    if (!canStand(sim, other.air, Math.floor(toX), Math.floor(toY))) return
+    if (!canStand(sim, other.air, Math.floor(toX), Math.floor(toY), other.foot)) return
     gather(other.entity, other.air, other.radius, other.position.x, other.position.y)
     if (collides(other.radius, other.position.x, other.position.y, toX, toY)) return
     other.position.x = toX
@@ -195,6 +197,7 @@ export function moveUnits(sim: Sim, time: Time) {
     const { points } = path
     const { speed, turn, radius } = UNITS[unit.type]
     const air = flies(unit.type)
+    const foot = onFoot(unit.type)
     // Путь проложен без дороги, а она показалась в обзоре — юнит прикинет путь заново. Смотрит не каждый тик.
     if (!path.roads && fastestOf(unit.type) > 1 && onTurn(time, entity, ROAD_LOOK_TICKS) && roadInSight(sim, entity)) {
       roadward.push({ entity, x: path.goalX, y: path.goalY, near: path.near })
@@ -205,7 +208,7 @@ export function moveUnits(sim: Sim, time: Time) {
     const wanted = distance ? Math.atan2(dy, dx) : unit.facing
 
     // Юнит, под которым выросло здание, выходит из него: внутри здания тайлы ему не преграда.
-    const inside = !canStand(sim, air, Math.floor(position.x), Math.floor(position.y))
+    const inside = !canStand(sim, air, Math.floor(position.x), Math.floor(position.y), foot)
 
     gather(entity, air, radius, position.x, position.y)
     // Куда ехать: прямо к точке пути, а если там другой юнит — в ближайшую свободную сторону.
@@ -224,7 +227,7 @@ export function moveUnits(sim: Sim, time: Time) {
       const lookX = position.x + Math.cos(angle) * look
       const lookY = position.y + Math.sin(angle) * look
       // Прямой путь проверен, когда прокладывался; в стороне от него может оказаться стена.
-      if (detour && !inside && !canStand(sim, air, Math.floor(lookX), Math.floor(lookY))) continue
+      if (detour && !inside && !canStand(sim, air, Math.floor(lookX), Math.floor(lookY), foot)) continue
       if (detour ? collides(radius, position.x, position.y, lookX, lookY) : ahead) continue
       heading = wrap(angle)
       path.side = Math.sign(detour)
@@ -274,7 +277,7 @@ export function moveUnits(sim: Sim, time: Time) {
     if (boxed || move > 0) {
       const nextX = arrives ? points[0] : position.x + Math.cos(unit.facing) * move
       const nextY = arrives ? points[1] : position.y + Math.sin(unit.facing) * move
-      const open = inside || canStand(sim, air, Math.floor(nextX), Math.floor(nextY))
+      const open = inside || canStand(sim, air, Math.floor(nextX), Math.floor(nextY), foot)
       const blocker = boxed ? ahead : open ? collides(radius, position.x, position.y, nextX, nextY) : undefined
       if (open && !blocker) {
         position.x = nextX

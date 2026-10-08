@@ -30,7 +30,7 @@ export const CHUNK_SIZE = 32
  * Четыре байта на тайл: [тип местности, биом (2 бита основной, 2 бита соседний, 4 бита доля соседнего), глубина в
  * песках 0..255, рельеф]; у гор третий байт — радиус вершины, четвёртый — смещение до её центра. Рельеф у остальных:
  * 2 младших бита — ярус (0 — пески и болота, 1..3 — ярусы плато), бит CLIFF_BIT — кромка тайла к нижним соседям
- * обрывистая, а не пологая, бит STEP_BIT — рядом перепад ярусов. В таком же виде данные уходят в шейдер.
+ * обрывистая, а не пологая, бит STEP_BIT — рядом перепад ярусов, RIM_BIT — тайл на кромке обрыва. В таком же виде данные уходят в шейдер.
  */
 export const TILE_BYTES = 4
 
@@ -113,6 +113,13 @@ export const CLIFF_BIT = 4
  * другой ярус. Без него шейдер не ищет обрывы — это дорого, а почти вся карта ровная. Совпадает с STEP_BIT в terrain.frag.
  */
 export const STEP_BIT = 8
+/**
+ * Бит кромки обрыва: верхний тайл у обрывистой кромки — хотя бы один из восьми соседей ниже его яруса. Технике
+ * сюда нельзя, пехота лезет медленно (см. isWalkable и terrainSpeed в units.ts). Выводится из соседей, как STEP_BIT.
+ */
+export const RIM_BIT = 16
+/** Что в байте рельефа выводится из соседей и не хранится. */
+const DERIVED_BITS = STEP_BIT | RIM_BIT
 /** Окно соседей для STEP_BIT: сверху больше — туда смотрит стенка обрыва. */
 const STEP_UP = 2
 const STEP_DOWN = 1
@@ -137,7 +144,7 @@ export interface LandArea {
  * Собираются они лениво, при первом обращении: генератор детерминирован, так что это то же самое, что собрать все
  * сразу. Вне области — декоративный край мира: он всегда из генератора и только кэшируется.
  *
- * Глубина в песках и бит STEP_BIT в данных не хранятся: они выводятся из типов и ярусов соседей, см. deriveChunk.
+ * Глубина в песках и биты STEP_BIT и RIM_BIT в данных не хранятся: они выводятся из типов и ярусов соседей, см. deriveChunk.
  */
 export interface Land {
   config: GeneratorConfig
@@ -520,7 +527,19 @@ function deriveChunk(land: Land, chunk: Uint8Array, chunkX: number, chunkY: numb
           }
         }
       }
-      chunk[index + 3] = (chunk[index + 3] & ~STEP_BIT) | (step ? STEP_BIT : 0)
+      let rim = false
+      if (tier > 0 && chunk[index + 3] & CLIFF_BIT) {
+        for (let dy = -1; dy <= 1 && !rim; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const other = tiers[at + dy * span + dx]
+            if (other >= 0 && other < tier) {
+              rim = true
+              break
+            }
+          }
+        }
+      }
+      chunk[index + 3] = (chunk[index + 3] & ~DERIVED_BITS) | (step ? STEP_BIT : 0) | (rim ? RIM_BIT : 0)
     }
   }
 }
@@ -556,6 +575,15 @@ export function biomeAt(land: Land, x: number, y: number): Biome {
   const localX = Math.floor(x) - chunkX * CHUNK_SIZE
   const localY = Math.floor(y) - chunkY * CHUNK_SIZE
   return (chunk[(localY * CHUNK_SIZE + localX) * TILE_BYTES + 1] >> 6) as Biome
+}
+
+/** Тайл на кромке обрыва, см. RIM_BIT. */
+export function isCliffRim(land: Land, x: number, y: number): boolean {
+  const chunkX = Math.floor(x / CHUNK_SIZE)
+  const chunkY = Math.floor(y / CHUNK_SIZE)
+  const chunk = getChunk(land, chunkX, chunkY)
+  const index = ((Math.floor(y) - chunkY * CHUNK_SIZE) * CHUNK_SIZE + Math.floor(x) - chunkX * CHUNK_SIZE) * TILE_BYTES
+  return chunk[index] !== Terrain.Mountain && (chunk[index + 3] & RIM_BIT) !== 0
 }
 
 export function terrainAt(land: Land, x: number, y: number): Terrain {
@@ -619,7 +647,7 @@ export function tileBytes(land: Land, x: number, y: number): number[] {
   const chunk = getChunk(land, chunkX, chunkY)
   const index = ((y - chunkY * CHUNK_SIZE) * CHUNK_SIZE + x - chunkX * CHUNK_SIZE) * TILE_BYTES
   const mountain = chunk[index] === Terrain.Mountain
-  return [chunk[index], chunk[index + 1], mountain ? chunk[index + 2] : 0, mountain ? chunk[index + 3] : chunk[index + 3] & ~STEP_BIT]
+  return [chunk[index], chunk[index + 1], mountain ? chunk[index + 2] : 0, mountain ? chunk[index + 3] : chunk[index + 3] & ~DERIVED_BITS]
 }
 
 /** Накладывает правки: x, y и хранимые байты тайла (см. tileBytes) подряд. */
@@ -683,7 +711,7 @@ export function saveLand(land: Land): Uint8Array {
         bytes[LAND_HEADER + at] = chunk[index]
         bytes[LAND_HEADER + tiles + at] = chunk[index + 1]
         bytes[LAND_HEADER + tiles * 2 + at] = mountain ? chunk[index + 2] : 0
-        bytes[LAND_HEADER + tiles * 3 + at] = mountain ? chunk[index + 3] : chunk[index + 3] & ~STEP_BIT
+        bytes[LAND_HEADER + tiles * 3 + at] = mountain ? chunk[index + 3] : chunk[index + 3] & ~DERIVED_BITS
       }
     }
   }

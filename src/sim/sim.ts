@@ -51,6 +51,8 @@ export interface Rules {
   heavySwamp: number
   infantrySand: number
   infantrySwamp: number
+  /** Замедление пехоты на кромке обрыва: она лезет, технике же туда нельзя вовсе. */
+  infantryCliff: number
   /** Какая доля болотного замедления остаётся на солончаках: там болото промёрзло. */
   frozenSwamp: number
   /** Какую долю прочности в секунду теряет наземный юнит в едком болоте красных пустошей. */
@@ -74,6 +76,7 @@ export const DEFAULT_RULES: Rules = {
   heavySwamp: 0.5,
   infantrySand: 0,
   infantrySwamp: 0.5,
+  infantryCliff: 0.7,
   frozenSwamp: 0.25,
   toxicSwamp: 0.01,
   offlineIncome: 0.2,

@@ -1,5 +1,5 @@
 import type { BattleConfig } from '../map/settings'
-import { createSim, driveBattle, randomArmy, spawnBattle, spawnSandbox, spawnStartingUnits, type Sim, type SimOptions, type SimSave } from '../sim'
+import { createSim, driveBattle, openSpawn, randomArmy, spawnBattle, spawnSandbox, spawnStartingUnits, type Sim, type SimOptions, type SimSave } from '../sim'
 import { createHost, type Host, type Peer } from './host'
 
 /**
@@ -56,7 +56,9 @@ export function createWorld(options: SimOptions, mode: GameMode, battle: BattleC
     const own = randomArmy(budget, weights)
     spawnBattle(sim, LOCAL_PLAYER, 0, 0, own, mirror ? own : randomArmy(budget, weights), gap)
   } else {
-    spawnStartingUnits(sim, LOCAL_PLAYER, 0, 0)
+    // У начала мира, но не в кармане за обрывами.
+    const spot = openSpawn(sim, 0, 0)
+    spawnStartingUnits(sim, LOCAL_PLAYER, spot.x, spot.y)
   }
   return sim
 }

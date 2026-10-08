@@ -1,3 +1,4 @@
+import { tileKey } from '../map/terrain'
 import type { Entity } from '../ecs'
 import { BUILDINGS, buildingSpec, canPlace, placeBuilding, type BuildingType } from './buildings'
 import { Inventory } from './components'
@@ -8,7 +9,7 @@ import { assignHaulers } from './hauling'
 import { put } from './inventory'
 import { entriesOf, type Amounts } from './resources'
 import type { Sim } from './sim'
-import { freeTilesNear, isWalkable, spawnUnit, type UnitType } from './units'
+import { freeTilesNear, isWalkable, spawnUnit, vehicleReach, type UnitType } from './units'
 
 /** Сколько кредитов у игрока на тестовой карте: хватает, чтобы сразу строить и заказывать юнитов. */
 const SANDBOX_CREDITS = 10000
@@ -18,6 +19,9 @@ const SANDBOX_STOCK: Amounts = { metal: 120, silicon: 40, fuel: 30, kharite: 12,
 const SEARCH_CELLS = 6
 /** Сколько тайлов вокруг шахты оставлено свободными: там встают грузовики. */
 const MINE_ROOM = 2
+
+/** Сколько тайлов заливает поиск места, куда доедет техника от шахты: с запасом на всю базу. */
+const BASE_REACH = 8000
 
 /** Что стоит на тестовой карте, кроме шахты и главного здания: по порядку, от главного здания наружу. */
 const SANDBOX_BUILDINGS: BuildingType[] = [
@@ -69,10 +73,22 @@ function clearOfMine(spot: DepositSpot, type: BuildingType, x: number, y: number
   return apart || y >= spot.y + mine.height + MINE_ROOM || y + height + MINE_ROOM <= spot.y
 }
 
-/** Ставит здание на ближайшее к (x, y) место с проходом вокруг; undefined — места не нашлось. */
-function placeNear(sim: Sim, spot: DepositSpot, type: BuildingType, x: number, y: number, player: number, gap: number) {
+/** Стоит ли здание вплотную к тайлу, куда доедет техника: иначе грузовики к нему не подъедут, например, из-за обрыва. */
+function servable(reach: Set<number>, type: BuildingType, x: number, y: number) {
+  const { width, height } = BUILDINGS[type]
+  for (let tileY = y - 1; tileY <= y + height; tileY++) {
+    for (let tileX = x - 1; tileX <= x + width; tileX++) {
+      const inside = tileX >= x && tileX < x + width && tileY >= y && tileY < y + height
+      if (!inside && reach.has(tileKey(tileX, tileY))) return true
+    }
+  }
+  return false
+}
+
+/** Ставит здание на ближайшее к (x, y) место с проходом вокруг, куда подъедет техника; undefined — места не нашлось. */
+function placeNear(sim: Sim, spot: DepositSpot, reach: Set<number>, type: BuildingType, x: number, y: number, player: number, gap: number) {
   for (const tile of rings(Math.round(x), Math.round(y), 14)) {
-    if (!canPlace(sim, type, tile.x, tile.y, gap) || !clearOfMine(spot, type, tile.x, tile.y)) continue
+    if (!canPlace(sim, type, tile.x, tile.y, gap) || !clearOfMine(spot, type, tile.x, tile.y) || !servable(reach, type, tile.x, tile.y)) continue
     return placeBuilding(sim.world, type, tile.x, tile.y, player)
   }
   return undefined
@@ -88,14 +104,17 @@ export function spawnSandbox(sim: Sim, player: number) {
   const spot = findBaseSpot(sim)
   if (!spot) return undefined
   addCredits(sim, player, SANDBOX_CREDITS)
+  // Куда доедет техника от шахты: здания и юниты — только там, чтобы обрыв не отрезал их от базы. Считается до
+  // того, как встанут здания: между ними оставлены проходы.
+  const reach = vehicleReach(sim, spot.x - 1, spot.y, BASE_REACH)
   const mine = placeBuilding(sim.world, 'mine', spot.x, spot.y, player)
   const centerX = spot.x + BUILDINGS.mine.width / 2
   const centerY = spot.y + BUILDINGS.mine.height / 2
-  const core = placeNear(sim, spot, 'command', centerX + 4, centerY, player, 2)
+  const core = placeNear(sim, spot, reach, 'command', centerX + 4, centerY, player, 2)
   const at = core === undefined ? { x: centerX, y: centerY } : { x: centerX + 6, y: centerY }
   const stores: Entity[] = []
   for (const type of SANDBOX_BUILDINGS) {
-    const building = placeNear(sim, spot, type, at.x, at.y, player, 1)
+    const building = placeNear(sim, spot, reach, type, at.x, at.y, player, 1)
     if (building !== undefined && buildingSpec(type).stores) stores.push(building)
   }
   // Запас раскладывается по хранилищам, пока в них есть место.
@@ -104,7 +123,7 @@ export function spawnSandbox(sim: Sim, player: number) {
     for (const store of stores) left -= put(sim.world.get(store, Inventory)!, resource, left)
   }
 
-  const tiles = freeTilesNear(sim, Math.floor(centerX), Math.floor(centerY), SANDBOX_TRUCKS + SANDBOX_UNITS.length, 2)
+  const tiles = freeTilesNear(sim, Math.floor(centerX), Math.floor(centerY), SANDBOX_TRUCKS + SANDBOX_UNITS.length, 2, { has: (key) => !reach.has(key) })
   const trucks: Entity[] = []
   for (let i = 0; i * 2 < tiles.length; i++) {
     const type = i < SANDBOX_TRUCKS ? 'truck' : SANDBOX_UNITS[i - SANDBOX_TRUCKS]

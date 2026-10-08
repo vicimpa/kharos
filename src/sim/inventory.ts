@@ -1,10 +1,10 @@
 import type { Entity, World } from '../ecs'
 import { tileKey } from '../map/terrain'
 import { BUILDINGS, siteAt } from './buildings'
-import { Beam, Building, Drop, Inventory, Position, Site, Unit } from './components'
+import { Beam, Building, Drop, Inventory, Path, Position, Site, Unit } from './components'
 import { GOODS, type Amounts, type Good } from './resources'
 import type { Sim } from './sim'
-import { UNITS, isWalkable, orderMove, standingUnits } from './units'
+import { UNITS, isWalkable, onFoot, orderMove, standingUnits } from './units'
 
 /** Транспортный луч вида здания или юнита: см. компонент Beam. */
 export interface BeamSpec {
@@ -130,9 +130,14 @@ export function resetBeams(sim: Sim) {
 /** На сколько тайлов ближе радиуса луча встаёт подъезжающий к нему: с запасом на неточную остановку. */
 const APPROACH_MARGIN = 0.5
 
+/** Сколько мест у здания пробует approach, прежде чем сдаться: место может оказаться карманом, куда не проехать. */
+const APPROACH_TRIES = 4
+/** В каком поле вокруг здания стоящие не мешают пути к нему, если иначе не проехать, см. approach. */
+const ASIDE_REACH = 6
+
 /**
  * Подводит юнит к зданию (или дропу) так, чтобы между ними дотянулся луч длиной radius: на ближайший к юниту свободный тайл,
- * откуда хватает. Вплотную ему не нужно. Возвращает, нашлось ли такое место.
+ * откуда хватает, и куда можно доехать. Вплотную ему не нужно. Возвращает, нашлось ли такое место.
  */
 export function approach(sim: Sim, entity: Entity, building: Entity, radius: number) {
   const { world } = sim
@@ -146,21 +151,37 @@ export function approach(sim: Sim, entity: Entity, building: Entity, radius: num
   const reach = Math.max(0, radius - APPROACH_MARGIN)
   const taken = standingUnits(sim, new Set([entity]), size)
   const span = Math.ceil(reach + size)
-  let best: { x: number; y: number } | undefined
-  let bestDistance = Infinity
+  const foot = onFoot(unit.type)
+  // Места в радиусе луча: сначала свободные, ближние к юниту — раньше. Занятое стоящим годится, если свободных нет:
+  // стоящий уступит, когда юнит подъедет.
+  const places: { x: number; y: number; order: number }[] = []
   for (let y = at.y - span; y < at.y + height + span; y++) {
     for (let x = at.x - span; x < at.x + width + span; x++) {
-      const distance = Math.hypot(x + 0.5 - position.x, y + 0.5 - position.y)
-      if (distance >= bestDistance) continue
       const dx = Math.max(0, at.x - x - 0.5, x + 0.5 - at.x - width)
       const dy = Math.max(0, at.y - y - 0.5, y + 0.5 - at.y - height)
       if (Math.hypot(dx, dy) - size > reach) continue
-      if (taken.has(tileKey(x, y)) || !isWalkable(sim, x, y) || siteAt(sim, x, y) !== undefined) continue
-      best = { x, y }
-      bestDistance = distance
+      if (!isWalkable(sim, x, y, foot) || siteAt(sim, x, y) !== undefined) continue
+      const distance = Math.hypot(x + 0.5 - position.x, y + 0.5 - position.y)
+      places.push({ x, y, order: distance + (taken.has(tileKey(x, y)) ? 1e6 : 0) })
     }
   }
-  if (!best) return false
-  orderMove(sim, entity, best.x, best.y)
-  return true
+  places.sort((a, b) => a.order - b.order)
+  /** Ведёт юнит в место; удалось — путь доходит до самого места или юнит уже там. */
+  const goTo = (x: number, y: number, ignore?: ReadonlySet<Entity>) => {
+    if (Math.floor(position.x) === x && Math.floor(position.y) === y) return true
+    orderMove(sim, entity, x, y, ignore)
+    const points = world.get(entity, Path)?.points
+    return points !== undefined && Math.floor(points[points.length - 2]) === x && Math.floor(points[points.length - 1]) === y
+  }
+  const tries = places.slice(0, APPROACH_TRIES)
+  for (const place of tries) if (goTo(place.x, place.y)) return true
+  // Проход загородили стоящие — например, свободный грузовик встал в единственной щели у обрыва. Путь — сквозь них:
+  // подъехав, юнит попросит их посторониться, как просит любой идущий, см. movement.ts.
+  const near = new Set([entity])
+  for (const [other, place] of world.query(Position, Unit)) {
+    if (Math.hypot(place.x - at.x - width / 2, place.y - at.y - height / 2) < span + Math.max(width, height) + ASIDE_REACH) near.add(other)
+  }
+  for (const place of tries) if (goTo(place.x, place.y, near)) return true
+  world.remove(entity, Path)
+  return false
 }

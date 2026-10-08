@@ -1,5 +1,5 @@
 import { Terrain, terrainAt } from '../map/terrain'
-import { isDefeated, isWalkable, shownTo, spawnStartingUnits, wipePlayer, type Command, type Sim, type SimSave } from '../sim'
+import { isDefeated, notWalledIn, isWalkable, openSpawn, shownTo, spawnStartingUnits, wipePlayer, type Command, type Sim, type SimSave } from '../sim'
 import { Owner, Path, Position } from '../sim/components'
 import { pathOf, seenBy, sharedWireOf, type Wired } from './wire'
 import { LAND, encodeDelta, type Motion } from './codec'
@@ -213,7 +213,8 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
         for (let dy = -SPAWN_AREA; dy <= SPAWN_AREA; dy++) {
           for (let dx = -SPAWN_AREA; dx <= SPAWN_AREA; dx++) if (terrainAt(sim.land, x + dx, y + dy) === Terrain.Rock) rock++
         }
-        if (rock >= SPAWN_ROCK) return { x, y }
+        // Обрывы не должны запирать базу: технике надо куда-то выехать.
+        if (rock >= SPAWN_ROCK && notWalledIn(sim, x, y)) return { x, y }
       }
     }
     return undefined
@@ -234,7 +235,8 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
     const angle = (slot / SPAWN_SLOTS) * Math.PI * 2
     const limit = Math.floor(sim.options.size / 2) - 2
     const clamp = (value: number) => Math.max(-limit, Math.min(limit, Math.round(value)))
-    spawnStartingUnits(sim, player, clamp(Math.cos(angle) * radius), clamp(Math.sin(angle) * radius))
+    const spot = openSpawn(sim, clamp(Math.cos(angle) * radius), clamp(Math.sin(angle) * radius))
+    spawnStartingUnits(sim, player, spot.x, spot.y)
     return player
   }
 

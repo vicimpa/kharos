@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { Biome, Terrain, biomeAt, isPassable, terrainAt, tileKey } from '../map/terrain'
+import { Biome, Terrain, biomeAt, isCliffRim, isPassable, terrainAt, tileKey } from '../map/terrain'
 import { FOUNDATION_SPEED, ROAD_SPEED, isPaved } from './paved'
 import { isOwn } from './common'
 import { Armed, Converting, Hauler, Harvester, Health, Owner, Repair, Path, Pave, Position, Producer, Unit } from './components'
@@ -143,8 +143,14 @@ export function inBounds(sim: Sim, x: number, y: number) {
   return x >= bounds.left && y >= bounds.top && x < bounds.right && y < bounds.bottom
 }
 
-/** Может ли юнит находиться в тайле: наземному нужен проходимый тайл без здания, летающему — любой внутри карты. */
-export const canStand = (sim: Sim, air: boolean, x: number, y: number) => (air ? inBounds(sim, x, y) : isWalkable(sim, x, y))
+/**
+ * Может ли юнит находиться в тайле: наземному нужен проходимый тайл без здания, летающему — любой внутри карты.
+ * foot — пехота: ей можно и на кромку обрыва, см. isWalkable.
+ */
+export const canStand = (sim: Sim, air: boolean, x: number, y: number, foot = false) => (air ? inBounds(sim, x, y) : isWalkable(sim, x, y, foot))
+
+/** Ходит ли юнит этого типа пешком: пехоте можно на кромку обрыва. */
+export const onFoot = (type: UnitType) => UNITS[type].kind === 'infantry'
 
 /** Какую долю прочности пехотинец восстанавливает сам за секунду. */
 export const INFANTRY_REGEN = 0.02
@@ -152,10 +158,59 @@ export const INFANTRY_REGEN = 0.02
 /** С чем игрок появляется в мире. */
 const STARTING_UNITS: UnitType[] = ['mcv', 'builder', 'builder', 'infantry', 'infantry', 'infantry']
 
-/** Может ли наземный юнит находиться в тайле: внутри карты, на песке или скале, не в здании. */
-export function isWalkable(sim: Sim, x: number, y: number) {
+/**
+ * Может ли наземный юнит находиться в тайле: внутри карты, на песке или скале, не в здании и не на кромке обрыва —
+ * туда можно только пехоте (foot), и то медленно, см. terrainSpeed. Без foot — правила техники: так ищут место
+ * для всех, кто может оказаться там, а не только для пехоты.
+ */
+export function isWalkable(sim: Sim, x: number, y: number, foot = false) {
   if (!inBounds(sim, x, y)) return false
-  return isPassable(terrainAt(sim.land, x, y)) && sim.occupancy.at(x, y) === undefined
+  return isPassable(terrainAt(sim.land, x, y)) && (foot || !isCliffRim(sim.land, x, y)) && sim.occupancy.at(x, y) === undefined
+}
+
+/**
+ * Куда техника доедет из тайла (x, y): тайлы заливкой по isWalkable, не больше limit штук; ключи — tileKey.
+ * Сам тайл (x, y) в наборе, даже если стоять в нём нельзя (например, под ним здание).
+ */
+export function vehicleReach(sim: Sim, x: number, y: number, limit: number): Set<number> {
+  const reached = new Set([tileKey(x, y)])
+  const queue = [x, y]
+  for (let at = 0; at < queue.length && reached.size < limit; at += 2) {
+    const fromX = queue[at]
+    const fromY = queue[at + 1]
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const tileX = fromX + dx
+      const tileY = fromY + dy
+      const key = tileKey(tileX, tileY)
+      if (reached.has(key) || !isWalkable(sim, tileX, tileY)) continue
+      reached.add(key)
+      queue.push(tileX, tileY)
+    }
+  }
+  return reached
+}
+
+/** Сколько тайлов вокруг точки появления должно быть доступно технике: иначе база заперта обрывами. */
+export const SPAWN_ROOM = 2000
+
+/** Не заперто ли место (x, y): техника отсюда доедет хотя бы до SPAWN_ROOM тайлов. */
+export const notWalledIn = (sim: Sim, x: number, y: number) => isWalkable(sim, x, y) && vehicleReach(sim, x, y, SPAWN_ROOM).size >= SPAWN_ROOM
+
+/**
+ * Ближайшее к (x, y) место появления, не запертое обрывами (см. notWalledIn): кольцами наружу, с шагом в несколько
+ * тайлов. Не нашлось в радиусе — сама точка (x, y).
+ */
+export function openSpawn(sim: Sim, x: number, y: number, radius = 64): { x: number; y: number } {
+  const STEP = 4
+  for (let ring = 0; ring <= radius; ring += STEP) {
+    for (let dy = -ring; dy <= ring; dy += STEP) {
+      for (let dx = -ring; dx <= ring; dx += STEP) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue
+        if (notWalledIn(sim, x + dx, y + dy)) return { x: x + dx, y: y + dy }
+      }
+    }
+  }
+  return { x, y }
 }
 
 /** Медленнее этой доли скорости местность не замедляет: иначе юнит застрял бы навсегда. */
@@ -216,6 +271,8 @@ export function terrainSpeed(sim: Sim, type: UnitType, x: number, y: number) {
     if (kind === 'heavy' || !pavedFor(sim, type, x, y)) return 1
     return road ? ROAD_SPEED : FOUNDATION_SPEED
   }
+  // Пехота лезет через обрыв; технике туда нельзя вовсе, см. isWalkable.
+  if (kind === 'infantry' && isCliffRim(sim.land, x, y)) return Math.max(SLOWEST, 1 - sim.rules.infantryCliff)
   const terrain = terrainAt(sim.land, x, y)
   if (terrain === Terrain.Sand) return Math.max(SLOWEST, 1 - sim.rules[`${kind}Sand`])
   if (terrain === Terrain.Swamp) {
@@ -355,10 +412,11 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
   }
   const fromX = Math.floor(position.x)
   const fromY = Math.floor(position.y)
+  const foot = onFoot(type)
   // Свой тайл проходим всегда: иначе юнит, вставший вплотную к соседу, не смог бы тронуться.
   const walkable = (tileX: number, tileY: number) => {
     if (tileX === fromX && tileY === fromY) return true
-    return isWalkable(sim, tileX, tileY) && !taken.has(tileKey(tileX, tileY))
+    return isWalkable(sim, tileX, tileY, foot) && !taken.has(tileKey(tileX, tileY))
   }
   // Шаг по тайлу стоит столько, сколько по нему ехать: медленные пески и болота путь объезжает, если выходит быстрее.
   const slowness = (tileX: number, tileY: number) => 1 / terrainSpeed(sim, type, tileX, tileY)
@@ -443,7 +501,7 @@ export function stepAside(sim: Sim, entity: Entity, fromX: number, fromY: number
   for (const sign of [side, -side]) {
     const x = Math.floor(position.x + sideX * sign * room)
     const y = Math.floor(position.y + sideY * sign * room)
-    if (!canStand(sim, air, x, y) || taken.has(tileKey(x, y))) continue
+    if (!canStand(sim, air, x, y, onFoot(unit.type)) || taken.has(tileKey(x, y))) continue
     // Отойти надо на пару тайлов: если туда не пройти, обход издалека не нужен.
     orderMove(sim, entity, x, y, undefined, 0, 0, STEP_ASIDE_LIMIT)
     return
