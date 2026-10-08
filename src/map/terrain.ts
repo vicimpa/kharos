@@ -101,7 +101,7 @@ export const DEFAULT_CONFIG: GeneratorConfig = {
   marshPeakFactor: 0.5,
   tierStep: 0.065,
   cliffScale: 20,
-  cliffShare: 0.6,
+  cliffShare: 0.35,
 }
 
 /** Ярусов плато над песками. */

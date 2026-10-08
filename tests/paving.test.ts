@@ -24,7 +24,8 @@ function unitsOf(sim: Sim, type: string) {
 }
 
 /** Игрок 1 развернул главное здание на просторной скале; рядом строители. */
-function start() {
+/** База на сплошной скале; fits — что ещё нужно тесту от места вокруг (x, y). */
+function start(fits: (sim: Sim, x: number, y: number) => boolean = () => true) {
   const sim = createSim(options)
   const rock = (x: number, y: number) => {
     for (let tileY = y; tileY < y + 12; tileY++) {
@@ -34,7 +35,7 @@ function start() {
   }
   for (let y = 0; y < 400; y++) {
     for (let x = 0; x < 400; x++) {
-      if (!rock(x, y)) continue
+      if (!rock(x, y) || !fits(sim, x, y)) continue
       spawnStartingUnits(sim, 1, x + 2, y + 2)
       sim.send(1, { type: 'deploy', unit: unitsOf(sim, 'mcv')[0] })
       seconds(sim, 6)
@@ -166,8 +167,14 @@ test('по покрытию не стреляют и оно не мешает х
   expect(sim.world.has(entity, Building)).toBe(false)
 })
 
+/** Полоса скалы или песка по ряду row от x до x + length: по ней кладут фундамент. */
+const strip = (sim: Sim, x: number, row: number, length: number) => {
+  for (let tx = x; tx <= x + length; tx++) if (![Terrain.Rock, Terrain.Sand].includes(terrainAt(sim.land, tx, row) as never)) return false
+  return true
+}
+
 test('фундамент, сплошь примыкающий к зоне, расширяет её на клетку вокруг себя; отдельный — нет', () => {
-  const { sim, x, y } = start()
+  const { sim, x, y } = start((sim, x, y) => strip(sim, x + 6, y + 6, 16))
   // Полоса скалы или песка от базы наружу, дальше зоны главного здания.
   const row = y + 6
   let end = x + 6

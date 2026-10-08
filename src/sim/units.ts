@@ -506,7 +506,22 @@ export function stepAside(sim: Sim, entity: Entity, fromX: number, fromY: number
     orderMove(sim, entity, x, y, undefined, 0, 0, STEP_ASIDE_LIMIT)
     return
   }
+  // Оба бока закрыты — например, юнит стоит в щели у обрыва. Тогда на любой свободный тайл рядом, подальше от
+  // просящего: иначе тот так и ждал бы его.
+  const tiles = freeTilesNear(sim, Math.floor(position.x), Math.floor(position.y), ASIDE_CHOICES, room, taken, air)
+  let best = -1
+  let farthest = -Infinity
+  for (let i = 0; i < tiles.length; i += 2) {
+    const distance = Math.hypot(tiles[i] + 0.5 - fromX, tiles[i + 1] + 0.5 - fromY)
+    if (!canStand(sim, air, tiles[i], tiles[i + 1], onFoot(unit.type)) || distance <= farthest) continue
+    best = i
+    farthest = distance
+  }
+  if (best >= 0) orderMove(sim, entity, tiles[best], tiles[best + 1], undefined, 0, 0, STEP_ASIDE_LIMIT)
 }
+
+/** Из скольких свободных тайлов рядом выбирает stepAside, когда отойти вбок нельзя. */
+const ASIDE_CHOICES = 8
 
 /** Наземные юниты, чей центр лежит внутри прямоугольника в тайлах. Летающие не в счёт: земли они не занимают. */
 export function unitsIn(sim: Sim, x: number, y: number, width: number, height: number) {

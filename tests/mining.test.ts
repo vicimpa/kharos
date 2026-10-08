@@ -126,7 +126,8 @@ function base() {
       if (!spot || spot.kind !== 'metal' || !canPlace(sim, 'command', spot.x + 5, spot.y)) continue
       // Место под грузовики вокруг шахты и под главным зданием должно быть проходимо.
       const free = [[0, 2], [1, 2], [6, 3], [-1, 0], [-1, 1], [-1, 2], [2, 2], [3, 1]].every(([x, y]) => isWalkable(sim, spot.x + x, spot.y + y))
-      if (!free) continue
+      // И место под космопорт, который тесты ставят рядом.
+      if (!free || !canPlace(sim, 'spaceport', spot.x + 9, spot.y)) continue
       addCredits(sim, 1, 0)
       const mine = placeBuilding(sim.world, 'mine', spot.x, spot.y, 1)
       const core = placeBuilding(sim.world, 'command', spot.x + 5, spot.y, 1)
