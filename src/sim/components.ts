@@ -91,12 +91,6 @@ export const Site = component('Site', { type: 'generator' as BuildingType, progr
 /** Ремонтник едет к работе site — стройке, разбору или тому, что надо починить, — чтобы она оказалась в его радиусе. */
 export const Builds = component('Builds', { site: 0 })
 
-/**
- * Строитель везёт материалы на свою стройку (см. supply.ts): from — склад, где он берёт amount груза resource;
- * -1 — не берёт, а везёт то, что в кузове, или ничего.
- */
-export const Supply = component('Supply', { from: -1, resource: 'metal' as Good, amount: 0 })
-
 /** Месторождение, из которого уже добывали: mined — сколько из него забрано. Место — левый верхний тайл месторождения. */
 export const Deposit = component('Deposit', { mined: 0 })
 
@@ -247,4 +241,4 @@ export const Doomed = component('Doomed', { left: 0 })
  */
 export const Ghost = component('Ghost', {})
 
-export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Supply, Deposit, Hauler, Harvester, Inventory, Beam, Assembly, Trade, Armed, Shot, Blast, Pave, Drop, Tactics, Doomed]
+export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Harvester, Inventory, Beam, Assembly, Trade, Armed, Shot, Blast, Pave, Drop, Tactics, Doomed]

@@ -12,7 +12,6 @@ import type { Sim } from './sim'
 import { buildSpeed, paveCost } from './paving'
 import { clearDrops, dropCargo } from './drops'
 import { inCircles, inForeignZone, resetZones, zoneOf } from './zones'
-import { canSupply, isSupplying } from './supply'
 import { carrierOf, turnerOf } from './turrets'
 import { UNITS, clearGround, isWalkable, orderMove, standingUnits, unitsIn } from './units'
 
@@ -300,20 +299,19 @@ function volunteer(sim: Sim) {
   const idle: Entity[] = []
   for (const [entity] of world.query(Repair, Unit, Owner)) {
     if (!onTurn(time, entity, RETRY_TICKS) || world.has(entity, Converting)) continue
-    // Стройка, которая ждёт материалов, держит строителя, только если он сам может их подвезти (см. supply.ts):
-    // иначе он берётся за другую работу, а вернётся, когда материалы появятся.
+    // Стройка, которая ждёт материалов, строителя не держит: он берётся за другую работу, а вернётся, когда подвезут.
     const builds = world.get(entity, Builds)
-    if (isSupplying(sim, entity)) continue
-    if (builds ? !awaitsMaterials(sim, builds.site as Entity) || canSupply(sim, entity, builds.site as Entity) : world.has(entity, Path)) continue
+    if (builds ? !awaitsMaterials(sim, builds.site as Entity) : world.has(entity, Path)) continue
     idle.push(entity)
   }
   if (!idle.length) return
 
   /** type — вид здания, которое строят: такой работе нужна зона строительства. Разбору и починке она не нужна. */
-  /** waiting — стройка ждёт материалов: доброволец берётся за неё, только если может их подвезти. */
-  const sites: { entity: Entity; work: Work; player: number; type?: BuildingType; waiting?: boolean }[] = []
+  const sites: { entity: Entity; work: Work; player: number; type?: BuildingType }[] = []
   for (const [entity, , site, owner] of world.query(Position, Site, Owner)) {
-    sites.push({ entity, work: workAt(sim, entity)!, player: owner.player, type: site.demolish ? undefined : site.type, waiting: awaitsMaterials(sim, entity) })
+    // Ждущая материалов стройка добровольцев не зовёт: работы для них там нет.
+    if (awaitsMaterials(sim, entity)) continue
+    sites.push({ entity, work: workAt(sim, entity)!, player: owner.player, type: site.demolish ? undefined : site.type })
   }
   for (const [entity, , pave, owner] of world.query(Position, Pave, Owner)) {
     if (!pave.done || pave.remove) sites.push({ entity, work: workAt(sim, entity)!, player: owner.player })
@@ -345,7 +343,7 @@ function volunteer(sim: Sim) {
         workable = type === undefined || !outOfControl(sim, player, type, work.x, work.y)
         open.set(site.entity, workable)
       }
-      if (!workable || (site.waiting && !canSupply(sim, builder, site.entity))) continue
+      if (!workable) continue
       best = site.entity
       bestDistance = distance
     }
@@ -548,8 +546,7 @@ export function construct(sim: Sim) {
       free.push(entity)
       continue
     }
-    // Едущий за материалами и везущий их подъезжает сам, см. supply.ts.
-    if (world.has(entity, Path) || isSupplying(sim, entity)) continue
+    if (world.has(entity, Path)) continue
     const distance = distanceTo(work, position.x, position.y)
     if (distance > repair.radius) {
       // Не доехал или его оттеснили. Пробует снова не каждый тик: поиск пути недёшев.
