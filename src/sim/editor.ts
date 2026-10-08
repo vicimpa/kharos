@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { CLIFF_BIT, DUNE_SHIFT, MAX_PEAK_RADIUS, Terrain, isBuildable, batchLand, isCliffFoot, peakOf, setPeakTile, setTile, terrainAt, tileBytes, tileKey, type Dunes } from '../map/terrain'
+import { Biome, CLIFF_BIT, biomeAt, DUNE_SHIFT, MAX_PEAK_RADIUS, Terrain, isBuildable, batchLand, isCliffFoot, peakOf, setPeakTile, setTile, terrainAt, tileBytes, tileKey, type Dunes } from '../map/terrain'
 import { BUILDINGS, canPlace, placeBuilding, type BuildingType } from './buildings'
 import { Attached, Builds, Building, Carrier, Ghost, Harvester, Turret, Health, Inventory, Owner, Path, Player, Position, Unit } from './components'
 import { DEPOSIT_CELL, DEPOSIT_SIZE, addDeposit, depositAt, depositsIn, depositNear, dropDeposit, prepareDeposits, reserveLeft, type DepositKind, type DepositSpot } from './deposits'
@@ -45,6 +45,8 @@ export interface Brush {
   tier?: number
   cliff?: boolean
   dunes?: Dunes
+  /** Биом: тайл целиком становится им, без примеси соседнего. */
+  biome?: Biome
   shape?: BrushShape
 }
 
@@ -111,7 +113,8 @@ function paintBatch(sim: Sim, x: number, y: number, size: number, brush: Brush) 
       const center = { x: footprint[i] + 0.5, y: footprint[i + 1] + 0.5 }
       const other = peakOf(land, footprint[i], footprint[i + 1])
       if (other && Math.hypot(other.x - center.x, other.y - center.y) < Math.hypot(peak.x - center.x, peak.y - center.y)) continue
-      setPeakTile(land, footprint[i], footprint[i + 1], tileBytes(land, footprint[i], footprint[i + 1])[1], peak.x, peak.y, peak.radius)
+      const packed = tileBytes(land, footprint[i], footprint[i + 1])[1]
+      setPeakTile(land, footprint[i], footprint[i + 1], brush.biome === undefined ? packed : (brush.biome << 6) | (brush.biome << 4), peak.x, peak.y, peak.radius)
       forget(footprint[i], footprint[i + 1])
     }
     return
@@ -126,7 +129,9 @@ function paintBatch(sim: Sim, x: number, y: number, size: number, brush: Brush) 
     const tileX = tiles[i]
     const tileY = tiles[i + 1]
     if (!inside(tileX, tileY)) continue
-    const [type, biome, , relief] = tileBytes(land, tileX, tileY)
+    const [type, packed, , relief] = tileBytes(land, tileX, tileY)
+    // Байт биома: основной в старших битах, соседний и его доля — ниже, см. packBiome.
+    const biome = brush.biome === undefined ? packed : (brush.biome << 6) | (brush.biome << 4)
     const terrain = brush.terrain ?? (type as Terrain)
     const tier = brush.tier ?? relief & 3
     const cliff = brush.cliff ?? (relief & CLIFF_BIT) !== 0
@@ -245,7 +250,7 @@ export function describeTile(sim: Sim, x: number, y: number) {
   const [, , , relief] = tileBytes(sim.land, x, y)
   const terrain = terrainAt(sim.land, x, y)
   const mountain = terrain === Terrain.Mountain
-  return { terrain, tier: mountain ? undefined : relief & 3, cliff: !mountain && (relief & 4) !== 0, foot: isCliffFoot(sim.land, x, y) }
+  return { terrain, biome: biomeAt(sim.land, x, y), tier: mountain ? undefined : relief & 3, cliff: !mountain && (relief & 4) !== 0, foot: isCliffFoot(sim.land, x, y) }
 }
 
 /** Месторождение под точкой (x, y): то, на чьи тайлы она попала, или null. */

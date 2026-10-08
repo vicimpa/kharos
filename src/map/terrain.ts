@@ -76,6 +76,14 @@ export interface GeneratorConfig {
   cliffScale: number
   /** Доля обрывистой кромки: 0 — все кромки пологие, 1 — все обрывы. */
   cliffShare: number
+  /**
+   * Месторождения: в какой доле клеток 40×40 оно есть и во сколько раз его запас больше обычного. В прежних
+   * сохранениях полей нет — тогда как по умолчанию.
+   */
+  depositChance?: number
+  depositRichness?: number
+  /** Чистая пустыня: ровный песок эрга без скал, болот и гор — заготовка, чтобы рисовать карту в редакторе. */
+  blank?: boolean
 }
 
 export const DEFAULT_CONFIG: GeneratorConfig = {
@@ -102,6 +110,8 @@ export const DEFAULT_CONFIG: GeneratorConfig = {
   tierStep: 0.065,
   cliffScale: 20,
   cliffShare: 0.35,
+  depositChance: 0.85,
+  depositRichness: 1,
 }
 
 /** Ярусов плато над песками. */
@@ -387,12 +397,14 @@ function peaksInCell(cellX: number, cellY: number, config: GeneratorConfig): Pea
  * Совпадает с местностью мира везде, кроме самих гор — они слишком малы для схемы.
  */
 export function sampleTerrain(config: GeneratorConfig, x: number, y: number): { terrain: Terrain; biome: Biome } {
+  if (config.blank) return { terrain: Terrain.Sand, biome: Biome.Erg }
   const weights = biomeWeights(x, y, config)
   return { terrain: classify(elevationAt(x, y, config), zoneLevels(weights, config)), biome: (packBiome(weights) >> 6) as Biome }
 }
 
 /** Тип и ярус тайла по генератору, без гор: дёшево, для соседей ещё не собранных чанков. */
 function baseTile(config: GeneratorConfig, x: number, y: number): [Terrain, number] {
+  if (config.blank) return [Terrain.Sand, 0]
   const elevation = elevationAt(x, y, config)
   const levels = zoneLevels(biomeWeights(x, y, config), config)
   return [classify(elevation, levels), tierOf(elevation, levels, config)]
@@ -404,6 +416,11 @@ function baseTile(config: GeneratorConfig, x: number, y: number): [Terrain, numb
  */
 function generateChunk(config: GeneratorConfig, chunkX: number, chunkY: number): Uint8Array {
   const tiles = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE * TILE_BYTES)
+  // Чистая пустыня: песок эрга (тип 1, биом 0), ярус 0.
+  if (config.blank) {
+    for (let i = 0; i < tiles.length; i += TILE_BYTES) tiles[i] = Terrain.Sand
+    return tiles
+  }
 
   const cellsPerChunk = CHUNK_SIZE / PEAK_CELL
   const cells: Peak[][] = []

@@ -89,8 +89,9 @@ export const DEFAULT_RULES: Rules = {
 
 export interface SimOptions {
   generator: GeneratorConfig
-  /** Сторона карты в тайлах. Карта — квадрат с центром в начале координат. */
+  /** Ширина карты в тайлах; height — высота, нет — карта квадратная. Середина карты — в начале координат. */
   size: number
+  height?: number
   /** Правила; чего нет — по умолчанию. */
   rules?: Partial<Rules>
   /** Туман войны; false — каждый видит всю карту и всё на ней. По умолчанию включён. */
@@ -160,18 +161,19 @@ export interface Sim {
   destroy(): void
 }
 
-/** Границы квадратной карты со стороной size и центром в начале координат. */
-export function boundsOf(size: number): Bounds {
-  const half = Math.floor(size / 2)
-  return { left: -half, top: -half, right: size - half, bottom: size - half }
+/** Границы карты шириной size и высотой height (нет — квадрат) с серединой в начале координат. */
+export function boundsOf(size: number, height = size): Bounds {
+  const halfX = Math.floor(size / 2)
+  const halfY = Math.floor(height / 2)
+  return { left: -halfX, top: -halfY, right: size - halfX, bottom: height - halfY }
 }
 
 /** Создаёт симуляцию: новую или, если передано сохранение, продолжает его. */
 export function createSim(source: SimOptions | SimSave): Sim {
   const rules: Rules = { ...DEFAULT_RULES, ...source.rules }
   // Правила в сохранение попадают такими, какие они на момент сохранения.
-  const options: SimOptions = { generator: source.generator, size: source.size, rules, ...(source.fog === false && { fog: false }), ...(source.weather && { weather: source.weather }) }
-  const bounds = boundsOf(options.size)
+  const options: SimOptions = { generator: source.generator, size: source.size, ...(source.height && source.height !== source.size && { height: source.height }), rules, ...(source.fog === false && { fog: false }), ...(source.weather && { weather: source.weather }) }
+  const bounds = boundsOf(options.size, options.height)
 
   const world = new World()
   const queue: { player: number; command: Command }[] = []

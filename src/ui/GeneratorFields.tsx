@@ -40,6 +40,13 @@ export const GENERATOR_GROUPS: Group<GeneratorConfig>[] = [
       { key: 'tripleChance', label: 'Доля тройных', min: 0, max: 1, step: 0.01 },
     ],
   },
+  {
+    title: 'Месторождения',
+    fields: [
+      { key: 'depositChance', label: 'Частота', min: 0, max: 1, step: 0.01 },
+      { key: 'depositRichness', label: 'Запас, раз', min: 0.1, max: 5, step: 0.1 },
+    ],
+  },
   { title: 'Биом: солончаки', fields: biomeFields('salt') },
   { title: 'Биом: красные пустоши', fields: biomeFields('red') },
   { title: 'Биом: топи', fields: biomeFields('marsh') },

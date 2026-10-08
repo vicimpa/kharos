@@ -84,7 +84,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     player = own
     memory.clear()
     replica.options = options
-    replica.bounds = boundsOf(options.size)
+    replica.bounds = boundsOf(options.size, options.height)
     // Пока не пришла карта мира, местность — по генератору; правки, пришедшие раньше карты, ждут её.
     replica.land = createLand(options.generator, areaOf(replica.bounds))
     replica.deposits.cells.clear()

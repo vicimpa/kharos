@@ -15,8 +15,9 @@ export interface SaveSlot {
   updated: number
   /** Сколько тиков прошло в мире: по нему меню показывает время игры. */
   tick: number
-  /** Сторона карты и зерно местности — чтобы отличать миры в списке. */
+  /** Ширина и высота карты (нет — квадрат) и зерно местности — чтобы отличать миры в списке. */
   size: number
+  height?: number
   seed: number
   /** Погода нового мира: пока мир слота не сохранён, он заводится с ней. Дальше она лежит в самом сохранении. */
   weather?: Partial<WeatherOptions>
@@ -118,7 +119,7 @@ export function resetSaveFiles() {
   files = memoryFiles()
 }
 
-const describe = (slot: SaveSlot, save: SimSave): SaveSlot => ({ ...slot, updated: Date.now(), tick: save.tick, size: save.size, seed: save.generator.seed })
+const describe = (slot: SaveSlot, save: SimSave): SaveSlot => ({ ...slot, updated: Date.now(), tick: save.tick, size: save.size, height: save.height, seed: save.generator.seed })
 
 /** Слоты от последнего сыгранного к давнему. */
 export function listSaves(): SaveSlot[] {
@@ -145,9 +146,9 @@ export async function loadSave(id: string): Promise<SimSave | null> {
 }
 
 /** Новый пустой слот: мир в него положит первая присланная воркером запись. */
-export function createSlot(name: string, size: number, seed: number, weather?: Partial<WeatherOptions>, generator?: Partial<GeneratorConfig>): SaveSlot {
+export function createSlot(name: string, size: number, seed: number, weather?: Partial<WeatherOptions>, generator?: Partial<GeneratorConfig>, height?: number): SaveSlot {
   const now = Date.now()
-  const slot: SaveSlot = { id: crypto.randomUUID(), name, created: now, updated: now, tick: 0, size, seed, ...(weather && { weather }), ...(generator && { generator }) }
+  const slot: SaveSlot = { id: crypto.randomUUID(), name, created: now, updated: now, tick: 0, size, ...(height && height !== size && { height }), seed, ...(weather && { weather }), ...(generator && { generator }) }
   storeIndex([...listSaves(), slot])
   return slot
 }
@@ -194,7 +195,7 @@ export async function exportSave(id: string): Promise<Uint8Array | null> {
 export async function importSave(file: Uint8Array): Promise<SaveSlot> {
   const { save, sections } = await decodeSave(file)
   const name = readJson<unknown>(sections.get('NAME'))
-  const slot = createSlot(typeof name === 'string' && name ? name : 'Загруженная игра', save.size, save.generator.seed)
+  const slot = createSlot(typeof name === 'string' && name ? name : 'Загруженная игра', save.size, save.generator.seed, undefined, undefined, save.height)
   await storeSave(slot.id, save)
   return listSaves().find((other) => other.id === slot.id) ?? slot
 }

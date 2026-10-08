@@ -2,10 +2,10 @@ import type { ComponentChildren } from 'preact'
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { CHANNELS, loadLevel, loadMuted, loadVolume, storeLevel, storeMuted, storeVolume, type Channel } from '../audio/audio'
 import { createMenuMusic, type MenuMusic } from '../audio/music'
-import { createSlot, deleteSave, exportSave, importSave, listSaves, renameSave, type SaveSlot } from '../game/storage'
+import { createSlot, deleteSave, exportSave, importSave, listSaves, renameSave, storeSave, type SaveSlot } from '../game/storage'
 import { DEFAULT_SETTINGS } from '../map/settings'
 import { DEFAULT_CONFIG, type GeneratorConfig } from '../map/terrain'
-import { DEFAULT_WEATHER } from '../sim'
+import { DEFAULT_WEATHER, createSim } from '../sim'
 import { GENERATOR_GROUPS, Groups } from './GeneratorFields'
 import { NAME_LENGTH, PROTOCOL_VERSION, cleanName } from '../net/protocol'
 import { INSECURE_HINT, isInsecure } from '../net/connect'
@@ -26,7 +26,7 @@ const DAY_LENGTHS = [
 const clock = (hour: number) => `${String(Math.floor(hour)).padStart(2, '0')}:${String(Math.floor((hour % 1) * 60)).padStart(2, '0')}`
 const SERVER_KEY = 'kharos.server'
 
-type Screen = 'main' | 'new' | 'saves' | 'network' | 'settings' | 'about'
+type Screen = 'main' | 'new' | 'saves' | 'network' | 'settings' | 'about' | 'world'
 
 /** Страница проекта. */
 const REPOSITORY = 'https://github.com/vicimpa/kharos'
@@ -132,7 +132,8 @@ export function Menu({ play }: MenuProps) {
         </Window>
       )}
       {screen === 'new' && <NewGame back={home} play={play} count={saves.length} />}
-      {screen === 'saves' && <Saves back={home} saves={saves} refresh={refresh} play={play} />}
+      {screen === 'saves' && <Saves back={home} saves={saves} refresh={refresh} play={play} create={() => setScreen('world')} />}
+      {screen === 'world' && <NewWorld back={() => (refresh(), setScreen('saves'))} play={play} count={saves.length} />}
       {screen === 'network' && <Network back={home} play={play} />}
       {screen === 'settings' && <Settings back={home} onSound={() => music.current?.refresh()} />}
       {screen === 'about' && <About back={home} />}
@@ -221,7 +222,7 @@ const knobValue = (knob: Knob, config: GeneratorConfig) => Math.max(0, Math.min(
 /** Отличия местности от генератора по умолчанию, без зерна: их и хранит слот. */
 function generatorChanges(config: GeneratorConfig) {
   const changes: Partial<GeneratorConfig> = {}
-  for (const key of Object.keys(DEFAULT_CONFIG) as (keyof GeneratorConfig)[]) if (key !== 'seed' && config[key] !== DEFAULT_CONFIG[key]) changes[key] = config[key]
+  for (const key of Object.keys(DEFAULT_CONFIG) as (keyof GeneratorConfig)[]) if (key !== 'seed' && config[key] !== DEFAULT_CONFIG[key]) Object.assign(changes, { [key]: config[key] })
   return changes
 }
 
@@ -363,7 +364,87 @@ function NewGame({ back, play, count }: { back(): void; play(launch: Launch): vo
   )
 }
 
-function Saves({ back, saves, refresh, play }: { back(): void; saves: SaveSlot[]; refresh(): void; play(launch: Launch): void }) {
+/** Пределы стороны новой карты в тайлах. */
+const WORLD_MIN = 64
+const WORLD_MAX = 2048
+
+/**
+ * Новый мир с точными размерами: по генератору с настройками или чистая пустыня — заготовка, чтобы нарисовать карту в
+ * редакторе. Мир сразу сохраняется в слот, без игроков: их стартовые наборы ставит игра или редактор.
+ */
+function NewWorld({ back, play, count }: { back(): void; play(launch: Launch): void; count: number }) {
+  const [name, setName] = useState(`Карта ${count + 1}`)
+  const [width, setWidth] = useState(256)
+  const [height, setHeight] = useState(256)
+  const [blank, setBlank] = useState(false)
+  const [generator, setGenerator] = useState<GeneratorConfig>(() => ({ ...DEFAULT_CONFIG, seed: randomSeed() }))
+  const [busy, setBusy] = useState(false)
+  const side = (value: number) => Math.max(WORLD_MIN, Math.min(WORLD_MAX, Math.round(value) || WORLD_MIN))
+  const create = async (edit: boolean) => {
+    setBusy(true)
+    const config: GeneratorConfig = { ...generator, ...(blank && { blank: true }) }
+    const changes = generatorChanges(config)
+    const slot = createSlot(name.trim() || `Карта ${count + 1}`, width, config.seed, undefined, Object.keys(changes).length ? changes : undefined, height)
+    // В редактор — мир без игроков, сохранённый сразу; в игру — его заведёт воркер со стартовым набором.
+    if (edit) await storeSave(slot.id, createSim({ generator: config, size: width, height }).save())
+    play({ kind: edit ? 'editor' : 'save', slot: listSaves().find((other) => other.id === slot.id) ?? slot } as Launch)
+  }
+  const groups = blank ? [] : GENERATOR_GROUPS
+  return (
+    <Window title="Новая карта" back={back} wide>
+      <div class="menu__setup">
+        <div class="menu__form">
+          <label class="menu__field">
+            <span>Название</span>
+            <input value={name} maxLength={40} onInput={(event) => setName(event.currentTarget.value)} />
+          </label>
+          <div class="menu__field">
+            <span>Размер, тайлов</span>
+            <span class="menu__inline">
+              <input type="number" min={WORLD_MIN} max={WORLD_MAX} step={16} value={width} title="Ширина" onChange={(event) => setWidth(side(Number(event.currentTarget.value)))} />
+              ×
+              <input type="number" min={WORLD_MIN} max={WORLD_MAX} step={16} value={height} title="Высота" onChange={(event) => setHeight(side(Number(event.currentTarget.value)))} />
+            </span>
+          </div>
+          <div class="menu__field">
+            <span>Местность</span>
+            <span class="menu__inline">
+              <button type="button" class={!blank ? 'is-active' : undefined} onClick={() => setBlank(false)}>
+                Генератор
+              </button>
+              <button type="button" class={blank ? 'is-active' : undefined} title="Ровный песок без скал, болот, гор и месторождений" onClick={() => setBlank(true)}>
+                Чистая пустыня
+              </button>
+            </span>
+          </div>
+          {!blank && (
+            <label class="menu__field">
+              <span>Зерно карты</span>
+              <span class="menu__inline">
+                <input type="number" value={generator.seed} onInput={(event) => setGenerator({ ...generator, seed: Math.floor(Number(event.currentTarget.value)) || 0 })} />
+                <button type="button" onClick={() => setGenerator({ ...generator, seed: randomSeed() })}>
+                  Случайно
+                </button>
+              </span>
+            </label>
+          )}
+          {groups.length > 0 && <Groups groups={groups} values={generator} onChange={setGenerator} />}
+        </div>
+        <div class="menu__aside">
+          <MapPreview config={{ ...generator, ...(blank && { blank: true }) }} size={width} height={height} />
+          <button type="button" class="menu__primary" disabled={busy} onClick={() => create(true)}>
+            В редактор
+          </button>
+          <button type="button" disabled={busy} onClick={() => create(false)}>
+            Играть
+          </button>
+        </div>
+      </div>
+    </Window>
+  )
+}
+
+function Saves({ back, saves, refresh, play, create }: { back(): void; saves: SaveSlot[]; refresh(): void; play(launch: Launch): void; create(): void }) {
   const [error, setError] = useState('')
   const [confirming, setConfirming] = useState<string | null>(null)
   /** Открывает файл сохранения: edit — сразу в редакторе, не заводя слот (так правят мир сервера), иначе — в новый слот. */
@@ -395,14 +476,15 @@ function Saves({ back, saves, refresh, play }: { back(): void; saves: SaveSlot[]
             <div class="menu__save-info">
               <strong>{slot.name}</strong>
               <small>
-                {date(slot.updated)} · {playtime(slot.tick)} · карта {slot.size} · зерно {slot.seed}
+                {date(slot.updated)} · {playtime(slot.tick)} · карта {slot.size}
+                {slot.height && slot.height !== slot.size ? `×${slot.height}` : ''} · зерно {slot.seed}
               </small>
             </div>
             <span class="menu__inline">
               <button class="menu__primary" onClick={() => play({ kind: 'save', slot })}>
                 Играть
               </button>
-              <button title="Править мир: карту, базы, юнитов, деньги и склады" disabled={!slot.tick} onClick={() => play({ kind: 'editor', slot })}>
+              <button title="Править мир: карту, базы, юнитов, деньги и склады" disabled={slot.updated === slot.created} onClick={() => play({ kind: 'editor', slot })}>
                 Редактор
               </button>
               <button
@@ -445,6 +527,9 @@ function Saves({ back, saves, refresh, play }: { back(): void; saves: SaveSlot[]
       </ul>
       {error && <p class="menu__error">{error}</p>}
       <div class="menu__inline">
+        <button class="menu__primary" title="Карта с точными размерами: по генератору или чистая пустыня" onClick={create}>
+          Новый
+        </button>
         <button onClick={() => pick(false)}>Загрузить файл</button>
         <button title="Править файл сохранения, не заводя слот: например, мир сервера" onClick={() => pick(true)}>
           Файл в редактор

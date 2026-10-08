@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { DEFAULT_CONFIG, DUNE_SHIFT, Dunes, Terrain, isCliffFoot, peakOf, setTile, terrainAt, tileBytes } from '../src/map/terrain'
+import { Biome, DEFAULT_CONFIG, DUNE_SHIFT, biomeAt, Dunes, Terrain, isCliffFoot, peakOf, setTile, terrainAt, tileBytes } from '../src/map/terrain'
 import { Attached, Building, Ghost, Path, canFight, Health, Inventory, Owner, Position, Unit, createSim, creditsOf, type Sim } from '../src/sim'
 import { addPlayer, brushTiles, clearTasks, depositsInBox, orderNow, setFacing, setTurretFacing, turretFacings, depositUnder, entitiesIn, entityAt, erase, moveDeposit, moveGhost, moveGroup, moveUnit, paint, playersOf, putBuilding, putDeposit, putUnit, removeDeposit, setCredits, setDeposit, setHealth, setOwner, setStock } from '../src/sim/editor'
 import { depositAt, depositIn, depositNear, depositsIn, reserveLeft } from '../src/sim/deposits'
@@ -212,4 +212,29 @@ test('формы кисти: круг меньше квадрата, разбр�
   paint(sim, 5, 5, 5, { terrain: Terrain.Rock, tier: 2, cliff: true })
   expect(isCliffFoot(sim.land, 5, 8)).toBe(true)
   expect(isCliffFoot(sim.land, 5, 5)).toBe(false)
+})
+
+test('прямоугольная карта, чистая пустыня, богатство месторождений и кисть биома', () => {
+  const wide = createSim({ generator: DEFAULT_CONFIG, size: 320, height: 128 })
+  expect(wide.bounds).toEqual({ left: -160, top: -64, right: 160, bottom: 64 })
+  expect(createSim(wide.save()).bounds).toEqual(wide.bounds)
+
+  const blank = createSim({ generator: { ...DEFAULT_CONFIG, blank: true }, size: 128 })
+  for (const [x, y] of [[0, 0], [-60, 40], [50, -50]]) expect(terrainAt(blank.land, x, y)).toBe(Terrain.Sand)
+  expect(depositsIn(blank, 0, 0)).toEqual([])
+
+  const poor = createSim({ generator: { ...DEFAULT_CONFIG, depositChance: 0 }, size: 256 })
+  for (let cy = -3; cy < 3; cy++) for (let cx = -3; cx < 3; cx++) expect(depositsIn(poor, cx, cy)).toEqual([])
+  const rich = createSim({ generator: { ...DEFAULT_CONFIG, depositRichness: 3 }, size: 256 })
+  const base = createSim({ generator: DEFAULT_CONFIG, size: 256 })
+  for (let cy = -2; cy < 2; cy++) {
+    for (let cx = -2; cx < 2; cx++) {
+      const spot = depositIn(base, cx, cy)
+      if (spot) expect(depositIn(rich, cx, cy)!.reserve).toBeCloseTo(spot.reserve * 3, -1)
+    }
+  }
+
+  paint(blank, 0, 0, 3, { biome: Biome.RedWastes })
+  expect(biomeAt(blank.land, 0, 0)).toBe(Biome.RedWastes)
+  expect(biomeAt(reload(blank).land, 1, 1)).toBe(Biome.RedWastes)
 })

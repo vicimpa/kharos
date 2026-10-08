@@ -6,7 +6,7 @@ import { placementOf } from '../game/placing'
 import type { SceneEdit } from '../game/scene'
 import { loadSave, storeSave } from '../game/storage'
 import type { MapSettings } from '../map/settings'
-import { Dunes as DUNES_OF, MAX_PEAK_RADIUS, Terrain, type Dunes } from '../map/terrain'
+import { Biome, Dunes as DUNES_OF, MAX_PEAK_RADIUS, Terrain, type Dunes } from '../map/terrain'
 import { decodeSave, encodeSave, readJson, type Sections } from '../save/file'
 import {
   Armed,
@@ -96,6 +96,13 @@ const DUNES: [Dunes | undefined, string][] = [
   [DUNES_OF.Natural, 'природные'],
   [DUNES_OF.None, 'убрать'],
   [DUNES_OF.Many, 'насыпать'],
+]
+const BIOMES: [Biome | undefined, string][] = [
+  [undefined, 'как есть'],
+  [Biome.Erg, 'эрг'],
+  [Biome.SaltFlats, 'солончаки'],
+  [Biome.RedWastes, 'красные пустоши'],
+  [Biome.Marsh, 'топи'],
 ]
 const SHAPES: [BrushShape, string][] = [
   ['square', 'квадрат'],
@@ -472,6 +479,7 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
             {tool === 'paint' && (
               <div class="editor__options">
                 <Choice label="Земля" options={TERRAINS} value={brush.terrain} set={(terrain) => setBrush({ ...brush, terrain })} />
+                <Choice label="Биом" options={BIOMES} value={brush.biome} set={(biome) => setBrush({ ...brush, biome })} />
                 <Choice label="Ярус" options={TIERS.map((tier) => [tier, tier === undefined ? 'как есть' : String(tier)])} value={brush.tier} set={(tier) => setBrush({ ...brush, tier })} />
                 <Choice label="Кромка" options={CLIFFS} value={brush.cliff} set={(cliff) => setBrush({ ...brush, cliff })} />
                 <Choice label="Барханы на песке" options={DUNES} value={brush.dunes} set={(dunes) => setBrush({ ...brush, dunes })} />
@@ -562,7 +570,7 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
 
           <footer class="editor__foot">
             <small class="editor__status">
-              {tile && hover ? `${hover.x}, ${hover.y} · ${terrainName(tile.terrain)}${tile.tier === undefined ? '' : ` · ярус ${tile.tier}`}${tile.cliff ? ' · обрыв' : ''}${tile.foot ? ' · подножие' : ''}` : ''}
+              {tile && hover ? `${hover.x}, ${hover.y} · ${terrainName(tile.terrain)} · ${BIOMES.find(([biome]) => biome === tile.biome)?.[1] ?? ''}${tile.tier === undefined ? '' : ` · ярус ${tile.tier}`}${tile.cliff ? ' · обрыв' : ''}${tile.foot ? ' · подножие' : ''}` : ''}
               {status && <span> · {status}</span>}
             </small>
             <div class="editor__actions">

@@ -207,11 +207,13 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
   const spawnPoint = () => {
     const others: { x: number; y: number }[] = []
     for (const [, position, owner] of sim.world.query(Position, Owner)) if (owner.player) others.push(position)
-    const half = Math.floor(sim.options.size / 2) - SPAWN_MARGIN
+    const { left, top, right, bottom } = sim.bounds
+    const halfX = Math.max(0, (right - left) / 2 - SPAWN_MARGIN)
+    const halfY = Math.max(0, (bottom - top) / 2 - SPAWN_MARGIN)
     for (let apart = SPAWN_APART; apart >= 8; apart /= 2) {
       for (let attempt = 0; attempt < SPAWN_TRIES; attempt++) {
-        const x = Math.floor((Math.random() * 2 - 1) * half)
-        const y = Math.floor((Math.random() * 2 - 1) * half)
+        const x = Math.floor((left + right) / 2 + (Math.random() * 2 - 1) * halfX)
+        const y = Math.floor((top + bottom) / 2 + (Math.random() * 2 - 1) * halfY)
         if (terrainAt(sim.land, x, y) !== Terrain.Rock || !isWalkable(sim, x, y)) continue
         if (others.some((other) => Math.hypot(other.x - x, other.y - y) < apart)) continue
         let rock = 0
@@ -238,9 +240,9 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
     const slot = player - 1
     const radius = SPAWN_RADIUS * (1 + Math.floor(slot / SPAWN_SLOTS))
     const angle = (slot / SPAWN_SLOTS) * Math.PI * 2
-    const limit = Math.floor(sim.options.size / 2) - 2
-    const clamp = (value: number) => Math.max(-limit, Math.min(limit, Math.round(value)))
-    const spot = openSpawn(sim, clamp(Math.cos(angle) * radius), clamp(Math.sin(angle) * radius))
+    const { left, top, right, bottom } = sim.bounds
+    const clamp = (value: number, from: number, to: number) => Math.max(from + 2, Math.min(to - 3, Math.round(value)))
+    const spot = openSpawn(sim, clamp(Math.cos(angle) * radius, left, right), clamp(Math.sin(angle) * radius, top, bottom))
     spawnStartingUnits(sim, player, spot.x, spot.y)
     return player
   }

@@ -207,7 +207,7 @@ function generatedIn(sim: Sim, cellX: number, cellY: number): DepositSpot | null
 
   const seed = land.config.seed + SALT
   let spot: DepositSpot | null = null
-  if (hash(cellX, cellY, seed) < DEPOSIT_CHANCE) {
+  if (hash(cellX, cellY, seed) < (land.config.depositChance ?? DEPOSIT_CHANCE)) {
     const room = DEPOSIT_CELL - DEPOSIT_SIZE
     search: for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
       const x = cellX * DEPOSIT_CELL + Math.floor(hash(cellX, cellY, seed + 1 + attempt * 2) * room)
@@ -221,7 +221,8 @@ function generatedIn(sim: Sim, cellX: number, cellY: number): DepositSpot | null
       }
       const kind = kindIn(biomeAt(land, x, y), hash(cellX, cellY, seed + 53))
       const { min, max } = DEPOSIT_KINDS[kind]
-      spot = { x, y, kind, reserve: Math.round(min + hash(cellX, cellY, seed + 97) * (max - min)) }
+      const richness = land.config.depositRichness ?? 1
+      spot = { x, y, kind, reserve: Math.round((min + hash(cellX, cellY, seed + 97) * (max - min)) * richness) }
       break
     }
   }

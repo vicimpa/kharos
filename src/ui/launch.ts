@@ -149,7 +149,7 @@ export async function startSession(launch: PlayLaunch, settings: MapSettings, si
   const { slot } = launch
   return connectLocal(
     {
-      options: { ...options, generator: { ...options.generator, ...slot.generator, seed: slot.seed }, size: slot.size, weather: slot.weather },
+      options: { ...options, generator: { ...options.generator, ...slot.generator, seed: slot.seed }, size: slot.size, height: slot.height, weather: slot.weather },
       mode: 'play',
       battle: settings.battle,
       save: await loadSave(slot.id),
