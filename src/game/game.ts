@@ -202,7 +202,8 @@ export function createGame(
   }
   const motion = new CameraMotion(camera)
   const controls = showcase ? null : createControls(canvas, scene, motion)
-  const audio = showcase ? null : createAudio()
+  // В редакторе мир стоит, и гул машин и зданий ни к чему: звука нет вовсе.
+  const audio = showcase || editor ? null : createAudio()
   const shake = createShake()
   const soundscape = audio && createSoundscape(scene, audio, shake)
   if (!showcase && !editor) scene.alerts = createAlerts(scene, audio)
