@@ -90,6 +90,19 @@ test('стройка ждёт материалов: без стройблоко�
   expect(oreIn(sim, store('blocks'), 'blocks')).toBeCloseTo(50 - BUILDINGS.factory.materials.blocks)
 })
 
+test('грузовик довозит материалы и на площадку, к которой строитель ещё не приступил', () => {
+  const { sim, x, y, store, stash } = base([])
+  stash({ blocks: 50 })
+  // Строителя нет: площадка только размечена, здания на ней ещё нет.
+  sim.send(1, { type: 'build', building: 'factory', x, y: y + 4, builders: [] })
+  sim.advance(TICK)
+  let site: Entity | undefined
+  for (const [entity] of sim.world.query(Site)) site = entity
+  spawnUnit(sim, 'truck', 1, x + 6, y + 8)
+  until(sim, () => oreIn(sim, site!, 'blocks') >= BUILDINGS.factory.materials.blocks - 1e-6)
+  expect(oreIn(sim, store('blocks'), 'blocks')).toBeCloseTo(50 - BUILDINGS.factory.materials.blocks)
+})
+
 test('производство ждёт материалов первого заказа и тратит их в начале работы', () => {
   const { sim, x, y, store, stash, buildings } = base(['factory', 'techCenter'])
   const [factory] = buildings

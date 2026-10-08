@@ -1,7 +1,7 @@
 import type { Entity, World } from '../ecs'
 import { tileKey } from '../map/terrain'
 import { BUILDINGS, siteAt } from './buildings'
-import { Beam, Building, Drop, Inventory, Position, Unit } from './components'
+import { Beam, Building, Drop, Inventory, Position, Site, Unit } from './components'
 import { GOODS, type Amounts, type Good } from './resources'
 import type { Sim } from './sim'
 import { UNITS, isWalkable, orderMove, standingUnits } from './units'
@@ -63,8 +63,9 @@ function shapeOf(sim: Sim, entity: Entity) {
   const { world } = sim
   const position = world.get(entity, Position)
   if (!position) return undefined
-  const building = world.get(entity, Building)
-  if (building) return { x: position.x, y: position.y, width: BUILDINGS[building.type].width, height: BUILDINGS[building.type].height, radius: 0 }
+  // Площадка, к которой ещё не приступили, — уже основание будущего здания: к ней подвозят материалы.
+  const type = world.get(entity, Building)?.type ?? world.get(entity, Site)?.type
+  if (type !== undefined) return { x: position.x, y: position.y, width: BUILDINGS[type].width, height: BUILDINGS[type].height, radius: 0 }
   // Дроп лежит на своём тайле.
   if (world.has(entity, Drop)) return { x: position.x, y: position.y, width: 1, height: 1, radius: 0 }
   const unit = world.get(entity, Unit)
@@ -138,7 +139,7 @@ export function approach(sim: Sim, entity: Entity, building: Entity, radius: num
   const position = world.get(entity, Position)
   const unit = world.get(entity, Unit)
   const at = world.get(building, Position)
-  const type = world.get(building, Building)?.type
+  const type = world.get(building, Building)?.type ?? world.get(building, Site)?.type
   if (!position || !unit || !at || (type === undefined && !world.has(building, Drop))) return false
   const { width, height } = type === undefined ? { width: 1, height: 1 } : BUILDINGS[type]
   const size = UNITS[unit.type].radius
