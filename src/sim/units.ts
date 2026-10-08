@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { Biome, Terrain, biomeAt, isCliffRim, isPassable, terrainAt, tileKey } from '../map/terrain'
+import { Biome, Terrain, biomeAt, isCliffFoot, isPassable, terrainAt, tileKey } from '../map/terrain'
 import { FOUNDATION_SPEED, ROAD_SPEED, isPaved } from './paved'
 import { isOwn } from './common'
 import { Armed, Converting, Hauler, Harvester, Health, Owner, Repair, Path, Pave, Position, Producer, Unit } from './components'
@@ -145,11 +145,11 @@ export function inBounds(sim: Sim, x: number, y: number) {
 
 /**
  * Может ли юнит находиться в тайле: наземному нужен проходимый тайл без здания, летающему — любой внутри карты.
- * foot — пехота: ей можно и на кромку обрыва, см. isWalkable.
+ * foot — пехота: ей можно и к подножию обрыва, см. isWalkable.
  */
 export const canStand = (sim: Sim, air: boolean, x: number, y: number, foot = false) => (air ? inBounds(sim, x, y) : isWalkable(sim, x, y, foot))
 
-/** Ходит ли юнит этого типа пешком: пехоте можно на кромку обрыва. */
+/** Ходит ли юнит этого типа пешком: пехоте можно к подножию обрыва. */
 export const onFoot = (type: UnitType) => UNITS[type].kind === 'infantry'
 
 /** Какую долю прочности пехотинец восстанавливает сам за секунду. */
@@ -159,13 +159,13 @@ export const INFANTRY_REGEN = 0.02
 const STARTING_UNITS: UnitType[] = ['mcv', 'builder', 'builder', 'infantry', 'infantry', 'infantry']
 
 /**
- * Может ли наземный юнит находиться в тайле: внутри карты, на песке или скале, не в здании и не на кромке обрыва —
+ * Может ли наземный юнит находиться в тайле: внутри карты, на песке или скале, не в здании и не у подножия обрыва —
  * туда можно только пехоте (foot), и то медленно, см. terrainSpeed. Без foot — правила техники: так ищут место
  * для всех, кто может оказаться там, а не только для пехоты.
  */
 export function isWalkable(sim: Sim, x: number, y: number, foot = false) {
   if (!inBounds(sim, x, y)) return false
-  return isPassable(terrainAt(sim.land, x, y)) && (foot || !isCliffRim(sim.land, x, y)) && sim.occupancy.at(x, y) === undefined
+  return isPassable(terrainAt(sim.land, x, y)) && (foot || !isCliffFoot(sim.land, x, y)) && sim.occupancy.at(x, y) === undefined
 }
 
 /**
@@ -272,7 +272,7 @@ export function terrainSpeed(sim: Sim, type: UnitType, x: number, y: number) {
     return road ? ROAD_SPEED : FOUNDATION_SPEED
   }
   // Пехота лезет через обрыв; технике туда нельзя вовсе, см. isWalkable.
-  if (kind === 'infantry' && isCliffRim(sim.land, x, y)) return Math.max(SLOWEST, 1 - sim.rules.infantryCliff)
+  if (kind === 'infantry' && isCliffFoot(sim.land, x, y)) return Math.max(SLOWEST, 1 - sim.rules.infantryCliff)
   const terrain = terrainAt(sim.land, x, y)
   if (terrain === Terrain.Sand) return Math.max(SLOWEST, 1 - sim.rules[`${kind}Sand`])
   if (terrain === Terrain.Swamp) {

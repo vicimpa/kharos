@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { DEFAULT_CONFIG, Terrain, isCliffRim, setTile } from '../src/map/terrain'
+import { DEFAULT_CONFIG, Terrain, isCliffFoot, setTile } from '../src/map/terrain'
 import { Position, createSim, type Sim } from '../src/sim'
 import { isWalkable, notWalledIn, openSpawn, orderMove, spawnUnit, terrainSpeed } from '../src/sim/units'
 
@@ -24,24 +24,26 @@ const world = () => {
   return sim
 }
 
-test('кромка обрыва — верхние тайлы у края; технике туда нельзя, пехоте можно, но медленно', () => {
+test('подножие обрыва — нижние тайлы у стенки; технике туда нельзя, пехоте можно, но медленно; верх — свободен', () => {
   const sim = world()
   mesa(sim, 0, 0, 10)
-  expect(isCliffRim(sim.land, 0, 5)).toBe(true)
-  expect(isCliffRim(sim.land, 9, 9)).toBe(true)
-  expect(isCliffRim(sim.land, 5, 5)).toBe(false)
-  expect(isCliffRim(sim.land, -1, 5)).toBe(false)
-  expect(isWalkable(sim, 0, 5)).toBe(false)
-  expect(isWalkable(sim, 0, 5, true)).toBe(true)
-  expect(terrainSpeed(sim, 'infantry', 0, 5)).toBeLessThan(terrainSpeed(sim, 'infantry', 5, 5))
-  expect(terrainSpeed(sim, 'buggy', 5, 5)).toBe(1)
+  expect(isCliffFoot(sim.land, -1, 5)).toBe(true)
+  expect(isCliffFoot(sim.land, 5, 10)).toBe(true)
+  expect(isCliffFoot(sim.land, 10, 10)).toBe(true)
+  expect(isCliffFoot(sim.land, 0, 5)).toBe(false)
+  expect(isCliffFoot(sim.land, -2, 5)).toBe(false)
+  expect(isWalkable(sim, 0, 5)).toBe(true)
+  expect(isWalkable(sim, 5, 10)).toBe(false)
+  expect(isWalkable(sim, 5, 10, true)).toBe(true)
+  expect(terrainSpeed(sim, 'infantry', 5, 10)).toBeLessThan(terrainSpeed(sim, 'infantry', 5, 12))
+  expect(terrainSpeed(sim, 'buggy', 5, 12)).toBe(1)
 })
 
 test('пологий край (без обрыва) проходим всем', () => {
   const sim = world()
   for (let y = 0; y < 10; y++) for (let x = 0; x < 10; x++) setTile(sim.land, x, y, { terrain: Terrain.Rock, biome: 0, tier: 2, cliff: false })
-  expect(isCliffRim(sim.land, 0, 5)).toBe(false)
-  expect(isWalkable(sim, 0, 5)).toBe(true)
+  expect(isCliffFoot(sim.land, -1, 5)).toBe(false)
+  expect(isWalkable(sim, -1, 5)).toBe(true)
 })
 
 test('на плато за обрывом пехота забирается, а техника — нет', () => {
@@ -62,7 +64,7 @@ test('на плато за обрывом пехота забирается, а 
 
 test('место появления не запирается обрывами', () => {
   const sim = world()
-  // Карман первого яруса посреди плато: со всех сторон кромка, технике не выбраться.
+  // Карман первого яруса посреди плато: со всех сторон обрыв, технике не выбраться.
   mesa(sim, -20, -20, 40)
   flat(sim, -3, -3, 6)
   expect(notWalledIn(sim, 0, 0)).toBe(false)

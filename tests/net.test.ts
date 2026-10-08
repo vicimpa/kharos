@@ -3,7 +3,7 @@ import { DEFAULT_CONFIG } from '../src/map/terrain'
 import { createHost, type Host, type HostSave } from '../src/net/host'
 import { decodeServer } from '../src/net/protocol'
 import { createReplica, type Replica } from '../src/net/replica'
-import { Armed, Building, Ghost, Owner, Player, Position, Producer, Unit, createSim, shownTo } from '../src/sim'
+import { Armed, Building, Ghost, Owner, Player, Position, Producer, Unit, createSim, isWalkable, shownTo } from '../src/sim'
 import { SAVED } from '../src/sim/components'
 import { wireOf } from '../src/net/wire'
 import type { Entity } from '../src/ecs'
@@ -78,10 +78,15 @@ test('приказ клиента выполняет сервер, а клиен
   const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: 256 }))
   const { sim } = join(host)
   sim.advance(0)
-  const [unit] = unitsOf(sim, 1)
+  // Пехотинец: юркий, и узкий проход у обрыва ему не помеха.
+  const unit = unitsOf(sim, 1).find((entity) => sim.world.get(entity, Unit)?.type === 'infantry')!
   const from = { ...sim.world.get(unit, Position)! }
 
-  sim.send(1, { type: 'move', units: [unit], x: Math.floor(from.x) + 3, y: Math.floor(from.y) })
+  // Куда-нибудь в три тайла, куда технике можно: рядом может быть обрыв.
+  const target = [[3, 0], [-3, 0], [0, 3], [0, -3]]
+    .map(([dx, dy]) => ({ x: Math.floor(from.x) + dx, y: Math.floor(from.y) + dy }))
+    .find(({ x, y }) => isWalkable(host.sim, x, y))!
+  sim.send(1, { type: 'move', units: [unit], x: target.x, y: target.y })
   // Сама копия мир не считает: без сервера юнит стоит.
   sim.advance(1)
   expect(sim.world.get(unit, Position)).toEqual(from)
@@ -95,7 +100,7 @@ test('приказ клиента выполняет сервер, а клиен
   const there = host.sim.world.get(unit as never, Position)!
   expect(sim.world.get(unit, Position)!.x).toBeCloseTo(there.x, 2)
   expect(sim.world.get(unit, Position)!.y).toBeCloseTo(there.y, 2)
-  expect(sim.world.get(unit, Position)!.x).toBeGreaterThan(from.x + 1)
+  expect(Math.hypot(there.x - from.x, there.y - from.y)).toBeGreaterThan(1)
 })
 
 test('чужими юнитами клиент не командует', () => {

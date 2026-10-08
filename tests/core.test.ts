@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
+import { isCliffFoot } from '../src/map/terrain'
 import {
   Building, CORE, Converting, Owner, Position, Producer, UNITS, Unit,
   canDeploy, canPlace, createSim, creditsOf, spawnStartingUnits, type Sim,
@@ -23,11 +24,18 @@ function unitsOf(sim: Sim, type: string) {
 }
 
 /** Симуляция, где MCV игрока 1 стоит на скале и может развернуться, а рядом — пехотинец. */
+/** Нет подножий обрыва в поле вокруг площадки главного здания. */
+const clearOfCliffs = (sim: Sim, x: number, y: number) => {
+  for (let tileY = y - 6; tileY < y + 9; tileY++) for (let tileX = x - 6; tileX < x + 9; tileX++) if (isCliffFoot(sim.land, tileX, tileY)) return false
+  return true
+}
+
 function start() {
   const sim = createSim(options)
   for (let y = 0; y < 400; y++) {
     for (let x = 0; x < 400; x++) {
-      if (!canPlace(sim, CORE, x, y)) continue
+      // Подальше от обрывов: юниты вокруг площадки должны свободно расходиться.
+      if (!canPlace(sim, CORE, x, y) || !clearOfCliffs(sim, x, y)) continue
       spawnStartingUnits(sim, 1, x + 1, y + 1)
       return { sim, mcv: unitsOf(sim, 'mcv')[0], site: { x, y } }
     }

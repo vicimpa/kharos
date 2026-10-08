@@ -30,7 +30,7 @@ export const CHUNK_SIZE = 32
  * Четыре байта на тайл: [тип местности, биом (2 бита основной, 2 бита соседний, 4 бита доля соседнего), глубина в
  * песках 0..255, рельеф]; у гор третий байт — радиус вершины, четвёртый — смещение до её центра. Рельеф у остальных:
  * 2 младших бита — ярус (0 — пески и болота, 1..3 — ярусы плато), бит CLIFF_BIT — кромка тайла к нижним соседям
- * обрывистая, а не пологая, бит STEP_BIT — рядом перепад ярусов, RIM_BIT — тайл на кромке обрыва. В таком же виде данные уходят в шейдер.
+ * обрывистая, а не пологая, бит STEP_BIT — рядом перепад ярусов, FOOT_BIT — тайл на кромке обрыва. В таком же виде данные уходят в шейдер.
  */
 export const TILE_BYTES = 4
 
@@ -114,12 +114,14 @@ export const CLIFF_BIT = 4
  */
 export const STEP_BIT = 8
 /**
- * Бит кромки обрыва: верхний тайл у обрывистой кромки — хотя бы один из восьми соседей ниже его яруса. Технике
- * сюда нельзя, пехота лезет медленно (см. isWalkable и terrainSpeed в units.ts). Выводится из соседей, как STEP_BIT.
+ * Бит подножия обрыва: хотя бы один из восьми соседей выше яруса тайла, и кромка у того обрывистая. Стенку обрыва
+ * шейдер рисует на нижнем тайле, поэтому закрыто подножие, а не верх: сверху к краю подъехать можно, снизу на стенку
+ * не заехать. Технике сюда нельзя, пехота лезет медленно (см. isWalkable и terrainSpeed в units.ts). Выводится из
+ * соседей, как STEP_BIT.
  */
-export const RIM_BIT = 16
+export const FOOT_BIT = 16
 /** Что в байте рельефа выводится из соседей и не хранится. */
-const DERIVED_BITS = STEP_BIT | RIM_BIT
+const DERIVED_BITS = STEP_BIT | FOOT_BIT
 /** Окно соседей для STEP_BIT: сверху больше — туда смотрит стенка обрыва. */
 const STEP_UP = 2
 const STEP_DOWN = 1
@@ -144,7 +146,7 @@ export interface LandArea {
  * Собираются они лениво, при первом обращении: генератор детерминирован, так что это то же самое, что собрать все
  * сразу. Вне области — декоративный край мира: он всегда из генератора и только кэшируется.
  *
- * Глубина в песках и биты STEP_BIT и RIM_BIT в данных не хранятся: они выводятся из типов и ярусов соседей, см. deriveChunk.
+ * Глубина в песках и биты STEP_BIT и FOOT_BIT в данных не хранятся: они выводятся из типов и ярусов соседей, см. deriveChunk.
  */
 export interface Land {
   config: GeneratorConfig
@@ -444,11 +446,11 @@ const SAND_REACH = 8
 const DERIVE_MARGIN = Math.max(SAND_REACH, STEP_UP, STEP_DOWN, STEP_SIDE)
 
 /**
- * Тип и ярус соседа (у гор ярус -1: их байт рельефа занят вершиной). Из карты, если его чанк собран, из chunk —
+ * Тип, ярус и обрывистость кромки соседа (у гор ярус -1: их байт рельефа занят вершиной). Из карты, если его чанк собран, из chunk —
  * если сосед в самом досчитываемом чанке, иначе из генератора: несобранный чанк карты ещё совпадает с ним.
  * За краем карты для её чанков — ближайший тайл карты: так из сохранения выходит то же при любом генераторе.
  */
-function neighbor(land: Land, x: number, y: number, chunk: Uint8Array, chunkX: number, chunkY: number): [Terrain, number] {
+function neighbor(land: Land, x: number, y: number, chunk: Uint8Array, chunkX: number, chunkY: number): [Terrain, number, boolean] {
   // Карта мира самодостаточна: за её краем для неё продолжается крайний тайл, а не генератор.
   const area = land.area
   if (area && ownedIndex(land, chunkX, chunkY) >= 0) {
@@ -458,10 +460,14 @@ function neighbor(land: Land, x: number, y: number, chunk: Uint8Array, chunkX: n
   const cx = Math.floor(x / CHUNK_SIZE)
   const cy = Math.floor(y / CHUNK_SIZE)
   const tiles = cx === chunkX && cy === chunkY ? chunk : land.owned[ownedIndex(land, cx, cy)]
-  if (!tiles) return baseTile(land.config, x, y)
+  if (!tiles) {
+    const [terrain, tier] = baseTile(land.config, x, y)
+    return [terrain, tier, tier > 0 && isCliff(x, y, land.config)]
+  }
   const index = ((y - cy * CHUNK_SIZE) * CHUNK_SIZE + x - cx * CHUNK_SIZE) * TILE_BYTES
   const terrain = tiles[index] as Terrain
-  return [terrain, terrain === Terrain.Mountain ? -1 : tiles[index + 3] & 3]
+  if (terrain === Terrain.Mountain) return [terrain, -1, false]
+  return [terrain, tiles[index + 3] & 3, (tiles[index + 3] & CLIFF_BIT) !== 0]
 }
 
 /**
@@ -472,11 +478,13 @@ function deriveChunk(land: Land, chunk: Uint8Array, chunkX: number, chunkY: numb
   const span = CHUNK_SIZE + DERIVE_MARGIN * 2
   const types = new Uint8Array(span * span)
   const tiers = new Int8Array(span * span)
+  const cliffs = new Uint8Array(span * span)
   for (let y = 0; y < span; y++) {
     for (let x = 0; x < span; x++) {
-      const [terrain, tier] = neighbor(land, chunkX * CHUNK_SIZE + x - DERIVE_MARGIN, chunkY * CHUNK_SIZE + y - DERIVE_MARGIN, chunk, chunkX, chunkY)
+      const [terrain, tier, cliff] = neighbor(land, chunkX * CHUNK_SIZE + x - DERIVE_MARGIN, chunkY * CHUNK_SIZE + y - DERIVE_MARGIN, chunk, chunkX, chunkY)
       types[y * span + x] = terrain
       tiers[y * span + x] = tier
+      cliffs[y * span + x] = cliff ? 1 : 0
     }
   }
 
@@ -527,19 +535,17 @@ function deriveChunk(land: Land, chunk: Uint8Array, chunkX: number, chunkY: numb
           }
         }
       }
-      let rim = false
-      if (tier > 0 && chunk[index + 3] & CLIFF_BIT) {
-        for (let dy = -1; dy <= 1 && !rim; dy++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            const other = tiers[at + dy * span + dx]
-            if (other >= 0 && other < tier) {
-              rim = true
-              break
-            }
+      let foot = false
+      for (let dy = -1; dy <= 1 && !foot; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const near = at + dy * span + dx
+          if (tiers[near] > tier && cliffs[near]) {
+            foot = true
+            break
           }
         }
       }
-      chunk[index + 3] = (chunk[index + 3] & ~DERIVED_BITS) | (step ? STEP_BIT : 0) | (rim ? RIM_BIT : 0)
+      chunk[index + 3] = (chunk[index + 3] & ~DERIVED_BITS) | (step ? STEP_BIT : 0) | (foot ? FOOT_BIT : 0)
     }
   }
 }
@@ -577,13 +583,13 @@ export function biomeAt(land: Land, x: number, y: number): Biome {
   return (chunk[(localY * CHUNK_SIZE + localX) * TILE_BYTES + 1] >> 6) as Biome
 }
 
-/** Тайл на кромке обрыва, см. RIM_BIT. */
-export function isCliffRim(land: Land, x: number, y: number): boolean {
+/** Тайл у подножия обрыва, см. FOOT_BIT. */
+export function isCliffFoot(land: Land, x: number, y: number): boolean {
   const chunkX = Math.floor(x / CHUNK_SIZE)
   const chunkY = Math.floor(y / CHUNK_SIZE)
   const chunk = getChunk(land, chunkX, chunkY)
   const index = ((Math.floor(y) - chunkY * CHUNK_SIZE) * CHUNK_SIZE + Math.floor(x) - chunkX * CHUNK_SIZE) * TILE_BYTES
-  return chunk[index] !== Terrain.Mountain && (chunk[index + 3] & RIM_BIT) !== 0
+  return chunk[index] !== Terrain.Mountain && (chunk[index + 3] & FOOT_BIT) !== 0
 }
 
 export function terrainAt(land: Land, x: number, y: number): Terrain {

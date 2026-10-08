@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { Terrain, isCliffRim, terrainAt } from '../src/map/terrain'
+import { Terrain, isCliffFoot, terrainAt } from '../src/map/terrain'
 import {
   BUILDINGS, Building, Builds, CORE, Inventory, Owner, Position, Site, Unit,
   canBuild, canPlace, createSim, creditsOf, isWalkable, rewardsOf, siteAt, spawnStartingUnits, type Sim,
@@ -39,7 +39,7 @@ function start() {
   const rock = (x: number, y: number) => {
     for (let tileY = y; tileY < y + PLATEAU; tileY++) {
       for (let tileX = x; tileX < x + PLATEAU; tileX++) {
-        if (terrainAt(sim.land, tileX, tileY) !== Terrain.Rock || isCliffRim(sim.land, tileX, tileY)) return false
+        if (terrainAt(sim.land, tileX, tileY) !== Terrain.Rock || isCliffFoot(sim.land, tileX, tileY)) return false
       }
     }
     return true

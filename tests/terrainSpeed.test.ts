@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { Biome, Terrain, biomeAt, terrainAt } from '../src/map/terrain'
+import { Biome, Terrain, biomeAt, isCliffFoot, terrainAt } from '../src/map/terrain'
 import { Health, createSim, isWalkable } from '../src/sim'
 import { findPath, smoothPath } from '../src/sim/path'
 import { spawnUnit, terrainSpeed } from '../src/sim/units'
@@ -9,7 +9,8 @@ const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
 
 function tileOf(sim: ReturnType<typeof createSim>, terrain: Terrain, biome: Biome = Biome.Marsh) {
   for (let y = -500; y < 500; y++) {
-    for (let x = -500; x < 500; x++) if (terrainAt(sim.land, x, y) === terrain && biomeAt(sim.land, x, y) === biome) return { x, y }
+    // Не у подножия обрыва: там своё замедление, см. infantryCliff.
+    for (let x = -500; x < 500; x++) if (terrainAt(sim.land, x, y) === terrain && biomeAt(sim.land, x, y) === biome && !isCliffFoot(sim.land, x, y)) return { x, y }
   }
   throw new Error('не нашлось местности')
 }

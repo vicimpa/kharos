@@ -51,7 +51,7 @@ export interface Rules {
   heavySwamp: number
   infantrySand: number
   infantrySwamp: number
-  /** Замедление пехоты на кромке обрыва: она лезет, технике же туда нельзя вовсе. */
+  /** Замедление пехоты у подножия обрыва: она лезет, технике же туда нельзя вовсе. */
   infantryCliff: number
   /** Какая доля болотного замедления остаётся на солончаках: там болото промёрзло. */
   frozenSwamp: number
