@@ -7,7 +7,7 @@ import type { Scene } from './scene'
 const KEY_SPEED = 900 // пикселей экрана в секунду
 /** Во сколько раз быстрее камера с зажатым Shift. */
 const KEY_BOOST = 3
-/** Насколько близко к краю экрана указатель начинает двигать камеру, в пикселях. */
+/** Насколько близко к краю экрана указатель двигает камеру, пока тянут рамку выделения, в пикселях. */
 const EDGE = 6
 /** Сколько миллисекунд между двумя нажатиями цифры считается повтором: камера едет к группе. */
 const DOUBLE_TAP = 400
@@ -415,10 +415,12 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
   /** Раз в кадр: двигает камеру, пока зажаты клавиши. seconds — время с прошлого кадра. */
   const update = (seconds: number) => {
     const speed = KEY_SPEED * (keys.has('ShiftLeft') || keys.has('ShiftRight') ? KEY_BOOST : 1)
-    // Указатель у края экрана двигает камеру, пока камеру не тянут мышью; рамку тянуть можно — она растёт за край.
-    const pointer = paused || (pressed && pressed.button !== LEFT) ? null : screenPointer
-    const edgeX = pointer ? Number(pointer.x >= camera.width - EDGE) - Number(pointer.x <= EDGE) : 0
-    const edgeY = pointer ? Number(pointer.y >= camera.height - EDGE) - Number(pointer.y <= EDGE) : 0
+    // Указатель у края экрана двигает камеру только пока тянут рамку выделения: она растёт за край.
+    const pointer = paused || !scene.selectionBox ? null : screenPointer
+    // Края — у видимой части карты, а не окна: верхняя полоса и нижняя панель закрывают свои края.
+    const { inset } = camera
+    const edgeX = pointer ? Number(pointer.x >= camera.width - inset.right - EDGE) - Number(pointer.x <= inset.left + EDGE) : 0
+    const edgeY = pointer ? Number(pointer.y >= camera.height - inset.bottom - EDGE) - Number(pointer.y <= inset.top + EDGE) : 0
     const right = Math.sign(Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft')) + edgeX)
     const down = Math.sign(Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp')) + edgeY)
     motion.update(seconds, right * speed, down * speed)
