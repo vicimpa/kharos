@@ -4,7 +4,7 @@ import { createAtlas } from '../render/atlas'
 import { Pixmap } from '../render/pixmap'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites } from '../render/sprites'
-import { BUILDINGS, Building, Converting, Owner, Path, Position, Producer, Site, UNITS, Unit, buildTicks, siteTicks } from '../sim'
+import { BUILDINGS, Building, Converting, DEPOSIT_SIZE, Orders, Owner, Path, Position, Producer, Site, UNITS, Unit, buildTicks, siteTicks } from '../sim'
 import type { Scene } from './scene'
 import { drawnPosition } from './units/unitsPass'
 
@@ -25,6 +25,8 @@ const PATH_STEP = 0.4
 const PATH_ALPHA = 1
 /** Сторона метки в конце пути, в тайлах. */
 const PATH_GOAL = 0.4
+/** Очередь приказов выбранного юнита — пунктир бледнее пути, с метками точек. */
+const QUEUE_ALPHA = 0.55
 
 type Color = readonly [number, number, number]
 const SELECTED: Color = [0.35, 1, 0.45]
@@ -36,7 +38,7 @@ const BAR_BUILDING: Color = [0.45, 0.9, 0.55]
 const PLANNED: Color = [0.3, 0.6, 1]
 
 /**
- * Выделение и прогресс: кольца вокруг выбранных юнитов и их пути, рамка вокруг выбранного здания, рамка, которую
+ * Выделение и прогресс: кольца вокруг выбранных юнитов, их пути и очереди приказов, рамка вокруг выбранного здания, рамка, которую
  * игрок тянет мышью, рамки размеченных площадок и полоски превращения, производства и стройки над своими сущностями.
  * Ставить выше освещения, чтобы ночью не темнело.
  */
@@ -115,6 +117,49 @@ export function createSelectionPass(gl: WebGL2RenderingContext, scene: Scene): P
         frame(goalX, goalY, PATH_GOAL, PATH_GOAL, pixel * 2, SELECTED)
       }
 
+      /** Середина сущности в тайлах мира: юнита — где он, здания или площадки — середина основания. */
+      const centerOf = (target: number) => {
+        const entity = target as Entity
+        const position = world.get(entity, Position)
+        if (!position) return null
+        const type = world.get(entity, Building)?.type ?? world.get(entity, Site)?.type
+        if (!type) return { x: position.x, y: position.y }
+        return { x: position.x + BUILDINGS[type].width / 2, y: position.y + BUILDINGS[type].height / 2 }
+      }
+      /** Пунктир от (fromX, fromY) к (toX, toY) в тайлах мира. */
+      const dashes = (fromX: number, fromY: number, toX: number, toY: number, alpha: number) => {
+        const length = Math.hypot(toX - fromX, toY - fromY)
+        for (let along = 0; along < length; along += PATH_STEP) {
+          const x = toX + ((fromX - toX) / length) * along
+          const y = toY + ((fromY - toY) / length) * along
+          rect(x - camera.x - dot / 2, y - camera.y - dot / 2, dot, dot, SELECTED, alpha)
+        }
+      }
+      // Очередь приказов: от конца нынешнего пути через места следующих приказов.
+      for (const entity of scene.selection) {
+        const list = world.get(entity, Orders)?.list
+        const unit = world.get(entity, Unit)
+        const position = world.get(entity, Position)
+        if (!list?.length || !unit || !position) continue
+        const points = world.get(entity, Path)?.points
+        let from = points?.length ? { x: points[points.length - 2], y: points[points.length - 1] } : drawnPosition(position, unit, time.alpha)
+        for (const { command } of list) {
+          const to =
+            command.type === 'move' ? { x: command.x + 0.5, y: command.y + 0.5 }
+            : command.type === 'harvest' ? { x: command.x + DEPOSIT_SIZE / 2, y: command.y + DEPOSIT_SIZE / 2 }
+            : command.type === 'attack' ? centerOf(command.target)
+            : command.type === 'assist' ? centerOf(command.site)
+            : command.type === 'haul' ? centerOf(command.mine)
+            : command.type === 'pickup' ? centerOf(command.drop)
+            : command.type === 'supply' ? centerOf(command.target)
+            : null
+          if (!to) continue
+          dashes(from.x, from.y, to.x, to.y, QUEUE_ALPHA)
+          frame(to.x - camera.x - PATH_GOAL / 2, to.y - camera.y - PATH_GOAL / 2, PATH_GOAL, PATH_GOAL, pixel * 2, SELECTED)
+          from = to
+        }
+      }
+
       // Точка сбора выбранного здания: пунктир от его середины и флажок на месте.
       for (const entity of scene.selection) {
         const rally = world.get(entity, Producer)?.rally
@@ -126,12 +171,7 @@ export function createSelectionPass(gl: WebGL2RenderingContext, scene: Scene): P
         const fromY = position.y + height / 2
         const toX = rally[0] + 0.5
         const toY = rally[1] + 0.5
-        const length = Math.hypot(toX - fromX, toY - fromY)
-        for (let along = 0; along < length; along += PATH_STEP) {
-          const x = toX + ((fromX - toX) / length) * along
-          const y = toY + ((fromY - toY) / length) * along
-          rect(x - camera.x - dot / 2, y - camera.y - dot / 2, dot, dot, SELECTED, PATH_ALPHA)
-        }
+        dashes(fromX, fromY, toX, toY, PATH_ALPHA)
         // Флажок: древко и полотнище.
         rect(toX - camera.x - pixel, toY - camera.y - 0.9, pixel * 2, 0.9, SELECTED, 1)
         rect(toX - camera.x + pixel, toY - camera.y - 0.9, 0.45, 0.3, SELECTED, 1)
