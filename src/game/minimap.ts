@@ -45,6 +45,15 @@ export function createMinimap(scene: Scene) {
   let revision = 0
   let deposits: { x: number; y: number; color: string }[] = []
 
+  /**
+   * Как карта ложится на квадрат мини-карты: вписана по большей стороне, по центру. scale — пикселей на тайл,
+   * (left, top) — тайл в левом верхнем углу мини-карты, span — сколько тайлов в её стороне.
+   */
+  const fit = ({ left, top, right, bottom }: Sim['bounds']) => {
+    const span = Math.max(right - left, bottom - top)
+    return { span, scale: MINIMAP_SIZE / span, left: left - (span - (right - left)) / 2, top: top - (span - (bottom - top)) / 2 }
+  }
+
   /** Мир сменился — местность считается заново. */
   const reset = () => {
     sim = scene.sim
@@ -63,15 +72,20 @@ export function createMinimap(scene: Scene) {
   /** Досчитывает строки местности, пока не выйдет время кадра. */
   const prepare = () => {
     if (!sim || !terrain || row >= MINIMAP_SIZE) return
-    const { left, top, right } = sim.bounds
-    const scale = (right - left) / MINIMAP_SIZE
+    const { bounds } = sim
+    const view = fit(bounds)
     const start = performance.now()
     while (row < MINIMAP_SIZE && performance.now() - start < BUDGET) {
-      const y = top + (row + 0.5) * scale
+      const y = view.top + (row + 0.5) / view.scale
       for (let column = 0; column < MINIMAP_SIZE; column++) {
-        const x = left + (column + 0.5) * scale
-        const [r, g, b] = PALETTE[biomeAt(sim.land, x, y)][terrainAt(sim.land, x, y)]
+        const x = view.left + (column + 0.5) / view.scale
         const index = (row * MINIMAP_SIZE + column) * 4
+        // Вне карты — прозрачно: там фон мини-карты.
+        if (x < bounds.left || y < bounds.top || x >= bounds.right || y >= bounds.bottom) {
+          terrain.data[index + 3] = 0
+          continue
+        }
+        const [r, g, b] = PALETTE[biomeAt(sim.land, x, y)][terrainAt(sim.land, x, y)]
         terrain.data[index] = r
         terrain.data[index + 1] = g
         terrain.data[index + 2] = b
@@ -93,9 +107,10 @@ export function createMinimap(scene: Scene) {
       }
       prepare()
       const { world, bounds } = scene.sim
-      const scale = MINIMAP_SIZE / (bounds.right - bounds.left)
-      const toX = (x: number) => (x - bounds.left) * scale
-      const toY = (y: number) => (y - bounds.top) * scale
+      const view = fit(bounds)
+      const { scale } = view
+      const toX = (x: number) => (x - view.left) * scale
+      const toY = (y: number) => (y - view.top) * scale
 
       context.fillStyle = '#05090f'
       context.fillRect(0, 0, MINIMAP_SIZE, MINIMAP_SIZE)
@@ -112,9 +127,14 @@ export function createMinimap(scene: Scene) {
         fogChanged = changed
         fogCells = cells
         const width = bounds.right - bounds.left
+        const height = bounds.bottom - bounds.top
         for (let y = 0; y < MINIMAP_SIZE; y++) {
-          const row = Math.floor(y / scale) * width
-          for (let x = 0; x < MINIMAP_SIZE; x++) fog.data[(y * MINIMAP_SIZE + x) * 4 + 3] = FOG_ALPHA[cells[row + Math.floor(x / scale)]]
+          const tileY = Math.floor(view.top + y / scale) - bounds.top
+          for (let x = 0; x < MINIMAP_SIZE; x++) {
+            const tileX = Math.floor(view.left + x / scale) - bounds.left
+            const inside = tileX >= 0 && tileY >= 0 && tileX < width && tileY < height
+            fog.data[(y * MINIMAP_SIZE + x) * 4 + 3] = inside ? FOG_ALPHA[cells[tileY * width + tileX]] : 0
+          }
         }
         fogCanvas.getContext('2d')!.putImageData(fog, 0, 0)
       }
@@ -161,8 +181,8 @@ export function createMinimap(scene: Scene) {
     },
     /** Тайл под точкой мини-карты; координаты — доли стороны от 0 до 1. */
     tileAt(u: number, v: number) {
-      const { bounds } = scene.sim
-      return { x: bounds.left + u * (bounds.right - bounds.left), y: bounds.top + v * (bounds.bottom - bounds.top) }
+      const view = fit(scene.sim.bounds)
+      return { x: view.left + u * view.span, y: view.top + v * view.span }
     },
   }
 }
