@@ -22,7 +22,7 @@ export { DEPOSIT_CELL, DEPOSIT_KINDS, DEPOSIT_SIZE, DEPOSIT_TYPES, depositAt, de
 export type { DepositKind, DepositSpot } from './deposits'
 export { REWARDS, creditsOf, rewardsOf } from './economy'
 export type { Reward } from './economy'
-export { TRUCK_CAPACITY, canHaul } from './hauling'
+export { TRUCK_CAPACITY, canHaul, canSupply } from './hauling'
 export { dropAt } from './drops'
 export { BUY_MARKUP, BUY_SECONDS, SELL_SECONDS, buyPrice, canSell, deliveredTo, isStore, neededBy, stockOf, stockOfZone, zoneWith } from './trade'
 export { PRIORITY, deliveryFor, materialsFor, missingFor, mineOre, refineryFor, requestsOf, spareOf, storeFor } from './logistics'

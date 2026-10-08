@@ -46,6 +46,33 @@ export function assignHaulers(sim: Sim, player: number, mine: Entity, units: Ent
   return trucks.length > 0
 }
 
+/** Нужен ли этому своему зданию или стройке груз прямо сейчас: тогда грузовики можно послать его обеспечить. */
+export const canSupply = (sim: Sim, player: number, target: Entity) =>
+  isOwn(sim, player, target) && requestsOf(sim, player, { incoming: new Map(), outgoing: new Map() }).some((request) => request.to === target)
+
+/**
+ * Посылает грузовики игрока обеспечить здание или стройку: они бросают прежнюю работу и возят только по его заявкам,
+ * беря груз где угодно у игрока, пока заявки не кончатся. Грузовик, у которого нужное уже в кузове, везёт его сразу.
+ */
+export function assignSupply(sim: Sim, player: number, target: Entity, units: Entity[]) {
+  const { world } = sim
+  if (!canSupply(sim, player, target)) return false
+  const trucks = [...new Set(units)].filter((entity) => world.has(entity, Hauler) && !world.has(entity, Harvester) && isOwn(sim, player, entity))
+  for (const truck of trucks) {
+    releaseHauler(sim, truck)
+    const hauler = world.get(truck, Hauler)!
+    hauler.supply = target
+    world.remove(truck, Path)
+    const carried = carriedBy(sim, truck)
+    if (carried !== undefined && acceptsDelivery(sim, player, target, carried)) {
+      hauler.resource = carried
+      hauler.to = target
+      hauler.full = true
+    }
+  }
+  return trucks.length > 0
+}
+
 /** Можно ли послать грузовики вывезти этот дроп: он ещё лежит. Дропы ничьи, так что забрать его может любой. */
 export const canPickup = (sim: Sim, drop: Entity) => sim.world.alive(drop) && sim.world.has(drop, Drop)
 
@@ -89,6 +116,7 @@ export function releaseHauler(sim: Sim, truck: Entity) {
   hauler.mine = NONE
   hauler.pickup = NONE
   hauler.serve = []
+  hauler.supply = NONE
   hauler.route = []
   hauler.stop = 0
   dropJob(sim, truck)

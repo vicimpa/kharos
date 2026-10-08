@@ -3,7 +3,7 @@ import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import {
   BUILDINGS, DEPOSIT_TYPES, Inventory, Producer, RESOURCE_SPECS, SELL_SECONDS, Site, UNITS, Unit, amountOf, awaitsMaterials, canPlace, createSim, creditsOf,
-  depositIn, materialShare, siteTicks, type BuildingType, type Sim,
+  canSupply, depositIn, materialShare, siteTicks, type BuildingType, type Sim,
 } from '../src/sim'
 import { STORES, placeBuilding, storeFor } from '../src/sim/buildings'
 import type { Amounts, Ware } from '../src/sim/resources'
@@ -180,6 +180,44 @@ test('груз для заявки грузовик берёт и с дропа 
   expect(sim.world.get(truck, Hauler)!.from).toBe(drop)
   expect(sim.world.get(truck, Hauler)!.to).toBe(site!)
   until(sim, () => !sim.world.has(site!, Site))
+})
+
+test('ПКМ грузовиком по стройке: нужное из кузова он везёт сразу', () => {
+  const { sim, x, y } = base([])
+  const builder = spawnUnit(sim, 'builder', 1, x + 5, y + 8)
+  sim.send(1, { type: 'build', building: 'factory', x, y: y + 4, builders: [builder] })
+  sim.advance(TICK)
+  let site: Entity | undefined
+  for (const [entity] of sim.world.query(Site)) site = entity
+  const truck = spawnUnit(sim, 'truck', 1, x + 6, y + 8)
+  sim.world.get(truck, Inventory)!.items.blocks = 25
+  expect(canSupply(sim, 1, site!)).toBe(true)
+  sim.send(1, { type: 'supply', units: [truck], target: site! })
+  sim.advance(TICK)
+  expect(sim.world.get(truck, Hauler)!.to).toBe(site!)
+  until(sim, () => !sim.world.has(site!, Site))
+  // Остаток грузовик увёз в хранилище, а приказ исполнен: он снова свободен.
+  until(sim, () => oreIn(sim, truck, 'blocks') === 0)
+  expect(sim.world.get(truck, Hauler)!.supply).toBe(NONE)
+})
+
+test('ПКМ грузовиком по стройке: груз он берёт где угодно у игрока, а не только в её зоне', () => {
+  const { sim, x, y } = base([])
+  const builder = spawnUnit(sim, 'builder', 1, x + 5, y + 8)
+  sim.send(1, { type: 'build', building: 'factory', x, y: y + 4, builders: [builder] })
+  sim.advance(TICK)
+  let site: Entity | undefined
+  for (const [entity] of sim.world.query(Site)) site = entity
+  // Стройблоки — только на складе далеко за зоной базы: по заявке зоны их никто не повезёт.
+  let far: Entity | undefined
+  for (let dx = 40; dx < 120 && far === undefined; dx++) if (canPlace(sim, 'blockYard', x + dx, y)) far = placeBuilding(sim.world, 'blockYard', x + dx, y, 1)
+  sim.world.get(far!, Inventory)!.items.blocks = 50
+  const truck = spawnUnit(sim, 'truck', 1, x + 6, y + 8)
+  seconds(sim, 3)
+  expect(sim.world.get(truck, Hauler)!.from).toBe(NONE)
+  sim.send(1, { type: 'supply', units: [truck], target: site! })
+  until(sim, () => !sim.world.has(site!, Site))
+  expect(oreIn(sim, far!, 'blocks')).toBeCloseTo(50 - BUILDINGS.factory.materials.blocks)
 })
 
 test('груз, который стал не нужен, грузовик везёт обратно в хранилище, откуда взял', () => {

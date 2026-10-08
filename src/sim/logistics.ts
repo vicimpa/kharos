@@ -417,6 +417,8 @@ export function dispatch(sim: Sim) {
 
     // Назначенные на здания грузовики берут груз в любой зоне игрока, а не только в зоне заказчика.
     let everywhere: Entity[] | undefined
+    /** Заявки без учёта того, что уже везут: по ним видно, нужно ли ещё что-то тому, что велено обеспечить. */
+    let needs: Request[] | undefined
     const anyZone = () => (everywhere ??= [...new Set([...zonesOf(sim, player).flatMap((zone) => zone.buildings), ...drops])])
 
     for (const truck of trucks) {
@@ -426,7 +428,9 @@ export function dispatch(sim: Sim) {
       const carries = (resource: Good) => !filter.length || filter.includes(resource)
       // Снесённые и потерянные здания из назначения выпадают; не осталось ни одного — грузовик снова общий.
       if (hauler.serve.length) hauler.serve = hauler.serve.filter((building) => isReady(sim, player, building as Entity) && world.has(building as Entity, Inventory))
-      const serving = hauler.serve.length ? new Set(hauler.serve) : undefined
+      // Приказ обеспечить исполнен, когда у цели не осталось заявок, даже тех, что уже везут другие: грузовик свободен.
+      if (hauler.supply !== NONE && !(needs ??= requestsOf(sim, player, { incoming: new Map(), outgoing: new Map() })).some((request) => request.to === hauler.supply)) hauler.supply = NONE
+      const serving = hauler.supply !== NONE ? new Set([hauler.supply]) : hauler.serve.length ? new Set(hauler.serve) : undefined
       let best: (Job & { score: number }) | undefined
       for (const request of requests) {
         if (request.amount < MIN_JOB || !carries(request.resource)) continue

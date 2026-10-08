@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { Building, DEPOSIT_SIZE, Harvester, Producer, Hauler, depositNear, hasMine, type UnitType, Owner, Position, Repair, isOwn, UNITS, Unit, canAttack, canFight, canHaul, canRepair, dropAt, isStop, siteAt, BUILDINGS, BRIDGE_COST, FOUNDATION_COST, ROAD_COST, creditsOf } from '../sim'
+import { Building, DEPOSIT_SIZE, Harvester, Producer, Hauler, depositNear, hasMine, type UnitType, Owner, Position, Repair, isOwn, UNITS, Unit, canAttack, canFight, canHaul, canRepair, canSupply, dropAt, isStop, siteAt, BUILDINGS, BRIDGE_COST, FOUNDATION_COST, ROAD_COST, creditsOf } from '../sim'
 import type { CameraMotion } from './cameraMotion'
 import { paveStrokeOf, placementOf } from './placing'
 import type { Scene } from './scene'
@@ -218,6 +218,8 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
       const broken = unitAt(point.x, point.y) ?? damaged
       const site = siteAt(sim, x, y) ?? (broken !== undefined && canRepair(sim, scene.player, broken) ? broken : undefined)
       const builders = units.some((entity) => sim.world.has(entity, Repair))
+      // То, чему грузовики могут привезти груз: своя стройка или здание под курсором.
+      const needy = siteAt(sim, x, y) ?? damaged
       // Строители по своей стройке — строят, по повреждённому зданию или юниту — чинят; остальные выбранные при этом стоят.
       const trucks = units.some((entity) => sim.world.has(entity, Hauler) && !sim.world.has(entity, Harvester))
       // Вооружённые по врагу — атакуют: по чужому юниту или зданию под курсором.
@@ -239,6 +241,12 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
       } else if (trucks && dropAt(sim, x, y) !== undefined) {
         // Грузовики по дропу — вывозят его.
         sim.send(scene.player, { type: 'pickup', units, drop: dropAt(sim, x, y)! })
+      } else if (trucks && needy !== undefined && canSupply(sim, scene.player, needy)) {
+        // Грузовики по своему зданию или стройке, которым нужен груз, — обеспечивают их; строители при этом строят.
+        const haulers = units.filter((entity) => sim.world.has(entity, Hauler) && !sim.world.has(entity, Harvester))
+        sim.send(scene.player, { type: 'supply', units: haulers, target: needy })
+        const rest = units.filter((entity) => !haulers.includes(entity) && sim.world.has(entity, Repair))
+        if (rest.length && siteAt(sim, x, y) === needy) sim.send(scene.player, { type: 'assist', units: rest, site: needy })
       } else if (site !== undefined && builders && isOwn(sim, scene.player, site)) {
         sim.send(scene.player, { type: 'assist', units, site })
       } else {
