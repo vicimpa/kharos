@@ -14,6 +14,8 @@ const CONVERT = 8
 const CANCEL = 9
 const DEMOLISH = 10
 const BACK = 11
+/** Выключатель потребителя энергии — в углу корня, где у страниц «Назад». */
+const SWITCH = BACK
 /** Кнопки продажи и закупки космопорта: начало нижнего ряда. Отмена заказа техники у космопорта тогда — на месте «Назад». */
 const TRADE = 8
 /** Сколько ячеек сверху отдаётся под списки: заказы, здания, рецепты. */
@@ -277,9 +279,19 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
       good: assembly.recipe,
       active: assembly.on,
       title: assembly.on
-        ? 'Начатая сборка доделается, новых не будет; сырьё увезут в хранилища'
+        ? 'Завод встанет и перестанет брать энергию; начатая сборка подождёт включения, сырьё увезут в хранилища'
         : 'Завод начнёт заказывать сырьё у зоны и собирать до нормы',
       run: () => send({ type: 'work', building: assembly.plant, on: !assembly.on }),
+    }
+  }
+
+  const { switchable } = state
+  if (switchable && page === 'root' && !slots[SWITCH]) {
+    slots[SWITCH] = {
+      label: switchable.on ? 'Выключить' : 'Включить',
+      active: switchable.on,
+      title: switchable.on ? 'Здание перестанет брать энергию у зоны и работать' : 'Здание снова возьмёт энергию у зоны и заработает',
+      run: () => send({ type: 'work', building: switchable.building, on: !switchable.on }),
     }
   }
 

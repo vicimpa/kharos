@@ -1,7 +1,7 @@
 import type { Entity, World } from '../ecs'
 import { tileKey } from '../map/terrain'
 import { BUILDINGS, buildingSpec } from './buildings'
-import { Attached, Building, Owner, Player, Position, Shot, Site, Unit } from './components'
+import { Attached, Building, Off, Owner, Player, Position, Shot, Site, Unit } from './components'
 import type { Sim } from './sim'
 import type { Bounds } from './sim'
 import { TURRETS } from './turrets'
@@ -43,10 +43,12 @@ export function unitSight(type: UnitType) {
 }
 
 /** Сколько тайлов от своего центра видит здание вида type; стройка видит меньше. */
-export function buildingSight(type: keyof typeof BUILDINGS, site = false) {
+export function buildingSight(type: keyof typeof BUILDINGS, site = false, off = false) {
   const spec = buildingSpec(type)
   const half = Math.max(spec.width, spec.height) / 2
   if (site) return half + SITE_SIGHT
+  // Выключенный радар видит как обычное здание.
+  if (off) return half + BUILDING_SIGHT
   const range = longestRange(undefined, spec.mounts)
   return Math.max(spec.sight ?? half + BUILDING_SIGHT, range ? range + SIGHT_OVER_RANGE : 0)
 }
@@ -164,7 +166,7 @@ export function createVision(world: World, bounds: Bounds, tick: () => number, f
       const building = world.get(entity, Building)
       if (!building) continue
       const { width: w, height: h } = BUILDINGS[building.type]
-      stamp(sight, position.x + w / 2, position.y + h / 2, buildingSight(building.type, world.has(entity, Site)))
+      stamp(sight, position.x + w / 2, position.y + h / 2, buildingSight(building.type, world.has(entity, Site), world.has(entity, Off)))
     }
     if (before.length !== sight.lit.length || before.some((index, i) => index !== sight!.lit[i])) sight.changed++
     return sight

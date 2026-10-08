@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Terrain, terrainAt } from '../src/map/terrain'
 import {
   BUILDINGS, Building, Builds, CORE, Health, Owner, Player, Site, Unit,
-  OVERLOAD_DAMAGE, REPAIR_COST, REPAIR_SPEED, canBuild, canDeploy, canPlace, createSim, creditsOf, economyOf, powerOf, powerStates, refundOf, rewardsOf, siteAt, zoneEconomies, zoneOf, zonesOf, spawnStartingUnits, type BuildingType, type Sim,
+  Off, OVERLOAD_DAMAGE, REPAIR_COST, powerSupply, REPAIR_SPEED, canBuild, canDeploy, canPlace, createSim, creditsOf, economyOf, powerOf, powerStates, refundOf, rewardsOf, siteAt, zoneEconomies, zoneOf, zonesOf, spawnStartingUnits, type BuildingType, type Sim,
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { REWARDS, STARTING_CREDITS } from '../src/sim/economy'
@@ -374,3 +374,24 @@ function playerOf(sim: Sim) {
   for (const [entity, player] of sim.world.query(Player)) if (player.id === 1) return entity
   throw new Error('Игрока нет')
 }
+
+test('выключенный потребитель энергии не просит её и не работает; электростанцию не выключить', () => {
+  const { sim, x, y } = start()
+  const matter = put(sim, 'matter', x + 6, y)
+  const radar = put(sim, 'radar', x + 9, y)
+  const generator = put(sim, 'generator', x + 6, y + 4)
+  expect(economyOf(sim, 1).demand).toBe(6)
+
+  sim.send(1, { type: 'work', building: matter, on: false })
+  sim.send(1, { type: 'work', building: generator, on: false })
+  seconds(sim, 0.1)
+  expect(sim.world.has(matter, Off)).toBe(true)
+  expect(sim.world.has(generator, Off)).toBe(false)
+  expect(economyOf(sim, 1)).toMatchObject({ demand: 3, income: 0.2 })
+  expect(powerSupply(sim).has(matter)).toBe(false)
+  expect(powerSupply(sim).get(radar)).toBe(1)
+
+  sim.send(1, { type: 'work', building: matter, on: true })
+  seconds(sim, 0.1)
+  expect(economyOf(sim, 1)).toMatchObject({ demand: 6, income: 1.7 })
+})

@@ -4,7 +4,7 @@ import { isPaved } from './paved'
 import { dropCargo } from './drops'
 import { BUILDINGS, buildingSpec, isWall, type BuildingType } from './buildings'
 import { NONE, isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './common'
-import { Armed, Blast, Building, Converting, Doomed, Health, Inventory, Owner, Path, Pave, Position, Shot, Site, Tactics, Turret, Unit } from './components'
+import { Armed, Blast, Building, Converting, Doomed, Health, Inventory, Off, Owner, Path, Pave, Position, Shot, Site, Tactics, Turret, Unit } from './components'
 import { releaseHauler } from './hauling'
 import { amountOf, take } from './inventory'
 import { searchedTiles } from './path'
@@ -427,7 +427,7 @@ export function fight(sim: Sim) {
     const position = world.get(entity, Position)
     const turner = turnerOf(sim, entity)
     const weaponType = weaponOf(sim, entity)
-    if (!body || !position || !turner || !weaponType || world.has(carrier, Converting) || world.has(carrier, Site)) continue
+    if (!body || !position || !turner || !weaponType || world.has(carrier, Converting) || world.has(carrier, Site) || world.has(carrier, Off)) continue
     const self = { x: position.x, y: position.y, player: body.player }
     const weapon: WeaponSpec = WEAPONS[weaponType]
     const range = weapon.range + (world.has(carrier, Building) ? TOWER_RANGE : 0)

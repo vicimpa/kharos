@@ -1,6 +1,6 @@
 import type { Entity } from '../ecs'
 import { BUILDINGS, buildingSpec, type BuildingSpec, type BuildingType } from './buildings'
-import { Building, Health, Player } from './components'
+import { Assembly, Building, Health, Off, Player } from './components'
 import type { Sim } from './sim'
 import { allZones, type Zone } from './zones'
 
@@ -25,6 +25,8 @@ function economyOfZone(sim: Sim, zone: Zone): Economy {
     const spec: BuildingSpec = BUILDINGS[building.type]
     const power = spec.power ?? 0
     const income = spec.income ?? 0
+    // Выключенный потребитель энергии не просит и ничего не даёт.
+    if (power < 0 && switchedOff(sim, entity)) continue
     // Повреждённая электростанция даёт энергии во столько же раз меньше, во сколько упала её прочность.
     if (power > 0) economy.produced += power * (sim.world.get(entity, Health)?.value ?? 1)
     if (power < 0) {
@@ -60,6 +62,11 @@ function books(sim: Sim): Book[] {
 
 /** Сколько энергии даёт или просит здание: больше нуля — вырабатывает, меньше — потребляет. */
 const powerAt = (sim: Sim, building: Entity) => buildingSpec(sim.world.get(building, Building)!.type).power ?? 0
+/** Потребитель, которого игрок выключил: энергии ему не нужно, и работать он не будет. У завода изделий — свой флаг. */
+function switchedOff(sim: Sim, building: Entity) {
+  const assembly = sim.world.get(building, Assembly)
+  return assembly ? !assembly.on : sim.world.has(building, Off)
+}
 
 /** Хозяйства зон одного игрока. */
 export const zoneEconomies = (sim: Sim, player: number): readonly Economy[] =>
@@ -106,7 +113,8 @@ export function powerStates(sim: Sim): Map<Entity, PowerState> {
     if (economy.demand <= economy.produced) continue
     for (const entity of zone.buildings) {
       const power = powerAt(sim, entity)
-      if (power) states.set(entity, power > 0 ? 'overload' : 'starved')
+      if (power > 0) states.set(entity, 'overload')
+      else if (power < 0 && !switchedOff(sim, entity)) states.set(entity, 'starved')
     }
   }
   return states
@@ -114,13 +122,13 @@ export function powerStates(sim: Sim): Map<Entity, PowerState> {
 
 /**
  * На какую долю от полной скорости работает каждый потребитель энергии: 1 — энергии хватает. Потребителя,
- * который не входит ни в одну зону строительства, здесь нет — он не работает вовсе.
+ * который не входит ни в одну зону строительства или выключен, здесь нет — он не работает вовсе.
  */
 export function powerSupply(sim: Sim): Map<Entity, number> {
   const supply = new Map<Entity, number>()
   for (const { zone, economy } of books(sim)) {
     const share = economy.demand > 0 ? Math.min(1, economy.produced / economy.demand) : 1
-    for (const entity of zone.buildings) if (powerAt(sim, entity) < 0) supply.set(entity, share)
+    for (const entity of zone.buildings) if (powerAt(sim, entity) < 0 && !switchedOff(sim, entity)) supply.set(entity, share)
   }
   return supply
 }

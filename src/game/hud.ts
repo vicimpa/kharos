@@ -5,7 +5,7 @@ import type { Entity } from '../ecs'
 import {
   Assembly, Harvester, BUILDABLE, isUnlocked, buyPrice, roomFor, BUILDINGS, Building, Converting, Hauler, Health, CORE, GOODS, PRODUCT_SPECS, REFINE_RATE, RESOURCES, RESOURCE_SPECS, buildingSpec, cycleSeconds, isOwn, missingRequirements, producibleBy, productStock, hasRoom, Trade, Inventory, amountOf, loadOf, deliveredTo, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit, unitSpec,
   awaitsMaterials, buildTicks, canDemolish, canFight, canDeploy, canPack, depositAt, depositNear, DEPOSIT_SIZE, entriesOf, isDeployBlocked, creditsOf, economyOf, isSiteBlocked, materialsFor, reserveLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, spareOf, zoneEconomies, zonesOf,
-  Position, Tactics, isDefeated, stanceOf, type Stance, type Amounts, type BuildingType, type Command, type DepositKind, type Good, type Ore, type Product, type Resource, type UnitType,
+  Off, Position, Tactics, isDefeated, stanceOf, type Stance, type Amounts, type BuildingType, type Command, type DepositKind, type Good, type Ore, type Product, type Resource, type UnitType,
 } from '../sim'
 import { paveStrokeOf } from './placing'
 import type { PaveTool, Scene } from './scene'
@@ -66,6 +66,8 @@ export interface HudState {
    * Завод изделий: что собирает, включён ли, готовность нынешней сборки от 0 до 1 и сколько изделия уже
    * есть у зоны; inputs — из чего одна сборка, yield — сколько штук она даёт и за сколько секунд.
    */
+  /** Выбранное своё готовое здание — потребитель энергии, кроме завода изделий: его можно выключить. */
+  switchable: { building: number; on: boolean } | null
   assembly: {
     plant: number
     recipe: Product
@@ -206,6 +208,7 @@ export function readHud(scene: Scene): HudState {
   let stored: HudState['stored'] = null
   let refinery: HudState['refinery'] = null
   let assembly: HudState['assembly'] = null
+  let switchable: HudState['switchable'] = null
   let harvest: HudState['harvest'] = null
   let ammo: HudState['ammo'] = null
   let materials: HudState['materials'] = null
@@ -289,6 +292,9 @@ export function readHud(scene: Scene): HudState {
       harvest.parked &&= digging.parked
     }
     if (ready && spec!.ammo && inventory) ammo = { have: Math.floor(amountOf(inventory, 'ammo')), capacity: inventory.capacity }
+    if (ready && (spec!.power ?? 0) < 0 && !world.has(entity, Assembly) && isOwn(sim, player, entity)) {
+      switchable = { building: entity, on: !world.has(entity, Off) }
+    }
     const assembling = ready ? world.get(entity, Assembly) : undefined
     if (assembling && isOwn(sim, player, entity)) {
       const spec = PRODUCT_SPECS[assembling.recipe]
@@ -381,6 +387,7 @@ export function readHud(scene: Scene): HudState {
     stored,
     refinery,
     assembly,
+    switchable,
     harvest,
     ammo,
     materials,

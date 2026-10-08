@@ -293,6 +293,7 @@ function Info({ state, lookAtSelection, narrow }: { state: HudState; lookAtSelec
           </div>
         )}
         {state.starved && <div class="hud__hint hud__power is-short">⚡ Не хватает энергии: здание работает медленнее или стоит</div>}
+        {state.switchable && !state.switchable.on && <div class="hud__hint is-short">Выключено: энергию не берёт и не работает; включи в сетке справа</div>}
         {state.health !== null && (
           <div class="hud__hint">Прочность: {percent(state.health)}. Починка стоит {state.repair}: выбери строителей и щёлкни по зданию правой кнопкой</div>
         )}

@@ -2,7 +2,7 @@ import type { Entity } from '../ecs'
 import { inputsOf } from './assembly'
 import { BUILDINGS, buildingSpec, isReady, type BuildingSpec } from './buildings'
 import { NONE, isOwn } from './common'
-import { Assembly, Building, Converting, Drop, Hauler, Harvester, Inventory, Owner, Path, Position, Producer, Site, Trade, Unit } from './components'
+import { Assembly, Building, Converting, Drop, Hauler, Harvester, Inventory, Off, Owner, Path, Position, Producer, Site, Trade, Unit } from './components'
 import { depositAt } from './deposits'
 import { amountOf, loadOf, roomFor } from './inventory'
 import { entriesOf, GOODS, isOre, isProduct, ORE_OF, WARES, stockedFor, type Amounts, type Good, type Ore, type Resource } from './resources'
@@ -200,7 +200,8 @@ export function requestsOf(sim: Sim, player: number, flows = flowsOf(sim)): Requ
     if (owner.player !== player) continue
     const site = world.has(entity, Site)
     if (!site && !world.has(entity, Producer)) continue
-    if (!site && (!isReady(sim, player, entity) || world.has(entity, Converting))) continue
+    // Выключенному производству материалы не везут, пока не включат.
+    if (!site && (!isReady(sim, player, entity) || world.has(entity, Converting) || world.has(entity, Off))) continue
     // Недостачу заказывают целыми единицами: иначе остаток меньше MIN_JOB не привёз бы никто и заказ встал бы навсегда.
     for (const [resource, amount] of entriesOf(missingFor(sim, entity))) need(entity, resource, Math.ceil(amount - 1e-6), site ? PRIORITY.site : PRIORITY.production)
   }
@@ -208,7 +209,7 @@ export function requestsOf(sim: Sim, player: number, flows = flowsOf(sim)): Requ
   for (const [entity, owner, inventory, building] of world.query(Owner, Inventory, Building)) {
     const ore = buildingSpec(building.type).refines
     if (owner.player !== player || !ore) continue
-    if (!isReady(sim, player, entity) || world.has(entity, Converting)) continue
+    if (!isReady(sim, player, entity) || world.has(entity, Converting) || world.has(entity, Off)) continue
     // Сколько ещё поместится: больше буфера руды завод не просит, пока не переработает привезённое.
     const room = roomFor(inventory, ore)
     if (room > 0) need(entity, ore, room, PRIORITY.refine, 'mines')
@@ -289,7 +290,7 @@ export function refineryFor(sim: Sim, truck: Entity, ore: Ore, except: Entity = 
   let best = NONE as Entity
   let bestDistance = Infinity
   for (const [entity, , building] of sim.world.query(Inventory, Building)) {
-    if (entity === except || buildingSpec(building.type).refines !== ore || !isReady(sim, player, entity) || sim.world.has(entity, Converting)) continue
+    if (entity === except || buildingSpec(building.type).refines !== ore || !isReady(sim, player, entity) || sim.world.has(entity, Converting) || sim.world.has(entity, Off)) continue
     if (spaceFor(sim, truck, entity, ore, flows) <= 1e-9) continue
     const far = distance(sim, truck, entity)
     if (far < bestDistance) {

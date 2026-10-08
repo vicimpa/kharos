@@ -87,7 +87,7 @@ test('цех встаёт, когда готовому некуда лечь', (
   expect(hasRoom(sim, plant)).toBe(false)
 })
 
-test('новый завод выключен: сырья не заказывает; выключенный доделывает сборку, а сырьё увозят', () => {
+test('новый завод выключен: сырья не заказывает; выключенный замирает посреди сборки, а сырьё увозят', () => {
   const { sim, x, y, store, stash, buildings } = base(['ammoPlant'])
   const [plant] = buildings
   stash({ metal: 30 })
@@ -107,13 +107,18 @@ test('новый завод выключен: сырья не заказывае
   sim.send(1, { type: 'work', building: plant, on: true })
   until(sim, () => assembly().progress > 0)
 
-  // Выключили — начатая сборка доделывается, новых нет, а лежащий у завода металл грузовик увозит в хранилище.
+  // Выключили — начатая сборка замирает, а лежащий у завода металл грузовик увозит в хранилище.
   sim.send(1, { type: 'work', building: plant, on: false })
-  until(sim, () => assembly().progress === 0)
+  sim.advance(TICK)
+  const paused = assembly().progress
   until(sim, () => good(sim, plant, 'metal') < 1e-6)
   const made = (stockOf(sim, 1).items.ammo ?? 0) + good(sim, plant, 'ammo')
   seconds(sim, 10)
+  expect(assembly().progress).toBe(paused)
   expect((stockOf(sim, 1).items.ammo ?? 0) + good(sim, plant, 'ammo')).toBe(made)
+  // Включили — сборка продолжается с того же места.
+  sim.send(1, { type: 'work', building: plant, on: true })
+  until(sim, () => assembly().progress === 0)
 })
 
 test('изделия не продаются: космопорт берёт только ресурсы', () => {

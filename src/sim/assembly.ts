@@ -1,6 +1,6 @@
 import type { Entity, Time } from '../ecs'
-import { isReady } from './buildings'
-import { Assembly, Hauler, Inventory, Owner, Site } from './components'
+import { buildingSpec, isReady } from './buildings'
+import { Assembly, Building, Hauler, Inventory, Off, Owner, Site } from './components'
 import { powerSupply } from './income'
 import { amountOf, put, roomFor, take } from './inventory'
 import { entriesOf, productSpec, totalOf, type Product, type Resource } from './resources'
@@ -28,13 +28,20 @@ export const inputsOf = (sim: Sim, entity: Entity): readonly Resource[] => {
 }
 
 /**
- * Включает или выключает свой готовый завод. Выключенный доделывает начатую сборку, но новых не начинает
- * и сырья не заказывает; лежащее у него сырьё грузовики увезут в хранилища. Возвращает, изменилось ли что-то.
+ * Включает или выключает своё готовое здание — потребителя энергии. Выключенное не просит энергии у зоны и не
+ * работает: начатое стоит, турели молчат, радар видит как обычное здание (тег Off). Начатая работа замирает и
+ * продолжится после включения. Завод изделий к тому же не заказывает сырья, и лежащее у него увезут в хранилища. Возвращает, изменилось ли что-то.
  */
 export function setWorking(sim: Sim, player: number, entity: Entity, on: boolean) {
-  const assembly = sim.world.get(entity, Assembly)
-  if (!assembly || !isReady(sim, player, entity) || assembly.on === on) return false
-  assembly.on = on
+  const { world } = sim
+  const type = world.get(entity, Building)?.type
+  if (!type || !isReady(sim, player, entity) || (buildingSpec(type).power ?? 0) >= 0) return false
+  // Новый завод изделий выключен без тега Off: у него свой флаг on, и он главнее.
+  const assembly = world.get(entity, Assembly)
+  if (assembly ? assembly.on === on : on === !world.has(entity, Off)) return false
+  if (assembly) assembly.on = on
+  if (on) world.remove(entity, Off)
+  else world.add(entity, Off())
   return true
 }
 
