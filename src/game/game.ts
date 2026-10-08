@@ -4,7 +4,7 @@ import type { MapSettings } from '../map/settings'
 import { createTerrainPass } from '../map/terrainPass'
 import { createRenderer, type Pass } from '../render/renderer'
 import type { Session } from '../net/connect'
-import { Building, Position, Unit, isOwn, weatherAt, type BuildingType, type Command, type Sim, type SimOptions, type UnitType } from '../sim'
+import { Building, Player, Position, Unit, isOwn, weatherAt, type BuildingType, type Command, type Sim, type SimOptions, type UnitType } from '../sim'
 import { createLightingPass } from '../weather/lightingPass'
 import { createPrecipitationPass } from '../weather/precipitationPass'
 import { createBoundsPass } from './boundsPass'
@@ -201,6 +201,7 @@ export function createGame(
     if (side) camera.inset.right = Math.max(0, Math.min(frame.width, frame.right - side.left))
   }
   const motion = new CameraMotion(camera)
+  motion.simple = editor
   const controls = showcase ? null : createControls(canvas, scene, motion)
   // В редакторе мир стоит, и гул машин и зданий ни к чему: звука нет вовсе.
   const audio = showcase || editor ? null : createAudio()
@@ -267,7 +268,14 @@ export function createGame(
     controls?.update(seconds)
     if (showcase) direct(seconds)
     else if (!centered) {
-      for (const [entity, position] of sim.world.query(Position, Unit)) {
+      // Камера, которую игроку задали в редакторе, главнее места его юнитов.
+      for (const [, data] of sim.world.query(Player)) {
+        if (data.id !== scene.player || data.camera.length !== 3) continue
+        motion.jump(data.camera[0], data.camera[1])
+        camera.zoomTo(data.camera[2])
+        centered = true
+      }
+      if (!centered) for (const [entity, position] of sim.world.query(Position, Unit)) {
         if (!isOwn(sim, scene.player, entity)) continue
         motion.jump(position.x, position.y)
         centered = true

@@ -64,6 +64,8 @@ import {
   setHealth,
   setOwner,
   setStock,
+  playerCamera,
+  setPlayerCamera,
   type Brush,
   type BrushShape,
 } from '../sim/editor'
@@ -242,7 +244,28 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
   function createEdit(game: Game, sim: Sim): SceneEdit {
     const { scene } = game
     /** Что тянут мышью: выбранное разом или рамку выделения. from — тайл (у рамки — точка), от которого отсчитан сдвиг. */
-    let dragging: { kind: 'group' | 'box'; from: { x: number; y: number } } | null = null
+    let dragging: { kind: 'group' | 'box' | 'camera' | 'zoom'; from: { x: number; y: number } } | null = null
+    /** Рамка камеры выбранного игрока: что видно на экране размером с этот, в тайлах. */
+    const cameraBox = () => {
+      const view = state.current.player ? playerCamera(sim, state.current.player) : undefined
+      if (!view) return null
+      const halfWidth = scene.camera.width / view.zoom / 2
+      const halfHeight = scene.camera.height / view.zoom / 2
+      return { view, left: view.x - halfWidth, top: view.y - halfHeight, right: view.x + halfWidth, bottom: view.y + halfHeight }
+    }
+    /** Попала ли точка в рамку камеры: в угол — менять масштаб, в край — двигать. Внутри рамки — обычный щелчок. */
+    const cameraHit = (point: { x: number; y: number }) => {
+      const box = cameraBox()
+      if (!box) return null
+      const reach = 10 / scene.camera.zoom
+      const nearX = Math.min(Math.abs(point.x - box.left), Math.abs(point.x - box.right)) < reach
+      const nearY = Math.min(Math.abs(point.y - box.top), Math.abs(point.y - box.bottom)) < reach
+      const withinX = point.x > box.left - reach && point.x < box.right + reach
+      const withinY = point.y > box.top - reach && point.y < box.bottom + reach
+      if (nearX && nearY) return 'zoom'
+      if ((nearX && withinY) || (nearY && withinX)) return 'camera'
+      return null
+    }
     let last = ''
     return {
       press(point, phase, shift) {
@@ -275,6 +298,22 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
           const at = depositSpot(x, y)
           if (putDeposit(sim, at.x, at.y, kind, reserve)) touched()
           else setStatus('Месторождение ложится на скалу не у подножия обрыва и не внахлёст с другим')
+        } else if (dragging?.kind === 'camera' || dragging?.kind === 'zoom') {
+          // Рамку камеры игрока тянут за край — двигают, за угол — меняют масштаб: угол идёт за мышью.
+          const box = cameraBox()
+          if (box) {
+            if (dragging.kind === 'camera') {
+              setPlayerCamera(sim, player, { ...box.view, x: box.view.x + point.x - dragging.from.x, y: box.view.y + point.y - dragging.from.y })
+              dragging.from = point
+            } else {
+              const half = Math.max(Math.abs(point.x - box.view.x) / scene.camera.width, Math.abs(point.y - box.view.y) / scene.camera.height)
+              setPlayerCamera(sim, player, { ...box.view, zoom: scene.camera.clampZoom(1 / (2 * Math.max(half, 1e-3))) })
+            }
+            touched()
+          }
+          if (phase === 'up') dragging = null
+        } else if (tool === 'select' && phase === 'down' && cameraHit(point)) {
+          dragging = { kind: cameraHit(point)!, from: point }
         } else if (tool === 'select') {
           if (phase === 'down') {
             const target = entityAt(sim, point.x, point.y)
@@ -337,8 +376,16 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
         // Юнит, который встанет по щелчку, — тоже призраком.
         if (tool === 'unit' && tile) ghostRef.current = moveGhost(sim, ghostRef.current, unit, player, tile.x, tile.y)
         else dropGhost()
-        // Пометки: выбранные месторождения и кисть карты — сколько тайлов она накроет.
+        // Пометки: выбранные месторождения, кисть карты — сколько тайлов она накроет, и камера выбранного игрока —
+        // рамка экрана с крестом в середине.
         const marks = picked(sim).map((spot) => ({ fromX: spot.x, fromY: spot.y, toX: spot.x + DEPOSIT_SIZE, toY: spot.y + DEPOSIT_SIZE }))
+        const box = cameraBox()
+        if (box) {
+          const arm = 12 / scene.camera.zoom
+          marks.push({ fromX: box.left, fromY: box.top, toX: box.right, toY: box.bottom })
+          marks.push({ fromX: box.view.x - arm, fromY: box.view.y, toX: box.view.x + arm, toY: box.view.y })
+          marks.push({ fromX: box.view.x, fromY: box.view.y - arm, toX: box.view.x, toY: box.view.y + arm })
+        }
         if (tool === 'paint' && tile) {
           const from = Math.floor(size / 2)
           marks.push({ fromX: tile.x - from, fromY: tile.y - from, toX: tile.x - from + size, toY: tile.y - from + size })
@@ -451,6 +498,26 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
                 +
               </button>
             </div>
+            {player > 0 && (
+              <div class="editor__chips">
+                <button
+                  title="Где у игрока камера в начале игры: рамка на карте; тянуть за край — двигать, за угол — масштаб"
+                  onClick={() => {
+                    const { camera } = gameRef.current!.scene
+                    setPlayerCamera(sim, player, { ...camera.focus, zoom: camera.zoom })
+                    touched()
+                  }}
+                >
+                  {playerCamera(sim, player) ? 'Камера игрока — сюда' : 'Задать камеру игрока'}
+                </button>
+                {playerCamera(sim, player) && (
+                  <>
+                    <button onClick={() => gameRef.current?.lookAt(playerCamera(sim, player)!.x, playerCamera(sim, player)!.y)}>К ней</button>
+                    <button onClick={() => (setPlayerCamera(sim, player, undefined), touched())}>Убрать</button>
+                  </>
+                )}
+              </div>
+            )}
             {player > 0 && (
               <label class="editor__field">
                 Кредиты
@@ -566,8 +633,6 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
             </button>
           )}
 
-          {game && <CameraFields game={game} />}
-
           <footer class="editor__foot">
             <small class="editor__status">
               {tile && hover ? `${hover.x}, ${hover.y} · ${terrainName(tile.terrain)} · ${BIOMES.find(([biome]) => biome === tile.biome)?.[1] ?? ''}${tile.tier === undefined ? '' : ` · ярус ${tile.tier}`}${tile.cliff ? ' · обрыв' : ''}${tile.foot ? ' · подножие' : ''}` : ''}
@@ -630,30 +695,6 @@ function NumberField({ value, set, min, max, step }: { value: number; set(value:
         if (event.key === 'Escape') setDraft(null)
       }}
     />
-  )
-}
-
-/** Камера: середина видимой части карты в тайлах и масштаб — пикселей на тайл. Правятся числами. */
-function CameraFields({ game }: { game: Game }) {
-  const { camera } = game.scene
-  const focus = camera.focus
-  const round = (value: number) => Math.round(value * 10) / 10
-  return (
-    <section class="editor__section">
-      <h3>Камера</h3>
-      <label class="editor__field">
-        X
-        <NumberField step={1} value={round(focus.x)} set={(x) => game.lookAt(x, camera.focus.y)} />
-      </label>
-      <label class="editor__field">
-        Y
-        <NumberField step={1} value={round(focus.y)} set={(y) => game.lookAt(camera.focus.x, y)} />
-      </label>
-      <label class="editor__field">
-        Зум, пикс. на тайл
-        <NumberField step={1} min={1} value={round(camera.zoom)} set={(zoom) => camera.zoomTo(zoom)} />
-      </label>
-    </section>
   )
 }
 

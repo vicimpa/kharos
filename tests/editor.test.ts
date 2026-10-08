@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { Biome, DEFAULT_CONFIG, DUNE_SHIFT, biomeAt, Dunes, Terrain, isCliffFoot, peakOf, setTile, terrainAt, tileBytes } from '../src/map/terrain'
 import { Attached, Building, Ghost, Path, canFight, Health, Inventory, Owner, Position, Unit, createSim, creditsOf, type Sim } from '../src/sim'
-import { addPlayer, brushTiles, clearTasks, depositsInBox, orderNow, setFacing, setTurretFacing, turretFacings, depositUnder, entitiesIn, entityAt, erase, moveDeposit, moveGhost, moveGroup, moveUnit, paint, playersOf, putBuilding, putDeposit, putUnit, removeDeposit, setCredits, setDeposit, setHealth, setOwner, setStock } from '../src/sim/editor'
+import { addPlayer, brushTiles, playerCamera, setPlayerCamera, clearTasks, depositsInBox, orderNow, setFacing, setTurretFacing, turretFacings, depositUnder, entitiesIn, entityAt, erase, moveDeposit, moveGhost, moveGroup, moveUnit, paint, playersOf, putBuilding, putDeposit, putUnit, removeDeposit, setCredits, setDeposit, setHealth, setOwner, setStock } from '../src/sim/editor'
 import { depositAt, depositIn, depositNear, depositsIn, reserveLeft } from '../src/sim/deposits'
 import { editTile } from '../src/sim/landMemory'
 
@@ -237,4 +237,14 @@ test('прямоугольная карта, чистая пустыня, бог
   paint(blank, 0, 0, 3, { biome: Biome.RedWastes })
   expect(biomeAt(blank.land, 0, 0)).toBe(Biome.RedWastes)
   expect(biomeAt(reload(blank).land, 1, 1)).toBe(Biome.RedWastes)
+})
+
+test('камера игрока задаётся, переживает сохранение и убирается', () => {
+  const sim = world()
+  const player = addPlayer(sim)
+  expect(playerCamera(sim, player)).toBeUndefined()
+  setPlayerCamera(sim, player, { x: 12, y: -7, zoom: 24 })
+  expect(playerCamera(reload(sim), player)).toEqual({ x: 12, y: -7, zoom: 24 })
+  setPlayerCamera(sim, player, undefined)
+  expect(playerCamera(sim, player)).toBeUndefined()
 })

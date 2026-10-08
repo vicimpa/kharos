@@ -156,6 +156,23 @@ export function addPlayer(sim: Sim) {
   return id
 }
 
+/** Камера игрока в начале игры: середина экрана в тайлах и масштаб; undefined — не задана. */
+export function playerCamera(sim: Sim, player: number): { x: number; y: number; zoom: number } | undefined {
+  for (const [, data] of sim.world.query(Player)) {
+    if (data.id === player && data.camera.length === 3) return { x: data.camera[0], y: data.camera[1], zoom: data.camera[2] }
+  }
+  return undefined
+}
+
+/** Задаёт игроку камеру в начале игры; undefined — убирает: камера встанет у его юнитов. */
+export function setPlayerCamera(sim: Sim, player: number, camera: { x: number; y: number; zoom: number } | undefined) {
+  if (!player) return
+  addCredits(sim, player, 0)
+  for (const [entity, data] of sim.world.query(Player)) {
+    if (data.id === player) sim.world.set(entity, Player, { camera: camera ? [camera.x, camera.y, camera.zoom] : [] })
+  }
+}
+
 /** Ставит игроку ровно столько кредитов. */
 export function setCredits(sim: Sim, player: number, credits: number) {
   addCredits(sim, player, Math.max(0, Math.round(credits)) - creditsOf(sim, player))

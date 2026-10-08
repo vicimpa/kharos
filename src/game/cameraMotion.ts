@@ -51,6 +51,9 @@ export class CameraMotion {
   /** Где камера была на прошлом замере; null — её переставили, и скачок не считается полётом. */
   private last: { x: number; y: number; zoom: number } | null = null
 
+  /** Простое управление, для редактора: без разгона, инерции, полёта и плавного масштаба — всё сразу. */
+  simple = false
+
   constructor(readonly camera: Camera) {}
 
   /** Летит ли камера сама к точке. */
@@ -60,6 +63,7 @@ export class CameraMotion {
 
   /** Колесо: масштаб в factor раз от того, к которому камера уже идёт. Точка экрана (x, y) остаётся на месте. */
   zoomBy(factor: number, x: number, y: number) {
+    if (this.simple) return this.camera.zoomTo(this.camera.clampZoom(this.camera.zoom * factor), x, y)
     this.zoomTarget = this.camera.clampZoom((this.zoomTarget ?? this.camera.zoom) * factor)
     this.zoomAnchor = { x, y }
   }
@@ -80,7 +84,7 @@ export class CameraMotion {
   release() {
     if (!this.dragging) return
     this.dragging = false
-    if (this.sinceDrag <= FLING_WINDOW) {
+    if (this.sinceDrag <= FLING_WINDOW && !this.simple) {
       this.velocityX = -this.dragVelocityX
       this.velocityY = -this.dragVelocityY
     }
@@ -89,6 +93,7 @@ export class CameraMotion {
 
   /** Камера летит так, чтобы точка (x, y) в тайлах оказалась в середине видимой части. */
   flyTo(x: number, y: number) {
+    if (this.simple) return this.jump(x, y)
     if (!this.flight) this.flightVelocityX = this.flightVelocityY = 0
     this.flight = { x, y }
     this.velocityX = this.velocityY = 0
@@ -119,7 +124,8 @@ export class CameraMotion {
 
     const thrust = thrustX !== 0 || thrustY !== 0
     if (thrust) this.flight = null
-    const blend = 1 - Math.exp(-seconds / (thrust ? ACCELERATION : DECELERATION))
+    // Простое управление: скорость — ровно та, что просят клавиши.
+    const blend = this.simple ? 1 : 1 - Math.exp(-seconds / (thrust ? ACCELERATION : DECELERATION))
     this.velocityX += (thrustX - this.velocityX) * blend
     this.velocityY += (thrustY - this.velocityY) * blend
     if (!thrust && Math.hypot(this.velocityX, this.velocityY) < REST) this.velocityX = this.velocityY = 0

@@ -63,9 +63,10 @@ export const Path = component('Path', () => ({ points: [] as number[], goalX: 0,
 /**
  * Игрок: сущность без места на карте. Отслеживается, чтобы интерфейс узнавал о смене счёта.
  * earned — заработанная доля кредита, ещё не дошедшая до целого. rewards — какие награды игрок уже получил, по порядку.
- * away — сколько он заработал за нынешнее отсутствие, см. Rules.offlineIncome; в сети — ноль.
+ * away — сколько он заработал за нынешнее отсутствие, см. Rules.offlineIncome; в сети — ноль. camera — где у него
+ * камера в начале игры: середина экрана в тайлах и масштаб, x, y, zoom; пусто — у его юнитов. Задаёт редактор.
  */
-export const Player = component('Player', () => ({ id: 0, credits: 0, earned: 0, rewards: [] as string[], away: 0 }), { tracked: true })
+export const Player = component('Player', () => ({ id: 0, credits: 0, earned: 0, rewards: [] as string[], away: 0, camera: [] as number[] }), { tracked: true })
 
 /**
  * Производство юнитов: есть у MCV и у главного здания.
