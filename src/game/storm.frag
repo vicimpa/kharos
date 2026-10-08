@@ -15,17 +15,19 @@ uniform vec3 uTint; // освещение: ночью буря темнеет в
 const float TEXELS_PER_TILE = 16.0;
 // Насколько далеко внутрь карты заходит дымка и где за краем буря становится непроглядной: местность за краем
 // генератор тоже считает, но видно её быть не должно.
-const float INSIDE = 5.0;
-// Насколько шум гнёт край бури, в тайлах: внутрь и наружу от края.
-const float WOBBLE = 2.5;
-// За сколько тайлов от края пыль у края темнеет до мглы.
-const float DEPTH = 18.0;
-// Пыль у края — цвета песка, глубже — бурая мгла.
-const vec3 DUST = vec3(0.62, 0.48, 0.27);
-const vec3 HAZE = vec3(0.30, 0.22, 0.14);
-const vec3 DEEP = vec3(0.05, 0.035, 0.03);
+// Берег мглы: непроглядной она становится на 0..FRONT тайлов внутри карты, а перед этим на REACH_MIN..REACH_MAX
+// тайлов редеет до прозрачной. Оба числа гуляют вдоль края, чтобы край не читался рамкой. За краем — сплошная
+// мгла: местность за краем генератор тоже считает, но видно её быть не должно.
+const float FRONT = 7.0;
+const float REACH_MIN = 4.0;
+const float REACH_MAX = 10.0;
+// Мгла — того же тона, что неразведанный туман, поэтому граница между ними не видна.
+const vec3 DARK = vec3(0.035, 0.03, 0.028);
+// Клубы пыли в мгле: редкие и тусклые — заметны, только когда движутся.
+const vec3 DUST = vec3(0.30, 0.23, 0.14);
+const float DUST_ALPHA = 0.5;
 // Ступени непрозрачности: пелена ложится полосами с дизерингом, как погода.
-const float STEPS = 6.0;
+const float STEPS = 8.0;
 
 float hash(vec2 p) {
   p = fract(p * vec2(123.34, 456.21));
@@ -74,24 +76,25 @@ void main() {
   // Расстояние за край карты: снаружи — плюс, внутри — минус.
   vec2 outside = max(vec2(uBounds.x - p.x, uBounds.y - p.y), vec2(p.x - uBounds.z, p.y - uBounds.w));
   float distance = length(max(outside, 0.0)) + min(max(outside.x, outside.y), 0.0);
-  if (distance < -(INSIDE + WOBBLE)) discard;
+  if (distance < -(FRONT + REACH_MAX + 2.0)) discard;
 
   // Пыль несёт ветер, а клубы ещё и медленно перекатываются сами.
   vec2 drifted = p - uDrift;
   float swirl = fbm(drifted / 14.0 + vec2(uTime * 0.03, -uTime * 0.02));
-  float clouds = fbm(drifted / 6.0 + swirl * 1.6);
-  // Стена бури встаёт чуть внутри карты, где-то на 0..2·WOBBLE тайлов от края: так она всегда закрывает и прямой
-  // край тумана, и местность за краем.
-  float edge = distance + WOBBLE + (swirl - 0.5) * 2.0 * WOBBLE;
+  float clouds = fbm(drifted / 7.0 + swirl * 1.6);
+  // Берег — крупный медленный шум, не завязанный на ветер: у мглы свои мысы и заливы. Его растягивает сильнее,
+  // чем разброс fbm вокруг середины, чтобы мысы доходили до краёв диапазона.
+  float coast = clamp((fbm(p / 18.0 + vec2(uTime * 0.005)) - 0.5) * 2.2 + 0.5, 0.0, 1.0);
+  float front = -FRONT * coast;
+  float reach = mix(REACH_MIN, REACH_MAX, fbm(p / 30.0 + vec2(41.0, 7.0)));
+  // Клубы немного раскачивают берег и вблизи.
+  float edge = (distance - front + reach) / reach + (swirl - 0.5) * 0.5;
 
-  float density = smoothstep(-INSIDE, 0.0, edge);
-  // В дымке перед стеной видны полосы и разрывы.
-  density = clamp(density + (clouds - 0.5) * 0.6 * (1.0 - density), 0.0, 1.0);
-  if (edge >= 0.0) density = 1.0;
-  // Пыль клубами: светлые пятна песка в бурой мгле, а глубже — только мгла.
-  float depth = smoothstep(0.0, DEPTH, distance + (clouds - 0.5) * 10.0);
-  float lit = smoothstep(0.45, 0.8, clouds) * (1.0 - depth);
-  vec3 color = mix(mix(HAZE, DUST, lit), DEEP, smoothstep(0.3, 1.0, depth));
+  float density = smoothstep(0.0, 1.0, edge);
+  if (distance > 0.0) density = max(density, smoothstep(0.0, 2.0, distance));
+  // Клубы — светлее мглы, у самого края и чуть за ним; глубже их не видно.
+  float wisps = smoothstep(0.55, 0.85, clouds) * (1.0 - smoothstep(0.0, 14.0, distance)) * smoothstep(0.2, 0.8, edge);
+  vec3 color = mix(DARK, DUST, wisps * DUST_ALPHA);
 
   float dither = mix(0.5, bayer(texel), detail);
   float alpha = clamp(floor(density * STEPS + dither) / STEPS, 0.0, 1.0);
