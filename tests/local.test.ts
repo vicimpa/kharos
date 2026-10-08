@@ -3,7 +3,8 @@ import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { createLocalServer, type LocalControl, type LocalNotice, type LocalPort, type LocalServer } from '../src/net/local'
 import { decodeServer } from '../src/net/protocol'
 import { createReplica, type Replica } from '../src/net/replica'
-import { Position, Unit, type SimSave } from '../src/sim'
+import { Position, Unit, createSim, creditsOf, type SimSave } from '../src/sim'
+import { addCredits } from '../src/sim/economy'
 
 const STEP = 1 / 20
 const options = { generator: DEFAULT_SETTINGS.generator, size: 256 }
@@ -107,4 +108,23 @@ test('уходящая вкладка получает последнее сох
   expect(back.sim.time.tick).toBe(tick)
   for (let i = 0; i < 10; i++) server.advance(STEP)
   expect(server.host!.sim.time.tick).toBeGreaterThan(tick)
+})
+
+test('вошедший в слот без игроков получает мир из своего сохранения, а не оставшийся в воркере; reload подменяет мир играющим', () => {
+  const server = createLocalServer()
+  const first = tab(server)
+  for (let i = 0; i < 10; i++) server.advance(STEP)
+  first.control({ type: 'leave' })
+  const edited = first.saves[0]
+  // Сохранение поправили в редакторе: второй игрок с кредитами.
+  const sim = createSim(edited)
+  addCredits(sim, 7, 500)
+  const save = sim.save()
+  const back = tab(server, save)
+  expect(creditsOf(server.host!.sim, 7)).toBe(500)
+  expect(back.sim.time.tick).toBe(save.tick)
+
+  addCredits(sim, 7, 100)
+  back.control({ type: 'reload', save: sim.save() })
+  expect(creditsOf(server.host!.sim, 7)).toBe(600)
 })

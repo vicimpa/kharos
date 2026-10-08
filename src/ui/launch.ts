@@ -19,6 +19,9 @@ export type Launch =
 /** Игра, а не редактор. */
 export type PlayLaunch = Exclude<Launch, { kind: 'editor' }>
 
+/** Имя общего воркера, который считает мир слота id: вкладки этого слота играют в один мир. */
+export const slotWorker = (id: string) => `kharos-play-${id}`
+
 /** Адрес сервера на этой же машине. */
 export const localServerUrl = () => `ws://${location.hostname}:${DEFAULT_PORT}`
 
@@ -152,6 +155,6 @@ export async function startSession(launch: PlayLaunch, settings: MapSettings, si
       save: await loadSave(slot.id),
     },
     (save) => void storeSave(slot.id, save),
-    `kharos-play-${slot.id}`,
+    slotWorker(slot.id),
   )
 }

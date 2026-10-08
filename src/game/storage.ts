@@ -129,8 +129,13 @@ export function listSaves(): SaveSlot[] {
 
 const storeIndex = (slots: SaveSlot[]) => write(INDEX_KEY, slots)
 
+/** Записи по слотам идут по очереди: иначе ранняя, дольше сжимавшаяся, могла бы лечь поверх поздней. */
+const writing = new Map<string, Promise<void>>()
+
 /** Мир слота id, поднятый до этой версии игры; null — его нет или файл не читается. */
 export async function loadSave(id: string): Promise<SimSave | null> {
+  // Сперва — незаконченная запись этого слота: иначе прочли бы мир, который она вот-вот заменит.
+  await writing.get(id)
   try {
     const file = await store().get(id)
     return file ? (await decodeSave(file)).save : null
@@ -147,8 +152,6 @@ export function createSlot(name: string, size: number, seed: number, weather?: P
   return slot
 }
 
-/** Записи по слотам идут по очереди: иначе ранняя, дольше сжимавшаяся, могла бы лечь поверх поздней. */
-const writing = new Map<string, Promise<void>>()
 
 /** Кладёт мир в слот id. Слот, удалённый, пока в нём играли, не воскресает. */
 export function storeSave(id: string, save: SimSave): Promise<void> {

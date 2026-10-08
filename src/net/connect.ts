@@ -135,6 +135,17 @@ export function connect(url: string, lag = 0, name = '', password = '', signal?:
  * вкладки с одним name играют в один мир. onSave получает сохранения, которые воркер присылает сам, — в том числе
  * последнее, когда вкладка уходит из игры.
  */
+/**
+ * Подменяет мир слота в его воркере, если в слот сейчас играют: так правка из редактора не затрётся автосохранением
+ * открытой игры. Если не играют — воркер ничего не делает: мир возьмут из сохранения при входе.
+ */
+export function reloadLocal(name: string, save: SimSave) {
+  if (typeof SharedWorker === 'undefined') return
+  const { port } = new SharedWorker(new URL('./local.worker.ts', import.meta.url), { type: 'module', name })
+  port.postMessage({ type: 'reload', save } satisfies LocalControl)
+  port.close()
+}
+
 export function connectLocal(setup: LocalSetup, onSave: (save: SimSave) => void, name: string): Promise<Session> {
   return new Promise((resolve) => {
     let port: MessagePort | Worker

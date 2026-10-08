@@ -36,6 +36,7 @@ export type LocalControl =
   | ({ type: 'start' } & LocalSetup)
   | { type: 'restart'; options: SimOptions; battle: BattleConfig }
   | { type: 'leave' }
+  | { type: 'reload'; save: SimSave }
 
 /** Что воркер шлёт вкладке, кроме текста протокола: сохранение, чтобы она положила его в свой браузер. */
 export type LocalNotice = { type: 'saved'; save: SimSave }
@@ -100,14 +101,22 @@ export function createLocalServer(): LocalServer {
         if (typeof data === 'string') return peer?.receive(data)
         const control = data as LocalControl
         if (control.type === 'start' && !peer) {
-          if (!host) {
+          // Пока в мир никто не играет, правда — в сохранении вкладки: его могли поправить в редакторе, загрузить из
+          // файла или дописать последней записью. Мир, оставшийся в воркере, тогда не продолжается, а заводится заново из
+          // него; без сохранения вкладка застаёт мир, каким его оставили.
+          if (!host || (!ports.size && control.save)) {
             const { save, ...rest } = control
             setup = rest
             const resumed = save && rest.mode === 'play' ? createSim({ ...save, rules: rest.options.rules }) : null
-            host = createHost(resumed ?? createWorld(rest.options, rest.mode, rest.battle), LOCAL_PLAYER)
+            const sim = resumed ?? createWorld(rest.options, rest.mode, rest.battle)
+            if (host) host.replace(sim)
+            else host = createHost(sim, LOCAL_PLAYER)
           }
           ports.add(port)
           peer = host.join((text) => port.postMessage(text))
+        } else if (control.type === 'reload') {
+          // Сохранение поправили в редакторе, пока в слот играют: все вкладки получают поправленный мир.
+          if (host && setup?.mode === 'play') host.replace(createSim({ ...control.save, rules: setup.options.rules }))
         } else if (control.type === 'restart' && setup) {
           setup = { ...setup, options: control.options, battle: control.battle }
           restart()
