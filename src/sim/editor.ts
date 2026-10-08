@@ -1,8 +1,8 @@
 import type { Entity } from '../ecs'
 import { Terrain, isBuildable, isCliffFoot, setTile, terrainAt, tileBytes, tileKey } from '../map/terrain'
-import { canPlace, placeBuilding, type BuildingType } from './buildings'
-import { Attached, Carrier, Deposit, Ghost, Health, Inventory, Owner, Path, Player, Position, Unit } from './components'
-import { DEPOSIT_CELL, DEPOSIT_SIZE, depositEntity, depositIn, depositNear, forgetDeposits, type DepositKind, type DepositSpot } from './deposits'
+import { BUILDINGS, canPlace, placeBuilding, type BuildingType } from './buildings'
+import { Attached, Building, Carrier, Deposit, Ghost, Turret, Health, Inventory, Owner, Path, Player, Position, Unit } from './components'
+import { DEPOSIT_CELL, DEPOSIT_SIZE, depositEntity, depositAt, depositIn, depositNear, forgetDeposits, reserveLeft, type DepositKind, type DepositSpot } from './deposits'
 import { creditsOf, addCredits } from './economy'
 import { releaseHauler } from './hauling'
 import type { Good } from './resources'
@@ -15,6 +15,15 @@ import { UNITS, flies, isWalkable, spawnUnit, type UnitType } from './units'
  * ровно то, что поставили. Правки не проверяются на деньги, технологии и строителей, но правила места — те же, что
  * в игре: здание не встаёт туда, где его нельзя построить, юнит — туда, где ему не стоять.
  */
+
+/**
+ * Турели встают на носители. Мир стоит, поэтому их прошлое место — нынешнее: иначе турель рисовалась бы на полпути от
+ * старого места носителя.
+ */
+function settle(sim: Sim) {
+  followCarriers(sim)
+  for (const [, position, turret] of sim.world.query(Position, Turret)) Object.assign(turret, { prevX: position.x, prevY: position.y, prevAngle: turret.angle })
+}
 
 /** Чем красит кисть карты: что не задано, остаётся у тайла прежним. */
 export interface Brush {
@@ -89,7 +98,7 @@ export function putUnit(sim: Sim, type: UnitType, x: number, y: number, player: 
   if (!canPut(sim, type, x, y)) return undefined
   addCredits(sim, player, 0)
   const unit = spawnUnit(sim, type, player, x, y)
-  followCarriers(sim)
+  settle(sim)
   return unit
 }
 
@@ -102,7 +111,7 @@ export function moveUnit(sim: Sim, entity: Entity, x: number, y: number) {
   Object.assign(position, { x: x + 0.5, y: y + 0.5 })
   Object.assign(unit, { prevX: x + 0.5, prevY: y + 0.5 })
   world.remove(entity, Path)
-  followCarriers(sim)
+  settle(sim)
   return true
 }
 
@@ -225,12 +234,85 @@ export function moveGhost(sim: Sim, ghost: Entity | undefined, type: UnitType, p
     Object.assign(position, { x: x + 0.5, y: y + 0.5 })
     Object.assign(world.get(ghost, Unit)!, { prevX: x + 0.5, prevY: y + 0.5 })
     world.get(ghost, Ghost)!.blocked = !canPut(sim, type, x, y)
-    followCarriers(sim)
+    settle(sim)
     return ghost
   }
   if (ghost !== undefined) erase(sim, ghost)
   const entity = spawnUnit(sim, type, player, x, y)
   world.add(entity, Ghost({ blocked: !canPut(sim, type, x, y) }))
-  followCarriers(sim)
+  settle(sim)
   return entity
+}
+
+/**
+ * Сдвигает юниты и здания вместе на (dx, dy) тайлов: всё или ничего. Здания встают по правилам места, юниты — где им
+ * стоять; друг другу сдвигаемые не мешают — места, откуда они ушли, свободны. Возвращает, удалось ли.
+ */
+export function moveGroup(sim: Sim, entities: Iterable<Entity>, dx: number, dy: number) {
+  const { world } = sim
+  if (!dx && !dy) return true
+  const buildings: { entity: Entity; x: number; y: number; type: BuildingType }[] = []
+  const units: { entity: Entity; x: number; y: number }[] = []
+  for (const entity of entities) {
+    const position = world.get(entity, Position)
+    if (!position || !world.alive(entity) || world.has(entity, Ghost)) continue
+    const building = world.get(entity, Building)
+    if (building) buildings.push({ entity, x: position.x, y: position.y, type: building.type })
+    else if (world.has(entity, Unit)) units.push({ entity, x: position.x, y: position.y })
+  }
+  // Здания снимаются с места: занятость тайлов следит за Position, см. createOccupancy.
+  for (const { entity } of buildings) world.remove(entity, Position)
+  const placed: Entity[] = []
+  let ok = true
+  for (const { entity, x, y, type } of buildings) {
+    if (!canPlace(sim, type, x + dx, y + dy)) {
+      ok = false
+      break
+    }
+    world.add(entity, Position({ x: x + dx, y: y + dy }))
+    placed.push(entity)
+  }
+  ok &&= units.every(({ entity, x, y }) => canPut(sim, world.get(entity, Unit)!.type, Math.floor(x + dx), Math.floor(y + dy)))
+  if (!ok) {
+    for (const entity of placed) world.remove(entity, Position)
+    for (const { entity, x, y } of buildings) world.add(entity, Position({ x, y }))
+    return false
+  }
+  for (const { entity, x, y } of units) {
+    Object.assign(world.get(entity, Position)!, { x: x + dx, y: y + dy })
+    Object.assign(world.get(entity, Unit)!, { prevX: x + dx, prevY: y + dy })
+    world.remove(entity, Path)
+  }
+  settle(sim)
+  return true
+}
+
+/** Юниты и здания, середина которых в прямоугольнике в тайлах. */
+export function entitiesIn(sim: Sim, left: number, top: number, right: number, bottom: number): Entity[] {
+  const { world } = sim
+  const found: Entity[] = []
+  for (const [entity, position] of world.query(Position)) {
+    if (world.has(entity, Ghost)) continue
+    const building = world.get(entity, Building)
+    if (!building && !world.has(entity, Unit)) continue
+    const x = building ? position.x + BUILDINGS[building.type].width / 2 : position.x
+    const y = building ? position.y + BUILDINGS[building.type].height / 2 : position.y
+    if (x >= left && x <= right && y >= top && y <= bottom) found.push(entity)
+  }
+  return found
+}
+
+/**
+ * Переносит месторождение левым верхним тайлом в (x, y) вместе с видом и остатком. В чужую клетку, где своё
+ * месторождение уже есть, — нельзя: в клетке оно одно. Возвращает новое место или null.
+ */
+export function moveDeposit(sim: Sim, spot: DepositSpot, x: number, y: number): DepositSpot | null {
+  if (spot.x === x && spot.y === y) return spot
+  if (!canPutDeposit(sim, x, y)) return null
+  const there = depositIn(sim, Math.floor(x / DEPOSIT_CELL), Math.floor(y / DEPOSIT_CELL))
+  if (there && (there.x !== spot.x || there.y !== spot.y)) return null
+  const left = reserveLeft(sim, spot.x, spot.y)
+  removeDeposit(sim, spot)
+  putDeposit(sim, x, y, spot.kind, left)
+  return depositAt(sim, x, y)
 }

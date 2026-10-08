@@ -24,7 +24,7 @@ import {
   type SimSave,
   type UnitType,
 } from '../sim'
-import { DEPOSIT_CELL, DEPOSIT_KINDS, DEPOSIT_SIZE, DEPOSIT_TYPES, depositAt, reserveLeft, type DepositKind } from '../sim/deposits'
+import { DEPOSIT_CELL, DEPOSIT_KINDS, DEPOSIT_SIZE, DEPOSIT_TYPES, depositAt, depositIn, reserveLeft, type DepositKind } from '../sim/deposits'
 import {
   addPlayer,
   depositUnder,
@@ -32,7 +32,9 @@ import {
   entityAt,
   erase,
   moveGhost,
-  moveUnit,
+  entitiesIn,
+  moveDeposit,
+  moveGroup,
   paint,
   playersOf,
   putBuilding,
@@ -174,8 +176,11 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
   /** Обработчик левой кнопки на холсте: что делает инструмент. */
   function createEdit(game: Game, sim: Sim): SceneEdit {
     const { scene } = game
-    /** Юнит, которого тянут в инструменте «Выбор». */
-    let dragging: Entity | undefined
+    /**
+     * Что тянут мышью: выбранные юниты и здания разом, месторождение или рамку выделения. from — тайл, от которого
+     * отсчитан уже сделанный сдвиг.
+     */
+    let dragging: { kind: 'group' | 'deposit'; from: { x: number; y: number } } | { kind: 'box'; from: { x: number; y: number } } | null = null
     let last = ''
     return {
       press(point, phase, shift) {
@@ -203,27 +208,62 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
         } else if (tool === 'unit' && phase === 'down') {
           if (putUnit(sim, unit, x, y, player) === undefined) setStatus(`${UNIT_NAMES[unit]} здесь не встанет`)
           else touched()
-        } else if (tool === 'deposit' && phase === 'down') {
-          // Щелчок по месторождению выбирает его, по пустому месту — кладёт новое левым верхним тайлом сюда.
-          const spot = depositUnder(sim, point.x, point.y)
-          if (spot) setDeposit({ x: spot.x, y: spot.y })
-          else if (putDeposit(sim, x, y, kind, reserve)) {
-            setDeposit({ x, y })
-            touched()
-          } else setStatus('Месторождение ложится на скалу не у подножия обрыва, целиком в своей клетке')
+        } else if (tool === 'deposit') {
+          if (phase === 'down') {
+            // Щелчок по месторождению выбирает его, и его можно тащить. Мимо — снимает выбор; новое ложится, только если
+            // в клетке месторождения ещё нет: иначе щелчок мимо заменил бы его.
+            const spot = depositUnder(sim, point.x, point.y)
+            if (spot) {
+              setDeposit({ x: spot.x, y: spot.y })
+              dragging = { kind: 'deposit', from: { x, y } }
+            } else if (state.current.deposit) setDeposit(null)
+            else if (depositIn(sim, Math.floor(x / DEPOSIT_CELL), Math.floor(y / DEPOSIT_CELL))) setStatus('В этой клетке уже есть месторождение: перетащите его')
+            else if (putDeposit(sim, x, y, kind, reserve)) {
+              setDeposit({ x, y })
+              touched()
+            } else setStatus('Месторождение ложится на скалу не у подножия обрыва, целиком в своей клетке')
+          } else if (dragging?.kind === 'deposit' && state.current.deposit) {
+            const at = state.current.deposit
+            const spot = depositAt(sim, at.x, at.y)
+            const moved = spot && (x !== dragging.from.x || y !== dragging.from.y) ? moveDeposit(sim, spot, at.x + x - dragging.from.x, at.y + y - dragging.from.y) : null
+            if (moved) {
+              dragging.from = { x, y }
+              // Ref — сразу: следующий сдвиг придёт раньше, чем Preact перерисует панель.
+              state.current.deposit = { x: moved.x, y: moved.y }
+              setDeposit({ x: moved.x, y: moved.y })
+              touched()
+            }
+          }
+          if (phase === 'up') dragging = null
         } else if (tool === 'select') {
           if (phase === 'down') {
             const target = entityAt(sim, point.x, point.y)
-            if (!shift) scene.selection.clear()
-            if (target !== undefined) scene.selection.add(target)
-            dragging = target !== undefined && sim.world.has(target, Unit) ? target : undefined
-            last = tile
-          } else if (dragging !== undefined && tile !== last) {
-            // Юнит тянут мышью: он встаёт на тайл под указателем, если ему там стоять.
-            if (moveUnit(sim, dragging, x, y)) touched()
-            last = tile
+            if (target === undefined) {
+              // Мимо — рамка: юниты и здания вместе.
+              if (!shift) scene.selection.clear()
+              dragging = { kind: 'box', from: point }
+            } else {
+              if (shift && scene.selection.has(target)) scene.selection.delete(target)
+              else {
+                if (!shift && !scene.selection.has(target)) scene.selection.clear()
+                scene.selection.add(target)
+                dragging = { kind: 'group', from: { x, y } }
+              }
+            }
+          } else if (dragging?.kind === 'box') {
+            const { from } = dragging
+            const box = { fromX: from.x, fromY: from.y, toX: point.x, toY: point.y }
+            const hits = entitiesIn(sim, Math.min(box.fromX, box.toX), Math.min(box.fromY, box.toY), Math.max(box.fromX, box.toX), Math.max(box.fromY, box.toY))
+            scene.selectionBox = phase === 'up' ? null : { ...box, hits }
+            if (phase === 'up') for (const entity of hits) scene.selection.add(entity)
+          } else if (dragging?.kind === 'group' && (x !== dragging.from.x || y !== dragging.from.y)) {
+            // Выбранное тянут мышью вместе: сдвиг целыми тайлами, если всем есть где встать.
+            if (moveGroup(sim, scene.selection, x - dragging.from.x, y - dragging.from.y)) {
+              dragging.from = { x, y }
+              touched()
+            }
           }
-          if (phase === 'up') dragging = undefined
+          if (phase === 'up') dragging = null
         }
       },
       hover(tile) {
@@ -378,7 +418,7 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
                   Запас
                   <input type="number" min={0} step={100} value={reserve} onChange={(event) => setReserve(Number(event.currentTarget.value) || 0)} />
                 </label>
-                <p class="editor__note">Щелчок по месторождению — выбрать, по скале — положить новое. В клетке {DEPOSIT_CELL}×{DEPOSIT_CELL} оно одно: прежнее исчезнет.</p>
+                <p class="editor__note">Щелчок по месторождению — выбрать, тащить — перенести. Щелчок по скале кладёт новое, если в клетке {DEPOSIT_CELL}×{DEPOSIT_CELL} его ещё нет: там оно одно.</p>
                 {spot && (
                   <>
                     <h3>
@@ -396,7 +436,7 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
                 )}
               </div>
             )}
-            {tool === 'select' && <p class="editor__note">Щелчок — выбрать, Shift — добавить. Юнита можно тащить мышью.</p>}
+            {tool === 'select' && <p class="editor__note">Щелчок — выбрать, рамка — юниты и здания вместе, Shift — добавить или снять. Выбранное тащится мышью разом.</p>}
             {tool === 'erase' && <p class="editor__note">Щелчок или протяжка убирает здание или юнит без взрыва и груза на земле.</p>}
           </section>
 

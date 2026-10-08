@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { DEFAULT_CONFIG, Terrain, setTile, terrainAt } from '../src/map/terrain'
 import { Attached, Building, Ghost, Health, Inventory, Owner, Position, Unit, createSim, creditsOf, type Sim } from '../src/sim'
-import { addPlayer, depositUnder, entityAt, erase, moveGhost, moveUnit, paint, playersOf, putBuilding, putDeposit, putUnit, removeDeposit, setCredits, setDeposit, setHealth, setOwner, setStock } from '../src/sim/editor'
+import { addPlayer, depositUnder, entitiesIn, entityAt, erase, moveDeposit, moveGhost, moveGroup, moveUnit, paint, playersOf, putBuilding, putDeposit, putUnit, removeDeposit, setCredits, setDeposit, setHealth, setOwner, setStock } from '../src/sim/editor'
 import { depositAt, depositIn, reserveLeft } from '../src/sim/deposits'
 import { editTile } from '../src/sim/landMemory'
 
@@ -96,4 +96,39 @@ test('призрак юнита не выбирается, краснеет та
   expect(sim.world.get(ghost, Ghost)!.blocked).toBe(true)
   erase(sim, ghost)
   expect([...sim.world.query(Unit)].length).toBe(0)
+})
+
+test('юниты и здания тащатся вместе: всё или ничего, друг другу не мешают', () => {
+  const sim = world()
+  const player = addPlayer(sim)
+  const generator = putBuilding(sim, 'generator', 0, 0, player)!
+  const tank = putUnit(sim, 'tank', 4, 0, player)!
+  expect(entitiesIn(sim, -1, -1, 6, 3).sort()).toEqual([generator, tank].sort())
+  // Здание заезжает на место, откуда ушло само.
+  expect(moveGroup(sim, [generator, tank], 1, 0)).toBe(true)
+  expect(sim.world.get(generator, Position)).toEqual({ x: 1, y: 0 })
+  expect(sim.occupancy.at(1, 0)).toBe(generator)
+  expect(sim.occupancy.at(0, 0)).toBeUndefined()
+  expect(sim.world.get(tank, Position)).toEqual({ x: 5.5, y: 0.5 })
+  // Танку некуда — не едет никто.
+  paint(sim, 15, 0, 1, { terrain: Terrain.Rock, tier: 3, cliff: true })
+  const blocked = putBuilding(sim, 'generator', 10, 0, player)!
+  expect(moveGroup(sim, [generator, tank], 0, 0)).toBe(true)
+  expect(moveGroup(sim, [generator, tank], 5, 0)).toBe(false)
+  expect(sim.world.get(generator, Position)).toEqual({ x: 1, y: 0 })
+  expect(sim.occupancy.at(1, 0)).toBe(generator)
+  expect(blocked).toBeDefined()
+})
+
+test('месторождение тащится с видом и остатком, но не в клетку с другим', () => {
+  const sim = world()
+  const spot = depositIn(sim, 0, 0)!
+  setDeposit(sim, spot, 'fuel', 300)
+  const x = spot.x === 2 ? 6 : 2
+  const moved = moveDeposit(sim, depositAt(sim, spot.x, spot.y)!, x, 2)!
+  expect(moved).toMatchObject({ x, y: 2, kind: 'fuel' })
+  expect(reserveLeft(sim, x, 2)).toBe(300)
+  expect(depositAt(sim, spot.x, spot.y)).toBeNull()
+  const other = depositIn(sim, -1, 0)
+  if (other) expect(moveDeposit(sim, moved, other.x === -38 ? -36 : -38, 2)).toBeNull()
 })
