@@ -264,6 +264,7 @@ int peakShade(vec2 p, float grain, float dither) {
 // Совпадает с CLIFF_BIT в terrain.ts: в байте рельефа два младших бита — ярус, этот — обрывистая кромка.
 const int CLIFF_BIT = 4;
 
+
 // Рельеф тайла: ярус и обрывистость кромки. У гор байт занят вершиной — их ярус считается неизвестным (-1).
 ivec2 relief(ivec2 cell) {
   vec4 data = tile(cell);
@@ -298,6 +299,18 @@ vec2 height(vec2 q) {
 
 float level(float h) { return floor(h + 0.5); }
 
+// Совпадает с STEP_BIT в terrain.ts: рядом с тайлом есть перепад ярусов. Его считает генератор, чтобы шейдер
+// не искал обрывы там, где их нет, — а это почти вся карта.
+const int STEP_BIT = 8;
+
+// Ярус, если вокруг тайла перепадов нет, иначе -1. У гор — тоже -1: их байт рельефа занят вершиной.
+int flatTier(ivec2 cell) {
+  vec4 data = tile(cell);
+  if (int(data.r * 255.0 + 0.5) == MOUNTAIN) return -1;
+  int packed = int(data.a * 255.0 + 0.5);
+  return (packed & STEP_BIT) != 0 ? -1 : packed & 3;
+}
+
 // Высота стенки обрыва на экране, в тайлах.
 const float WALL = 0.7;
 const int WALL_STEPS = 7;
@@ -306,6 +319,8 @@ const int WALL_STEPS = 7;
 // на север видна лишь тёмная линия. Возвращает x — 1 на стенке, y — глубина по стенке (0 у верха, 1 у подножия),
 // z — тень у подножия (0..1), w — кромка наверху: 1 — светлая (над стенкой), -1 — тёмная (северный край).
 vec4 cliff(vec2 q, vec2 p) {
+  ivec2 cell = ivec2(floor(q));
+  if (flatTier(cell) >= 0 || int(tile(cell).r * 255.0 + 0.5) == MOUNTAIN) return vec4(0.0);
   // Неровный край: обкусан шумом.
   vec2 jag = vec2(0.0, (noise(p, vec2(4.0)) - 0.5) * 0.25 + (noise(p, vec2(12.0)) - 0.5) * 0.1);
   vec2 here = height(q + jag);
@@ -340,8 +355,20 @@ vec4 cliff(vec2 q, vec2 p) {
   return result;
 }
 
+// Искажение границ зон в точке p — то же, что в terrainColor.
+vec2 zoneWarp(vec2 p) {
+  return (vec2(noise(p, vec2(2.25)), noise(p + 31.0, vec2(2.25))) - 0.5) * 0.6;
+}
+
+// Обрыв в точке мира (см. cliff), посчитанный в центре текселя пиксель-арта.
+vec4 wallAt(vec2 worldP) {
+  vec2 p = (floor(worldP * TEXELS_PER_TILE) + 0.5) / TEXELS_PER_TILE;
+  return cliff(p + zoneWarp(p), p);
+}
+
 // Цвет карты в точке мира. detail гасит зерно и дизеринг: 1 — в полную силу, 0 — ровная заливка.
-vec3 terrainColor(vec2 worldP, float detail) {
+// wall — обрыв, см. cliff: его ищут заранее, чтобы при сглаживании не искать заново в каждой выборке.
+vec3 terrainColor(vec2 worldP, float detail, vec4 wall) {
   // Всё считается в центре текселя пиксель-арта, а не в точке экрана.
   ivec2 texel = ivec2(floor(worldP * TEXELS_PER_TILE));
   vec2 p = (vec2(texel) + 0.5) / TEXELS_PER_TILE;
@@ -352,7 +379,7 @@ vec3 terrainColor(vec2 worldP, float detail) {
   float coarse = fbm(p, 1.0);
   float fine = noise(p, vec2(8.0));
 
-  vec2 warp = (vec2(noise(p, vec2(2.25)), noise(p + 31.0, vec2(2.25))) - 0.5) * 0.6;
+  vec2 warp = zoneWarp(p);
   vec3 zone = zones(p, warp);
   float rock = zone.x;
   float swamp = zone.y;
@@ -372,7 +399,8 @@ vec3 terrainColor(vec2 worldP, float detail) {
     // Тёмная кайма по краю плато.
     value -= (1.0 - smoothstep(0.5, 0.85, rock)) * 0.5;
     // Верхние ярусы светлее, на пологих въездах яркость перетекает плавно.
-    value += (max(height(p + warp).x, 1.0) - 1.0) * 0.22;
+    int tierHere = flatTier(ivec2(floor(p + warp)));
+    value += (max(tierHere >= 0 ? float(tierHere) : height(p + warp).x, 1.0) - 1.0) * 0.22;
     color = rockColor(biome, shade(value, dither));
   } else if (swamp > 0.5) {
     // Анимация шагами, как покадровая.
@@ -410,7 +438,6 @@ vec3 terrainColor(vec2 worldP, float detail) {
   }
 
   if (peak < 0) {
-    vec4 wall = cliff(p + warp, p);
     if (wall.x > 0.0) {
       // Стенка: вертикальные трещины породы, светлее у верха, темнее к подножию.
       float strata = noise(p, vec2(6.0, 0.5));
@@ -435,15 +462,17 @@ void main() {
   vec3 color;
   if (texelPixels >= SMOOTH_BELOW_PIXELS) {
     // Вблизи — чёткий пиксель-арт.
-    color = terrainColor(screenP, 1.0);
+    color = terrainColor(screenP, 1.0, wallAt(screenP));
   } else {
     // Издалека усредняем четыре точки внутри пикселя экрана, а зерно, которое мельче пикселя, гасим.
     float detail = clamp(texelPixels * 2.0 - 1.0, 0.0, 1.0);
+    // Стенка обрыва ищется один раз на пиксель: это самая дорогая часть, а внутри пикселя она почти не меняется.
+    vec4 wall = wallAt(screenP);
     color = 0.25 * (
-      terrainColor(screenP + pixelX * 0.125 + pixelY * 0.375, detail)
-      + terrainColor(screenP - pixelX * 0.375 + pixelY * 0.125, detail)
-      + terrainColor(screenP + pixelX * 0.375 - pixelY * 0.125, detail)
-      + terrainColor(screenP - pixelX * 0.125 - pixelY * 0.375, detail)
+      terrainColor(screenP + pixelX * 0.125 + pixelY * 0.375, detail, wall)
+      + terrainColor(screenP - pixelX * 0.375 + pixelY * 0.125, detail, wall)
+      + terrainColor(screenP + pixelX * 0.375 - pixelY * 0.125, detail, wall)
+      + terrainColor(screenP - pixelX * 0.125 - pixelY * 0.375, detail, wall)
     );
   }
 

@@ -19,6 +19,7 @@ export const isTerrainTest = () => location.pathname.replace(/\/$/, '').endsWith
  */
 export function TerrainTest() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const statsRef = useRef<HTMLSpanElement>(null)
   const [seed, setSeed] = useState(() => Number(new URLSearchParams(location.search).get('seed')) || DEFAULT_SETTINGS.generator.seed)
 
   useEffect(() => {
@@ -73,10 +74,19 @@ export function TerrainTest() {
 
     let frame = 0
     let last = performance.now()
+    // Среднее время кадра за полсекунды: по нему видно, во что обходится шейдер.
+    let frames = 0
+    let measured = last
     const tick = (now: number) => {
       frame = requestAnimationFrame(tick)
       const seconds = Math.min(0.1, (now - last) / 1000)
       last = now
+      frames++
+      if (now - measured > 500) {
+        if (statsRef.current) statsRef.current.textContent = `${((now - measured) / frames).toFixed(1)} мс · зум ${camera.zoom.toFixed(1)}`
+        frames = 0
+        measured = now
+      }
       const { width, height } = renderer.resize()
       camera.zoom = Math.max(camera.zoom, minZoom(width, height))
       const step = (KEY_SPEED * Math.max(width, height) * seconds) / camera.zoom
@@ -101,7 +111,7 @@ export function TerrainTest() {
   return (
     <main class="game">
       <canvas ref={canvasRef} class="game__canvas" />
-      <div class="terrain-test">зерно {seed} · мышь, колесо, WASD · R — новое зерно · G — сетка</div>
+      <div class="terrain-test"><span ref={statsRef} /> · зерно {seed} · мышь, колесо, WASD · R — новое зерно · G — сетка</div>
     </main>
   )
 }

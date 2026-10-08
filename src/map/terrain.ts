@@ -30,7 +30,7 @@ export const CHUNK_SIZE = 32
  * Четыре байта на тайл: [тип местности, биом (2 бита основной, 2 бита соседний, 4 бита доля соседнего), глубина в
  * песках 0..255, рельеф]; у гор третий байт — радиус вершины, четвёртый — смещение до её центра. Рельеф у остальных:
  * 2 младших бита — ярус (0 — пески и болота, 1..3 — ярусы плато), бит CLIFF_BIT — кромка тайла к нижним соседям
- * обрывистая, а не пологая. В таком же виде данные уходят в шейдер.
+ * обрывистая, а не пологая, бит STEP_BIT — рядом перепад ярусов. В таком же виде данные уходят в шейдер.
  */
 export const TILE_BYTES = 4
 
@@ -108,6 +108,15 @@ export const DEFAULT_CONFIG: GeneratorConfig = {
 export const MAX_TIER = 3
 /** Бит обрывистой кромки в байте рельефа. Совпадает с CLIFF_BIT в terrain.frag. */
 export const CLIFF_BIT = 4
+/**
+ * Бит «рядом перепад ярусов» в байте рельефа: в соседях тайла от двух выше до одного ниже (и по одному вбок) есть
+ * другой ярус. Без него шейдер не ищет обрывы — это дорого, а почти вся карта ровная. Совпадает с STEP_BIT в terrain.frag.
+ */
+export const STEP_BIT = 8
+/** Окно соседей для STEP_BIT: сверху больше — туда смотрит стенка обрыва. */
+const STEP_UP = 2
+const STEP_DOWN = 1
+const STEP_SIDE = 1
 
 /** Больше нельзя: шейдер ищет вершины только в соседних тайлах (PEAK_SEARCH в terrain.frag). */
 export const PEAK_RADIUS_LIMIT = 2
@@ -340,6 +349,24 @@ function generateChunk(config: GeneratorConfig, chunkX: number, chunkY: number):
     }
   }
 
+  // Ярусы чанка с полями: по ним ищутся перепады у краёв чанка.
+  const span = CHUNK_SIZE + STEP_SIDE * 2
+  const tiers = new Uint8Array(span * (CHUNK_SIZE + STEP_UP + STEP_DOWN))
+  for (let y = -STEP_UP; y < CHUNK_SIZE + STEP_DOWN; y++) {
+    for (let x = -STEP_SIDE; x < CHUNK_SIZE + STEP_SIDE; x++) {
+      const worldX = chunkX * CHUNK_SIZE + x
+      const worldY = chunkY * CHUNK_SIZE + y
+      tiers[(y + STEP_UP) * span + x + STEP_SIDE] = tierOf(elevationAt(worldX, worldY, config), zoneLevels(biomeWeights(worldX, worldY, config), config), config)
+    }
+  }
+  const stepNear = (x: number, y: number) => {
+    const tier = tiers[(y + STEP_UP) * span + x + STEP_SIDE]
+    for (let dy = -STEP_UP; dy <= STEP_DOWN; dy++) {
+      for (let dx = -STEP_SIDE; dx <= STEP_SIDE; dx++) if (tiers[(y + dy + STEP_UP) * span + x + dx + STEP_SIDE] !== tier) return true
+    }
+    return false
+  }
+
   for (let y = 0; y < CHUNK_SIZE; y++) {
     for (let x = 0; x < CHUNK_SIZE; x++) {
       const worldX = chunkX * CHUNK_SIZE + x
@@ -351,8 +378,8 @@ function generateChunk(config: GeneratorConfig, chunkX: number, chunkY: number):
       tiles[index] = classify(elevation, levels)
       tiles[index + 1] = packBiome(weights)
       tiles[index + 2] = Math.round(sandDepth(elevation, levels) * 255)
-      const tier = tierOf(elevation, levels, config)
-      tiles[index + 3] = tier | (tier && isCliff(worldX, worldY, config) ? CLIFF_BIT : 0)
+      const tier = tiers[(y + STEP_UP) * span + x + STEP_SIDE]
+      tiles[index + 3] = tier | (tier && isCliff(worldX, worldY, config) ? CLIFF_BIT : 0) | (stepNear(x, y) ? STEP_BIT : 0)
 
       // В тайл записывается ближайшая из задевающих его вершин; остальные шейдер найдёт в соседних тайлах.
       let nearest: Peak | null = null
