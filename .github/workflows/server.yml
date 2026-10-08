@@ -28,7 +28,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun test
       # Один файл для тех, у кого уже стоит Bun, и самодостаточные бинарники под Linux.
-      - run: bun build server/main.ts --target=bun --minify --outfile out/main.js
+      - run: bun build server/main.ts --target=bun --minify --outfile out/kharos-server-bun.js
       - run: bun build server/main.ts --compile --minify --target=bun-linux-x64 --outfile out/kharos-server-linux-x64
       - run: bun build server/main.ts --compile --minify --target=bun-linux-arm64 --outfile out/kharos-server-linux-arm64
       # Версия протокола в имени релиза: по ней видно, к каким клиентам сервер подходит.
@@ -48,7 +48,7 @@ jobs:
             Сборка из ${{ github.sha }}. Клиент на GitHub Pages собран из того же коммита.
 
             - `kharos-server-linux-x64`, `kharos-server-linux-arm64` — запускаются без Bun: `PORT=8787 ./kharos-server-linux-x64`
-            - `main.js` — для машины с Bun: `PORT=8787 bun main.js`
+            - `kharos-server-bun.js` — для машины с Bun: `PORT=8787 bun kharos-server-bun.js`
           files: out/*
       # Хранятся последние десять сборок сервера, старые релизы уходят вместе с тегами.
       - run: |

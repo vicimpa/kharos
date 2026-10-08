@@ -36,7 +36,7 @@ bun test         # тесты
 Готовые сборки лежат в [релизах](https://github.com/vicimpa/kharos/releases/latest). Свежая сборка из `main` скачивается напрямую:
 
 - [Linux x64](https://github.com/vicimpa/kharos/releases/latest/download/kharos-server-linux-x64) и [Linux arm64](https://github.com/vicimpa/kharos/releases/latest/download/kharos-server-linux-arm64): Bun для них не нужен.
-- [main.js](https://github.com/vicimpa/kharos/releases/latest/download/main.js): для машины, где стоит Bun.
+- [kharos-server-bun.js](https://github.com/vicimpa/kharos/releases/latest/download/kharos-server-bun.js): для машины, где стоит Bun.
 
 ```bash
 curl -LO https://github.com/vicimpa/kharos/releases/latest/download/kharos-server-linux-x64
