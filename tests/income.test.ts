@@ -7,6 +7,7 @@ import {
   Off, OVERLOAD_DAMAGE, REPAIR_COST, coreless, powerSupply, REPAIR_SPEED, canBuild, canDeploy, canPlace, createSim, creditsOf, economyOf, powerOf, powerStates, refundOf, rewardsOf, siteAt, zoneEconomies, zoneOf, zonesOf, spawnStartingUnits, type BuildingType, type Sim,
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
+import { connectAll, connectBuilding } from '../src/sim/piping'
 import { REWARDS, STARTING_CREDITS } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
 
@@ -44,8 +45,12 @@ function start() {
   throw new Error('В мире не нашлось места под базу')
 }
 
-/** Готовое здание игрока 1, поставленное в обход стройки. */
-const put = (sim: Sim, type: BuildingType, x: number, y: number) => placeBuilding(sim.world, type, x, y, 1)
+/** Готовое здание игрока 1, поставленное в обход стройки и подключённое трубой к ближайшей сети, как при стройке. */
+const put = (sim: Sim, type: BuildingType, x: number, y: number) => {
+  const building = placeBuilding(sim.world, type, x, y, 1)
+  connectBuilding(sim, building)
+  return building
+}
 
 function coreOf(sim: Sim) {
   for (const [entity, building, owner] of sim.world.query(Building, Owner)) {
@@ -129,7 +134,7 @@ test('готовые здания расширяют зону строитель
   const { sim, x, y } = start()
   // Главное здание стоит у (x + 3.5, y + 3.5): радиус 12 кончается около x + 15.
   const far = x + 17
-  expect(zoneOf(sim, 1).length).toBe(3)
+  expect(zonesOf(sim, 1).length).toBe(1)
   expect(canPlace(sim, 'khariteVault', far, y + 3)).toBe(true)
   expect(canBuild(sim, 1, 'khariteVault', far, y + 3)).toBe(false)
 
@@ -138,20 +143,20 @@ test('готовые здания расширяют зону строитель
   sim.advance(TICK)
   expect(canBuild(sim, 1, 'khariteVault', far, y + 3)).toBe(false)
   put(sim, 'khariteVault', x + 13, y + 5)
-  expect(zoneOf(sim, 1).length).toBe(6)
+  expect(zonesOf(sim, 1).length).toBe(1)
   expect(canBuild(sim, 1, 'khariteVault', far, y + 3)).toBe(true)
 
-  // Здание, до которого цепочка не дотягивается, держит свою, отдельную зону; встанет звено между ними — зоны сольются.
-  put(sim, 'khariteVault', x + 22, y + 5)
+  // Здание без трубы — своя, отдельная сеть; протянут трубу — сети сольются.
+  placeBuilding(sim.world, 'khariteVault', x + 22, y + 5, 1)
   expect(zonesOf(sim, 1).length).toBe(2)
-  put(sim, 'khariteVault', x + 18, y + 5)
+  connectAll(sim, 1)
   expect(zonesOf(sim, 1).length).toBe(1)
-  expect(zoneOf(sim, 1).length).toBe(12)
 
-  // Без главного здания зона остаётся: её держат сами здания.
+  // Без главного здания зона остаётся: её держат сами здания и трубы.
   sim.send(1, { type: 'pack', building: coreOf(sim) })
   seconds(sim, 10.1)
-  expect(zoneOf(sim, 1).length).toBe(9)
+  expect(zoneOf(sim, 1).length).toBeGreaterThan(0)
+  expect(canBuild(sim, 1, 'khariteVault', far, y + 3)).toBe(true)
 })
 
 test('здание разбирают строители в полтора раза быстрее стройки; половина цены возвращается в конце', () => {
@@ -218,18 +223,21 @@ test('энергия у каждой зоны своя: электростанц
   expect(zoneEconomies(sim, 1)).toEqual([{ produced: 20, demand: 3, income: 1.7, crowd: 1 }])
 
   // Второе главное здание далеко от первого — вторая зона. Её генератор материи без своей электростанции стоит.
+  // Далеко местность не проверялась: трубы там кладутся руками.
   const far = x + 300
-  put(sim, 'command', far, y)
-  put(sim, 'matter', far + 4, y)
+  placeBuilding(sim.world, 'command', far, y, 1)
+  placeBuilding(sim.world, 'matter', far + 4, y, 1)
+  placeBuilding(sim.world, 'pipe', far + 3, y, 1)
   expect(zonesOf(sim, 1).length).toBe(2)
   expect(zoneEconomies(sim, 1)[1]).toEqual({ produced: 0, demand: 3, income: 0.2, crowd: 1 })
   // Теснота тоже считается по зонам: в каждой генератор материи первый.
   expect(economyOf(sim, 1).income).toBeCloseTo(1.9)
 
-  put(sim, 'generator', far + 4, y + 3)
+  placeBuilding(sim.world, 'generator', far + 4, y + 3, 1)
+  placeBuilding(sim.world, 'pipe', far + 4, y + 2, 1)
   expect(zoneEconomies(sim, 1)[1].income).toBeCloseTo(1.7)
 
-  // Главное здание внутри чужой зоны свою не начинает: зона у них общая.
+  // Второе главное здание, подключённое трубой к первой базе, — та же сеть.
   put(sim, 'command', x + 10, y + 6)
   expect(zonesOf(sim, 1).length).toBe(2)
 })

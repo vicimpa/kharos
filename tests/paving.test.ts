@@ -9,8 +9,6 @@ import {
 import { orderMove, spawnUnit, terrainSpeed } from '../src/sim/units'
 import { canDeploy } from '../src/sim/conversion'
 import { breakSlabs } from '../src/sim/combat'
-import { inCircles, zoneOf, zonesOf } from '../src/sim/zones'
-import { placeBuilding } from '../src/sim/buildings'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024, rules: { techTree: false } }
 const TICK = 1 / 20
@@ -151,7 +149,7 @@ test('на фундаменте на скале здание строится в
     if (paved) for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) lay(sim, 'foundation', at.x + dx, at.y + dy)
     sim.send(1, { type: 'build', building: 'generator', x: at.x, y: at.y, builders })
     seconds(sim, 4)
-    for (const [, site] of sim.world.query(Site)) return site.progress
+    for (const [, site] of sim.world.query(Site)) if (site.type === 'generator') return site.progress
     return Infinity
   }
   const bare = progress(false)
@@ -172,27 +170,6 @@ const strip = (sim: Sim, x: number, row: number, length: number) => {
   for (let tx = x; tx <= x + length; tx++) if (![Terrain.Rock, Terrain.Sand].includes(terrainAt(sim.land, tx, row) as never)) return false
   return true
 }
-
-test('фундамент, сплошь примыкающий к зоне, расширяет её на клетку вокруг себя; отдельный — нет', () => {
-  const { sim, x, y } = start((sim, x, y) => strip(sim, x + 6, y + 6, 16))
-  // Полоса скалы или песка от базы наружу, дальше зоны главного здания.
-  const row = y + 6
-  let end = x + 6
-  const usable = (tx: number) => [Terrain.Rock, Terrain.Sand].includes(terrainAt(sim.land, tx, row) as never)
-  while (usable(end + 1) && end < x + 40) end++
-  expect(end).toBeGreaterThanOrEqual(x + 22)
-  const beyond = end + 1
-  // Отдельный островок за пределами зоны зону не тянет.
-  lay(sim, 'foundation', end, row)
-  expect(inCircles(zoneOf(sim, 1), end + 0.5, row + 0.5)).toBe(false)
-  for (let tx = x + 6; tx < end; tx++) lay(sim, 'foundation', tx, row)
-  expect(inCircles(zoneOf(sim, 1), end + 0.5, row + 0.5)).toBe(true)
-  expect(inCircles(zoneOf(sim, 1), beyond + 0.5, row + 0.5)).toBe(true)
-  expect(inCircles(zoneOf(sim, 1), beyond + 2.5, row + 0.5)).toBe(false)
-  // Разрыв полосы — и дальний конец из зоны выпадает.
-  sim.world.destroy(sim.paving.at(x + 18, row)!)
-  expect(inCircles(zoneOf(sim, 1), end + 0.5, row + 0.5)).toBe(false)
-})
 
 test('наземный взрыв разбивает фундамент под собой, пуля — нет', () => {
   const { sim, x, y } = start()
@@ -217,36 +194,6 @@ test('MCV разворачивается на фундаменте, лежаще
   sim.send(1, { type: 'deploy', unit: mcv })
   seconds(sim, 6)
   expect(sim.occupancy.at(sand.x + 1, sand.y + 1)).toBeDefined()
-})
-
-test('полоса фундамента соединяет зону главного здания с базой, оставшейся без него', () => {
-  const sim = createSim(options)
-  // Ряд скалы: новое главное здание слева, старая база справа, между ними — фундамент.
-  let row = { x: 0, y: 0 }
-  search: for (let y = -200; y < 200; y++) {
-    for (let x = -200; x < 200; x++) {
-      let ok = true
-      for (let ty = y; ty < y + 3 && ok; ty++) for (let tx = x; tx < x + 34 && ok; tx++) ok = terrainAt(sim.land, tx, ty) === Terrain.Rock
-      if (ok) {
-        row = { x, y }
-        break search
-      }
-    }
-  }
-  const { x, y } = row
-  placeBuilding(sim.world, 'command', x, y, 1)
-  const generator = placeBuilding(sim.world, 'generator', x + 26, y, 1)
-  const yard = placeBuilding(sim.world, 'metalYard', x + 30, y, 1)
-  const core = sim.occupancy.at(x, y)!
-  const zoneWith = (entity: Entity) => zonesOf(sim, 1).findIndex((zone) => zone.buildings.includes(entity))
-  // Старая база держит свою зону, отдельную от зоны главного здания.
-  expect(zonesOf(sim, 1).length).toBe(2)
-  expect(zoneWith(generator)).not.toBe(zoneWith(core))
-  for (let tx = x + 3; tx < x + 26; tx++) lay(sim, 'foundation', tx, y + 2)
-  // Полоса примыкает к электростанции: зоны слились, и хранилище за ней — в той же зоне.
-  expect(zonesOf(sim, 1).length).toBe(1)
-  expect(zoneWith(generator)).toBe(zoneWith(core))
-  expect(zoneWith(yard)).toBe(zoneWith(core))
 })
 
 test('широкому юниту узкая дорога не помогает: ему нужна полоса в два тайла', () => {

@@ -3,8 +3,8 @@ import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Terrain, isCliffFoot, terrainAt } from '../src/map/terrain'
 import {
-  BUILDINGS, Building, Builds, CORE, Inventory, Owner, Position, Site, Unit,
-  canBuild, canPlace, createSim, creditsOf, isWalkable, rewardsOf, siteAt, spawnStartingUnits, type Sim,
+  AutoPipe, BUILDINGS, Building, Builds, CORE, Inventory, Owner, Position, Site, Unit,
+  buildPrice, canBuild, canPlace, createSim, creditsOf, isWalkable, rewardsOf, siteAt, spawnStartingUnits, type Sim,
 } from '../src/sim'
 import { BUILD_RATE, isUnlocked, placeBuilding } from '../src/sim/buildings'
 import { WORK_RADIUS } from '../src/sim/construction'
@@ -21,6 +21,21 @@ function unitsOf(sim: Sim, type: string) {
   const found: Entity[] = []
   for (const [entity, unit] of sim.world.query(Unit)) if (unit.type === type) found.push(entity)
   return found
+}
+
+/** Стройка и труба автоподключения, заложенная вместе с ней: строитель стройки берётся и за трубу. */
+function orderOf(sim: Sim, site: Entity) {
+  const found = [site]
+  for (const [entity, auto] of sim.world.query(AutoPipe)) if (auto.site === site) found.push(entity)
+  return found
+}
+
+/** Убирает все трубы игрока 1: зону тогда держат только здания. */
+function cutPipes(sim: Sim) {
+  const pipes: Entity[] = []
+  for (const [entity, building, owner] of sim.world.query(Building, Owner)) if (owner.player === 1 && building.type === 'pipe') pipes.push(entity)
+  for (const [entity, site, owner] of sim.world.query(Site, Owner)) if (owner.player === 1 && site.type === 'pipe') pipes.push(entity)
+  for (const entity of new Set(pipes)) sim.world.destroy(entity)
 }
 
 function coreOf(sim: Sim) {
@@ -59,9 +74,12 @@ function start() {
 test('строитель возводит здание: кредиты списаны, площадка проходима, готовое здание занимает тайлы', () => {
   const { sim, builders, site } = start()
   const credits = creditsOf(sim, 1)
+  // Платят и за трубу до сети: она закладывается вместе со зданием.
+  const price = buildPrice(sim, 1, 'generator', site.x, site.y)
+  expect(price).toBeGreaterThan(BUILDINGS.generator.cost)
   sim.send(1, { type: 'build', building: 'generator', x: site.x, y: site.y, builders: [builders[0]] })
   sim.advance(TICK)
-  expect(creditsOf(sim, 1)).toBe(credits - BUILDINGS.generator.cost)
+  expect(creditsOf(sim, 1)).toBe(credits - price)
   const entity = siteAt(sim, site.x + 1, site.y + 1)!
   expect(sim.world.get(entity, Site)).toEqual({ type: 'generator', progress: 0, demolish: false })
   // Пока строитель не доехал, площадка никому не мешает, но второе здание на неё не поставить.
@@ -158,19 +176,28 @@ test('строить можно только в радиусе контроля,
   expect(siteAt(sim, site.x, site.y)).toBeDefined()
   expect(sim.world.count(Builds)).toBe(0)
 
-  // Площадки можно закладывать и без строителей: кредиты списываются за каждую.
+  // Площадки можно закладывать и без строителей: кредиты списываются за каждую вместе с трубой до сети.
+  let spent = creditsOf(sim, 1) - credits
+  expect(spent).toBeLessThan(0)
+  spent = credits - creditsOf(sim, 1)
   for (const y of [site.y - 3, site.y + 3, site.y + 6]) {
     expect(canBuild(sim, 1, 'generator', site.x, y)).toBe(true)
+    spent += buildPrice(sim, 1, 'generator', site.x, y)
     sim.send(1, { type: 'build', building: 'generator', x: site.x, y, builders: [] })
     sim.advance(TICK)
   }
-  expect(sim.world.count(Site)).toBe(4)
-  expect(creditsOf(sim, 1)).toBe(credits - 4 * BUILDINGS.generator.cost)
+  const generators = () => {
+    let count = 0
+    for (const [, item] of sim.world.query(Site)) if (item.type === 'generator') count++
+    return count
+  }
+  expect(generators()).toBe(4)
+  expect(creditsOf(sim, 1)).toBe(credits - spent)
 
   // На пятую уже не хватает.
   sim.send(1, { type: 'build', building: 'generator', x: site.x + 3, y: site.y, builders: [] })
   sim.advance(TICK)
-  expect(sim.world.count(Site)).toBe(4)
+  expect(generators()).toBe(4)
 })
 
 test('отмена возвращает кредиты, а приказ идти снимает строителя со стройки', () => {
@@ -201,10 +228,13 @@ test('отмена возвращает кредиты, а приказ идти
   expect(sim.world.count(Builds)).toBe(0)
 })
 
-test('без главного здания стройка стоит, готовые здания остаются', () => {
+test('без зоны стройка стоит, готовые здания остаются', () => {
   const { sim, core, builders, site } = start()
   sim.send(1, { type: 'build', building: 'generator', x: site.x, y: site.y, builders: [builders[0]] })
   sim.send(1, { type: 'pack', building: core })
+  // Зону держат и трубы: без главного здания и труб её нет.
+  sim.advance(TICK)
+  cutPipes(sim)
   seconds(sim, 10.5)
   const entity = sim.occupancy.at(site.x, site.y)!
   const frozen = sim.world.get(entity, Site)!.progress
@@ -237,7 +267,7 @@ test('свободный строитель сам берётся за стро�
   sim.send(1, { type: 'build', building: 'generator', x: site.x, y: site.y, builders: [] })
   seconds(sim, 1.1)
   const entity = siteAt(sim, site.x, site.y)!
-  expect(sim.world.get(builders[0], Builds)).toMatchObject({ site: entity })
+  expect(orderOf(sim, entity)).toContain(sim.world.get(builders[0], Builds)!.site as Entity)
   seconds(sim, 6)
   expect(sim.world.get(entity, Site)!.progress).toBeGreaterThan(0)
 
@@ -248,9 +278,10 @@ test('свободный строитель сам берётся за стро�
   seconds(sim, 2)
   expect(sim.world.has(far, Builds)).toBe(false)
 
-  // Главное здание свёрнуто — стройка стоит, и браться за неё незачем.
+  // Главное здание свёрнуто и труб нет — стройка стоит, и браться за неё незачем.
   sim.send(1, { type: 'pack', building: core })
   seconds(sim, 10.1)
+  cutPipes(sim)
   sim.send(1, { type: 'move', units: [builders[0]], x: Math.floor(position.x) - 1, y: Math.floor(position.y) })
   seconds(sim, 3)
   expect(sim.world.has(builders[0], Builds)).toBe(false)
@@ -297,7 +328,7 @@ test('стройка, которая ждёт материалов, строит
   sim.send(1, { type: 'build', building: 'spaceport', x: site.x, y: site.y, builders: [builder] })
   seconds(sim, 1)
   const waiting = siteAt(sim, site.x, site.y)!
-  expect(sim.world.get(builder, Builds)?.site).toBe(waiting)
+  expect(orderOf(sim, waiting)).toContain(sim.world.get(builder, Builds)!.site as Entity)
   // Рядом — электростанция, ей материалы не нужны; заложена без строителей.
   sim.send(1, { type: 'build', building: 'generator', x: site.x + 4, y: site.y, builders: [] })
   seconds(sim, 1)

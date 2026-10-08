@@ -1,8 +1,9 @@
 import { expect, test } from 'bun:test'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Terrain, terrainAt } from '../src/map/terrain'
-import { Owner, Pave, Position, createSim, type BuildingType, type Sim } from '../src/sim'
+import { createSim, type Sim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
+import { addCredits } from '../src/sim/economy'
 import { zonesOf } from '../src/sim/zones'
 import { throughJson } from './throughJson'
 
@@ -20,58 +21,54 @@ function rock(sim: Sim, width: number, height: number) {
   throw new Error('Не нашлось скалы')
 }
 
-// Шахта с центром в 10 тайлах от главного здания: она в его круге (12), а оно вне её круга (7).
-for (const first of ['mine', 'command'] as BuildingType[]) {
-  test(`шахта в зоне главного здания — одна зона, что бы ни построили раньше (${first})`, () => {
-    const sim = createSim(options)
-    const { x, y } = rock(sim, 16, 4)
-    const layout: [BuildingType, number][] = [['command', 0], ['mine', 10]]
-    if (first === 'mine') layout.reverse()
-    for (const [type, dx] of layout) placeBuilding(sim.world, type, x + dx, y, 1)
-    expect(zonesOf(sim, 1).length).toBe(1)
-    expect(zonesOf(sim, 1)[0].buildings.length).toBe(2)
-  })
-}
+test('шахта рядом с главным зданием — отдельная сеть, пока их не соединит труба', () => {
+  const sim = createSim(options)
+  const { x, y } = rock(sim, 16, 4)
+  placeBuilding(sim.world, 'command', x, y, 1)
+  placeBuilding(sim.world, 'mine', x + 10, y, 1)
+  expect(zonesOf(sim, 1).length).toBe(2)
+  for (let tx = x + 3; tx < x + 10; tx++) placeBuilding(sim.world, 'pipe', tx, y, 1)
+  expect(zonesOf(sim, 1).length).toBe(1)
+  expect(zonesOf(sim, 1)[0].buildings.length).toBe(2 + 7)
+})
 
-test('здание в перекрытии двух зон соединяет их; без него зоны раздельные', () => {
+test('сеть с главным зданием — первая; стена в сеть не входит', () => {
   const sim = createSim(options)
   const { x, y } = rock(sim, 24, 4)
-  placeBuilding(sim.world, 'command', x, y, 1)
-  placeBuilding(sim.world, 'command', x + 20, y, 1)
-  expect(zonesOf(sim, 1).length).toBe(2)
-  placeBuilding(sim.world, 'generator', x + 10, y, 1)
-  expect(zonesOf(sim, 1).length).toBe(1)
+  placeBuilding(sim.world, 'generator', x + 20, y, 1)
+  const core = placeBuilding(sim.world, 'command', x, y, 1)
+  const wall = placeBuilding(sim.world, 'wall', x + 3, y, 1)
+  expect(zonesOf(sim, 1)[0].buildings[0]).toBe(core)
+  expect(zonesOf(sim, 1).some((zone) => zone.buildings.includes(wall))).toBe(false)
 })
 
 /** Сохранение через JSON, как на сервере. */
 const reload = (sim: Sim) => createSim(throughJson(sim.save()))
 
-test('после загрузки сохранения зоны те же: шахта раньше главного и полоса фундамента', () => {
+test('после загрузки сохранения сети те же, и разрыв трубы снова их делит', () => {
   const sim = createSim(options)
   const { x, y } = rock(sim, 34, 4)
-  placeBuilding(sim.world, 'mine', x + 10, y, 1)
   placeBuilding(sim.world, 'command', x, y, 1)
   const generator = placeBuilding(sim.world, 'generator', x + 30, y, 1)
   expect(zonesOf(sim, 1).length).toBe(2)
-  for (let tx = x + 12; tx < x + 30; tx++) sim.world.spawn(Position({ x: tx, y: y + 2 }), Pave({ kind: 'foundation', done: true, work: 1 }), Owner({ player: 1 }))
+  for (let tx = x + 3; tx < x + 30; tx++) placeBuilding(sim.world, 'pipe', tx, y, 1)
   expect(zonesOf(sim, 1).length).toBe(1)
   const loaded = reload(sim)
   expect(zonesOf(loaded, 1).length).toBe(1)
-  expect(zonesOf(loaded, 1)[0].buildings.length).toBe(3)
   expect(zonesOf(loaded, 1)[0].buildings).toContain(generator)
-  // И дальше зоны пересчитываются: разрыв полосы снова отделяет электростанцию.
-  loaded.world.destroy(loaded.paving.at(x + 20, y + 2)!)
+  loaded.world.destroy(loaded.occupancy.at(x + 20, y)!)
   loaded.advance(1 / 20)
   expect(zonesOf(loaded, 1).length).toBe(2)
 })
 
-test('базы почти вплотную — одна зона: основание здания задевает круг соседней, хоть центр и дальше радиуса', () => {
+test('стройка с подведённой трубой входит в сеть: ей сеть везёт материалы', () => {
   const sim = createSim(options)
-  const { x, y } = rock(sim, 34, 6)
-  // Хранилище металла с центром (x + 1.5, y + 1) и радиусом 5; цех кремния — с зазором в два тайла: его центр
-  // в 5,5 тайла, а край основания — в 3,5.
-  placeBuilding(sim.world, 'command', x - 12, y, 1)
-  placeBuilding(sim.world, 'metalYard', x, y, 1)
-  placeBuilding(sim.world, 'siliconWorks', x + 5, y, 1)
-  expect(zonesOf(sim, 1).length).toBe(1)
+  const { x, y } = rock(sim, 16, 4)
+  placeBuilding(sim.world, 'command', x, y, 1)
+  placeBuilding(sim.world, 'pipe', x + 3, y, 1)
+  addCredits(sim, 1, 1000)
+  sim.send(1, { type: 'build', building: 'factory', x: x + 4, y, builders: [] })
+  sim.advance(1 / 20)
+  const [zone] = zonesOf(sim, 1)
+  expect(zone.sites.length).toBe(1)
 })

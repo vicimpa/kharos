@@ -148,10 +148,11 @@ const oreIn = (sim: Sim, entity: Entity) => good(sim, entity, 'metalOre')
 /** Сколько готового металла на складе сущности. */
 const metalIn = (sim: Sim, entity: Entity) => good(sim, entity, 'metal')
 
-/** Переработка с электростанцией в зоне главного здания: завод работает, только когда есть энергия. */
+/** Переработка с электростанцией, соединённые трубой: завод работает, только когда есть энергия. */
 function refineryAt(sim: Sim, spot: DepositSpot) {
   const refinery = place(sim, 'smelter', spot.x + 12, spot.y + 2)
   place(sim, 'generator', spot.x + 14, spot.y)
+  place(sim, 'pipe', spot.x + 15, spot.y + 2)
   return refinery
 }
 

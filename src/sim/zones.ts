@@ -1,7 +1,6 @@
 import type { Entity, World } from '../ecs'
-import { tileKey } from '../map/terrain'
-import { BUILDINGS, type BuildingSpec } from './buildings'
-import { Building, Owner, Pave, Position, Site } from './components'
+import { BUILDINGS, CORE, UNDERGROUND_REACH, buildingSpec, type BuildingSpec } from './buildings'
+import { Building, Inventory, Owner, Position, Site } from './components'
 import type { Sim } from './sim'
 
 /** Радиус зоны строительства вокруг главного здания, в тайлах от его центра. */
@@ -17,191 +16,177 @@ export function inCircles(circles: readonly number[], x: number, y: number) {
   return false
 }
 
-/** Задевает ли прямоугольник (x, y, width, height) хотя бы один круг. circles — x, y и радиус подряд. */
-function rectInCircles(circles: readonly number[], x: number, y: number, width: number, height: number) {
-  for (let i = 0; i < circles.length; i += 3) {
-    const nearX = Math.max(x, Math.min(circles[i], x + width))
-    const nearY = Math.max(y, Math.min(circles[i + 1], y + height))
-    if (Math.hypot(nearX - circles[i], nearY - circles[i + 1]) <= circles[i + 2]) return true
-  }
-  return false
-}
-
-/** Зона строительства: здание, которое её начало (главное или другое с собственной зоной), и всё, что к нему пристроено. */
+/**
+ * Зона строительства — она же сеть труб: связная группа готовых зданий и труб игрока. Запас, энергия и доставка
+ * у каждой сети свои. Здания связаны, только если их соединяет труба: соседство не считается.
+ */
 export interface Zone {
   /** Круги, из которых зона состоит: x, y и радиус подряд. */
   circles: number[]
-  /** Готовые здания зоны, начиная с главного. */
+  /** Готовые здания и трубы сети, начиная с главного здания, если оно в ней есть. */
   buildings: Entity[]
+  /** Стройки, к основанию которых подведена труба сети: им сеть везёт материалы. Зону они не расширяют. */
+  sites: Entity[]
+  /** Граф сети: рёбра a, b и длина в тайлах подряд. Узлы — здания, трубы и стройки. */
+  edges: number[]
 }
 
-/** На сколько тайлов от своего центра расширяет зону готовый фундамент: на клетку вокруг себя. */
-export const FOUNDATION_REACH = 1.5
-
-/** Посчитанные зоны мира: пересчитываются, только когда появилось или пропало здание, площадка или покрытие. */
-const caches = new WeakMap<World, { zones?: Map<number, Zone[]> }>()
+/** Посчитанные сети мира: пересчитываются, только когда появилось или пропало здание или стройка. */
+interface Cache {
+  zones?: Map<number, Zone[]>
+  /** В какой сети каждое здание, труба и подключённая стройка. */
+  index?: Map<Entity, Zone>
+}
+const caches = new WeakMap<World, Cache>()
 
 function cacheOf(world: World) {
   let cache = caches.get(world)
   if (!cache) {
-    const fresh: { zones?: Map<number, Zone[]> } = {}
+    const fresh: Cache = {}
     const reset = () => {
-      fresh.zones = undefined
-      return () => void (fresh.zones = undefined)
+      fresh.zones = fresh.index = undefined
+      return () => void (fresh.zones = fresh.index = undefined)
     }
     world.observe([Building], reset)
     world.observe([Site], reset)
-    world.observe([Pave], reset)
-    // У клиента готовность покрытия приходит изменением компонента, а не его появлением.
-    world.onChange(Pave, () => void (fresh.zones = undefined))
     caches.set(world, (cache = fresh))
   }
   return cache
 }
 
-/** Забыть посчитанные зоны: так делают, когда меняется то, за чем кэш сам не следит, — например, достроено покрытие. */
-export const resetZones = (sim: Sim) => void (cacheOf(sim.world).zones = undefined)
+/** Забыть посчитанные сети: так делают, когда меняется то, за чем кэш сам не следит. */
+export const resetZones = (sim: Sim) => {
+  const cache = cacheOf(sim.world)
+  cache.zones = cache.index = undefined
+}
 
 /**
- * Зоны строительства всех игроков. Зону задаёт главное здание (и любое здание с BuildingSpec.zone), а расширяют готовые здания, стоящие в ней:
- * каждое добавляет свой круг, и по цепочке зона растёт дальше. Здания держат зону и без главного: база, от которой
- * увели MCV, остаётся зоной сама по себе; начать зону на пустом месте по-прежнему может только MCV или шахта. Расширяет её и готовый фундамент — на клетку вокруг
- * себя, — если его плиты сплошной полосой дотягиваются до зоны; здание, к которому такая полоса примыкает вплотную,
- * входит в зону целиком. Так фундаментом соединяют зоны.
- * Два главных здания дают две зоны; если второе стоит внутри зоны первого, зона у них общая.
+ * Сети труб всех игроков, у каждого игрока — сначала сети с главным зданием. Сеть — связная группа готовых зданий
+ * и труб: труба связывает соседние по стороне трубы и здания, колодец — ещё и с ближайшим своим колодцем по прямой
+ * (подземный отрезок, см. BuildingSpec.pipe). Здание без трубы — сеть само по себе. Зону сети составляют круги её
+ * зданий (BuildingSpec.zone, expand или EXPAND_RADIUS) и труб (PIPE_REACH). Стена в сеть не входит.
  */
 export function allZones(sim: Sim): Map<number, Zone[]> {
   const cache = cacheOf(sim.world)
-  return (cache.zones ??= computeZones(sim))
+  if (!cache.zones) {
+    cache.zones = computeZones(sim)
+    cache.index = new Map()
+    for (const zones of cache.zones.values()) {
+      for (const zone of zones) for (const entity of [...zone.buildings, ...zone.sites]) cache.index.set(entity, zone)
+    }
+  }
+  return cache.zones
 }
 
+/** Сеть, в которую входит здание, труба или подключённая стройка; undefined — ни в какую. */
+export function networkOf(sim: Sim, entity: Entity): Zone | undefined {
+  allZones(sim)
+  return cacheOf(sim.world).index!.get(entity)
+}
+
+const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const
+
 function computeZones(sim: Sim): Map<number, Zone[]> {
-  const { world } = sim
-  /** Готовые здания игрока, ещё не попавшие в зону: сущность, x, y центра и радиус круга подряд. */
-  const waiting = new Map<number, number[]>()
-  const cores = new Map<number, number[]>()
-  for (const [entity, position, building, owner] of world.query(Position, Building, Owner)) {
-    if (world.has(entity, Site)) continue
-    const { width, height, zone, expand }: BuildingSpec = BUILDINGS[building.type]
-    const core = zone !== undefined
-    const target = core ? cores : waiting
-    let list = target.get(owner.player)
-    if (!list) target.set(owner.player, (list = []))
-    list.push(entity, position.x + width / 2, position.y + height / 2, zone ?? expand ?? EXPAND_RADIUS)
+  const { world, occupancy } = sim
+  /** Готовые здания и трубы, которые входят в сети: сущность — игрок. */
+  const members = new Map<Entity, number>()
+  for (const [entity, building, owner] of world.query(Building, Owner)) {
+    if (world.has(entity, Site) || buildingSpec(building.type).isolated) continue
+    members.set(entity, owner.player)
   }
-  /** Готовые фундаменты игрока: x и y тайла подряд. */
-  const slabs = new Map<number, number[]>()
-  for (const [, position, pave, owner] of world.query(Position, Pave, Owner)) {
-    if (!pave.done || pave.kind !== 'foundation') continue
-    let list = slabs.get(owner.player)
-    if (!list) slabs.set(owner.player, (list = []))
-    list.push(position.x, position.y)
+  const parent = new Map<Entity, Entity>()
+  const find = (entity: Entity): Entity => {
+    let root = entity
+    while (parent.has(root)) root = parent.get(root)!
+    while (entity !== root) {
+      const next = parent.get(entity)!
+      parent.set(entity, root)
+      entity = next
+    }
+    return root
+  }
+  const edges: number[] = []
+  const link = (a: Entity, b: Entity, length: number) => {
+    edges.push(a, b, length)
+    const one = find(a)
+    const two = find(b)
+    if (one !== two) parent.set(two, one)
+  }
+  const pipeOf = (entity: Entity) => buildingSpec(world.get(entity, Building)!.type).pipe
+  for (const [entity, position, building] of world.query(Position, Building)) {
+    const kind = buildingSpec(building.type).pipe
+    const player = members.get(entity)
+    if (!kind || player === undefined) continue
+    for (const [dx, dy] of SIDES) {
+      const other = occupancy.at(position.x + dx, position.y + dy)
+      if (other === undefined || members.get(other) !== player) continue
+      // Две соседние трубы видят друг друга дважды: ребро — от меньшей.
+      if (pipeOf(other) && other < entity) continue
+      link(entity, other, 1)
+    }
+    if (kind !== 'well') continue
+    // Подземный отрезок — к ближайшему своему колодцу вправо и вниз: влево и вверх его найдёт тот колодец.
+    for (const [dx, dy] of [[1, 0], [0, 1]] as const) {
+      for (let step = 2; step <= UNDERGROUND_REACH; step++) {
+        const other = occupancy.at(position.x + dx * step, position.y + dy * step)
+        if (other === undefined || members.get(other) !== player || pipeOf(other) !== 'well') continue
+        link(entity, other, step)
+        break
+      }
+    }
   }
 
+  const byRoot = new Map<Entity, Zone>()
   const result = new Map<number, Zone[]>()
-  for (const player of new Set([...cores.keys(), ...waiting.keys()])) {
-    const zones: Zone[] = []
-    const others = waiting.get(player) ?? []
-    // Зону начинает главное здание или шахта, а без них — любое здание, кроме тех, что зону не расширяют (стен).
-    // Все ждут очереди: то, что стоит внутри уже выросшей зоны, свою не начинает.
-    const roots = [...(cores.get(player) ?? [])]
-    for (let i = 0; i < others.length; i += 4) if (others[i + 3] > 0) roots.push(others[i], others[i + 1], others[i + 2], others[i + 3])
-    let rest = [...(cores.get(player) ?? []), ...others]
-    const own = slabs.get(player) ?? []
-    /** Фундаменты, уже вошедшие в какую-то зону игрока, по tileKey. */
-    const used = new Set<number>()
-    /** Здания, к которым вплотную примыкает фундамент зоны: они входят в неё, как бы далеко ни был их центр. */
-    const touching = new Set<number>()
-    const isSlab = (x: number, y: number) => {
-      const entity = sim.paving.at(x, y)
-      const pave = entity === undefined ? undefined : world.get(entity, Pave)
-      return !!pave && pave.done && pave.kind === 'foundation' && world.get(entity!, Owner)?.player === player
+  for (const [entity, player] of members) {
+    const root = find(entity)
+    let zone = byRoot.get(root)
+    if (!zone) {
+      byRoot.set(root, (zone = { circles: [], buildings: [], sites: [], edges: [] }))
+      let list = result.get(player)
+      if (!list) result.set(player, (list = []))
+      list.push(zone)
     }
-    for (let root = 0; root < roots.length; root += 4) {
-      const at = rest.indexOf(roots[root])
-      if (at < 0 || at % 4) continue
-      const zone: Zone = { circles: rest.slice(at + 1, at + 4), buildings: [rest[at] as Entity] }
-      rest.splice(at, 4)
-      /** Присоединяет здания, до которых зона уже дотянулась; так цепочка растёт на звено за проход. */
-      const growBuildings = () => {
-        let any = false
-        for (let grown = true; grown && rest.length; ) {
-          grown = false
-          const still: number[] = []
-          for (let i = 0; i < rest.length; i += 4) {
-            if (touching.has(rest[i]) || inCircles(zone.circles, rest[i + 1], rest[i + 2])) {
-              zone.circles.push(rest[i + 1], rest[i + 2], rest[i + 3])
-              zone.buildings.push(rest[i] as Entity)
-              grown = any = true
-            } else {
-              still.push(rest[i], rest[i + 1], rest[i + 2], rest[i + 3])
-            }
-          }
-          rest = still
-        }
-        return any
-      }
-      /** Присоединяет фундаменты, лежащие в зоне, и всё, что сплошь примыкает к ним. */
-      const growSlabs = () => {
-        const queue: number[] = []
-        for (let i = 0; i < own.length; i += 2) {
-          const key = tileKey(own[i], own[i + 1])
-          if (used.has(key) || !inCircles(zone.circles, own[i] + 0.5, own[i + 1] + 0.5)) continue
-          used.add(key)
-          queue.push(own[i], own[i + 1])
-        }
-        const any = queue.length > 0
-        while (queue.length) {
-          const y = queue.pop()!
-          const x = queue.pop()!
-          zone.circles.push(x + 0.5, y + 0.5, FOUNDATION_REACH)
-          for (let dy = -1; dy <= 1; dy++) {
-            for (let dx = -1; dx <= 1; dx++) {
-              const building = sim.occupancy.at(x + dx, y + dy)
-              if (building !== undefined) touching.add(building)
-              const key = tileKey(x + dx, y + dy)
-              if ((dx || dy) && !used.has(key) && isSlab(x + dx, y + dy)) {
-                used.add(key)
-                queue.push(x + dx, y + dy)
-              }
-            }
-          }
-        }
-        return any
-      }
-      // Здания и фундамент тянут зону по очереди, пока она растёт.
-      growBuildings()
-      while (growSlabs() && growBuildings());
-      zones.push(zone)
+    const position = world.get(entity, Position)!
+    const type = world.get(entity, Building)!.type
+    const { width, height, zone: own, expand }: BuildingSpec = BUILDINGS[type]
+    zone.circles.push(position.x + width / 2, position.y + height / 2, own ?? expand ?? EXPAND_RADIUS)
+    if (type === CORE) zone.buildings.unshift(entity)
+    else zone.buildings.push(entity)
+  }
+  for (let i = 0; i < edges.length; i += 3) byRoot.get(find(edges[i] as Entity))!.edges.push(edges[i], edges[i + 1], edges[i + 2])
+
+  // Стройка входит в сеть первой трубы, подведённой к её основанию сбоку.
+  for (const [entity, position, site, owner] of world.query(Position, Site, Owner)) {
+    if (site.demolish || !world.has(entity, Inventory)) continue
+    const { width, height } = BUILDINGS[site.type]
+    let zone: Zone | undefined
+    const touch = (x: number, y: number) => {
+      const other = occupancy.at(x, y)
+      if (other === undefined || members.get(other) !== owner.player || !pipeOf(other)) return
+      const found = byRoot.get(find(other))!
+      if (zone && zone !== found) return
+      if (!zone) found.sites.push(entity)
+      zone = found
+      zone.edges.push(entity, other, 1)
     }
-    // Зоны растут по очереди, и раньше выросшая забирает свои здания: шахта, поставленная до главного здания, начала
-    // свою зону и не дотянулась до него, а зона главного её уже не видит. Поэтому зоны, где основание здания одной
-    // задевает другую, сливаются: итог не зависит от того, что построено раньше, а базы, стоящие почти вплотную, —
-    // одна база, даже если центры их крайних зданий чуть дальше радиуса.
-    const covers = (a: number, b: number) => {
-      for (const building of zones[b].buildings) {
-        const position = world.get(building, Position)!
-        const { width, height } = BUILDINGS[world.get(building, Building)!.type]
-        if (rectInCircles(zones[a].circles, position.x, position.y, width, height)) return true
-      }
-      return false
+    for (let x = position.x; x < position.x + width; x++) {
+      touch(x, position.y - 1)
+      touch(x, position.y + height)
     }
-    for (let merged = true; merged; ) {
-      merged = false
-      for (let a = 0; a < zones.length && !merged; a++) {
-        for (let b = a + 1; b < zones.length && !merged; b++) {
-          if (!covers(a, b) && !covers(b, a)) continue
-          zones[a].circles.push(...zones[b].circles)
-          zones[a].buildings.push(...zones[b].buildings)
-          zones.splice(b, 1)
-          merged = true
-        }
-      }
+    for (let y = position.y; y < position.y + height; y++) {
+      touch(position.x - 1, y)
+      touch(position.x + width, y)
     }
-    result.set(player, zones)
+  }
+  // Сети с главным зданием — первыми: по первой сети игрока интерфейс показывает его энергию.
+  for (const zones of result.values()) {
+    zones.sort((a, b) => Number(isCore(world, b.buildings[0])) - Number(isCore(world, a.buildings[0])))
   }
   return result
 }
+
+const isCore = (world: World, entity: Entity) => world.get(entity, Building)?.type === CORE
 
 const NONE: Zone[] = []
 

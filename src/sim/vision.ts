@@ -1,7 +1,7 @@
 import type { Entity, World } from '../ecs'
 import { tileKey } from '../map/terrain'
 import { BUILDINGS, buildingSpec } from './buildings'
-import { Attached, Building, Off, Owner, Player, Position, Shot, Site, Unit } from './components'
+import { Attached, Batch, Building, Off, Owner, Player, Position, Shot, Site, Unit } from './components'
 import type { Sim } from './sim'
 import type { Bounds } from './sim'
 import { TURRETS } from './turrets'
@@ -278,6 +278,8 @@ export function shownTo(sim: Sim, player: number, entity: Entity) {
   const { world, vision } = sim
   const owner = world.get(entity, Player)
   if (owner) return owner.id === player
+  // Что течёт по трубам, видит только хозяин; союзникам — когда появятся союзы.
+  if (world.has(entity, Batch)) return world.get(entity, Owner)?.player === player
   const shot = world.get(entity, Shot)
   if (shot) {
     const at = world.get(entity, Position)

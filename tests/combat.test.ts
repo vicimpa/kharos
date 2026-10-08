@@ -284,9 +284,14 @@ test('пехоту выпускают казармы, технику — маш�
   const layout = [['command', 0], ['barracks', 4], ['factory', 7], ['airfield', 10], ['generator', 15], ['generator', 18], ['spaceport', 21]] as const
   let spot: { x: number; y: number } | undefined
   for (let y = -80; y < 80 && !spot; y++) {
-    for (let x = -80; x < 80 && !spot; x++) if (layout.every(([type, dx]) => canPlace(sim, type, x + dx, y))) spot = { x, y }
+    for (let x = -80; x < 80 && !spot; x++) {
+      // Над рядом — труба: все здания в одной сети.
+      const piped = Array.from({ length: 24 }, (_, dx) => canPlace(sim, 'pipe', x + dx, y - 1)).every(Boolean)
+      if (piped && layout.every(([type, dx]) => canPlace(sim, type, x + dx, y))) spot = { x, y }
+    }
   }
   const [, barracks, factory, port, plant, spare, trader] = layout.map(([type, dx]) => placeBuilding(sim.world, type, spot!.x + dx, spot!.y, 1))
+  for (let dx = 0; dx < 24; dx++) placeBuilding(sim.world, 'pipe', spot!.x + dx, spot!.y - 1, 1)
   expect(producibleBy(sim, barracks)).toEqual(['infantry', 'rocketeer', 'flamer'])
   expect(producibleBy(sim, factory)).toEqual(['buggy', 'flak', 'lancer', 'tank', 'artillery', 'tesla', 'carrier', 'mcv'])
   expect(producibleBy(sim, port)).toEqual(['airTruck', 'drone', 'gunship', 'bomber'])

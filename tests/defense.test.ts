@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Terrain, terrainAt } from '../src/map/terrain'
 import {
   Armed, Building, Carrier, CONTROL_RADIUS, Health, Position, Unit, SAND_DURABILITY, Site, Turret,
-  canBuild, canPlace, createSim, durabilityOf, isWalkable, siteAt, zoneOf, type BuildingType, type Sim,
+  canBuild, canPlace, createSim, durabilityOf, isWalkable, networkOf, siteAt, type BuildingType, type Sim,
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { addCredits } from '../src/sim/economy'
@@ -83,10 +83,8 @@ test('строитель возводит стену на песке тольк�
   expect(sim.world.has(wall, Site)).toBe(false)
   expect(sim.world.get(wall, Health)).toMatchObject({ value: SAND_DURABILITY, max: SAND_DURABILITY })
   expect(isWalkable(sim, sand.x, sand.y)).toBe(false)
-  const circles = zoneOf(sim, 1)
-  const wallCircle = Array.from({ length: circles.length / 3 }, (_, i) => circles.slice(i * 3, i * 3 + 3))
-    .find(([x, y]) => x === sand.x + 0.5 && y === sand.y + 0.5)
-  expect(wallCircle).toEqual([sand.x + 0.5, sand.y + 0.5, 0])
+  // Стена в сеть не входит и зону не расширяет.
+  expect(networkOf(sim, wall)).toBeUndefined()
 })
 
 /** Скальное место под здание не ближе min тайлов от точки: там ещё ничьей зоны нет. */

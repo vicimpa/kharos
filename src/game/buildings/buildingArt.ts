@@ -1159,6 +1159,69 @@ const wall: BuildingArt = {
   },
 }
 
+/**
+ * Наземная труба: рукава к соседям по сторонам (трубам и зданиям сети), биты — как у стены (WALL_CONNECTION).
+ * Одиночная — короткий обрубок с фланцами.
+ */
+const pipeArt: BuildingArt = {
+  ...BUILDINGS.pipe,
+  variants: 16,
+  draw(g, _t, _light, connections = 0) {
+    const north = !!(connections & WALL_CONNECTION.north)
+    const east = !!(connections & WALL_CONNECTION.east)
+    const south = !!(connections & WALL_CONNECTION.south)
+    const west = !!(connections & WALL_CONNECTION.west)
+    const lone = !connections
+    if (east || west || lone) {
+      const left = west ? 0 : 4
+      const right = east ? 16 : 12
+      g.rect(left, 5, right - left, 6, INK)
+      g.rect(left, 6, right - left, 4, IRON[2])
+      g.rect(left, 6, right - left, 1, IRON[4])
+      g.rect(left, 9, right - left, 1, IRON[0])
+    }
+    if (north || south) {
+      const top = north ? 0 : 4
+      const bottom = south ? 16 : 12
+      g.rect(5, top, 6, bottom - top, INK)
+      g.rect(6, top, 4, bottom - top, IRON[2])
+      g.rect(6, top, 1, bottom - top, IRON[4])
+      g.rect(9, top, 1, bottom - top, IRON[0])
+    }
+    // Фланец на стыке: у поворотов и развилок он закрывает наложение рукавов.
+    if ((north || south) && (east || west)) {
+      g.rect(4, 4, 8, 8, INK)
+      g.rect(5, 5, 6, 6, IRON[1])
+      g.rect(5, 5, 6, 1, IRON[3])
+      g.rect(7, 7, 2, 2, RUST[1])
+    }
+  },
+}
+
+/** Колодец подземной трубы: люк в бетонном кольце, по нему труба уходит под землю. */
+const wellArt: BuildingArt = {
+  ...BUILDINGS.well,
+  variants: 16,
+  draw(g, t, light, connections = 0) {
+    const sides: [number, number, number, number][] = []
+    if (connections & WALL_CONNECTION.north) sides.push([5, 0, 6, 4])
+    if (connections & WALL_CONNECTION.south) sides.push([5, 12, 6, 4])
+    if (connections & WALL_CONNECTION.west) sides.push([0, 5, 4, 6])
+    if (connections & WALL_CONNECTION.east) sides.push([12, 5, 4, 6])
+    for (const [x, y, w, h] of sides) {
+      g.rect(x, y, w, h, INK)
+      g.rect(x + 1, y + 1, Math.max(1, w - 2), Math.max(1, h - 2), IRON[2])
+    }
+    g.circle(8, 8, 6, INK)
+    g.circle(8, 8, 5, STEEL[2])
+    g.ring(8, 8, 4, 1, STEEL[0])
+    g.circle(8, 8, 3, IRON[1])
+    g.rect(6, 7, 4, 1, IRON[3])
+    g.rect(6, 9, 4, 1, IRON[3])
+    bulb(g, light, 12, 3, pulse(t))
+  },
+}
+
 /** Основание оборонительной турели; само вращающееся оружие рисуется поверх отдельной сущностью. */
 function emplacement(g: Pixmap, t: number, light: EmitLight, band: number) {
   slab(g, 0, 1, 16, 15, 2, STEEL)
@@ -1229,6 +1292,8 @@ export const BUILDING_ART = {
   partsLocker,
   spaceport,
   wall,
+  pipe: pipeArt,
+  well: wellArt,
   turret,
   rocketTurret,
   cannonTurret,

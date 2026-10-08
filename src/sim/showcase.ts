@@ -1,6 +1,7 @@
 import type { Entity } from '../ecs'
 import { driveBattle, randomArmy, spawnBattle } from './battle'
 import { BUILDINGS, buildingSpec, canPlace, placeBuilding, type BuildingType } from './buildings'
+import { connectAll } from './piping'
 import { TRAINING_PLAYER, orderAttack } from './combat'
 import { Armed, Building, Inventory, Owner, Path, Position, Site, Unit } from './components'
 import { orderBuild } from './construction'
@@ -150,6 +151,8 @@ function defense(): Scene {
         const { x, y } = at(u, v)
         if (canPlace(sim, type, x, y)) placeBuilding(sim.world, type, x, y, player)
       }
+      // Турели получают патроны по трубам: укрепление сразу собрано в одну сеть.
+      connectAll(sim, player)
       const guard = at(3, 0)
       spawnGroup(sim, [...randomArmy(GUARD_BUDGET, GUARD_WEIGHTS), 'builder', 'builder'], player, guard.x, guard.y, 1)
       return true

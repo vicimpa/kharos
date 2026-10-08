@@ -3,7 +3,7 @@ import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import {
   BUILDINGS, DEPOSIT_TYPES, Inventory, Producer, RESOURCE_SPECS, SELL_SECONDS, Site, UNITS, Unit, amountOf, awaitsMaterials, canPlace, createSim, creditsOf,
-  canSupply, depositIn, materialShare, siteTicks, type BuildingType, type Sim,
+  canSupply, depositIn, materialShare, siteAt, siteTicks, type BuildingType, type Sim,
 } from '../src/sim'
 import { STORES, placeBuilding, storeFor } from '../src/sim/buildings'
 import type { Amounts, Ware } from '../src/sim/resources'
@@ -27,7 +27,7 @@ function until(sim: Sim, done: () => boolean, limit = 200) {
   throw new Error('Не дождались')
 }
 
-/** База игрока 1 в ряд на скале: главное здание, две электростанции и здания из списка; под ними — место для юнитов. */
+/** База игрока 1 в ряд на скале: главное здание, две электростанции и здания из списка, над ними труба; под ними — место для юнитов. */
 function base(extra: BuildingType[]) {
   const sim = createSim(options)
   addCredits(sim, 1, 10000)
@@ -42,7 +42,12 @@ function base(extra: BuildingType[]) {
     for (let x = -100; x < 100; x++) {
       if (!layout.every(([type, dx]) => canPlace(sim, type, x + dx, y))) continue
       if (!canPlace(sim, 'command', x, y + 4) || !canPlace(sim, 'command', x + 4, y + 4)) continue
+      // Над рядом — труба вдоль всей базы: все здания в одной сети.
+      let piped = true
+      for (let dx = 0; dx < at && piped; dx++) piped = canPlace(sim, 'pipe', x + dx, y - 1)
+      if (!piped) continue
       const buildings = layout.map(([type, dx]) => placeBuilding(sim.world, type, x + dx, y, 1))
+      for (let dx = 0; dx < at; dx++) placeBuilding(sim.world, 'pipe', x + dx, y - 1, 1)
       const placed = buildings.slice(3, 3 + extra.length)
       const shelves = buildings.slice(3 + extra.length)
       const store = (item: Ware) => shelves[STORES.indexOf(storeFor(item)!)]
@@ -70,21 +75,20 @@ test('месторождения бывают разных видов: что г
   expect([...kinds].sort()).toEqual([...DEPOSIT_TYPES].sort())
 })
 
-test('стройка ждёт материалов: без стройблоков она не идёт дальше привезённого, грузовик привозит их из хранилища', () => {
+test('стройка ждёт материалов: без стройблоков она не идёт дальше привезённого, по трубам их привозят из хранилища', () => {
   const { sim, x, y, store, stash } = base([])
   const builder = spawnUnit(sim, 'builder', 1, x + 5, y + 4)
   sim.send(1, { type: 'build', building: 'factory', x, y: y + 4, builders: [builder] })
   sim.advance(TICK)
   let site: Entity | undefined
-  for (const [entity] of sim.world.query(Site)) site = entity
+  site = siteAt(sim, x, y + 4)
   seconds(sim, 10)
   // Материалов нет — стройка стоит в самом начале.
   expect(awaitsMaterials(sim, site!)).toBe(true)
   expect(sim.world.get(site!, Site)!.progress).toBe(0)
 
-  // Стройблоки в хранилище и свободный грузовик — стройка идёт до конца.
+  // Стройблоки в хранилище — стройка идёт до конца: труба к ней заложена вместе с ней.
   stash({ blocks: 50 })
-  spawnUnit(sim, 'truck', 1, x + 6, y + 4)
   until(sim, () => materialShare(sim, site!) > 0)
   expect(sim.world.get(site!, Site)!.progress).toBeLessThanOrEqual(siteTicks('factory', TICK) * materialShare(sim, site!) + 1e-6)
   until(sim, () => !sim.world.has(site!, Site))
@@ -98,7 +102,7 @@ test('грузовик довозит материалы и на площадк�
   sim.send(1, { type: 'build', building: 'factory', x, y: y + 4, builders: [] })
   sim.advance(TICK)
   let site: Entity | undefined
-  for (const [entity] of sim.world.query(Site)) site = entity
+  site = siteAt(sim, x, y + 4)
   spawnUnit(sim, 'truck', 1, x + 6, y + 8)
   until(sim, () => oreIn(sim, site!, 'blocks') >= BUILDINGS.factory.materials.blocks - 1e-6)
   expect(oreIn(sim, store('blocks'), 'blocks')).toBeCloseTo(50 - BUILDINGS.factory.materials.blocks)
@@ -112,7 +116,6 @@ test('производство ждёт материалов первого за
   expect(sim.world.get(factory, Producer)).toMatchObject({ queue: ['tank'], progress: 0 })
 
   stash({ metal: 40, silicon: 10 })
-  spawnUnit(sim, 'truck', 1, x + 5, y + 4)
   const tanks = () => [...sim.world.query(Unit)].filter(([, unit]) => unit.type === 'tank').length
   until(sim, () => tanks() > 0)
   // Привезли ровно на танк, и танк их забрал.
@@ -124,7 +127,6 @@ test('космопорт продаёт любой ресурс по его це
   const { sim, x, y, store, stash, buildings } = base(['spaceport'])
   const [port] = buildings
   stash({ metal: 30 })
-  spawnUnit(sim, 'truck', 1, x + 5, y + 4)
   sim.send(1, { type: 'sell', port, resource: 'metal', amount: 20 })
   seconds(sim, 1)
   const before = creditsOf(sim, 1)
@@ -135,15 +137,14 @@ test('космопорт продаёт любой ресурс по его це
   expect(sim.time.tick * TICK).toBeGreaterThan(SELL_SECONDS)
 })
 
-test('из вставшей переработки грузовик увозит готовое до крошки, из работающей мелочь не возит', () => {
-  const { sim, x, y, store, buildings } = base(['smelter'])
+test('переработка отправляет готовое в хранилище по трубам пачками, а вставшая — до крошки', () => {
+  const { sim, store, buildings } = base(['smelter'])
   const [smelter] = buildings
   const inventory = sim.world.get(smelter, Inventory)!
-  // Руда ещё есть: переработка сделает больше, и за 3 единицами грузовик не едет.
+  // Руда ещё есть: переработка сделает больше, и 3 единицы ждут полной пачки.
   inventory.items.metal = 3
   inventory.items.metalOre = 20
-  spawnUnit(sim, 'truck', 1, x + 5, y + 4)
-  seconds(sim, 2)
+  seconds(sim, 0.5)
   expect(oreIn(sim, store('metal'), 'metal')).toBe(0)
 
   // Руды нет и не везут: остаток меньше порога увозят весь.
@@ -161,7 +162,6 @@ test('дробный остаток материалов довозят: зав�
   inventory.items.silicon = UNITS.tank.materials.silicon
   stash({ metal: 10 })
   sim.send(1, { type: 'produce', producer: factory, unit: 'tank' })
-  spawnUnit(sim, 'truck', 1, x + 5, y + 4)
   until(sim, () => sim.world.get(factory, Producer)!.progress > 0, 60)
   expect(oreIn(sim, store('metal'), 'metal')).toBeLessThan(10)
 })
@@ -173,7 +173,7 @@ test('груз для заявки грузовик берёт и с дропа 
   sim.send(1, { type: 'build', building: 'factory', x, y: y + 4, builders: [builder] })
   sim.advance(TICK)
   let site: Entity | undefined
-  for (const [entity] of sim.world.query(Site)) site = entity
+  site = siteAt(sim, x, y + 4)
   const truck = spawnUnit(sim, 'truck', 1, x + 6, y + 8)
   // Сразу по заявке стройки — с дропа на площадку, а не сначала в хранилище.
   until(sim, () => sim.world.get(truck, Hauler)!.from !== NONE)
@@ -188,7 +188,7 @@ test('ПКМ грузовиком по стройке: нужное из куз�
   sim.send(1, { type: 'build', building: 'factory', x, y: y + 4, builders: [builder] })
   sim.advance(TICK)
   let site: Entity | undefined
-  for (const [entity] of sim.world.query(Site)) site = entity
+  site = siteAt(sim, x, y + 4)
   const truck = spawnUnit(sim, 'truck', 1, x + 6, y + 8)
   sim.world.get(truck, Inventory)!.items.blocks = 25
   expect(canSupply(sim, 1, site!)).toBe(true)
@@ -201,36 +201,22 @@ test('ПКМ грузовиком по стройке: нужное из куз�
   expect(sim.world.get(truck, Hauler)!.supply).toBe(NONE)
 })
 
-test('ПКМ грузовиком по стройке: груз он берёт где угодно у игрока, а не только в её зоне', () => {
+test('чего нет в сети стройки, свободный грузовик везёт из другой сети', () => {
   const { sim, x, y } = base([])
   const builder = spawnUnit(sim, 'builder', 1, x + 5, y + 8)
   sim.send(1, { type: 'build', building: 'factory', x, y: y + 4, builders: [builder] })
   sim.advance(TICK)
   let site: Entity | undefined
-  for (const [entity] of sim.world.query(Site)) site = entity
-  // Стройблоки — только на складе далеко за зоной базы: по заявке зоны их никто не повезёт.
+  site = siteAt(sim, x, y + 4)
+  // Стройблоки — только на складе далеко за базой, в отдельной сети: трубы до него не доходят.
   let far: Entity | undefined
   for (let dx = 40; dx < 120 && far === undefined; dx++) if (canPlace(sim, 'blockYard', x + dx, y)) far = placeBuilding(sim.world, 'blockYard', x + dx, y, 1)
   sim.world.get(far!, Inventory)!.items.blocks = 50
   const truck = spawnUnit(sim, 'truck', 1, x + 6, y + 8)
-  seconds(sim, 3)
-  expect(sim.world.get(truck, Hauler)!.from).toBe(NONE)
-  sim.send(1, { type: 'supply', units: [truck], target: site! })
+  until(sim, () => sim.world.get(truck, Hauler)!.from !== NONE)
+  expect(sim.world.get(truck, Hauler)!.from).toBe(far!)
   until(sim, () => !sim.world.has(site!, Site))
   expect(oreIn(sim, far!, 'blocks')).toBeCloseTo(50 - BUILDINGS.factory.materials.blocks)
-})
-
-test('груз, который стал не нужен, грузовик везёт обратно в хранилище, откуда взял', () => {
-  const { sim, x, y, store, stash, buildings } = base(['factory', storeFor('metal')!, 'techCenter'])
-  const [factory, second] = buildings
-  stash({ metal: 40, silicon: 10 })
-  sim.send(1, { type: 'produce', producer: factory, unit: 'tank' })
-  const truck = spawnUnit(sim, 'truck', 1, x + 5, y + 4)
-  until(sim, () => amountOf(sim.world.get(truck, Inventory)!, 'metal') > 0)
-  sim.world.get(factory, Producer)!.queue.length = 0
-  until(sim, () => amountOf(sim.world.get(truck, Inventory)!, 'metal') < 1e-9)
-  expect(oreIn(sim, second, 'metal')).toBe(0)
-  expect(oreIn(sim, store('metal'), 'metal') + oreIn(sim, factory, 'metal')).toBeCloseTo(40)
 })
 
 test('грузу некуда деться — грузовик везёт его заказчику, а нет заказчика — обратно, и снова свободен', () => {
@@ -261,7 +247,6 @@ test('машинный завод строит MCV из стройблоков �
   const { sim, x, y, stash, buildings } = base(['factory'])
   const [factory] = buildings
   stash({ blocks: 40, metal: 40 })
-  spawnUnit(sim, 'truck', 1, x + 5, y + 4)
   sim.send(1, { type: 'produce', producer: factory, unit: 'mcv' })
   const mcvs = () => [...sim.world.query(Unit)].filter(([, unit]) => unit.type === 'mcv').map(([entity]) => entity)
   until(sim, () => mcvs().length > 0)

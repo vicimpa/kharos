@@ -78,7 +78,19 @@ export interface BuildingSpec {
   crowding?: boolean
   /** Готовое здание строит и чинит всё своё в этом радиусе, в тайлах от своего центра до края цели. */
   repair?: number
+  /**
+   * Труба сети: наземная (surface) связывает соседние по стороне трубы и здания; колодец (well) — ещё и с ближайшим
+   * своим колодцем по прямой не дальше UNDERGROUND_REACH, подземным отрезком. См. zones.ts и pipes.ts.
+   */
+  pipe?: 'surface' | 'well'
+  /** Здание не подключается к сети труб: стене нечего брать и отдавать. */
+  isolated?: boolean
 }
+
+/** На сколько тайлов от своего центра расширяет зону готовая труба или колодец. */
+export const PIPE_REACH = 3
+/** Дальше скольких тайлов по прямой колодец не видит парный: подземный отрезок длиннее не проложить. */
+export const UNDERGROUND_REACH = 10
 
 /** Сколько ресурсов помещается в производящем юнитов здании: материалы на очередной заказ. */
 const PRODUCER_HOLD = 100
@@ -186,7 +198,11 @@ export const BUILDINGS = {
   // начинаются деньги, и первой продаже хватает одной линии металла — без цеха и кремния.
   spaceport: { width: 3, height: 3, cost: 450, power: -5, materials: { metal: 20 }, trades: true, inventory: 400, accepts: WARES },
   // Дешёвая стена не расширяет зону: иначе цепочкой стен можно было бы бесплатно протянуть контроль через карту.
-  wall: { width: 1, height: 1, cost: 30, hp: 400, defense: true, expand: 0 },
+  wall: { width: 1, height: 1, cost: 30, hp: 400, defense: true, expand: 0, isolated: true },
+  // Трубы связывают здания в сеть: по ним идут груз и энергия. Наземная дешёвая и хрупкая и перекрывает проезд,
+  // как стена; колодцы ведут подземный отрезок, под которым ездят и строят, а уязвимы только сами колодцы.
+  pipe: { width: 1, height: 1, cost: 5, hp: 60, expand: PIPE_REACH, sight: 1, pipe: 'surface' },
+  well: { width: 1, height: 1, cost: 40, hp: 250, expand: PIPE_REACH, sight: 1, pipe: 'well' },
   // Оборонительные турели используют то же оружие, что техника, и стреляют боеприпасами со своего склада.
   // На песке все оборонительные постройки слабее.
   turret: { width: 1, height: 1, cost: 250, hp: 450, defense: true, ...TURRET_STORE, mounts: [{ turret: 'gunner', along: 0, across: 0 }] },
@@ -207,8 +223,11 @@ export const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[]
 export const BUILDABLE: BuildingType[] = [
   'generator', 'matter', 'mine', 'smelter', 'siliconWorks', 'distillery', 'enricher', 'blockPlant', 'ammoPlant', 'partsPlant',
   'metalYard', 'siliconStore', 'fuelTank', 'khariteVault', 'blockYard', 'ammoBunker', 'partsLocker', 'spaceport', 'barracks', 'factory', 'airfield', 'techCenter',
-  'radar', 'wall', 'turret', 'rocketTurret', 'cannonTurret', 'laserTurret',
+  'radar', 'wall', 'turret', 'rocketTurret', 'cannonTurret', 'laserTurret', 'pipe', 'well',
 ]
+
+/** Труба ли это или колодец. */
+export const isPipe = (type: BuildingType) => !!buildingSpec(type).pipe
 
 /**
  * Дерево технологий: здание появляется в списке строителя, когда у игрока стоят готовыми все здания из его списка.
@@ -317,7 +336,8 @@ export function canPlace(sim: Sim, type: BuildingType, x: number, y: number, gap
   const { width, height } = spec
   const { bounds } = sim
   if (x < bounds.left || y < bounds.top || x + width > bounds.right || y + height > bounds.bottom) return false
-  const accepts = spec.defense ? (terrain: Terrain) => terrain === Terrain.Sand || isBuildable(terrain) : isBuildable
+  // Оборону и трубы ставят и на песок.
+  const accepts = spec.defense || spec.pipe ? (terrain: Terrain) => terrain === Terrain.Sand || isBuildable(terrain) : isBuildable
   for (let tileY = y; tileY < y + height; tileY++) {
     for (let tileX = x; tileX < x + width; tileX++) {
       // Готовый фундамент делает песок пригодным для любого здания.

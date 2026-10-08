@@ -2,14 +2,14 @@ import type { Entity } from '../ecs'
 import { inputsOf } from './assembly'
 import { BUILDINGS, buildingSpec, isReady, type BuildingSpec } from './buildings'
 import { NONE, isOwn } from './common'
-import { Assembly, Building, Converting, Drop, Hauler, Harvester, Inventory, Off, Owner, Path, Position, Producer, Site, Trade, Unit } from './components'
+import { Assembly, Batch, Building, Converting, Drop, Hauler, Harvester, Inventory, Off, Owner, Path, Position, Producer, Site, Trade, Unit } from './components'
 import { depositAt } from './deposits'
 import { amountOf, loadOf, roomFor } from './inventory'
 import { entriesOf, GOODS, isOre, isProduct, ORE_OF, WARES, stockedFor, type Amounts, type Good, type Ore, type Resource } from './resources'
 import type { Sim } from './sim'
 import { deliveredTo, isStore } from './trade'
 import { unitSpec } from './units'
-import { inCircles, zonesOf, type Zone } from './zones'
+import { inCircles, networkOf, zonesOf, type Zone } from './zones'
 
 /**
  * Зональные заявки. Всё, что потребляет груз, само заказывает его у своей зоны строительства: стройка — материалы
@@ -69,11 +69,15 @@ const add = (map: Map<Entity, Amounts>, entity: Entity, resource: Good, amount: 
 }
 
 /**
- * Что сейчас везут грузовики. Набравший груз везёт то, что в кузове; ещё не набравший обещал привезти и забрать
+ * Что сейчас везут грузовики и трубы. Набравший груз везёт то, что в кузове; ещё не набравший обещал привезти и забрать
  * столько, сколько в его работе.
  */
-function flowsOf(sim: Sim, except = NONE as Entity): Flows {
+export function flowsOf(sim: Sim, except = NONE as Entity): Flows {
   const flows: Flows = { incoming: new Map(), outgoing: new Map() }
+  // Пачки в трубах, ещё не пришедшие: их груз уже ушёл со склада отправителя.
+  for (const [, batch] of sim.world.query(Batch)) {
+    if (batch.arrive > sim.time.tick) add(flows.incoming, batch.to as Entity, batch.resource, batch.amount)
+  }
   for (const [truck, hauler, cargo] of sim.world.query(Hauler, Inventory)) {
     if (truck === except || (hauler.from === NONE && hauler.to === NONE)) continue
     const carried = amountOf(cargo, hauler.resource)
@@ -185,7 +189,7 @@ export function requestsOf(sim: Sim, player: number, flows = flowsOf(sim)): Requ
   /** Зона, которая кормит здание. anywhere — здание кормит и ближайшая зона, если оно ни в какую не входит. */
   const zoneOf = (entity: Entity, anywhere = false) => {
     const { x, y } = centerOf(sim, entity)
-    const own = zones.find((zone) => zone.buildings.includes(entity) || inCircles(zone.circles, x, y))
+    const own = networkOf(sim, entity) ?? zones.find((zone) => inCircles(zone.circles, x, y))
     return own ?? (anywhere ? nearestZone(zones, x, y) : undefined)
   }
   const need = (to: Entity, resource: Good, amount: number, priority: number, source: 'zone' | 'mines' = 'zone', anywhere = false) => {
@@ -422,6 +426,13 @@ export function dispatch(sim: Sim) {
     let needs: Request[] | undefined
     const anyZone = () => (everywhere ??= [...new Set([...zonesOf(sim, player).flatMap((zone) => zone.buildings), ...drops])])
 
+    /** Есть ли в сети поставщик груза — тогда его везут трубы. */
+    const hasLocal = (network: Zone, resource: Good, least: number) =>
+      network.buildings.some((source) => offersOf(sim, source).includes(resource) && spareOf(sim, source, resource) >= least)
+    /** Есть ли в сети хранилище, куда этот груз ещё помещается. */
+    const hasStore = (network: Zone, resource: Good) =>
+      network.buildings.some((store) => isStore(sim, store) && spaceFor(sim, NONE as Entity, store, resource, flows) > 1e-9)
+
     for (const truck of trucks) {
       const room = world.get(truck, Inventory)?.capacity ?? 0
       const hauler = world.get(truck, Hauler)!
@@ -436,8 +447,12 @@ export function dispatch(sim: Sim) {
       for (const request of requests) {
         if (request.amount < MIN_JOB || !carries(request.resource)) continue
         if (serving && !serving.has(request.to)) continue
-        for (const source of request.source === 'mines' ? mines : serving ? anyZone() : sourcesOf(request.zone)) {
+        // Внутри сети груз идёт по трубам: сам грузовик везёт только то, чего в сети заказчика нет, — из других сетей.
+        const network = serving ? undefined : networkOf(sim, request.to)
+        if (network && hasLocal(network, request.resource, Math.min(request.amount, MIN_JOB))) continue
+        for (const source of request.source === 'mines' ? mines : serving || network ? anyZone() : sourcesOf(request.zone)) {
           if (source === request.to || !offersOf(sim, source).includes(request.resource)) continue
+          if (network && networkOf(sim, source) === network) continue
           // Руду шахты, у которой уже есть привязанный грузовик, свободные не возят.
           if (request.source === 'mines' && bound.has(source)) continue
           const available = availableIn(sim, flows, source, request.resource)
@@ -452,6 +467,9 @@ export function dispatch(sim: Sim) {
         for (const source of outlets) {
           for (const resource of offersOf(sim, source)) {
             if (!carries(resource)) continue
+            // Есть куда отправить по трубам своей сети — грузовик не нужен.
+            const network = networkOf(sim, source)
+            if (network && hasStore(network, resource)) continue
             const available = availableIn(sim, flows, source, resource)
             const inventory = world.get(source, Inventory)!
             const holds = Math.min(inventory.limits[resource] ?? inventory.capacity, inventory.capacity)

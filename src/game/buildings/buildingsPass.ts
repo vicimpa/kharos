@@ -5,7 +5,7 @@ import { Pixmap } from '../../render/pixmap'
 import type { Pass } from '../../render/renderer'
 import { createSpriteProgram, createSprites } from '../../render/sprites'
 import type { Entity } from '../../ecs'
-import { Assembly, BUILDING_TYPES, Building, Inventory, Owner, Position, Site, amountOf, buildingSpec, siteTicks, type BuildingType } from '../../sim'
+import { Assembly, BUILDING_TYPES, Building, Inventory, Owner, Position, Site, amountOf, buildingSpec, isPipe, siteTicks, type BuildingType } from '../../sim'
 import { placementOf } from '../placing'
 import type { Scene } from '../scene'
 import { ART_FRAMES, ART_TILE, BUILDING_ART, WALL_CONNECTION, type BuildingArt } from './buildingArt'
@@ -141,7 +141,24 @@ export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): P
       for (const [, position, site] of world.query(Position, Site)) {
         if (site.type === 'wall') walls.add(tileKey(position.x, position.y))
       }
+      // Труба соединяется со всем, что у неё сбоку и входит в сеть: с трубами и зданиями, кроме стен, и с площадками труб.
+      const pipes = new Set<number>()
+      for (const [, position, site] of world.query(Position, Site)) if (isPipe(site.type)) pipes.add(tileKey(position.x, position.y))
+      const joins = (x: number, y: number) => {
+        if (pipes.has(tileKey(x, y))) return true
+        const other = scene.sim.occupancy.at(x, y)
+        const type = other === undefined ? undefined : world.get(other, Building)?.type
+        return type !== undefined && !buildingSpec(type).isolated
+      }
       const wallVariant = (position: { x: number; y: number }, type: BuildingType) => {
+        if (isPipe(type)) {
+          let variant = 0
+          if (joins(position.x, position.y - 1)) variant |= WALL_CONNECTION.north
+          if (joins(position.x + 1, position.y)) variant |= WALL_CONNECTION.east
+          if (joins(position.x, position.y + 1)) variant |= WALL_CONNECTION.south
+          if (joins(position.x - 1, position.y)) variant |= WALL_CONNECTION.west
+          return variant
+        }
         if (type !== 'wall') return 0
         let variant = 0
         if (walls.has(tileKey(position.x, position.y - 1))) variant |= WALL_CONNECTION.north

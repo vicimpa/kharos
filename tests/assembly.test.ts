@@ -39,7 +39,12 @@ function base(extra: BuildingType[]) {
     for (let x = -100; x < 100; x++) {
       if (!layout.every(([type, dx]) => canPlace(sim, type, x + dx, y))) continue
       if (!canPlace(sim, 'command', x, y + 4) || !canPlace(sim, 'command', x + 4, y + 4)) continue
+      // Над рядом — труба вдоль всей базы: все здания в одной сети.
+      let piped = true
+      for (let dx = 0; dx < at && piped; dx++) piped = canPlace(sim, 'pipe', x + dx, y - 1)
+      if (!piped) continue
       const buildings = layout.map(([type, dx]) => placeBuilding(sim.world, type, x + dx, y, 1))
+      for (let dx = 0; dx < at; dx++) placeBuilding(sim.world, 'pipe', x + dx, y - 1, 1)
       const placed = buildings.slice(3, 3 + extra.length)
       const shelves = buildings.slice(3 + extra.length)
       const store = (item: Ware) => shelves[STORES.indexOf(storeFor(item)!)]

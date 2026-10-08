@@ -15,6 +15,7 @@ import { REPAIR_COST, REPAIR_PAUSE, REPAIR_SPEED, construct } from './constructi
 import { convert } from './conversion'
 import { harvest } from './harvesting'
 import { haul } from './hauling'
+import { pipeFlow } from './pipes'
 import { earn } from './income'
 import { trade } from './trade'
 import { moveUnits, planPaths } from './movement'
@@ -107,10 +108,11 @@ export interface SimOptions {
  * 17 — изделия: склады хранилищ помнят, что принимают, и в старых сохранениях не взяли бы стройблоки и боеприпасы;
  * у старых турелей нет склада патронов.
  * 19 — хранилища под каждый ресурс: общего хранилища больше нет.
+ * 21 — сети труб: здания связаны только трубами, и старые базы без труб развалились бы на отдельные здания (вайп).
  * 20 — двоичный файл, см. src/save/file.ts, и в нём карта мира. С неё старые сохранения поднимаются миграциями, а не
  * отбрасываются.
  */
-export const SAVE_VERSION = 20
+export const SAVE_VERSION = 21
 
 export interface SimSave extends SimOptions {
   version: typeof SAVE_VERSION
@@ -204,6 +206,8 @@ export function createSim(source: SimOptions | SimSave): Sim {
       // После движения: работающий строитель поворачивается к стройке, и поворот сглаживается, как у идущих.
       () => construct(sim),
       () => harvest(sim),
+      // До грузовиков: что идёт по трубам, грузовики уже не везут.
+      () => pipeFlow(sim),
       () => haul(sim),
       () => trade(sim),
       // После движения и работ: стреляющий юнит поворачивается к цели, и погибшие в этот тик уже ничего не делают.

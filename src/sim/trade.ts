@@ -101,19 +101,19 @@ export function neededBy(sim: Sim, port: Entity) {
 }
 
 /**
- * Заявка на продажу до amount единиц ресурса. Товар остаётся в хранилищах зоны космопорта, пока его не привезут:
- * космопорт заказывает его, и свободные грузовики свозят его к нему (см. logistics.ts). Когда привезено всё,
+ * Заявка на продажу до amount единиц ресурса. Товар остаётся в хранилищах, пока его не привезут: космопорт
+ * заказывает его, и из своей сети он идёт по трубам (см. pipes.ts), а из других сетей его везут свободные
+ * грузовики (см. logistics.ts). Поэтому продать можно весь запас игрока, а не только сети космопорта. Когда привезено всё,
  * корабль улетает и через SELL_SECONDS приносит кредиты по цене ресурса. Продаётся целое число единиц и не больше,
  * чем помещается в трюм космопорта. Пока заявка не закрыта, новую космопорт не берёт.
  */
 export function sell(sim: Sim, player: number, port: Entity, resource: Resource, amount: number) {
   if (!Object.hasOwn(RESOURCE_SPECS, resource)) return false
   if (!Number.isFinite(amount) || amount < 1 || !canSell(sim, player, port)) return false
-  const zone = zoneWith(sim, player, port)
-  if (!zone) return false
+  if (!zoneWith(sim, player, port)) return false
   const hold = sim.world.get(port, Inventory)
   const room = hold ? amountOf(hold, resource) + roomFor(hold, resource) : 0
-  const wanted = Math.min(Math.floor(amount), Math.floor(stockOfZone(sim, zone).items[resource] ?? 0), Math.floor(room))
+  const wanted = Math.min(Math.floor(amount), Math.floor(stockOf(sim, player).items[resource] ?? 0), Math.floor(room))
   if (wanted < 1) return false
   sim.world.add(port, Trade({ resource, wanted }))
   return true

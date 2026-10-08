@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { BUILDINGS, Inventory, Position, amountOf, canPlace, createSim, type BuildingType, type Sim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { Hauler } from '../src/sim/components'
-import { zonesOf } from '../src/sim/zones'
+import { networkOf } from '../src/sim/zones'
 import { addCredits } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
 
@@ -118,19 +118,16 @@ test('фильтр снимает начатую работу с грузом, �
   expect(hauler.from === -1 || hauler.resource !== 'metal').toBe(true)
 })
 
-test('назначенный на здания грузовик возит только по их заявкам, а груз берёт и в чужой для них зоне', () => {
+test('назначенный на здания грузовик возит только по их заявкам, а груз берёт и в другой сети', () => {
   const { sim, buildings: [bunker], truck } = base(['ammoBunker'])
   sim.world.get(bunker, Inventory)!.items.ammo = 200
-  // Застава из двух турелей в стороне от базы — отдельная зона без хранилищ: свободный грузовик патроны из чужой
-  // зоны к ним не возит.
+  // Застава из двух турелей в стороне от базы — отдельные сети без хранилищ.
   const { x, y } = sim.world.get(bunker, Position)!
   const mine = placeBuilding(sim.world, 'turret', x + 20, y, 1)
   const other = placeBuilding(sim.world, 'turret', x + 22, y, 1)
   sim.world.get(mine, Inventory)!.items.ammo = 0
   sim.world.get(other, Inventory)!.items.ammo = 0
-  expect(zonesOf(sim, 1).length).toBe(2)
-  seconds(sim, 20)
-  expect(amount(sim, mine, 'ammo')).toBe(0)
+  expect(networkOf(sim, mine)).not.toBe(networkOf(sim, bunker))
   sim.send(1, { type: 'serve', units: [truck], buildings: [mine] })
   // Турель заказывает, пока не наберёт три четверти запаса и больше.
   until(sim, () => amount(sim, mine, 'ammo') >= sim.world.get(mine, Inventory)!.capacity * 0.75)

@@ -1,0 +1,125 @@
+import type { Entity } from '../ecs'
+import { tileKey } from '../map/terrain'
+import { BUILDINGS, buildingSpec, canPlace, placeBuilding, type BuildingType } from './buildings'
+import { Building, Owner, Position, Site } from './components'
+import type { Sim } from './sim'
+import { allZones, networkOf, type Zone } from './zones'
+
+/**
+ * Автоподключение: короткая труба от основания нового здания до ближайшего узла своей сети. Строится вместе
+ * со зданием и входит в его цену; другую трассу игрок кладёт руками.
+ */
+
+/** Дальше скольких тайлов автоподключение трассу не ищет: такую трубу кладут руками. */
+export const AUTO_PIPE_REACH = 16
+
+const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const
+
+/**
+ * Трасса наземной трубы от основания (x, y, width, height) до узла сети игрока: тайлы x, y подряд, от основания
+ * к сети. Пусто — к основанию уже подходит своя труба. undefined — сети ближе AUTO_PIPE_REACH нет. Узел сети —
+ * готовая труба или колодец, готовое здание сети (кроме стен) или заложенная своя труба. joins — какую сеть
+ * годится брать; без него — любую. planned — тайлы, уже занятые другой заложенной трассой.
+ */
+export function pipeRoute(sim: Sim, player: number, x: number, y: number, width: number, height: number, joins?: (zone: Zone) => boolean, planned?: ReadonlySet<number>): number[] | undefined {
+  const { world, occupancy } = sim
+  const inside = (tx: number, ty: number) => tx >= x && tx < x + width && ty >= y && ty < y + height
+  /** Заложенные свои трубы: к ним подключаются, как к готовым. */
+  const sites = new Set<number>()
+  for (const [, position, site, owner] of world.query(Position, Site, Owner)) {
+    if (owner.player === player && !site.demolish && buildingSpec(site.type).pipe) sites.add(tileKey(position.x, position.y))
+  }
+  const node = (tx: number, ty: number, pipeOnly: boolean) => {
+    if (inside(tx, ty)) return false
+    if (sites.has(tileKey(tx, ty))) return !joins
+    const other = occupancy.at(tx, ty)
+    if (other === undefined || world.get(other, Owner)?.player !== player || world.has(other, Site)) return false
+    const type = world.get(other, Building)!.type
+    if (pipeOnly && !buildingSpec(type).pipe) return false
+    const zone = networkOf(sim, other)
+    return !!zone && (!joins || joins(zone))
+  }
+  // К основанию уже подведена своя труба.
+  for (let tx = x; tx < x + width; tx++) if (node(tx, y - 1, true) || node(tx, y + height, true)) return []
+  for (let ty = y; ty < y + height; ty++) if (node(x - 1, ty, true) || node(x + width, ty, true)) return []
+
+  const free = (tx: number, ty: number) => !inside(tx, ty) && !planned?.has(tileKey(tx, ty)) && !sites.has(tileKey(tx, ty)) && canPlace(sim, 'pipe', tx, ty)
+  const previous = new Map<number, number>()
+  const queue: number[] = []
+  const start = (tx: number, ty: number) => {
+    const key = tileKey(tx, ty)
+    if (previous.has(key) || !free(tx, ty)) return
+    previous.set(key, -1)
+    queue.push(tx, ty, 1)
+  }
+  for (let tx = x; tx < x + width; tx++) {
+    start(tx, y - 1)
+    start(tx, y + height)
+  }
+  for (let ty = y; ty < y + height; ty++) {
+    start(x - 1, ty)
+    start(x + width, ty)
+  }
+  for (let at = 0; at < queue.length; at += 3) {
+    const tx = queue[at]
+    const ty = queue[at + 1]
+    const length = queue[at + 2]
+    if (SIDES.some(([dx, dy]) => node(tx + dx, ty + dy, false))) {
+      // Назад по цепочке — от сети к основанию; трасса нужна в обратном порядке.
+      const back: number[] = []
+      for (let i = at; i >= 0; i = previous.get(tileKey(queue[i], queue[i + 1]))!) back.push(queue[i], queue[i + 1])
+      const tiles: number[] = []
+      for (let i = back.length - 2; i >= 0; i -= 2) tiles.push(back[i], back[i + 1])
+      return tiles
+    }
+    if (length >= AUTO_PIPE_REACH) continue
+    for (const [dx, dy] of SIDES) {
+      const key = tileKey(tx + dx, ty + dy)
+      if (previous.has(key) || !free(tx + dx, ty + dy)) continue
+      previous.set(key, at)
+      queue.push(tx + dx, ty + dy, length + 1)
+    }
+  }
+  return undefined
+}
+
+/**
+ * Соединяет трубами все сети игрока с первой (с главным зданием): готовые трубы сразу, без стройки. Для готовых баз
+ * тестовой карты, витрины и редактора. Сеть, до которой трассы не нашлось, остаётся отдельной.
+ */
+export function connectAll(sim: Sim, player: number) {
+  for (let joined = true; joined; ) {
+    joined = false
+    const zones = allZones(sim).get(player) ?? []
+    if (zones.length < 2) return
+    const main = zones[0]
+    for (const zone of zones.slice(1)) {
+      const entity = zone.buildings.find((item) => !buildingSpec(sim.world.get(item, Building)!.type).pipe) ?? zone.buildings[0]
+      const position = sim.world.get(entity, Position)!
+      const { width, height } = BUILDINGS[sim.world.get(entity, Building)!.type as BuildingType]
+      const tiles = pipeRoute(sim, player, position.x, position.y, width, height, (other) => other === main)
+      if (!tiles?.length) continue
+      for (let i = 0; i < tiles.length; i += 2) placeBuilding(sim.world, 'pipe', tiles[i], tiles[i + 1], player)
+      joined = true
+      break
+    }
+  }
+}
+
+/**
+ * Подключает готовое здание к ближайшей другой своей сети готовой трубой, без стройки: так ставят здания в обход
+ * стройки редактор и тесты. Возвращает уложенные трубы; пусто — сети рядом нет или труба уже подходит.
+ */
+export function connectBuilding(sim: Sim, building: Entity): Entity[] {
+  const { world } = sim
+  const player = world.get(building, Owner)?.player ?? 0
+  const type = world.get(building, Building)?.type
+  if (!player || type === undefined || buildingSpec(type).pipe || buildingSpec(type).isolated) return []
+  const own = networkOf(sim, building)
+  const position = world.get(building, Position)!
+  const { width, height } = BUILDINGS[type]
+  const tiles = pipeRoute(sim, player, position.x, position.y, width, height, (zone) => zone !== own) ?? []
+  const pipes: Entity[] = []
+  for (let i = 0; i < tiles.length; i += 2) pipes.push(placeBuilding(world, 'pipe', tiles[i], tiles[i + 1], player))
+  return pipes
+}

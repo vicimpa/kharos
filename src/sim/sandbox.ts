@@ -6,6 +6,7 @@ import { depositIn, type DepositSpot } from './deposits'
 import { addCredits } from './economy'
 import { orderSeek } from './harvesting'
 import { assignHaulers } from './hauling'
+import { connectAll } from './piping'
 import { put } from './inventory'
 import { entriesOf, type Amounts } from './resources'
 import type { Sim } from './sim'
@@ -117,6 +118,8 @@ export function spawnSandbox(sim: Sim, player: number) {
     const building = placeNear(sim, spot, reach, type, at.x, at.y, player, 1)
     if (building !== undefined && buildingSpec(type).stores) stores.push(building)
   }
+  // База — одна сеть: здания соединены трубами.
+  connectAll(sim, player)
   // Запас раскладывается по хранилищам, пока в них есть место.
   for (const [resource, amount] of entriesOf(SANDBOX_STOCK)) {
     let left = amount
