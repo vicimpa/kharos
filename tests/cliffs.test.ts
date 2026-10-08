@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import { DEFAULT_CONFIG, Terrain, isCliffFoot, setTile } from '../src/map/terrain'
-import { Position, createSim, type Sim } from '../src/sim'
+import { Position, canDeploy, createSim, type Sim } from '../src/sim'
+import { CORE, canPlace } from '../src/sim/buildings'
 import { isWalkable, notWalledIn, openSpawn, orderMove, spawnUnit, terrainSpeed } from '../src/sim/units'
 
 const STEP = 1 / 20
@@ -71,4 +72,26 @@ test('место появления не запирается обрывами',
   const spot = openSpawn(sim, 0, 0)
   expect(notWalledIn(sim, spot.x, spot.y)).toBe(true)
   expect(Math.max(Math.abs(spot.x), Math.abs(spot.y))).toBeGreaterThan(3)
+})
+
+test('здание и разворачивание MCV — по одному правилу: не у подножия обрыва, а через пологий въезд — можно на два яруса', () => {
+  const sim = world()
+  mesa(sim, 0, 0, 10)
+  // Подножие под плато — ряд y = 10.
+  expect(canPlace(sim, 'generator', 4, 10)).toBe(false)
+  expect(canPlace(sim, 'generator', 4, 11)).toBe(true)
+  // На самом плато у края — можно: стенка ниже.
+  expect(canPlace(sim, 'generator', 4, 8)).toBe(true)
+
+  const mcvAt = (x: number, y: number) => spawnUnit(sim, 'mcv', 1, x, y)
+  // Главное здание встаёт вокруг MCV: над подножием — нельзя, в стороне — можно.
+  const blocked = mcvAt(5, 11)
+  expect(canDeploy(sim, 1, blocked)).toBe(canPlace(sim, CORE, 4, 10))
+  expect(canDeploy(sim, 1, blocked)).toBe(false)
+  const open = mcvAt(-15, -15)
+  expect(canDeploy(sim, 1, open)).toBe(true)
+
+  // Пологий въезд: второй ярус без обрыва — здание встаёт поперёк перепада.
+  for (let y = 20; y < 26; y++) for (let x = 0; x < 6; x++) setTile(sim.land, x, y, { terrain: Terrain.Rock, biome: 0, tier: 2, cliff: false })
+  expect(canPlace(sim, 'generator', 5, 22)).toBe(true)
 })

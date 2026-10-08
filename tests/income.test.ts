@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { Terrain, terrainAt } from '../src/map/terrain'
+import { Terrain, isCliffFoot, terrainAt } from '../src/map/terrain'
 import {
   BUILDINGS, Building, Builds, CORE, Health, Owner, Player, Site, Unit,
   Off, OVERLOAD_DAMAGE, REPAIR_COST, powerSupply, REPAIR_SPEED, canBuild, canDeploy, canPlace, createSim, creditsOf, economyOf, powerOf, powerStates, refundOf, rewardsOf, siteAt, zoneEconomies, zoneOf, zonesOf, spawnStartingUnits, type BuildingType, type Sim,
@@ -25,7 +25,7 @@ function start() {
   const rock = (x: number, y: number) => {
     for (let tileY = y; tileY < y + PLATEAU; tileY++) {
       for (let tileX = x; tileX < x + WIDE; tileX++) {
-        if (terrainAt(sim.land, tileX, tileY) !== Terrain.Rock) return false
+        if (terrainAt(sim.land, tileX, tileY) !== Terrain.Rock || isCliffFoot(sim.land, tileX, tileY)) return false
       }
     }
     return true

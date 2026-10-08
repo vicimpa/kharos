@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { Terrain, terrainAt } from '../src/map/terrain'
+import { Terrain, isCliffFoot, terrainAt } from '../src/map/terrain'
 import { Blast, Building, Owner, Position, Unit, createSim, creditsOf, isDefeated, spawnStartingUnits, type Sim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 
@@ -16,7 +16,7 @@ function start() {
   for (let y = 0; y < 400; y++) {
     for (let x = 0; x < 400; x++) {
       let ok = true
-      for (let ty = y; ty < y + 12 && ok; ty++) for (let tx = x; tx < x + 12 && ok; tx++) ok = terrainAt(sim.land, tx, ty) === Terrain.Rock
+      for (let ty = y; ty < y + 12 && ok; ty++) for (let tx = x; tx < x + 12 && ok; tx++) ok = terrainAt(sim.land, tx, ty) === Terrain.Rock && !isCliffFoot(sim.land, tx, ty)
       if (!ok) continue
       spawnStartingUnits(sim, 1, x + 2, y + 2)
       let mcv: Entity | undefined

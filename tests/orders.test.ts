@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { Terrain, terrainAt } from '../src/map/terrain'
+import { Terrain, isCliffFoot, terrainAt } from '../src/map/terrain'
 import { Building, Builds, CORE, Orders, Owner, Path, Position, Site, Unit, createSim, siteAt, spawnStartingUnits, type Sim } from '../src/sim'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024, rules: { techTree: false } }
@@ -32,7 +32,7 @@ function start() {
   const rock = (x: number, y: number) => {
     for (let tileY = y; tileY < y + PLATEAU; tileY++) {
       for (let tileX = x; tileX < x + PLATEAU; tileX++) {
-        if (terrainAt(sim.land, tileX, tileY) !== Terrain.Rock) return false
+        if (terrainAt(sim.land, tileX, tileY) !== Terrain.Rock || isCliffFoot(sim.land, tileX, tileY)) return false
       }
     }
     return true

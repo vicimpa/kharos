@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { Terrain, terrainAt } from '../src/map/terrain'
+import { Terrain, isCliffFoot, terrainAt } from '../src/map/terrain'
 import {
   BRIDGE_COST, Building, Path, CORE, FOUNDATION_COST, Owner, Pave, Position, ROAD_COST, ROAD_SPEED, Site, Unit,
   FOUNDATION_SPEED, buildSpeed, canBuild, canPave, canPlace, createSim, creditsOf, isPaved, spawnStartingUnits, type Sim,
@@ -28,7 +28,7 @@ function start() {
   const sim = createSim(options)
   const rock = (x: number, y: number) => {
     for (let tileY = y; tileY < y + 12; tileY++) {
-      for (let tileX = x; tileX < x + 12; tileX++) if (terrainAt(sim.land, tileX, tileY) !== Terrain.Rock) return false
+      for (let tileX = x; tileX < x + 12; tileX++) if (terrainAt(sim.land, tileX, tileY) !== Terrain.Rock || isCliffFoot(sim.land, tileX, tileY)) return false
     }
     return true
   }

@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { Biome, biomeAt, hash, isBuildable, terrainAt, type Land } from '../map/terrain'
+import { Biome, biomeAt, hash, isBuildable, isCliffFoot, terrainAt, type Land } from '../map/terrain'
 import { Deposit, Position } from './components'
 import type { Resource } from './resources'
 import type { Sim } from './sim'
@@ -87,7 +87,8 @@ export function depositIn(sim: Sim, cellX: number, cellY: number): DepositSpot |
       if (x < bounds.left || y < bounds.top || x + DEPOSIT_SIZE > bounds.right || y + DEPOSIT_SIZE > bounds.bottom) continue
       for (let tileY = y; tileY < y + DEPOSIT_SIZE; tileY++) {
         for (let tileX = x; tileX < x + DEPOSIT_SIZE; tileX++) {
-          if (!isBuildable(terrainAt(land, tileX, tileY))) continue search
+          // Шахта встаёт на месторождение: тайлы те же, что годятся под здание, — скала не у подножия обрыва.
+          if (!isBuildable(terrainAt(land, tileX, tileY)) || isCliffFoot(land, tileX, tileY)) continue search
         }
       }
       const kind = kindIn(biomeAt(land, x, y), hash(cellX, cellY, seed + 53))
