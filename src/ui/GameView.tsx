@@ -30,12 +30,18 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
   const [asking, setAsking] = useState<{ wrong: boolean } | null>(null)
   const [password, setPassword] = useState('')
   const connectRef = useRef<(password?: string) => void>(() => {})
+  /** Идёт подключение к серверу: окно с отменой, пока сервер не ответит. */
+  const [connecting, setConnecting] = useState(launch.kind === 'server')
 
   // Игра создаётся один раз.
   useEffect(() => {
     let closed = false
+    // Уход с экрана обрывает и подключение: сокет к мёртвому серверу не висит в фоне.
+    const abort = new AbortController()
     const start = async (password?: string) => {
-      const session = await startSession(launch.kind === 'server' && password !== undefined ? { ...launch, password } : launch, settings)
+      setConnecting(launch.kind === 'server')
+      const session = await startSession(launch.kind === 'server' && password !== undefined ? { ...launch, password } : launch, settings, abort.signal)
+      setConnecting(false)
       if (closed) return session.sim.destroy()
       gameRef.current = createGame(canvasRef.current!, settings, setError, session, { slot: launch.kind === 'save' ? launch.slot.id : undefined })
       setMuted(gameRef.current.muted)
@@ -43,6 +49,7 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
     const attempt = (password?: string) =>
       start(password).catch((error: unknown) => {
         if (closed) return
+        setConnecting(false)
         if (error instanceof PasswordRequired) setAsking({ wrong: error.wrong })
         else setError(error)
       })
@@ -50,6 +57,7 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
     attempt()
     return () => {
       closed = true
+      abort.abort()
       gameRef.current?.destroy()
       gameRef.current = null
     }
@@ -129,6 +137,15 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
           <div class="game__actions">
             <button onClick={exit}>В меню</button>
             <button onClick={() => gameRef.current?.respawn()}>Начать заново</button>
+          </div>
+        </div>
+      )}
+      {connecting && launch.kind === 'server' && error === null && (
+        <div class="game__error" role="status">
+          <strong>Подключение к серверу…</strong>
+          <span>{launch.url}</span>
+          <div class="game__actions">
+            <button onClick={exit}>Отмена</button>
           </div>
         </div>
       )}

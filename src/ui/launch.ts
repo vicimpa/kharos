@@ -131,8 +131,8 @@ export function recallLaunch(): Launch | null {
  * Подключается к игре. Локальную считает воркер: у каждого слота свой общий воркер, и вкладки, открывшие один
  * слот, играют в один мир. Новый слот ещё пуст — его мир заводится по зерну и размеру слота.
  */
-export function startSession(launch: Launch, settings: MapSettings): Promise<Session> {
-  if (launch.kind === 'server') return connect(launch.url, launch.lag, launch.name, launch.password)
+export function startSession(launch: Launch, settings: MapSettings, signal?: AbortSignal): Promise<Session> {
+  if (launch.kind === 'server') return connect(launch.url, launch.lag, launch.name, launch.password, signal)
   const options = simOptions(settings)
   if (launch.kind !== 'save') return connectLocal({ options, mode: launch.kind, battle: settings.battle, save: null }, () => {}, `kharos-${launch.kind}`)
   const { slot } = launch

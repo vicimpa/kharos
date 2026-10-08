@@ -63,13 +63,18 @@ export const INSECURE_HINT =
 /** Пароль, с которым на сервер url уже пускали. */
 export const savedPassword = (url: string) => loadByUrl(PASSWORDS_KEY)[url] ?? ''
 
+/** Сколько ждать приветствия сервера, в миллисекундах. */
+const CONNECT_TIMEOUT = 15_000
+
 /**
  * Подключается к серверу по WebSocket и ждёт приветствия. С сервером, где уже играл, — с прежним id, и сервер
  * отдаёт прежнего игрока; id из приветствия запоминается. name — ник. password — пароль сервера; пустой — тот, с
  * которым сюда уже пускали. Пароль, с которым пустили, запоминается, не подошедший — забывается.
  * lag — отладка: искусственная задержка в миллисекундах в каждую сторону, чтобы почувствовать плохую сеть.
+ * signal — отмена: сокет закрывается, обещание отклоняется. Сервер, не приславший приветствия за
+ * CONNECT_TIMEOUT, считается недоступным: мёртвый адрес иначе висел бы минутами.
  */
-export function connect(url: string, lag = 0, name = '', password = ''): Promise<Session> {
+export function connect(url: string, lag = 0, name = '', password = '', signal?: AbortSignal): Promise<Session> {
   return new Promise((resolve, reject) => {
     const address = new URL(url)
     const id = loadByUrl(IDS_KEY)[url]
@@ -84,6 +89,14 @@ export function connect(url: string, lag = 0, name = '', password = ''): Promise
     socket.binaryType = 'arraybuffer'
     const delayed = (action: () => void) => (lag > 0 ? void setTimeout(action, lag) : action())
     let sim: Replica | undefined
+    const fail = (error: Error) => {
+      refused = error.message
+      clearTimeout(timer)
+      socket.close()
+      reject(error)
+    }
+    const timer = setTimeout(() => fail(new Error(`Сервер ${url} не ответил за ${CONNECT_TIMEOUT / 1000} секунд`)), CONNECT_TIMEOUT)
+    signal?.addEventListener('abort', () => !sim && fail(new DOMException('Подключение отменено', 'AbortError')))
 
     socket.onmessage = (event) => {
       delayed(() => {
@@ -97,6 +110,7 @@ export function connect(url: string, lag = 0, name = '', password = ''): Promise
         }
         if (sim) return sim.receive(message)
         if (message.type !== 'welcome') return
+        clearTimeout(timer)
         if (message.id) storeByUrl(IDS_KEY, url, message.id)
         if (password) storeByUrl(PASSWORDS_KEY, url, password)
         sim = createReplica(
@@ -108,6 +122,7 @@ export function connect(url: string, lag = 0, name = '', password = ''): Promise
       })
     }
     socket.onclose = () => {
+      clearTimeout(timer)
       if (refused) return
       if (sim) sim.fail('Соединение с сервером потеряно')
       else reject(new Error(`Не удалось подключиться к серверу ${url}${isInsecure(url) ? `\n\n${INSECURE_HINT}` : ''}`))
