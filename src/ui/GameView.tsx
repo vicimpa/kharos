@@ -3,6 +3,7 @@ import { createGame, type Game } from '../game/game'
 import type { HudState } from '../game/hud'
 import type { MapSettings } from '../map/settings'
 import { Hud } from './Hud'
+import { Settings } from './Menu'
 import { PasswordRequired } from '../net/connect'
 import { startSession, type Launch } from './launch'
 
@@ -22,7 +23,6 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
   const gameRef = useRef<Game | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [hud, setHud] = useState<HudState | null>(null)
-  const [muted, setMuted] = useState(false)
   /** Настоящая игра — за свою базу: в ней можно сдаться и проиграть. Песочница и показательный бой — не в счёт. */
   const real = launch.kind === 'save' || launch.kind === 'server'
 
@@ -30,6 +30,23 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
   const [asking, setAsking] = useState<{ wrong: boolean } | null>(null)
   const [password, setPassword] = useState('')
   const connectRef = useRef<(password?: string) => void>(() => {})
+  /** Открыто меню поверх игры. Игра за ним идёт дальше; управление выключено, звук тише. */
+  const [paused, setPaused] = useState(false)
+  /** Настройки, открытые из меню игры. */
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  useEffect(() => {
+    setSettingsOpen(false)
+    if (gameRef.current) gameRef.current.paused = paused
+    if (!paused) return
+    // Горячие клавиши панели и игры молчат, пока открыто меню; Escape его закрывает.
+    const close = (event: KeyboardEvent) => {
+      if (event.code !== 'Escape' && event.target instanceof HTMLInputElement) return
+      event.stopImmediatePropagation()
+      if (event.code === 'Escape') setPaused(false)
+    }
+    window.addEventListener('keydown', close, true)
+    return () => window.removeEventListener('keydown', close, true)
+  }, [paused])
   /** Идёт подключение к серверу: окно с отменой, пока сервер не ответит. */
   const [connecting, setConnecting] = useState(launch.kind === 'server')
 
@@ -44,7 +61,6 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
       setConnecting(false)
       if (closed) return session.sim.destroy()
       gameRef.current = createGame(canvasRef.current!, settings, setError, session, { slot: launch.kind === 'save' ? launch.slot.id : undefined })
-      setMuted(gameRef.current.muted)
     }
     const attempt = (password?: string) =>
       start(password).catch((error: unknown) => {
@@ -98,37 +114,50 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
           narrow={(type, remove) => gameRef.current?.narrow(type, remove)}
           moveSelected={(x, y) => gameRef.current?.moveSelected(x, y)}
           menu={
-            <>
-              {(launch.kind === 'battle' || launch.kind === 'sandbox') && (
-                <button onClick={() => gameRef.current?.restart()}>{launch.kind === 'battle' ? 'Новый бой' : 'Заново'}</button>
-              )}
-              {real && !hud.defeated && (
-                <button
-                  data-tip="Проиграть сразу: всё своё взорвётся"
-                  onClick={() => {
-                    if (confirm('Сдаться? Все ваши юниты и здания взорвутся.')) gameRef.current?.send({ type: 'surrender' })
-                  }}
-                >
-                  Сдаться
-                </button>
-              )}
-              <button
-                data-tip={muted ? 'Включить звук' : 'Выключить звук'}
-                onClick={() => {
-                  const game = gameRef.current
-                  if (!game) return
-                  game.muted = !muted
-                  setMuted(game.muted)
-                }}
-              >
-                {muted ? 'Звук выкл' : 'Звук вкл'}
-              </button>
-              <button data-tip={launch.kind === 'save' ? 'Сохранить и выйти в главное меню' : 'Выйти в главное меню'} onClick={exit}>
-                Меню
-              </button>
-            </>
+            <button data-tip="Меню игры" onClick={() => setPaused(true)}>
+              Меню
+            </button>
           }
         />
+      )}
+      {paused && hud && error === null && (
+        <div class="menu game__pause">
+          {settingsOpen ? (
+            <Settings back={() => setSettingsOpen(false)} onSound={() => gameRef.current?.refreshSound()} />
+          ) : (
+            <section class="menu__window">
+              <h2 class="menu__title">Меню</h2>
+              <nav class="menu__list">
+                <button autoFocus onClick={() => setPaused(false)}>
+                  Продолжить
+                </button>
+                {(launch.kind === 'battle' || launch.kind === 'sandbox') && (
+                  <button
+                    onClick={() => {
+                      gameRef.current?.restart()
+                      setPaused(false)
+                    }}
+                  >
+                    {launch.kind === 'battle' ? 'Новый бой' : 'Заново'}
+                  </button>
+                )}
+                <button onClick={() => setSettingsOpen(true)}>Настройки</button>
+                {real && !hud.defeated && (
+                  <button
+                    onClick={() => {
+                      if (!confirm('Сдаться? Все ваши юниты и здания взорвутся.')) return
+                      gameRef.current?.send({ type: 'surrender' })
+                      setPaused(false)
+                    }}
+                  >
+                    Сдаться
+                  </button>
+                )}
+                <button onClick={exit}>{launch.kind === 'save' ? 'Сохранить и выйти' : 'Выйти в главное меню'}</button>
+              </nav>
+            </section>
+          )}
+        </div>
       )}
       {real && hud?.defeated && error === null && (
         <div class="game__defeat" role="alert">

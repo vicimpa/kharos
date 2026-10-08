@@ -554,7 +554,7 @@ interface SettingsProps {
 }
 
 /** Настройки самого игрока. Всё, что относится к миру (погода, размер, зерно), задаётся при создании игры. */
-function Settings({ back, onSound }: SettingsProps) {
+export function Settings({ back, onSound }: SettingsProps) {
   const [muted, setMuted] = useState(loadMuted)
   const [volume, setVolume] = useState(loadVolume)
   const [levels, setLevels] = useState(() => Object.fromEntries(CHANNELS.map(({ channel }) => [channel, loadLevel(channel)])) as Record<Channel, number>)

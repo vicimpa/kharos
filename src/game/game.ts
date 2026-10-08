@@ -95,6 +95,10 @@ export interface Game {
   moveSelected(x: number, y: number): void
   /** Выключен ли звук; выбор хранится в браузере. */
   muted: boolean
+  /** Поверх игры открыто меню: управление выключено, звук тише. Сама игра идёт дальше. */
+  paused: boolean
+  /** Перечитывает настройки звука: их поменяли в меню. */
+  refreshSound(): void
   /** Останавливает игру и освобождает ресурсы. */
   destroy(): void
 }
@@ -351,6 +355,14 @@ export function createGame(
     set muted(value) {
       if (audio) audio.muted = value
     },
+    get paused() {
+      return controls?.paused ?? false
+    },
+    set paused(value) {
+      if (controls) controls.paused = value
+      if (audio) audio.dimmed = value
+    },
+    refreshSound: () => audio?.refresh(),
     destroy() {
       stop()
       window.removeEventListener('pagehide', saveCamera)

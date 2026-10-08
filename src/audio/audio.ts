@@ -17,6 +17,8 @@ const NOISE_SECONDS: [NoiseColor, number][] = [
   ['brown', 8],
 ]
 const STORAGE_KEY = 'kharos.muted'
+/** Доля громкости, пока поверх игры открыто меню. */
+const DIMMED = 0.25
 const VOLUME_KEY = 'kharos.volume'
 
 export interface Audio {
@@ -32,6 +34,10 @@ export interface Audio {
   muted: boolean
   /** Громкость от 0 до 1, тоже из браузера. */
   volume: number
+  /** Приглушено: открыто меню поверх игры. Не запоминается. */
+  dimmed: boolean
+  /** Перечитывает из браузера выключение, громкость и громкость групп: их поменяли в настройках. */
+  refresh(): void
   destroy(): void
 }
 
@@ -125,7 +131,8 @@ export function createAudio(): Audio {
   const GLIDE = 0.25
   let muted = loadMuted()
   let volume = loadVolume()
-  const level = () => (muted ? 0 : MASTER * volume)
+  let dimmed = false
+  const level = () => (muted ? 0 : MASTER * volume * (dimmed ? DIMMED : 1))
 
   const start = () => {
     if (context) {
@@ -250,6 +257,19 @@ export function createAudio(): Audio {
     },
     get volume() {
       return volume
+    },
+    get dimmed() {
+      return dimmed
+    },
+    set dimmed(value) {
+      dimmed = value
+      if (master) master.gain.value = level()
+    },
+    refresh() {
+      muted = loadMuted()
+      volume = loadVolume()
+      if (master) master.gain.value = level()
+      for (const [channel, bus] of buses) bus.gain.value = loadLevel(channel)
     },
     set volume(value) {
       volume = value

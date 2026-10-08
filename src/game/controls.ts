@@ -315,8 +315,8 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
   const onContextMenu = (event: Event) => event.preventDefault()
 
   const onKeyDown = (event: KeyboardEvent) => {
-    // Не трогаем игру, пока пользователь печатает или крутит ползунок в панели.
-    if (event.target instanceof HTMLInputElement) return
+    // Не трогаем игру, пока пользователь печатает или крутит ползунок в панели, и пока открыто меню.
+    if (event.target instanceof HTMLInputElement || paused) return
     keys.add(event.code)
     if (event.altKey) {
       if (event.code === 'KeyG') scene.grid = !scene.grid
@@ -388,6 +388,8 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
     motion.flyTo(x / count, y / count)
   }
   const onKeyUp = (event: KeyboardEvent) => keys.delete(event.code)
+  /** Открыто меню поверх игры: клавиши и край экрана камеру не двигают. Мышь меню и так закрывает. */
+  let paused = false
   const onBlur = () => {
     keys.clear()
     screenPointer = null
@@ -410,7 +412,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
   const update = (seconds: number) => {
     const speed = KEY_SPEED * (keys.has('ShiftLeft') || keys.has('ShiftRight') ? KEY_BOOST : 1)
     // Указатель у края экрана двигает камеру, пока камеру не тянут мышью; рамку тянуть можно — она растёт за край.
-    const pointer = pressed && pressed.button !== LEFT ? null : screenPointer
+    const pointer = paused || (pressed && pressed.button !== LEFT) ? null : screenPointer
     const edgeX = pointer ? Number(pointer.x >= camera.width - EDGE) - Number(pointer.x <= EDGE) : 0
     const edgeY = pointer ? Number(pointer.y >= camera.height - EDGE) - Number(pointer.y <= EDGE) : 0
     const right = Math.sign(Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft')) + edgeX)
@@ -458,6 +460,13 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
   return {
     update,
     lookAtSelection,
+    get paused() {
+      return paused
+    },
+    set paused(value: boolean) {
+      paused = value
+      if (value) onBlur()
+    },
     /** Оставляет в выделении только юнитов вида type; remove — наоборот, убирает их. */
     narrow(type: UnitType, remove: boolean) {
       for (const entity of scene.selection) {

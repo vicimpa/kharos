@@ -871,6 +871,14 @@ body {
   user-select: none;
 }
 
+/* Меню поверх идущей игры: сцену видно сквозь затемнение. */
+.game__pause {
+  z-index: 10;
+  align-items: center;
+  background: rgba(8, 17, 28, 0.6);
+  backdrop-filter: blur(2px);
+}
+
 .menu__logo {
   margin: 0;
   color: #e4f4ff;
