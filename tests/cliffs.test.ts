@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import { DEFAULT_CONFIG, Terrain, isCliffFoot, setTile } from '../src/map/terrain'
 import { Position, canDeploy, createSim, type Sim } from '../src/sim'
 import { CORE, canPlace } from '../src/sim/buildings'
+import { canPave } from '../src/sim/paving'
 import { isWalkable, notWalledIn, openSpawn, orderMove, spawnUnit, terrainSpeed } from '../src/sim/units'
 
 const STEP = 1 / 20
@@ -94,4 +95,14 @@ test('здание и разворачивание MCV — по одному п�
   // Пологий въезд: второй ярус без обрыва — здание встаёт поперёк перепада.
   for (let y = 20; y < 26; y++) for (let x = 0; x < 6; x++) setTile(sim.land, x, y, { terrain: Terrain.Rock, biome: 0, tier: 2, cliff: false })
   expect(canPlace(sim, 'generator', 5, 22)).toBe(true)
+})
+
+test('фундамент и дорогу у подножия обрыва не положить, рядом — можно', () => {
+  const sim = world()
+  mesa(sim, 0, 0, 10)
+  for (const kind of ['foundation', 'road'] as const) {
+    expect(canPave(sim, 1, kind, 5, 10)).toBe(false)
+    expect(canPave(sim, 1, kind, 5, 11)).toBe(true)
+    expect(canPave(sim, 1, kind, 5, 9)).toBe(true)
+  }
 })

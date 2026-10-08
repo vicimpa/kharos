@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { Terrain, isPassable, terrainAt } from '../map/terrain'
+import { Terrain, isCliffFoot, isPassable, terrainAt } from '../map/terrain'
 import { BUILDINGS, siteAt, type BuildingType } from './buildings'
 import { isOwn } from './common'
 import { Owner, Pave, Position, Repair, Unit } from './components'
@@ -32,7 +32,8 @@ export function paveCost(sim: Sim, kind: PaveKind, x: number, y: number) {
 
 /**
  * Можно ли игроку заложить покрытие в тайл: внутри карты, на свободном от покрытия, зданий и площадок месте,
- * не в чужой зоне. Фундамент — на скале или песке, дорога — где угодно, кроме гор. Своей зоны покрытию не нужно.
+ * не в чужой зоне и не у подножия обрыва. Фундамент — на скале или песке, дорога — где угодно, кроме гор. Своей
+ * зоны покрытию не нужно.
  */
 export function canPave(sim: Sim, player: number, kind: PaveKind, x: number, y: number) {
   if (!Number.isInteger(x) || !Number.isInteger(y) || !PAVE_KINDS.includes(kind)) return false
@@ -40,6 +41,8 @@ export function canPave(sim: Sim, player: number, kind: PaveKind, x: number, y: 
   if (x < bounds.left || y < bounds.top || x >= bounds.right || y >= bounds.bottom) return false
   const terrain = terrainAt(sim.land, x, y)
   if (kind === 'foundation' ? terrain !== Terrain.Rock && terrain !== Terrain.Sand : !isPassable(terrain)) return false
+  // У подножия обрыва стоит его стенка: класть туда нельзя, как и строить, см. canPlace.
+  if (isCliffFoot(sim.land, x, y)) return false
   if (sim.paving.at(x, y) !== undefined || sim.occupancy.at(x, y) !== undefined || siteAt(sim, x, y) !== undefined) return false
   return !inForeignZone(sim, player, x, y, 1, 1)
 }
