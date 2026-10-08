@@ -140,6 +140,29 @@ vec3 zones(vec2 p, vec2 warp) {
   );
 }
 
+// Совпадает с DUNE_SHIFT и Dunes в terrain.ts: барханы песчаного тайла — природные, убраны или насыпаны кистью.
+const int DUNE_SHIFT = 5;
+
+// Поправка поля барханов от тайла: убранные гасят его, насыпанные поднимают выше любого порога.
+float duneBias(ivec2 cell) {
+  vec4 data = tile(cell);
+  if (int(data.r * 255.0 + 0.5) != SAND) return 0.0;
+  int mode = (int(data.a * 255.0 + 0.5) >> DUNE_SHIFT) & 3;
+  return mode == 1 ? -3.0 : mode == 2 ? 1.5 : 0.0;
+}
+
+// Поправка в точке: плавно между четырьмя ближайшими тайлами, чтобы край насыпанного поля не шёл по сетке.
+float duneEdit(vec2 p) {
+  vec2 q = p - 0.5;
+  ivec2 cell = ivec2(floor(q));
+  vec2 f = fract(q);
+  return mix(
+    mix(duneBias(cell), duneBias(cell + ivec2(1, 0)), f.x),
+    mix(duneBias(cell + ivec2(0, 1)), duneBias(cell + ivec2(1, 1)), f.x),
+    f.y
+  );
+}
+
 // Поля барханов в духе Dune II: короткие волнистые гребни со светлой кромкой и тенью под ней.
 // Возвращает индекс цвета в палитре песка или -1, если гребня в этом текселе нет.
 // threshold — насколько редки поля барханов: чем выше, тем их меньше.
@@ -148,6 +171,8 @@ int duneRidge(vec2 p, float coarse, float sandDepth, float threshold) {
   float field = noise(p + 53.0 + (coarse - 0.5) * 8.0, vec2(0.125)) * 0.75 + noise(p + 11.0, vec2(0.5)) * 0.25;
   // Рядом со скалами и болотами барханов нет.
   field -= 1.0 - smoothstep(uDunes.z, uDunes.z + 0.3, sandDepth);
+  // Правка кистью редактора.
+  field += duneEdit(p);
   if (field < threshold) return -1;
 
   // Множители при p подобраны так, чтобы узор был периодичен с периодом WINDOW.

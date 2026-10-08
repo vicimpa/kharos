@@ -6,7 +6,7 @@ import { placementOf } from '../game/placing'
 import type { SceneEdit } from '../game/scene'
 import { loadSave, storeSave } from '../game/storage'
 import type { MapSettings } from '../map/settings'
-import { Terrain } from '../map/terrain'
+import { Dunes as DUNES_OF, MAX_PEAK_RADIUS, Terrain, type Dunes } from '../map/terrain'
 import { decodeSave, encodeSave, readJson, type Sections } from '../save/file'
 import {
   Armed,
@@ -65,6 +65,7 @@ import {
   setOwner,
   setStock,
   type Brush,
+  type BrushShape,
 } from '../sim/editor'
 import { slotWorker, type Launch } from './launch'
 import { reloadLocal } from '../net/connect'
@@ -88,6 +89,18 @@ const TERRAINS: [Terrain | undefined, string][] = [
   [Terrain.Rock, 'скала'],
   [Terrain.Sand, 'песок'],
   [Terrain.Swamp, 'болото'],
+  [Terrain.Mountain, 'гора'],
+]
+const DUNES: [Dunes | undefined, string][] = [
+  [undefined, 'как есть'],
+  [DUNES_OF.Natural, 'природные'],
+  [DUNES_OF.None, 'убрать'],
+  [DUNES_OF.Many, 'насыпать'],
+]
+const SHAPES: [BrushShape, string][] = [
+  ['square', 'квадрат'],
+  ['circle', 'круг'],
+  ['spray', 'разброс'],
 ]
 const TIERS: (number | undefined)[] = [undefined, 0, 1, 2, 3]
 const CLIFFS: [boolean | undefined, string][] = [
@@ -126,7 +139,7 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
   const [error, setError] = useState<unknown>(null)
   const [tool, setTool] = useState<Tool>('select')
   const [player, setPlayer] = useState(1)
-  const [brush, setBrush] = useState<Brush>({ terrain: Terrain.Rock })
+  const [brush, setBrush] = useState<Brush>({ terrain: Terrain.Rock, shape: 'square' })
   const [size, setSize] = useState(3)
   const [building, setBuilding] = useState<BuildingType>('generator')
   const [unit, setUnit] = useState<UnitType>('tank')
@@ -461,11 +474,16 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
                 <Choice label="Земля" options={TERRAINS} value={brush.terrain} set={(terrain) => setBrush({ ...brush, terrain })} />
                 <Choice label="Ярус" options={TIERS.map((tier) => [tier, tier === undefined ? 'как есть' : String(tier)])} value={brush.tier} set={(tier) => setBrush({ ...brush, tier })} />
                 <Choice label="Кромка" options={CLIFFS} value={brush.cliff} set={(cliff) => setBrush({ ...brush, cliff })} />
+                <Choice label="Барханы на песке" options={DUNES} value={brush.dunes} set={(dunes) => setBrush({ ...brush, dunes })} />
+                <Choice label="Форма" options={SHAPES} value={brush.shape ?? 'square'} set={(shape) => setBrush({ ...brush, shape })} />
                 <label class="editor__field">
                   Кисть {size}×{size}
                   <input type="range" min={1} max={15} step={2} value={size} onInput={(event) => setSize(Number(event.currentTarget.value))} />
                 </label>
-                <p class="editor__note">Горы кистью не ставятся, но стираются. Правка карты сразу видна всем игрокам.</p>
+                <p class="editor__note">
+                  Гора встаёт одной вершиной в середине кисти, размером с кисть (не больше {Math.round(MAX_PEAK_RADIUS * 2)} тайлов). Горы рядом стыкуются грядой; гору, задетую другой землёй, кисть стирает целиком. Барханы
+                  ложатся только на песок. Правка карты сразу видна всем игрокам.
+                </p>
               </div>
             )}
             {tool === 'building' && (

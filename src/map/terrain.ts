@@ -120,6 +120,13 @@ export const STEP_BIT = 8
  * соседей, как STEP_BIT.
  */
 export const FOOT_BIT = 16
+/**
+ * Барханы на песке: два бита байта рельефа с DUNE_SHIFT. Природные — как решит шейдер по шуму и глубине песков;
+ * их можно убрать или насыпать кистью редактора. У не-песка биты пустые.
+ */
+export const DUNE_SHIFT = 5
+export const Dunes = { Natural: 0, None: 1, Many: 2 } as const
+export type Dunes = (typeof Dunes)[keyof typeof Dunes]
 /** Что в байте рельефа выводится из соседей и не хранится. */
 const DERIVED_BITS = STEP_BIT | FOOT_BIT
 /** Окно соседей для STEP_BIT: сверху больше — туда смотрит стенка обрыва. */
@@ -162,6 +169,8 @@ export interface Land {
   /** Растёт с каждой правкой карты; по revisions — у каких чанков: окно на видеокарте перечитывает только их. */
   revision: number
   revisions: Map<number, number>
+  /** Идёт пакетная правка (см. batchLand): чанки, которые пересчитать в её конце, по tileKey. null — правок пакетом нет. */
+  pending?: Map<number, [number, number]> | null
 }
 
 /** Пара целых координат одним числом: ключ для словарей и множеств тайлов, чанков, ячеек. */
@@ -604,12 +613,13 @@ export function terrainAt(land: Land, x: number, y: number): Terrain {
 /** Номер правки чанка: окно на видеокарте сравнивает его с тем, что уже загрузило. 0 — чанк не правили. */
 export const chunkRevision = (land: Land, chunkX: number, chunkY: number) => land.revisions.get(tileKey(chunkX, chunkY)) ?? 0
 
-/** Каким становится тайл: тип (кроме гор), биом в упаковке packBiome, ярус и обрывистость кромки. */
+/** Каким становится тайл: тип (кроме гор), биом в упаковке packBiome, ярус, обрывистость кромки и барханы песка. */
 export interface TileEdit {
   terrain: Terrain
   biome: number
   tier: number
   cliff: boolean
+  dunes?: Dunes
 }
 
 /**
@@ -617,9 +627,40 @@ export interface TileEdit {
  * и STEP_BIT соседей. Правки мира идут через editTile (landMemory.ts): он помнит, кто из игроков что знает.
  */
 export function setTile(land: Land, x: number, y: number, edit: TileEdit) {
+  if (edit.terrain === Terrain.Mountain) return
+  const dunes = edit.terrain === Terrain.Sand ? (edit.dunes ?? Dunes.Natural) << DUNE_SHIFT : 0
+  writeTile(land, x, y, [edit.terrain, edit.biome, 0, (edit.tier & 3) | (edit.cliff ? CLIFF_BIT : 0) | dunes])
+}
+
+/**
+ * Ставит на тайл (x, y) часть горы с вершиной в (peakX, peakY) радиуса radius тайлов. Вершина — не дальше 4 тайлов
+ * от тайла по каждой оси, радиус — до PEAK_RADIUS_SCALE: так они укладываются в байты тайла, см. generateChunk.
+ */
+export function setPeakTile(land: Land, x: number, y: number, biome: number, peakX: number, peakY: number, radius: number) {
+  const dx = Math.round((peakX - (x + 0.5)) * 2 + 8)
+  const dy = Math.round((peakY - (y + 0.5)) * 2 + 8)
+  if (dx < 0 || dx > 15 || dy < 0 || dy > 15) return
+  writeTile(land, x, y, [Terrain.Mountain, biome, Math.round((Math.min(radius, PEAK_RADIUS_SCALE) / PEAK_RADIUS_SCALE) * 255), (dx << 4) | dy])
+}
+
+/** Вершина горы, частью которой стоит тайл (x, y): центр и радиус в тайлах. null — тайл не гора. */
+export function peakOf(land: Land, x: number, y: number): { x: number; y: number; radius: number } | null {
+  const [terrain, , radius, offset] = tileBytes(land, x, y)
+  if (terrain !== Terrain.Mountain) return null
+  return { x: x + 0.5 + ((offset >> 4) - 8) / 2, y: y + 0.5 + ((offset & 15) - 8) / 2, radius: (radius / 255) * PEAK_RADIUS_SCALE }
+}
+
+/** Самый большой радиус вершины, при котором все её тайлы укладываются в смещение до 4 тайлов, см. setPeakTile. */
+export const MAX_PEAK_RADIUS = 2.75
+
+/**
+ * Записывает хранимые байты тайла (см. tileBytes). Вне области карты ничего не делает: край мира — из генератора.
+ * Пересчитывает глубину в песках и STEP_BIT соседей.
+ */
+function writeTile(land: Land, x: number, y: number, bytes: number[]) {
   const chunkX = Math.floor(x / CHUNK_SIZE)
   const chunkY = Math.floor(y / CHUNK_SIZE)
-  if (ownedIndex(land, chunkX, chunkY) < 0 || edit.terrain === Terrain.Mountain) return
+  if (ownedIndex(land, chunkX, chunkY) < 0) return
   // Соседи, которые выводят что-то из этого тайла, собираются до правки: несобранный посчитал бы его по генератору.
   const reach = Math.ceil(DERIVE_MARGIN / CHUNK_SIZE)
   const touched: [number, number][] = []
@@ -632,14 +673,34 @@ export function setTile(land: Land, x: number, y: number, edit: TileEdit) {
   }
   const chunk = getChunk(land, chunkX, chunkY)
   const index = ((y - chunkY * CHUNK_SIZE) * CHUNK_SIZE + x - chunkX * CHUNK_SIZE) * TILE_BYTES
-  chunk[index] = edit.terrain
-  chunk[index + 1] = edit.biome
-  chunk[index + 2] = 0
-  chunk[index + 3] = (edit.tier & 3) | (edit.cliff ? CLIFF_BIT : 0)
+  for (let plane = 0; plane < TILE_BYTES; plane++) chunk[index + plane] = bytes[plane]
   land.revision++
-  for (const [cx, cy] of touched) {
+  if (land.pending) for (const [cx, cy] of touched) land.pending.set(tileKey(cx, cy), [cx, cy])
+  else derive(land, touched)
+}
+
+/** Пересчитывает выводимое у чанков карты и отмечает их правку. */
+function derive(land: Land, chunks: Iterable<[number, number]>) {
+  for (const [cx, cy] of chunks) {
     deriveChunk(land, land.owned[ownedIndex(land, cx, cy)]!, cx, cy)
     land.revisions.set(tileKey(cx, cy), land.revision)
+  }
+}
+
+/**
+ * Правит карту пакетом: правки внутри edit пишутся сразу, а выводимое (глубина песков, перепады, подножия) соседние
+ * чанки пересчитывают один раз в конце. Так кисть на сотню тайлов не пересчитывает чанки сотню раз. Внутри пакета
+ * выводимое у правленых тайлов ещё прежнее.
+ */
+export function batchLand(land: Land, edit: () => void) {
+  if (land.pending) return edit()
+  land.pending = new Map()
+  try {
+    edit()
+  } finally {
+    const chunks = land.pending.values()
+    land.pending = null
+    derive(land, chunks)
   }
 }
 
@@ -658,10 +719,7 @@ export function tileBytes(land: Land, x: number, y: number): number[] {
 
 /** Накладывает правки: x, y и хранимые байты тайла (см. tileBytes) подряд. */
 export function applyEdits(land: Land, edits: number[]) {
-  for (let i = 0; i + 5 < edits.length; i += 6) {
-    const relief = edits[i + 5]
-    setTile(land, edits[i], edits[i + 1], { terrain: edits[i + 2] as Terrain, biome: edits[i + 3], tier: relief & 3, cliff: (relief & CLIFF_BIT) !== 0 })
-  }
+  for (let i = 0; i + 5 < edits.length; i += 6) writeTile(land, edits[i], edits[i + 1], edits.slice(i + 2, i + 6))
 }
 
 /** Подменяет тайл (x, y) в байтах saveLand хранимыми байтами tile. Тайл вне карты пропускает. */

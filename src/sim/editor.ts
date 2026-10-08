@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { Terrain, isBuildable, isCliffFoot, setTile, terrainAt, tileBytes, tileKey } from '../map/terrain'
+import { CLIFF_BIT, DUNE_SHIFT, MAX_PEAK_RADIUS, Terrain, isBuildable, batchLand, isCliffFoot, peakOf, setPeakTile, setTile, terrainAt, tileBytes, tileKey, type Dunes } from '../map/terrain'
 import { BUILDINGS, canPlace, placeBuilding, type BuildingType } from './buildings'
 import { Attached, Builds, Building, Carrier, Ghost, Harvester, Turret, Health, Inventory, Owner, Path, Player, Position, Unit } from './components'
 import { DEPOSIT_CELL, DEPOSIT_SIZE, addDeposit, depositAt, depositsIn, depositNear, dropDeposit, prepareDeposits, reserveLeft, type DepositKind, type DepositSpot } from './deposits'
@@ -30,37 +30,109 @@ function settle(sim: Sim) {
   for (const [, position, turret] of sim.world.query(Position, Turret)) Object.assign(turret, { prevX: position.x, prevY: position.y, prevAngle: turret.angle })
 }
 
-/** Чем красит кисть карты: что не задано, остаётся у тайла прежним. */
+/** Форма кисти: квадрат, круг или разброс — круг, из которого кисть берёт лишь часть тайлов, случайно. */
+export type BrushShape = 'square' | 'circle' | 'spray'
+
+/** Какую долю тайлов круга красит разброс. */
+const SPRAY_SHARE = 0.3
+
+/**
+ * Чем красит кисть карты: что не задано, остаётся у тайла прежним. terrain — и гора: она встаёт одной вершиной в
+ * середине кисти, круглая при любой форме. dunes — барханы, только на песке.
+ */
 export interface Brush {
   terrain?: Terrain
   tier?: number
   cliff?: boolean
+  dunes?: Dunes
+  shape?: BrushShape
+}
+
+/** Тайлы кисти размера size с серединой в тайле (x, y), x и y подряд. */
+export function brushTiles(x: number, y: number, size: number, shape: BrushShape = 'square') {
+  const tiles: number[] = []
+  const from = Math.floor(size / 2)
+  const radius = size / 2
+  for (let tileY = y - from; tileY < y - from + size; tileY++) {
+    for (let tileX = x - from; tileX < x - from + size; tileX++) {
+      const inside = shape === 'square' || Math.hypot(tileX - x, tileY - y) <= radius - 0.25 || size === 1
+      if (inside && (shape !== 'spray' || Math.random() < SPRAY_SHARE || size === 1)) tiles.push(tileX, tileY)
+    }
+  }
+  return tiles
 }
 
 /**
- * Красит тайлы в квадрате со стороной size вокруг (x, y). Правка — сразу правда для всех: игроки не узнают её из
- * тумана, а видят новую карту, как будто мир таким и сгенерирован. Горы кистью не ставятся, но стираются.
+ * Красит кистью тайлы вокруг (x, y). Правка — сразу правда для всех: игроки не узнают её из тумана, а видят новую
+ * карту, как будто мир таким и сгенерирован. Что с новым не стыкуется, стирается: гору, которую кисть задела хоть
+ * краем, — целиком, а не обрубком. Месторождения правка не трогает: их клетки взяты до неё.
  */
 export function paint(sim: Sim, x: number, y: number, size: number, brush: Brush) {
+  batchLand(sim.land, () => paintBatch(sim, x, y, size, brush))
+}
+
+function paintBatch(sim: Sim, x: number, y: number, size: number, brush: Brush) {
   const { bounds, land, landMemory } = sim
-  const from = Math.floor(size / 2)
-  // Месторождения вокруг считаются по карте до правки: кисть их не создаёт и не двигает.
-  prepareDeposits(sim, x - from, y - from, x - from + size - 1, y - from + size - 1)
-  for (let tileY = y - from; tileY < y - from + size; tileY++) {
-    for (let tileX = x - from; tileX < x - from + size; tileX++) {
-      if (tileX < bounds.left || tileY < bounds.top || tileX >= bounds.right || tileY >= bounds.bottom) continue
-      const [type, biome, , relief] = tileBytes(land, tileX, tileY)
-      const mountain = type === Terrain.Mountain
-      const terrain = brush.terrain ?? (mountain ? Terrain.Rock : (type as Terrain))
-      // У гор в байте рельефа — вершина, а не ярус: стёртая гора становится скалой первого яруса.
-      const tier = brush.tier ?? (mountain ? 1 : relief & 3)
-      const cliff = brush.cliff ?? (mountain ? false : (relief & 4) !== 0)
-      setTile(land, tileX, tileY, { terrain, biome, tier, cliff })
-      // Знание игроков об этом тайле больше не нужно: новое видят все.
-      const key = tileKey(tileX, tileY)
-      landMemory.original.delete(key)
-      for (const known of landMemory.known.values()) known.delete(key)
+  const inside = (tileX: number, tileY: number) => tileX >= bounds.left && tileY >= bounds.top && tileX < bounds.right && tileY < bounds.bottom
+  const reach = Math.ceil(Math.max(size, MAX_PEAK_RADIUS * 2) / 2) + 5
+  prepareDeposits(sim, x - reach, y - reach, x + reach, y + reach)
+  /** Знание игроков о тайле больше не нужно: новое видят все. */
+  const forget = (tileX: number, tileY: number) => {
+    const key = tileKey(tileX, tileY)
+    landMemory.original.delete(key)
+    for (const known of landMemory.known.values()) known.delete(key)
+  }
+  /** Стирает гору целиком: все тайлы её вершины становятся скалой. */
+  const erasePeak = (peak: { x: number; y: number; radius: number }) => {
+    const span = Math.ceil(peak.radius + 1)
+    for (let tileY = Math.floor(peak.y) - span; tileY <= Math.floor(peak.y) + span; tileY++) {
+      for (let tileX = Math.floor(peak.x) - span; tileX <= Math.floor(peak.x) + span; tileX++) {
+        if (!inside(tileX, tileY)) continue
+        const other = peakOf(land, tileX, tileY)
+        if (!other || other.x !== peak.x || other.y !== peak.y) continue
+        setTile(land, tileX, tileY, { terrain: Terrain.Rock, biome: tileBytes(land, tileX, tileY)[1], tier: 1, cliff: false })
+        forget(tileX, tileY)
+      }
     }
+  }
+
+  if (brush.terrain === Terrain.Mountain) {
+    // Гора — одна вершина в середине кисти. С соседними горами она стыкуется грядой, как у генератора: тайл на стыке
+    // достаётся ближней вершине.
+    const peak = { x: x + 0.5, y: y + 0.5, radius: Math.max(0.7, Math.min(MAX_PEAK_RADIUS, size / 2)) }
+    const footprint: number[] = []
+    const span = Math.ceil(peak.radius + 1)
+    for (let tileY = y - span; tileY <= y + span; tileY++) {
+      for (let tileX = x - span; tileX <= x + span; tileX++) {
+        if (inside(tileX, tileY) && Math.hypot(peak.x - (tileX + 0.5), peak.y - (tileY + 0.5)) < peak.radius + Math.SQRT1_2) footprint.push(tileX, tileY)
+      }
+    }
+    for (let i = 0; i < footprint.length; i += 2) {
+      const center = { x: footprint[i] + 0.5, y: footprint[i + 1] + 0.5 }
+      const other = peakOf(land, footprint[i], footprint[i + 1])
+      if (other && Math.hypot(other.x - center.x, other.y - center.y) < Math.hypot(peak.x - center.x, peak.y - center.y)) continue
+      setPeakTile(land, footprint[i], footprint[i + 1], tileBytes(land, footprint[i], footprint[i + 1])[1], peak.x, peak.y, peak.radius)
+      forget(footprint[i], footprint[i + 1])
+    }
+    return
+  }
+
+  const tiles = brushTiles(x, y, size, brush.shape)
+  for (let i = 0; i < tiles.length; i += 2) {
+    const peak = inside(tiles[i], tiles[i + 1]) ? peakOf(land, tiles[i], tiles[i + 1]) : null
+    if (peak) erasePeak(peak)
+  }
+  for (let i = 0; i < tiles.length; i += 2) {
+    const tileX = tiles[i]
+    const tileY = tiles[i + 1]
+    if (!inside(tileX, tileY)) continue
+    const [type, biome, , relief] = tileBytes(land, tileX, tileY)
+    const terrain = brush.terrain ?? (type as Terrain)
+    const tier = brush.tier ?? relief & 3
+    const cliff = brush.cliff ?? (relief & CLIFF_BIT) !== 0
+    const dunes = brush.dunes ?? (((relief >> DUNE_SHIFT) & 3) as Dunes)
+    setTile(land, tileX, tileY, { terrain, biome, tier, cliff, dunes })
+    forget(tileX, tileY)
   }
 }
 
