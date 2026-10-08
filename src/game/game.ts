@@ -156,7 +156,6 @@ export function createGame(
         createDropsPass(gl, scene),
         // Следы, гарь и остовы — на земле, под юнитами.
         createDecalsPass(gl, scene),
-        createBoundsPass(gl, scene),
         units.ground,
         buildings,
         units.emplacements,
@@ -169,6 +168,8 @@ export function createGame(
         createLightingPass(gl, scene, [units.ground, buildings, units.emplacements]),
         // Туман — над миром и его светом, под зонами, выделением и курсором.
         ...play(createFogPass(gl, scene)),
+        // Буря за краем мира — над туманом: границу видно и там, где ещё не бывали.
+        createBoundsPass(gl, scene),
         ...play(createPowerPass(gl, scene)),
         combat.effects,
         ...play(createSelectionPass(gl, scene)),
