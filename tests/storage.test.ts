@@ -1,11 +1,12 @@
 import { beforeEach, expect, test } from 'bun:test'
-import { createSlot, deleteSave, exportSave, importSave, listSaves, loadCamera, loadSave, storeCamera, storeSave } from '../src/game/storage'
+import { createSlot, deleteSave, exportSave, importSave, listSaves, loadCamera, loadSave, resetSaveFiles, storeCamera, storeSave } from '../src/game/storage'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { createSim } from '../src/sim'
 
 const memory = new Map<string, string>()
 beforeEach(() => {
   memory.clear()
+  resetSaveFiles()
   globalThis.localStorage = {
     getItem: (key: string) => memory.get(key) ?? null,
     setItem: (key: string, value: string) => void memory.set(key, value),
@@ -15,42 +16,44 @@ beforeEach(() => {
 
 const save = () => createSim({ generator: DEFAULT_SETTINGS.generator, size: 256 }).save()
 
-test('слоты: новый пуст, запись описывает его, удалённый не воскресает', () => {
+test('слоты: новый пуст, запись описывает его, удалённый не воскресает', async () => {
   const slot = createSlot('Первая', 256, 7)
   expect(listSaves().map((other) => other.name)).toEqual(['Первая'])
-  expect(loadSave(slot.id)).toBeNull()
+  expect(await loadSave(slot.id)).toBeNull()
 
-  storeSave(slot.id, save())
-  expect(loadSave(slot.id)?.size).toBe(256)
+  await storeSave(slot.id, save())
+  expect((await loadSave(slot.id))?.size).toBe(256)
   expect(listSaves()[0].seed).toBe(DEFAULT_SETTINGS.generator.seed)
   storeCamera(slot.id, { x: 1, y: 2, zoom: 32 })
   expect(loadCamera(slot.id)).toEqual({ x: 1, y: 2, zoom: 32 })
 
   deleteSave(slot.id)
-  storeSave(slot.id, save())
+  await storeSave(slot.id, save())
   expect(listSaves()).toEqual([])
-  expect(loadSave(slot.id)).toBeNull()
+  expect(await loadSave(slot.id)).toBeNull()
   expect(loadCamera(slot.id)).toBeNull()
 })
 
-test('сохранение прежних версий становится слотом вместе с камерой', () => {
+test('сохранения прежнего формата (JSON) не переносятся: их слоты пропадают, пустые слоты остаются', () => {
   memory.set('kharos.save', JSON.stringify(save()))
   memory.set('kharos.camera', JSON.stringify({ x: 5, y: 6, zoom: 20 }))
-  const [slot] = listSaves()
-  expect(slot.name).toBe('Прежняя игра')
-  expect(loadSave(slot.id)).not.toBeNull()
-  expect(loadCamera(slot.id)?.x).toBe(5)
-  expect(memory.has('kharos.save')).toBe(false)
-  expect(listSaves().length).toBe(1)
+  memory.set('kharos.saves', JSON.stringify([
+    { id: 'old', name: 'Старая', created: 1, updated: 1, tick: 5, size: 256, seed: 1 },
+    { id: 'empty', name: 'Пустая', created: 1, updated: 1, tick: 0, size: 256, seed: 1 },
+  ]))
+  memory.set('kharos.save.old', JSON.stringify(save()))
+  memory.set('kharos.camera.old', JSON.stringify({ x: 1, y: 1, zoom: 20 }))
+  expect(listSaves().map((slot) => slot.id)).toEqual(['empty'])
+  expect([...memory.keys()].sort()).toEqual(['kharos.saves'])
 })
 
-test('файл сохранения переносится в новый слот, чужой файл — ошибка', () => {
+test('файл сохранения переносится в новый слот, чужой файл — ошибка', async () => {
   const slot = createSlot('Перенос', 256, 1)
-  storeSave(slot.id, save())
-  const file = JSON.parse(JSON.stringify(exportSave(slot.id)))
-  const copy = importSave(file)
+  await storeSave(slot.id, save())
+  const file = await exportSave(slot.id)
+  const copy = await importSave(file!)
   expect(copy.id).not.toBe(slot.id)
   expect(copy.name).toBe('Перенос')
-  expect(loadSave(copy.id)).toEqual(loadSave(slot.id))
-  expect(() => importSave({ name: 'x', save: { version: -1 } })).toThrow()
+  expect(await loadSave(copy.id)).toEqual(await loadSave(slot.id))
+  await expect(importSave(new TextEncoder().encode('{"version":19}'))).rejects.toThrow()
 })

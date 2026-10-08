@@ -3,5 +3,6 @@ dist
 .DS_Store
 *.local
 save.json*
+save.kharos*
 settings.json
 tls/

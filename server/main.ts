@@ -2,7 +2,8 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { createHost, type HostSave, type Peer } from '../src/net/host'
 import { PROTOCOL_VERSION, versionMismatch, type ServerMessage } from '../src/net/protocol'
-import { SAVE_VERSION, createSim } from '../src/sim'
+import { createSim } from '../src/sim'
+import { decodeSave, encodeSave, readJson } from '../src/save/file'
 import { defaultSettings, mergeSettings, type ServerSettings } from './settings'
 import { TLS_CHECK_INTERVAL, TLS_MODES, obtainCertificate, readCertificate, tlsDomain, type Certificate } from './tls'
 
@@ -32,26 +33,39 @@ const settings = readSettings()
 const port = Number(process.env.PORT) || settings.port
 const SAVE_PATH = process.env.SAVE || settings.save
 
-/** Мир из сохранения; сохранение другой версии игры откладывается в сторону, и мир начинается заново. */
-function load(): HostSave | undefined {
+/**
+ * Мир из сохранения, поднятый до этой версии игры. Файл, который не читается (прежний JSON, более новая версия,
+ * повреждён), откладывается в сторону, и мир начинается заново: молча перезаписать его значило бы потерять старый.
+ */
+async function load(): Promise<HostSave | undefined> {
   if (!existsSync(SAVE_PATH)) return undefined
-  // Битый файл сервер не перезаписывает: молча начать новый мир значило бы потерять старый.
-  const save = JSON.parse(readFileSync(SAVE_PATH, 'utf8')) as HostSave
-  if (save.sim?.version === SAVE_VERSION) return save
-  const aside = `${SAVE_PATH}.v${save.sim?.version ?? 0}`
-  renameSync(SAVE_PATH, aside)
-  console.log(`сохранение другой версии игры отложено в ${aside}, мир начинается заново`)
-  return undefined
+  try {
+    const { save, sections } = await decodeSave(new Uint8Array(readFileSync(SAVE_PATH)))
+    const host = readJson<Omit<HostSave, 'sim'>>(sections.get('HOST')) ?? { players: {}, names: {} }
+    return { ...host, sim: save }
+  } catch (error) {
+    const aside = `${SAVE_PATH}.${Date.now()}.old`
+    renameSync(SAVE_PATH, aside)
+    console.log(`сохранение не читается (${error instanceof Error ? error.message : error}), отложено в ${aside}, мир начинается заново`)
+    return undefined
+  }
 }
+
+/** Идущая запись: следующая ждёт её, чтобы файлы не легли вперемешку. */
+let storing: Promise<void> = Promise.resolve()
 
 /** Пишет во временный файл и подменяет им сохранение: упавший посреди записи сервер не оставит половину файла. */
 function store() {
-  const temporary = `${SAVE_PATH}.tmp`
-  writeFileSync(temporary, JSON.stringify(host.save()))
-  renameSync(temporary, SAVE_PATH)
+  const { sim, ...rest } = host.save()
+  storing = storing.then(async () => {
+    const temporary = `${SAVE_PATH}.tmp`
+    writeFileSync(temporary, await encodeSave(sim, { HOST: rest }))
+    renameSync(temporary, SAVE_PATH)
+  })
+  return storing
 }
 
-const saved = load()
+const saved = await load()
 // Карта и погода у сохранённого мира свои, а правила — из настроек: их можно менять между запусками.
 const { generator, size, fog, weather, rules } = settings
 const host = createHost(saved ? createSim({ ...saved.sim, rules }) : createSim({ generator, size, fog, weather, rules }), undefined, saved)
@@ -147,7 +161,7 @@ setInterval(() => {
   sinceSave += seconds
   if (sinceSave >= SAVE_INTERVAL) {
     sinceSave = 0
-    store()
+    void store()
   }
 
   sinceReport += seconds
@@ -163,8 +177,8 @@ setInterval(() => {
 }, host.sim.time.step * 1000)
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(signal, () => {
-    store()
+  process.on(signal, async () => {
+    await store()
     console.log(`мир сохранён в ${SAVE_PATH}`)
     process.exit(0)
   })

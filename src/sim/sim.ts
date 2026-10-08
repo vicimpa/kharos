@@ -98,8 +98,9 @@ export interface SimOptions {
  * 17 — изделия: склады хранилищ помнят, что принимают, и в старых сохранениях не взяли бы стройблоки и боеприпасы;
  * у старых турелей нет склада патронов.
  * 19 — хранилища под каждый ресурс: общего хранилища больше нет.
+ * 20 — двоичный файл, см. src/save/file.ts. С неё старые сохранения поднимаются миграциями, а не отбрасываются.
  */
-export const SAVE_VERSION = 19
+export const SAVE_VERSION = 20
 
 export interface SimSave extends SimOptions {
   version: typeof SAVE_VERSION

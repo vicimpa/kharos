@@ -60,9 +60,9 @@ function loadServer() {
 }
 
 /** Отдаёт браузеру файл на скачивание. */
-function download(name: string, text: string) {
+function download(name: string, data: Uint8Array) {
   const link = document.createElement('a')
-  link.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }))
+  link.href = URL.createObjectURL(new Blob([data as BlobPart], { type: 'application/octet-stream' }))
   link.download = name
   link.click()
   URL.revokeObjectURL(link.href)
@@ -369,15 +369,15 @@ function Saves({ back, saves, refresh, play }: { back(): void; saves: SaveSlot[]
   const pick = () => {
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = 'application/json,.json'
+    input.accept = '.kharos'
     input.onchange = async () => {
       const file = input.files?.[0]
       if (!file) return
       try {
-        importSave(JSON.parse(await file.text()))
+        await importSave(new Uint8Array(await file.arrayBuffer()))
         setError('')
       } catch (reason) {
-        setError(reason instanceof SyntaxError ? 'Файл повреждён' : reason instanceof Error ? reason.message : String(reason))
+        setError(reason instanceof Error ? reason.message : String(reason))
       }
       refresh()
     }
@@ -411,9 +411,9 @@ function Saves({ back, saves, refresh, play }: { back(): void; saves: SaveSlot[]
               </button>
               <button
                 title="Скачать файл сохранения"
-                onClick={() => {
-                  const file = exportSave(slot.id)
-                  if (file) download(`${slot.name}.kharos.json`, JSON.stringify(file))
+                onClick={async () => {
+                  const file = await exportSave(slot.id)
+                  if (file) download(`${slot.name}.kharos`, file)
                   else setError('Мир этого слота ещё не сохранён')
                 }}
               >

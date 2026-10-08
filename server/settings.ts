@@ -9,7 +9,7 @@ export interface ServerSettings {
   port: number
   /** Пароль на вход; пустой — заходит кто угодно. */
   password: string
-  /** Файл сохранения мира. */
+  /** Файл сохранения мира, двоичный, см. src/save/file.ts. */
   save: string
   /** Сторона карты в тайлах. Как и generator, fog и weather, действует только на новый мир. */
   size: number
@@ -27,7 +27,7 @@ export interface ServerSettings {
 export const defaultSettings = (): ServerSettings => ({
   port: DEFAULT_PORT,
   password: '',
-  save: 'save.json',
+  save: 'save.kharos',
   size: 256,
   fog: true,
   generator: { ...DEFAULT_CONFIG, seed: Math.floor(Math.random() * 2 ** 31) },

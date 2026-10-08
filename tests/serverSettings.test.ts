@@ -19,7 +19,7 @@ test('настройки сервера: известное берётся, оп
   expect(settings.rules.repairSpeed).toBe(2)
   expect(warnings).toEqual(['generator.zoneScale: ожидалось number', 'rules.nope: неизвестный параметр', 'prot: неизвестный параметр'])
   // Значения по умолчанию не тронуты.
-  expect(defaults.save).toBe('save.json')
+  expect(defaults.save).toBe('save.kharos')
 })
 
 test('не объект вместо настроек — всё по умолчанию', () => {
