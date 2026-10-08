@@ -5,7 +5,7 @@ import { Beam, Building, Drop, Inventory, Path, Position, Site, Unit } from './c
 import { GOODS, type Amounts, type Good } from './resources'
 import { beyondWindow } from './path'
 import type { Sim } from './sim'
-import { UNITS, isWalkable, onFoot, orderMove, standingUnits } from './units'
+import { UNITS, isWalkable, onFoot, orderMove, standingUnits, vehicleReach } from './units'
 
 /** Транспортный луч вида здания или юнита: см. компонент Beam. */
 export interface BeamSpec {
@@ -133,6 +133,13 @@ const APPROACH_MARGIN = 0.5
 
 /** Сколько мест у здания пробует approach, прежде чем сдаться: место может оказаться карманом, куда не проехать. */
 const APPROACH_TRIES = 4
+
+/**
+ * Карман — замкнутый пятачок меньше стольких тайлов, например щель между зданиями, поставленными вплотную. Места
+ * в чужом кармане approach не пробует: иначе четыре ближних места могли оказаться там все, и до свободных
+ * с другой стороны здания перебор не доходил никогда.
+ */
+const POCKET = 48
 /** В каком поле вокруг здания стоящие не мешают пути к нему, если иначе не проехать, см. approach. */
 const ASIDE_REACH = 6
 
@@ -177,7 +184,17 @@ export function approach(sim: Sim, entity: Entity, building: Entity, radius: num
     if (beyondWindow(Math.floor(position.x), Math.floor(position.y), x, y)) return points !== undefined && points.length > 0
     return points !== undefined && Math.floor(points[points.length - 2]) === x && Math.floor(points[points.length - 1]) === y
   }
-  const tries = places.slice(0, APPROACH_TRIES)
+  const tries: typeof places = []
+  const from = tileKey(Math.floor(position.x), Math.floor(position.y))
+  /** Заливки уже осмотренных мест: соседние места кармана — в одной заливке, её не повторять. */
+  const pockets: Set<number>[] = []
+  for (const place of places) {
+    if (tries.length >= APPROACH_TRIES) break
+    const key = tileKey(place.x, place.y)
+    let reach = pockets.find((tiles) => tiles.has(key))
+    if (!reach) pockets.push((reach = vehicleReach(sim, place.x, place.y, POCKET)))
+    if (reach.size >= POCKET || reach.has(from)) tries.push(place)
+  }
   for (const place of tries) if (goTo(place.x, place.y)) return true
   // Проход загородили стоящие — например, свободный грузовик встал в единственной щели у обрыва. Путь — сквозь них:
   // подъехав, юнит попросит их посторониться, как просит любой идущий, см. movement.ts.
