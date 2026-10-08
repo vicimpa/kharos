@@ -15,16 +15,26 @@ export interface Economy {
   crowd: number
 }
 
-/** Хозяйство зоны. Если энергии не хватает, потребители работают на ту долю, на которую её хватает. */
+/** Есть ли в зоне главное здание: без него доход приносит только оно само, генераторы материи стоят. */
+const hasCore = (sim: Sim, zone: Zone) => zone.buildings.some((entity) => sim.world.get(entity, Building)!.type === 'command')
+
+/** Приносит ли здание доход только при главном здании в зоне: все доходные, кроме самого главного. */
+const needsCore = (type: BuildingType) => type !== 'command' && !!buildingSpec(type).income
+
+/**
+ * Хозяйство зоны. Если энергии не хватает, потребители работают на ту долю, на которую её хватает.
+ * Доход с генераторов материи — только если в зоне есть главное здание; энергию они просят и без него.
+ */
 function economyOfZone(sim: Sim, zone: Zone): Economy {
   const economy: Economy = { produced: 0, demand: 0, income: 0, crowd: 0 }
+  const core = hasCore(sim, zone)
   /** Доход потребителей при полной энергии. */
   let powered = 0
   for (const entity of zone.buildings) {
     const building = sim.world.get(entity, Building)!
     const spec: BuildingSpec = BUILDINGS[building.type]
     const power = spec.power ?? 0
-    const income = spec.income ?? 0
+    const income = core || !needsCore(building.type) ? (spec.income ?? 0) : 0
     // Выключенный потребитель энергии не просит и ничего не даёт.
     if (power < 0 && switchedOff(sim, entity)) continue
     // Повреждённая электростанция даёт энергии во столько же раз меньше, во сколько упала её прочность.
@@ -58,6 +68,16 @@ function books(sim: Sim): Book[] {
     for (const zone of zones) result.push({ player, zone, economy: economyOfZone(sim, zone) })
   }
   return result
+}
+
+/** Здания всех игроков, которые принесли бы доход, но стоят в зоне без главного здания и поэтому не приносят. */
+export function coreless(sim: Sim): Set<Entity> {
+  const idle = new Set<Entity>()
+  for (const { zone } of books(sim)) {
+    if (hasCore(sim, zone)) continue
+    for (const entity of zone.buildings) if (needsCore(sim.world.get(entity, Building)!.type)) idle.add(entity)
+  }
+  return idle
 }
 
 /** Сколько энергии даёт или просит здание: больше нуля — вырабатывает, меньше — потребляет. */

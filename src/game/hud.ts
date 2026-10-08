@@ -4,7 +4,7 @@ import { knownReserve } from './knownReserve'
 import type { Entity } from '../ecs'
 import {
   Assembly, Harvester, BUILDABLE, isUnlocked, buyPrice, roomFor, BUILDINGS, Building, Converting, Hauler, Health, CORE, GOODS, PRODUCT_SPECS, REFINE_RATE, RESOURCES, RESOURCE_SPECS, buildingSpec, cycleSeconds, isOwn, missingRequirements, producibleBy, productStock, hasRoom, Trade, Inventory, amountOf, loadOf, deliveredTo, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit, unitSpec,
-  awaitsMaterials, buildTicks, canDemolish, canFight, canDeploy, canPack, depositAt, depositNear, DEPOSIT_SIZE, entriesOf, isDeployBlocked, creditsOf, economyOf, isSiteBlocked, materialsFor, reserveLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, spareOf, zoneEconomies, zonesOf,
+  awaitsMaterials, buildTicks, canDemolish, canFight, canDeploy, canPack, depositAt, depositNear, DEPOSIT_SIZE, entriesOf, isDeployBlocked, creditsOf, coreless, economyOf, isSiteBlocked, materialsFor, reserveLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, spareOf, zoneEconomies, zonesOf,
   Off, Position, Tactics, isDefeated, stanceOf, type Stance, type Amounts, type BuildingType, type Command, type DepositKind, type Good, type Ore, type Product, type Resource, type UnitType,
 } from '../sim'
 import { paveStrokeOf } from './placing'
@@ -43,6 +43,8 @@ export interface HudState {
   repair: number
   /** Выбранному зданию не хватает энергии, и оно работает медленнее. */
   starved: boolean
+  /** Выбранное доходное здание стоит в зоне без главного здания и денег не приносит. */
+  coreless: boolean
   /** Выбранные юниты по видам. */
   units: { type: UnitType; count: number }[]
   /** Бой: сколько среди выбранных юнитов вооружённых и средняя прочность выбранных юнитов от 0 до 1. */
@@ -232,6 +234,7 @@ export function readHud(scene: Scene): HudState {
   let health: number | null = null
   let repair = 0
   let starved = false
+  let idle = false
   const zones = zoneEconomies(sim, player)
   const producers: Entity[] = []
   let armed = 0
@@ -364,6 +367,7 @@ export function readHud(scene: Scene): HudState {
       repair = repairCostOf(BUILDINGS[built.type].cost, left, sim.rules.repairCost, max)
     }
     if (built && powerStates(sim).get(entity) === 'starved') starved = true
+    if (built && coreless(sim).has(entity)) idle = true
     const work = world.get(entity, Site)
     if (work) {
       const progress = round(Math.min(1, work.progress / siteTicks(work.type, sim.time.step)))
@@ -403,6 +407,7 @@ export function readHud(scene: Scene): HudState {
     health,
     repair,
     starved,
+    coreless: idle,
     units: UNIT_TYPES.filter((type) => counts.has(type)).map((type) => ({ type, count: counts.get(type)! })),
     army: unitCount ? { armed, health: round(unitHealth / unitCount) } : null,
     building,

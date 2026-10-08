@@ -294,6 +294,7 @@ function Info({ state, lookAtSelection, narrow }: { state: HudState; lookAtSelec
             {state.power.demand > state.power.produced && ' — перегруз, станции разрушаются'}
           </div>
         )}
+        {state.coreless && <div class="hud__hint is-short">Денег не приносит: в зоне нет главного здания</div>}
         {state.starved && <div class="hud__hint hud__power is-short">⚡ Не хватает энергии: здание работает медленнее или стоит</div>}
         {state.switchable && !state.switchable.on && <div class="hud__hint is-short">Выключено: энергию не берёт и не работает; включи в сетке справа</div>}
         {state.health !== null && (

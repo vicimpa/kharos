@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Terrain, isCliffFoot, terrainAt } from '../src/map/terrain'
 import {
   BUILDINGS, Building, Builds, CORE, Health, Owner, Player, Site, Unit,
-  Off, OVERLOAD_DAMAGE, REPAIR_COST, powerSupply, REPAIR_SPEED, canBuild, canDeploy, canPlace, createSim, creditsOf, economyOf, powerOf, powerStates, refundOf, rewardsOf, siteAt, zoneEconomies, zoneOf, zonesOf, spawnStartingUnits, type BuildingType, type Sim,
+  Off, OVERLOAD_DAMAGE, REPAIR_COST, coreless, powerSupply, REPAIR_SPEED, canBuild, canDeploy, canPlace, createSim, creditsOf, economyOf, powerOf, powerStates, refundOf, rewardsOf, siteAt, zoneEconomies, zoneOf, zonesOf, spawnStartingUnits, type BuildingType, type Sim,
 } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { REWARDS, STARTING_CREDITS } from '../src/sim/economy'
@@ -111,7 +111,7 @@ test('каждый следующий генератор материи в зо�
   expect(economyOf(sim, 1).income).toBeCloseTo(0.2 + 3 * 1.5 * (10 / 18))
 })
 
-test('здания держат зону и работают и без главного здания; оторванное от базы — без энергии', () => {
+test('здания держат зону и работают и без главного здания, но денег без него не приносят; оторванное от базы — без энергии', () => {
   const { sim, x, y } = start()
   put(sim, 'generator', x + 6, y)
   put(sim, 'matter', x + 6, y + 3)
@@ -121,8 +121,8 @@ test('здания держат зону и работают и без глав�
 
   sim.send(1, { type: 'pack', building: coreOf(sim) })
   seconds(sim, 10.1)
-  // Свёрнуто главное здание: нет только его дохода.
-  expect(economyOf(sim, 1)).toEqual({ produced: 10, demand: 6, income: 1.5, crowd: 2 })
+  // Свёрнуто главное здание: энергия та же, а дохода нет ни с него, ни с генераторов материи.
+  expect(economyOf(sim, 1)).toEqual({ produced: 10, demand: 6, income: 0, crowd: 2 })
 })
 
 test('готовые здания расширяют зону строительства по цепочке, стройки — нет', () => {
@@ -394,4 +394,15 @@ test('выключенный потребитель энергии не прос
   sim.send(1, { type: 'work', building: matter, on: true })
   seconds(sim, 0.1)
   expect(economyOf(sim, 1)).toMatchObject({ demand: 6, income: 1.7 })
+})
+
+test('генератор материи приносит деньги, только если в его зоне есть главное здание', () => {
+  const sim = createSim({ generator: { ...DEFAULT_SETTINGS.generator, blank: true }, size: 256 })
+  put(sim, 'generator', 0, 0)
+  const matter = put(sim, 'matter', 3, 0)
+  expect(economyOf(sim, 1).income).toBe(0)
+  expect(coreless(sim).has(matter)).toBe(true)
+  put(sim, 'command', 6, 0)
+  expect(economyOf(sim, 1).income).toBeCloseTo(BUILDINGS.command.income! + BUILDINGS.matter.income!)
+  expect(coreless(sim).size).toBe(0)
 })

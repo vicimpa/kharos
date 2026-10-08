@@ -34,7 +34,7 @@ export type { Amounts, Good, Ore, Product, ProductSpec, Resource, ResourceSpec, 
 export { ASSEMBLE_RATE, cycleSeconds, hasRoom, productStock, recipeOf } from './assembly'
 export { HARVEST_SEARCH, hasMine } from './harvesting'
 export { REFINE_RATE, REFINE_RATIO } from './refining'
-export { OVERLOAD_DAMAGE, economyOf, powerOf, powerStates, powerSupply, zoneEconomies } from './income'
+export { OVERLOAD_DAMAGE, coreless, economyOf, powerOf, powerStates, powerSupply, zoneEconomies } from './income'
 export type { Economy, PowerState } from './income'
 export { QUEUE_LIMIT, buildTicks, missingRequirements, producibleBy } from './production'
 export { DEFAULT_RULES, SAVE_VERSION, boundsOf, createSim } from './sim'
