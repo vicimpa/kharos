@@ -3,6 +3,13 @@ name: Сервер
 on:
   push:
     branches: [main]
+    # Документация, ридми и лицензия не меняют сборку; серверу не нужны и файлы страницы клиента.
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - 'LICENSE'
+      - 'public/**'
+      - 'index.html'
   workflow_dispatch:
 
 permissions:
