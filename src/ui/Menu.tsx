@@ -103,7 +103,10 @@ export function Menu({ play }: MenuProps) {
 
   return (
     <div class="menu">
-      <h1 class="menu__logo">KHAROS</h1>
+      <h1 class="menu__logo">
+        <img src="/favicon.svg" alt="" />
+        KHAROS
+      </h1>
       {screen === 'main' && (
         <Window title="Главное меню">
           <nav class="menu__list">

@@ -879,6 +879,16 @@ body {
   font-weight: 400;
   letter-spacing: 8px;
   text-shadow: 4px 4px 0 #0b111b, 0 0 24px rgba(90, 169, 255, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.menu__logo img {
+  width: 44px;
+  height: 44px;
+  filter: drop-shadow(4px 4px 0 #0b111b);
 }
 
 .menu__window {
