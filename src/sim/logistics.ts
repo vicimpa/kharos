@@ -343,6 +343,18 @@ function nearestZone(zones: readonly Zone[], x: number, y: number): Zone | undef
   return best
 }
 
+/** Дропы, лежащие в зоне: груз с них берут так же, как со складов зоны. */
+export function dropsIn(sim: Sim, zone: Zone): Entity[] {
+  const found: Entity[] = []
+  for (const [entity, , , position] of sim.world.query(Drop, Inventory, Position)) {
+    if (inCircles(zone.circles, position.x + 0.5, position.y + 0.5)) found.push(entity)
+  }
+  return found
+}
+
+/** Откуда в зоне можно взять готовое: её здания и дропы, лежащие в ней. */
+export const sourcesIn = (sim: Sim, zone: Zone): Entity[] => [...zone.buildings, ...dropsIn(sim, zone)]
+
 /** Можно ли забирать груз со склада: свой готовый склад, где он есть. */
 export function offersPickup(sim: Sim, player: number, from: Entity, resource: Good) {
   return (isReady(sim, player, from) || sim.world.has(from, Drop)) && spareOf(sim, from, resource) > 1e-9
@@ -387,10 +399,17 @@ export function dispatch(sim: Sim) {
       else if (spec.extract) mines.push(entity)
     }
     // Дропы ничьи: их подбирает любой, но сам — только в своих зонах. За дропом на другом краю карты грузовик
-    // без приказа не едет.
+    // без приказа не едет. С дропа везут и по заявкам — как со склада зоны; руду с него — на переработку.
     const zones = zonesOf(sim, player)
-    for (const [entity, , , position] of world.query(Drop, Inventory, Position)) {
-      if (zones.some((zone) => inCircles(zone.circles, position.x + 0.5, position.y + 0.5))) outlets.push(entity)
+    const drops = [...new Set(zones.flatMap((zone) => dropsIn(sim, zone)))]
+    outlets.push(...drops)
+    mines.push(...drops)
+    /** Откуда брать готовое для заявки зоны: её здания и дропы в ней; считается раз на зону. */
+    const zoneSources = new Map<Zone, Entity[]>()
+    const sourcesOf = (zone: Zone) => {
+      let found = zoneSources.get(zone)
+      if (!found) zoneSources.set(zone, (found = sourcesIn(sim, zone)))
+      return found
     }
     // У шахты с привязанным грузовиком есть свой возчик: свободные её руду не трогают и занимаются готовым.
     const bound = new Set<Entity>()
@@ -398,7 +417,7 @@ export function dispatch(sim: Sim) {
 
     // Назначенные на здания грузовики берут груз в любой зоне игрока, а не только в зоне заказчика.
     let everywhere: Entity[] | undefined
-    const anyZone = () => (everywhere ??= [...new Set(zonesOf(sim, player).flatMap((zone) => zone.buildings))])
+    const anyZone = () => (everywhere ??= [...new Set([...zonesOf(sim, player).flatMap((zone) => zone.buildings), ...drops])])
 
     for (const truck of trucks) {
       const room = world.get(truck, Inventory)?.capacity ?? 0
@@ -412,7 +431,7 @@ export function dispatch(sim: Sim) {
       for (const request of requests) {
         if (request.amount < MIN_JOB || !carries(request.resource)) continue
         if (serving && !serving.has(request.to)) continue
-        for (const source of request.source === 'mines' ? mines : serving ? anyZone() : request.zone.buildings) {
+        for (const source of request.source === 'mines' ? mines : serving ? anyZone() : sourcesOf(request.zone)) {
           if (source === request.to || !offersOf(sim, source).includes(request.resource)) continue
           // Руду шахты, у которой уже есть привязанный грузовик, свободные не возят.
           if (request.source === 'mines' && bound.has(source)) continue

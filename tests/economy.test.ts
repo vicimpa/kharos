@@ -11,6 +11,7 @@ import { addCredits } from '../src/sim/economy'
 import { Hauler } from '../src/sim/components'
 import { NONE } from '../src/sim/common'
 import { spawnUnit } from '../src/sim/units'
+import { dropItems } from '../src/sim/drops'
 import { refineryFor, spaceFor } from '../src/sim/logistics'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024, rules: { techTree: false } }
@@ -163,6 +164,22 @@ test('дробный остаток материалов довозят: зав�
   spawnUnit(sim, 'truck', 1, x + 5, y + 4)
   until(sim, () => sim.world.get(factory, Producer)!.progress > 0, 60)
   expect(oreIn(sim, store('metal'), 'metal')).toBeLessThan(10)
+})
+
+test('груз для заявки грузовик берёт и с дропа в зоне, если он ближе склада', () => {
+  const { sim, x, y } = base([])
+  const builder = spawnUnit(sim, 'builder', 1, x + 5, y + 8)
+  const drop = dropItems(sim, x + 4, y + 8, { blocks: 30 })!
+  sim.send(1, { type: 'build', building: 'factory', x, y: y + 4, builders: [builder] })
+  sim.advance(TICK)
+  let site: Entity | undefined
+  for (const [entity] of sim.world.query(Site)) site = entity
+  const truck = spawnUnit(sim, 'truck', 1, x + 6, y + 8)
+  // Сразу по заявке стройки — с дропа на площадку, а не сначала в хранилище.
+  until(sim, () => sim.world.get(truck, Hauler)!.from !== NONE)
+  expect(sim.world.get(truck, Hauler)!.from).toBe(drop)
+  expect(sim.world.get(truck, Hauler)!.to).toBe(site!)
+  until(sim, () => !sim.world.has(site!, Site))
 })
 
 test('груз, который стал не нужен, грузовик везёт обратно в хранилище, откуда взял', () => {
