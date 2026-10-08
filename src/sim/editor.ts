@@ -67,7 +67,7 @@ export function paint(sim: Sim, x: number, y: number, size: number, brush: Brush
 /** Игроки мира, по возрастанию номера. */
 export function playersOf(sim: Sim): number[] {
   const ids = new Set<number>()
-  for (const [, player] of sim.world.query(Player)) ids.add(player.id)
+  for (const [, player] of sim.world.query(Player)) if (player.id) ids.add(player.id)
   for (const [, owner] of sim.world.query(Owner)) if (owner.player) ids.add(owner.player)
   return [...ids].sort((a, b) => a - b)
 }
@@ -101,7 +101,7 @@ export function canPut(sim: Sim, type: UnitType, x: number, y: number) {
 /** Ставит юнит игроку player на тайл (x, y), если ему там стоять. */
 export function putUnit(sim: Sim, type: UnitType, x: number, y: number, player: number): Entity | undefined {
   if (!canPut(sim, type, x, y)) return undefined
-  addCredits(sim, player, 0)
+  if (player) addCredits(sim, player, 0)
   const unit = spawnUnit(sim, type, player, x, y)
   settle(sim)
   return unit

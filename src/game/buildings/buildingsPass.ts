@@ -5,7 +5,7 @@ import { Pixmap } from '../../render/pixmap'
 import type { Pass } from '../../render/renderer'
 import { createSpriteProgram, createSprites } from '../../render/sprites'
 import type { Entity } from '../../ecs'
-import { Assembly, BUILDING_TYPES, Building, Inventory, Position, Site, amountOf, buildingSpec, siteTicks, type BuildingType } from '../../sim'
+import { Assembly, BUILDING_TYPES, Building, Inventory, Owner, Position, Site, amountOf, buildingSpec, siteTicks, type BuildingType } from '../../sim'
 import { placementOf } from '../placing'
 import type { Scene } from '../scene'
 import { ART_FRAMES, ART_TILE, BUILDING_ART, WALL_CONNECTION, type BuildingArt } from './buildingArt'
@@ -77,6 +77,8 @@ interface Visible {
   bottom: number
   /** Готовность от 0 до 1: у достроенного — 1, у размеченной площадки — 0. */
   built: number
+  /** Ничьё (игрок 0): рисуется серым. */
+  neutral: boolean
 }
 
 /**
@@ -114,9 +116,12 @@ export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): P
   }
 
   const program = createSpriteProgram(gl)
+  /** Ничьё (игрок 0) — серым. */
+  const greyProgram = createSpriteProgram(gl, true)
   // Тени лежат под всеми зданиями, иначе тень соседа ляжет на стену.
   const shadows = createSprites(gl, program)
   const sprites = createSprites(gl, program)
+  const neutral = createSprites(gl, greyProgram)
   const ghosts = createSprites(gl, program)
   const visible: Visible[] = []
 
@@ -145,12 +150,12 @@ export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): P
         if (walls.has(tileKey(position.x - 1, position.y))) variant |= WALL_CONNECTION.west
         return variant
       }
-      const see = (position: { x: number; y: number }, type: BuildingType, phase: number, built: number, working = false) => {
+      const see = (position: { x: number; y: number }, type: BuildingType, phase: number, built: number, working = false, neutral = false) => {
         const sheet = sheets.get(type)![wallVariant(position, type)]
         if (position.x + sheet.art.width < camera.x - halfWidth || position.x > camera.x + halfWidth) return
         if (position.y + sheet.art.height < camera.y - halfHeight || position.y > camera.y + halfHeight) return
         const frame = ((step + phase) % ART_FRAMES) + (working && sheet.art.working ? ART_FRAMES : 0)
-        visible.push({ x: position.x, y: position.y, sheet, frame, bottom: position.y + sheet.art.height, built })
+        visible.push({ x: position.x, y: position.y, sheet, frame, bottom: position.y + sheet.art.height, built, neutral })
       }
 
       visible.length = 0
@@ -165,7 +170,7 @@ export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): P
           activity.set(entity, state)
           working = time < state.until
         }
-        see(position, building.type, building.phase, site ? site.progress / siteTicks(site.type, simTime.step) : 1, working)
+        see(position, building.type, building.phase, site ? site.progress / siteTicks(site.type, simTime.step) : 1, working, !world.get(entity, Owner)?.player)
       }
       // Площадки, к которым строитель ещё не приступил: здания на них пока нет.
       for (const [entity, position, site] of world.query(Position, Site)) {
@@ -179,19 +184,21 @@ export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): P
 
       shadows.clear()
       sprites.clear()
+      neutral.clear()
       const shift = SHADOW_SHIFT / ART_TILE
-      for (const { x, y, sheet, frame, built } of visible) {
+      for (const { x, y, sheet, frame, built, neutral: grey } of visible) {
+        const batch = grey ? neutral : sprites
         const { u, v, width: frameWidth, height: frameHeight } = sheet.frames[frame]
         const left = x - pad - camera.x
         const top = y - pad - camera.y
         const spriteWidth = sheet.art.width + pad * 2
         const spriteHeight = sheet.art.height + pad * 2
         if (built < 1) {
-          sprites.push(left, top, spriteWidth, spriteHeight, u, v, frameWidth, frameHeight, ...BLUEPRINT)
+          batch.push(left, top, spriteWidth, spriteHeight, u, v, frameWidth, frameHeight, ...BLUEPRINT)
           // Готовая часть — нижние строки спрайта, целое число пикселей.
           const rows = Math.round(spriteHeight * ART_TILE)
           const hidden = (rows - Math.floor(rows * built)) / rows
-          sprites.push(
+          batch.push(
             left, top + spriteHeight * hidden, spriteWidth, spriteHeight * (1 - hidden),
             u, v + frameHeight * hidden, frameWidth, frameHeight * (1 - hidden),
             1, 1, 1, 1,
@@ -199,7 +206,7 @@ export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): P
           continue
         }
         shadows.push(left + shift, top + shift, spriteWidth, spriteHeight, u, v, frameWidth, frameHeight, 0, 0, 0, SHADOW_ALPHA)
-        sprites.push(left, top, spriteWidth, spriteHeight, u, v, frameWidth, frameHeight, 1, 1, 1, 1)
+        batch.push(left, top, spriteWidth, spriteHeight, u, v, frameWidth, frameHeight, 1, 1, 1, 1)
         for (const light of sheet.lights) {
           lights.add(
             x + light.x / ART_TILE,
@@ -227,17 +234,24 @@ export function createBuildingsPass(gl: WebGL2RenderingContext, scene: Scene): P
       shadows.draw()
       sprites.draw()
       ghosts.draw()
+      if (neutral.count) {
+        greyProgram.use(view, { uTexture: atlas.texture })
+        neutral.draw()
+      }
     },
     drawOccluders(view) {
       setBlend(gl, 'alpha')
       program.use(view, { uTexture: atlas.texture })
       sprites.draw()
+      neutral.draw()
     },
     destroy() {
       shadows.destroy()
       ghosts.destroy()
       sprites.destroy()
+      neutral.destroy()
       program.destroy()
+      greyProgram.destroy()
       atlas.texture.destroy()
     },
   }

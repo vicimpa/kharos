@@ -177,7 +177,8 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
   useEffect(() => {
     const scene = gameRef.current?.scene
     if (!scene) return
-    scene.player = player
+    // Ничьё — не игрок: смотреть его глазами незачем, свои и чужие тогда — у первого игрока.
+    scene.player = player || (simRef.current && playersOf(simRef.current)[0]) || 1
     scene.placing = tool === 'building' ? building : null
     scene.selectionBox = null
   }, [tool, player, building, gameRef.current])

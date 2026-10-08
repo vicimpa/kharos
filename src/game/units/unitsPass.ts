@@ -88,6 +88,8 @@ export function createUnitsPasses(gl: WebGL2RenderingContext, scene: Scene): { g
   const directionOf = (facing: number) => ((Math.round((facing / TURN) * UNIT_DIRECTIONS) % UNIT_DIRECTIONS) + UNIT_DIRECTIONS) % UNIT_DIRECTIONS
 
   const program = createSpriteProgram(gl)
+  /** Ничьё (игрок 0) — серым. */
+  const greyProgram = createSpriteProgram(gl, true)
 
   /**
    * Сколько юнит прошёл, в тайлах: от этого крутятся колёса, бегут гусеницы и шагают ноги. Считается по тому,
@@ -134,6 +136,7 @@ export function createUnitsPasses(gl: WebGL2RenderingContext, scene: Scene): { g
     // Тени лежат под всеми юнитами, иначе тень соседа ляжет на кабину.
     const shadows = createSprites(gl, program)
     const sprites = createSprites(gl, program)
+    const neutral = createSprites(gl, greyProgram)
     const shadowShift = air ? AIR_SHADOW_SHIFT : SHADOW_SHIFT
     const shadowAlpha = air ? AIR_SHADOW_ALPHA : SHADOW_ALPHA
 
@@ -145,6 +148,7 @@ export function createUnitsPasses(gl: WebGL2RenderingContext, scene: Scene): { g
 
         shadows.clear()
         sprites.clear()
+        neutral.clear()
         if (!air && !emplacements) frame++
         if (!emplacements) {
           for (const [entity, position, unit, owner] of world.query(Position, Unit, Owner)) {
@@ -171,11 +175,12 @@ export function createUnitsPasses(gl: WebGL2RenderingContext, scene: Scene): { g
             if (!ghost) lights.beam(snap(x + beam.along * forwardX), snap(y + beam.along * forwardY), facing, beam.length, beam.near, beam.spread, beam.level)
 
             const direction = directionOf(facing)
-            const team: Team = owner.player === scene.player ? 'own' : 'foe'
+            const team: Team = owner.player === scene.player || !owner.player ? 'own' : 'foe'
+            const batch = owner.player ? sprites : neutral
             const phase = phaseOf(entity, unit.type, x, y)
             const { u, v, width: frameWidth, height: frameHeight } = framesOf(team, unit.type, phase)[direction]
             shadows.push(left + shadowShift, top + shadowShift, SPRITE_TILES, SPRITE_TILES, u, v, frameWidth, frameHeight, 0, 0, 0, shadowAlpha)
-            sprites.push(left, top, SPRITE_TILES, SPRITE_TILES, u, v, frameWidth, frameHeight, ...tint(ghost))
+            batch.push(left, top, SPRITE_TILES, SPRITE_TILES, u, v, frameWidth, frameHeight, ...tint(ghost))
           }
         }
         // Турели — поверх всех юнитов слоя: на своём носителе они должны лежать сверху.
@@ -187,7 +192,7 @@ export function createUnitsPasses(gl: WebGL2RenderingContext, scene: Scene): { g
           if (!mountedOnBuilding && (!carrier || flies(carrier.type) !== air)) continue
           const { x, y } = drawnPosition(position, turret, time.alpha)
           if (Math.abs(x - camera.x) > halfWidth || Math.abs(y - camera.y) > halfHeight) continue
-          const team: Team = owner.player === scene.player ? 'own' : 'foe'
+          const team: Team = owner.player === scene.player || !owner.player ? 'own' : 'foe'
           // Поворот турели — относительно носителя: оба сглаживаются по отдельности, как в симуляции.
           const facing = (carrier ? drawnFacing(carrier, time.alpha) : 0) + turret.prevAngle + wrap(turret.angle - turret.prevAngle) * time.alpha
           const { u, v, width: frameWidth, height: frameHeight } = turretFramesOf(team, turret.type)[directionOf(facing)]
@@ -197,17 +202,21 @@ export function createUnitsPasses(gl: WebGL2RenderingContext, scene: Scene): { g
           const turretShadowShift = mountedOnBuilding ? SHADOW_SHIFT : shadowShift
           const turretShadowAlpha = mountedOnBuilding ? SHADOW_ALPHA : shadowAlpha
           shadows.push(left + turretShadowShift / 2, top + turretShadowShift / 2, TURRET_TILES, TURRET_TILES, u, v, frameWidth, frameHeight, 0, 0, 0, turretShadowAlpha)
-          sprites.push(left, top, TURRET_TILES, TURRET_TILES, u, v, frameWidth, frameHeight, ...tint(world.get(attached.parent as never, Ghost)))
+          ;(owner.player ? sprites : neutral).push(left, top, TURRET_TILES, TURRET_TILES, u, v, frameWidth, frameHeight, ...tint(world.get(attached.parent as never, Ghost)))
         }
         if (!air && !emplacements && frame % FORGET_FRAMES === 0) {
           for (const [entity, track] of walked) if (frame - track.seen > FORGET_FRAMES) walked.delete(entity)
         }
-        if (!sprites.count) return
+        if (!sprites.count && !neutral.count) return
 
         setBlend(gl, 'alpha')
         program.use(view, { uTexture: atlas.texture })
         shadows.draw()
         sprites.draw()
+        if (neutral.count) {
+          greyProgram.use(view, { uTexture: atlas.texture })
+          neutral.draw()
+        }
       },
       // Летающие лучам фар не мешают: они выше.
       drawOccluders: air
@@ -216,13 +225,16 @@ export function createUnitsPasses(gl: WebGL2RenderingContext, scene: Scene): { g
             setBlend(gl, 'alpha')
             program.use(view, { uTexture: atlas.texture })
             sprites.draw()
+            neutral.draw()
           },
       destroy() {
         shadows.destroy()
         sprites.destroy()
+        neutral.destroy()
         // Общие картинки и программу освобождает наземный проход.
         if (air || emplacements) return
         program.destroy()
+        greyProgram.destroy()
         atlas.texture.destroy()
       },
     }

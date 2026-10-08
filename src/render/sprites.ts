@@ -18,7 +18,7 @@ void main() {
 }
 `
 
-const FRAGMENT = `#version 300 es
+const fragment = (grey: boolean) => `#version 300 es
 precision mediump float;
 in vec2 vUV;
 in vec4 vTint;
@@ -26,13 +26,18 @@ uniform sampler2D uTexture;
 out vec4 finalColor;
 
 void main() {
-  finalColor = texture(uTexture, vUV) * vTint;
+  vec4 color = texture(uTexture, vUV);
+  ${grey ? 'color.rgb = vec3(dot(color.rgb, vec3(0.3, 0.59, 0.11)));' : ''}
+  finalColor = color * vTint;
 }
 `
 
-/** Программа для спрайтов в координатах тайлов. Одна на все наборы спрайтов. */
-export function createSpriteProgram(gl: WebGL2RenderingContext) {
-  return createProgram(gl, VERTEX, FRAGMENT)
+/**
+ * Программа для спрайтов в координатах тайлов. Одна на все наборы спрайтов. grey — картинка в оттенках серого:
+ * так рисуется ничьё (игрок 0).
+ */
+export function createSpriteProgram(gl: WebGL2RenderingContext, grey = false) {
+  return createProgram(gl, VERTEX, fragment(grey))
 }
 
 /**
