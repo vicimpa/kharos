@@ -454,13 +454,12 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
             {player > 0 && (
               <label class="editor__field">
                 Кредиты
-                <input
-                  type="number"
+                <NumberField
                   min={0}
                   step={100}
                   value={creditsOf(sim, player)}
-                  onChange={(event) => {
-                    setCredits(sim, player, Number(event.currentTarget.value) || 0)
+                  set={(value) => {
+                    setCredits(sim, player, value)
                     touched()
                   }}
                 />
@@ -545,13 +544,12 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
               />
               <label class="editor__field">
                 Осталось{spots.length > 1 && ' в каждом'}
-                <input
-                  type="number"
+                <NumberField
                   min={0}
                   step={100}
                   value={reserveLeft(sim, spots[0].x, spots[0].y)}
-                  onChange={(event) => {
-                    for (const spot of spots) setDepositOf(sim, spot, spot.kind, Number(event.currentTarget.value) || 0)
+                  set={(value) => {
+                    for (const spot of spots) setDepositOf(sim, spot, spot.kind, value)
                     touched()
                   }}
                 />
@@ -567,6 +565,8 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
               Снести выбранное
             </button>
           )}
+
+          {game && <CameraFields game={game} />}
 
           <footer class="editor__foot">
             <small class="editor__status">
@@ -600,6 +600,60 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
         </div>
       )}
     </main>
+  )
+}
+
+/**
+ * Числовое поле, значение которого меняется само (панель перерисовывается каждые PANEL_INTERVAL): пока в нём курсор,
+ * оно показывает набранное, а не живое значение. Новое число уходит по Enter или когда поле теряет фокус.
+ */
+function NumberField({ value, set, min, max, step }: { value: number; set(value: number): void; min?: number; max?: number; step?: number }) {
+  const [draft, setDraft] = useState<string | null>(null)
+  const commit = () => {
+    if (draft === null) return
+    const number = Number(draft)
+    if (draft.trim() !== '' && Number.isFinite(number)) set(Math.min(max ?? Infinity, Math.max(min ?? -Infinity, number)))
+    setDraft(null)
+  }
+  return (
+    <input
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      value={draft ?? value}
+      onFocus={(event) => setDraft(event.currentTarget.value)}
+      onInput={(event) => setDraft(event.currentTarget.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') commit()
+        if (event.key === 'Escape') setDraft(null)
+      }}
+    />
+  )
+}
+
+/** Камера: середина видимой части карты в тайлах и масштаб — пикселей на тайл. Правятся числами. */
+function CameraFields({ game }: { game: Game }) {
+  const { camera } = game.scene
+  const focus = camera.focus
+  const round = (value: number) => Math.round(value * 10) / 10
+  return (
+    <section class="editor__section">
+      <h3>Камера</h3>
+      <label class="editor__field">
+        X
+        <NumberField step={1} value={round(focus.x)} set={(x) => game.lookAt(x, camera.focus.y)} />
+      </label>
+      <label class="editor__field">
+        Y
+        <NumberField step={1} value={round(focus.y)} set={(y) => game.lookAt(camera.focus.x, y)} />
+      </label>
+      <label class="editor__field">
+        Зум, пикс. на тайл
+        <NumberField step={1} min={1} value={round(camera.zoom)} set={(zoom) => camera.zoomTo(zoom)} />
+      </label>
+    </section>
   )
 }
 
@@ -769,12 +823,11 @@ function Inspector({ sim, entities, changed, ordering, order }: { sim: Sim; enti
           {GOODS.map((good: Good) => (
             <label key={good} class="editor__field">
               {goodName(good)}
-              <input
-                type="number"
+              <NumberField
                 min={0}
                 value={inventory.items[good] ?? 0}
-                onChange={(event) => {
-                  setStock(sim, first, good, Number(event.currentTarget.value) || 0)
+                set={(value) => {
+                  setStock(sim, first, good, value)
                   changed()
                 }}
               />
