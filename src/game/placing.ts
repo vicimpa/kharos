@@ -1,4 +1,4 @@
-import { BUILDINGS, DEPOSIT_SIZE, Owner, Pave, PAVE_LIMIT, canBuild, canPave, creditsOf, depositNear, paveCost, type BuildingSpec, type BuildingType } from '../sim'
+import { BUILDINGS, DEPOSIT_SIZE, Owner, Pave, PAVE_LIMIT, canBuild, canPlace, canPave, creditsOf, depositNear, paveCost, type BuildingSpec, type BuildingType } from '../sim'
 import type { PaveTool, Scene } from './scene'
 
 /** Где встанет здание, которое игрок сейчас выбирает место: левый верхний тайл основания и годится ли место. */
@@ -30,7 +30,8 @@ export function placementOf(scene: Scene): Placement | null {
     x = deposit.x
     y = deposit.y
   }
-  return { type, x, y, allowed: canBuild(scene.sim, scene.player, type, x, y) }
+  // Редактору деньги и технологии не нужны: только место.
+  return { type, x, y, allowed: scene.edit ? canPlace(scene.sim, type, x, y) : canBuild(scene.sim, scene.player, type, x, y) }
 }
 
 

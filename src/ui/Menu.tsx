@@ -60,7 +60,7 @@ function loadServer() {
 }
 
 /** Отдаёт браузеру файл на скачивание. */
-function download(name: string, data: Uint8Array) {
+export function download(name: string, data: Uint8Array) {
   const link = document.createElement('a')
   link.href = URL.createObjectURL(new Blob([data as BlobPart], { type: 'application/octet-stream' }))
   link.download = name
@@ -366,15 +366,18 @@ function NewGame({ back, play, count }: { back(): void; play(launch: Launch): vo
 function Saves({ back, saves, refresh, play }: { back(): void; saves: SaveSlot[]; refresh(): void; play(launch: Launch): void }) {
   const [error, setError] = useState('')
   const [confirming, setConfirming] = useState<string | null>(null)
-  const pick = () => {
+  /** Открывает файл сохранения: edit — сразу в редакторе, не заводя слот (так правят мир сервера), иначе — в новый слот. */
+  const pick = (edit: boolean) => {
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = '.kharos'
     input.onchange = async () => {
       const file = input.files?.[0]
       if (!file) return
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      if (edit) return play({ kind: 'editor', file: bytes, name: file.name })
       try {
-        await importSave(new Uint8Array(await file.arrayBuffer()))
+        await importSave(bytes)
         setError('')
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : String(reason))
@@ -398,6 +401,9 @@ function Saves({ back, saves, refresh, play }: { back(): void; saves: SaveSlot[]
             <span class="menu__inline">
               <button class="menu__primary" onClick={() => play({ kind: 'save', slot })}>
                 Играть
+              </button>
+              <button title="Править мир: карту, базы, юнитов, деньги и склады" disabled={!slot.tick} onClick={() => play({ kind: 'editor', slot })}>
+                Редактор
               </button>
               <button
                 onClick={() => {
@@ -439,7 +445,10 @@ function Saves({ back, saves, refresh, play }: { back(): void; saves: SaveSlot[]
       </ul>
       {error && <p class="menu__error">{error}</p>}
       <div class="menu__inline">
-        <button onClick={pick}>Загрузить файл</button>
+        <button onClick={() => pick(false)}>Загрузить файл</button>
+        <button title="Править файл сохранения, не заводя слот: например, мир сервера" onClick={() => pick(true)}>
+          Файл в редактор
+        </button>
       </div>
     </Window>
   )

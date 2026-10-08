@@ -49,8 +49,16 @@ export interface Scene {
   paveFrom: { x: number; y: number } | null
   /** Показывать ли сетку тайлов. */
   grid: boolean
+  /** Редактор сохранений: левая кнопка — его инструмент, а не выделение и приказы. Нет — обычная игра. */
+  edit?: SceneEdit
   /** Погода в этом кадре: её считает симуляция по времени мира, игра обновляет каждый кадр. */
   weather: Weather
+}
+
+/** Инструмент редактора на холсте: нажатие, протяжка и отпускание левой кнопки, указатель — каждый кадр. Точки — в тайлах. */
+export interface SceneEdit {
+  press(point: { x: number; y: number }, phase: 'down' | 'drag' | 'up', shift: boolean): void
+  hover(tile: { x: number; y: number } | null): void
 }
 
 /** Чем работает игрок на покрытии: кладёт фундамент или дорогу, или снимает своё. */

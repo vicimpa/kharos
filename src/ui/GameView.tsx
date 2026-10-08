@@ -5,13 +5,13 @@ import type { MapSettings } from '../map/settings'
 import { Hud } from './Hud'
 import { Settings } from './Menu'
 import { PasswordRequired } from '../net/connect'
-import { startSession, type Launch } from './launch'
+import { startSession, type PlayLaunch } from './launch'
 
 /** Как часто интерфейс сверяется с игрой, в миллисекундах. */
 const HUD_INTERVAL = 100
 
 interface GameViewProps {
-  launch: Launch
+  launch: PlayLaunch
   settings: MapSettings
   /** Выйти в главное меню. */
   exit(): void

@@ -12,6 +12,12 @@ export type Launch =
   | { kind: 'save'; slot: SaveSlot }
   | { kind: 'battle' | 'sandbox' }
   | { kind: 'server'; url: string; lag: number; name?: string; password?: string }
+  /** Редактор сохранения: слота или файла (например, мира сервера), см. EditorView. */
+  | { kind: 'editor'; slot: SaveSlot }
+  | { kind: 'editor'; file: Uint8Array; name: string }
+
+/** Игра, а не редактор. */
+export type PlayLaunch = Exclude<Launch, { kind: 'editor' }>
 
 /** Адрес сервера на этой же машине. */
 export const localServerUrl = () => `ws://${location.hostname}:${DEFAULT_PORT}`
@@ -37,7 +43,9 @@ const CURRENT_KEY = 'kharos.current'
  */
 export function rememberLaunch(launch: Launch | null) {
   try {
-    if (!launch) sessionStorage.removeItem(CURRENT_KEY)
+    // Файл в редакторе живёт только в памяти: после перезагрузки его открывают заново.
+    if (!launch || (launch.kind === 'editor' && !('slot' in launch))) sessionStorage.removeItem(CURRENT_KEY)
+    else if (launch.kind === 'editor') sessionStorage.setItem(CURRENT_KEY, JSON.stringify({ kind: 'editor', slot: launch.slot.id }))
     // Пароль не хранится и здесь: с ним сервер уже пустил, и connect() помнит его сам.
     else sessionStorage.setItem(CURRENT_KEY, JSON.stringify(launch.kind === 'save' ? { kind: 'save', slot: launch.slot.id } : { ...launch, password: undefined }))
   } catch {
@@ -113,9 +121,9 @@ export function lastLaunch(): Launch | null {
 function parseLaunch(text: string | null): Launch | null {
   const saved = JSON.parse(text ?? 'null') as (Omit<Launch, 'slot'> & { slot?: string }) | null
   if (!saved) return null
-  if (saved.kind !== 'save') return saved as Launch
+  if (saved.kind !== 'save' && saved.kind !== 'editor') return saved as Launch
   const slot = listSaves().find((other) => other.id === saved.slot)
-  return slot ? { kind: 'save', slot } : null
+  return slot ? ({ kind: saved.kind, slot } as Launch) : null
 }
 
 /** Игра, в которой вкладка была до перезагрузки; слот берётся свежим из списка, удалённый — забыт. */
@@ -131,7 +139,7 @@ export function recallLaunch(): Launch | null {
  * Подключается к игре. Локальную считает воркер: у каждого слота свой общий воркер, и вкладки, открывшие один
  * слот, играют в один мир. Новый слот ещё пуст — его мир заводится по зерну и размеру слота.
  */
-export async function startSession(launch: Launch, settings: MapSettings, signal?: AbortSignal): Promise<Session> {
+export async function startSession(launch: PlayLaunch, settings: MapSettings, signal?: AbortSignal): Promise<Session> {
   if (launch.kind === 'server') return connect(launch.url, launch.lag, launch.name, launch.password, signal)
   const options = simOptions(settings)
   if (launch.kind !== 'save') return connectLocal({ options, mode: launch.kind, battle: settings.battle, save: null }, () => {}, `kharos-${launch.kind}`)

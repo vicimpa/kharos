@@ -1212,3 +1212,126 @@ body {
   font-size: 12px;
   pointer-events: none;
 }
+
+/* Редактор сохранений: боковая панель справа вместо нижней, см. EditorView. */
+.editor__panel {
+  top: 8px;
+  right: 8px;
+  bottom: 8px;
+  width: 300px;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+.editor__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: var(--font-title);
+}
+
+.editor__head span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #8fa6bd;
+}
+
+.editor__section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.editor__section h3 {
+  margin: 0;
+  font: inherit;
+  color: #9fc4e6;
+}
+
+.editor__tabs,
+.editor__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.editor__tabs button,
+.editor__chips button {
+  padding: 2px 6px;
+}
+
+.editor__list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  /* Кнопки с overflow: hidden иначе сжимаются по высоте, чтобы список влез в max-height. */
+  grid-auto-rows: max-content;
+  gap: 2px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.editor__list button {
+  padding: 4px 6px;
+  line-height: 16px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor__options,
+.editor__stock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.editor__choice {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.editor__field {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor__field input[type="number"] {
+  width: 90px;
+  font: inherit;
+  color: #d6e6f5;
+  background: #0b1624;
+  border: 1px solid #2c4058;
+  padding: 2px 4px;
+}
+
+.editor__note {
+  margin: 0;
+  color: #8fa6bd;
+}
+
+.editor__foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.editor__status {
+  color: #8fa6bd;
+  min-height: 1.5em;
+}
+
+.editor__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}

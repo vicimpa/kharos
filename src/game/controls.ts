@@ -134,6 +134,13 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
     if (pressed) return
     pressed = { button: event.button, x: event.offsetX, y: event.offsetY, dragged: false }
     anchor = event.button === LEFT ? camera.screenToTile(event.offsetX, event.offsetY) : null
+    // В редакторе левая кнопка — инструмент редактора, см. Scene.edit.
+    if (scene.edit && event.button === LEFT) {
+      anchor = null
+      scene.edit.press(camera.screenToTile(event.offsetX, event.offsetY), 'down', event.shiftKey)
+      canvas.setPointerCapture(event.pointerId)
+      return
+    }
     // Покрытие тянут от тайла, где зажали левую кнопку.
     if (scene.paving && event.button === LEFT) {
       const { x, y } = camera.screenToTile(event.offsetX, event.offsetY)
@@ -146,7 +153,8 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
     if (!pressed) return
     if (Math.hypot(event.offsetX - pressed.x, event.offsetY - pressed.y) > CLICK_SLOP) pressed.dragged = true
     if (pressed.button === LEFT) {
-      if (pressed.dragged) stretchBox()
+      if (scene.edit) scene.edit.press(camera.screenToTile(event.offsetX, event.offsetY), 'drag', event.shiftKey)
+      else if (pressed.dragged) stretchBox()
     } else {
       motion.drag(event.movementX, event.movementY)
     }
@@ -163,6 +171,11 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
     pressed = null
     if (button !== LEFT) motion.release()
     const point = camera.screenToTile(event.offsetX, event.offsetY)
+    // В редакторе приказов нет: правая кнопка только двигает камеру.
+    if (scene.edit) {
+      if (button === LEFT) scene.edit.press(point, 'up', event.shiftKey)
+      return
+    }
     // Рамка в наборе патруля — обычное выделение: набор кончается.
     // Так же и щелчок по своему невыбранному юниту — выбрать его.
     if (scene.patrolling && button === LEFT) {
@@ -427,6 +440,12 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
     const right = Math.sign(Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft')) + edgeX)
     const down = Math.sign(Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp')) + edgeY)
     motion.update(seconds, right * speed, down * speed)
+    if (scene.edit) {
+      // Редактор сам решает, что показать под указателем; выбора места и приказов игрока в нём нет.
+      scene.edit.hover(camera.pointerTile)
+      for (const entity of scene.selection) if (!scene.sim.world.alive(entity)) scene.selection.delete(entity)
+      return
+    }
     stretchBox()
 
     // Погибшие и исчезнувшие выпадают из выделения.

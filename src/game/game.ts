@@ -194,6 +194,9 @@ export function createGame(
     const bottom = document.querySelector('.hud.bar')?.getBoundingClientRect()
     camera.inset.top = top ? Math.max(0, Math.min(frame.height, top.bottom - frame.top)) : 0
     camera.inset.bottom = bottom ? Math.max(0, Math.min(frame.height, frame.bottom - bottom.top)) : 0
+    // Боковая панель редактора — справа.
+    const side = document.querySelector('.editor__panel')?.getBoundingClientRect()
+    if (side) camera.inset.right = Math.max(0, Math.min(frame.width, frame.right - side.left))
   }
   const motion = new CameraMotion(camera)
   const controls = showcase ? null : createControls(canvas, scene, motion)

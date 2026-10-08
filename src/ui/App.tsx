@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'preact/hooks'
 import { DEFAULT_SETTINGS } from '../map/settings'
+import { EditorView } from './EditorView'
 import { GameView } from './GameView'
 import { launchFromAddress, recallLaunch, rememberLast, rememberLaunch, type Launch } from './launch'
 import { Menu } from './Menu'
@@ -24,6 +25,7 @@ function Game() {
     if (launch) rememberLast(launch)
   }, [launch])
 
+  if (launch?.kind === 'editor') return <EditorView launch={launch} settings={DEFAULT_SETTINGS} exit={() => setLaunch(null)} />
   if (launch) {
     return (
       <GameView
