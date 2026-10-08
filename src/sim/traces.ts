@@ -1,4 +1,5 @@
 import type { Entity, World } from '../ecs'
+import { tileKey } from '../map/terrain'
 import { Owner, Position, Unit } from './components'
 import { flies, type UnitType } from './units'
 
@@ -28,6 +29,44 @@ const TRACK_STEP = 0.5
 const TRACK_TURN = 0.35
 /** Как часто убираются истёкшие следы, в секундах. */
 const EXPIRE_EVERY = 1
+/**
+ * Сколько живых следов одного вида держит тайл; лишние не оставляются. Без предела толпа в тысячи юнитов за минуту
+ * оставляет миллионы точек колеи, а прочитать по тайлу, что здесь прошли, можно и по двум. Остовов не больше, чем
+ * погибших, им предела нет.
+ */
+const DENSITY: Partial<Record<TraceKind, number>> = { track: 2, scar: 2, burn: 2 }
+/** Сторона ячейки, по которым разложены следы, в тайлах: хост проверяет только ячейки, которые игрок видит. */
+export const TRACE_CELL = 16
+/** Ячейка следов, в которой лежит точка. */
+export const traceCell = (x: number, y: number) => tileKey(Math.floor(x / TRACE_CELL), Math.floor(y / TRACE_CELL))
+
+const KINDS: TraceKind[] = ['track', 'scar', 'burn', 'wreck']
+
+/** Счёт живых следов по тайлу и виду, см. DENSITY. */
+function createDensity() {
+  const counts = new Map<number, number>()
+  const keyOf = (trace: { kind: TraceKind; x: number; y: number }) => tileKey(Math.floor(trace.x), Math.floor(trace.y)) * KINDS.length + KINDS.indexOf(trace.kind)
+  return {
+    /** Занимает место под след; false — тайл полон, след не оставляется. */
+    take(trace: { kind: TraceKind; x: number; y: number }) {
+      const limit = DENSITY[trace.kind]
+      if (limit === undefined) return true
+      const key = keyOf(trace)
+      const count = counts.get(key) ?? 0
+      if (count >= limit) return false
+      counts.set(key, count + 1)
+      return true
+    },
+    /** След ушёл: место освобождается. */
+    release(trace: Trace) {
+      if (DENSITY[trace.kind] === undefined) return
+      const key = keyOf(trace)
+      const count = counts.get(key) ?? 0
+      if (count > 1) counts.set(key, count - 1)
+      else counts.delete(key)
+    },
+  }
+}
 
 export interface Traces {
   /** Оставляет след в этом тике. */
@@ -36,6 +75,8 @@ export interface Traces {
   all(): readonly Trace[]
   /** Следы, оставленные в последнем тике. */
   fresh(): readonly Trace[]
+  /** Живые следы в ячейке cell, см. traceCell. */
+  inCell(cell: number): readonly Trace[]
   /** Номера следов, убранных в последнем тике: срок вышел. */
   expired(): readonly number[]
   /** Конец тика: точки пути юнитов, истёкшие следы. */
@@ -57,14 +98,23 @@ export function createTraces(world: World, tick: () => number, step: number): Tr
   let sinceExpire = 0
   let next = 1
   const walk = createWalkers(world)
+  const density = createDensity()
+  /** Живые следы по ячейкам, см. traceCell. */
+  const cells = new Map<number, Trace[]>()
 
   const traces: Traces = {
     add(trace) {
+      if (!density.take(trace)) return
       const full = { ...trace, id: next++, tick: tick() } as Trace
       list.push(full)
       pending.push(full)
+      const cell = traceCell(full.x, full.y)
+      const bucket = cells.get(cell)
+      if (bucket) bucket.push(full)
+      else cells.set(cell, [full])
     },
     all: () => list,
+    inCell: (cell) => cells.get(cell) ?? [],
     since(cursor) {
       // Номера в списке растут: новые — в хвосте.
       let from = list.length
@@ -85,11 +135,18 @@ export function createTraces(world: World, tick: () => number, step: number): Tr
       if (sinceExpire < EXPIRE_EVERY) return
       sinceExpire = 0
       const now = tick()
+      const alive = (trace: Trace) => (now - trace.tick) * step < TRACE_LIFE[trace.kind]
       list = list.filter((trace) => {
-        const alive = (now - trace.tick) * step < TRACE_LIFE[trace.kind]
-        if (!alive) expired.push(trace.id)
-        return alive
+        if (alive(trace)) return true
+        expired.push(trace.id)
+        density.release(trace)
+        return false
       })
+      for (const [cell, bucket] of cells) {
+        const left = bucket.filter(alive)
+        if (left.length) cells.set(cell, left)
+        else cells.delete(cell)
+      }
     },
   }
   return traces
@@ -138,12 +195,15 @@ export function createReceivedTraces(world: World, tick: () => number, step: num
   let incoming: Trace[] = []
   let own = 0
   const walk = createWalkers(world)
+  // Предел плотности — и для колеи, которую клиент кладёт сам: в толпе её столько же, сколько у хоста.
+  const density = createDensity()
   return {
     add() {
       // Следы оставляет хост.
     },
     all: () => list.map(({ trace }) => trace),
     fresh: () => fresh,
+    inCell: (cell) => list.filter(({ trace }) => traceCell(trace.x, trace.y) === cell).map(({ trace }) => trace),
     expired: () => [],
     receive(traces) {
       incoming.push(...traces)
@@ -154,12 +214,18 @@ export function createReceivedTraces(world: World, tick: () => number, step: num
       fresh = incoming
       incoming = []
       walk((track) => {
+        if (!density.take(track)) return
         const trace = { ...track, id: -++own, tick: now } as Trace
         fresh.push(trace)
         list.push({ trace, seq: ++seq })
       })
       // Ушедшее из обзора клиент не хранит: о следах он знает только там, где видит сейчас.
-      list = list.filter(({ trace }) => sees(trace.x, trace.y) && (now - trace.tick) * step < TRACE_LIFE[trace.kind])
+      list = list.filter(({ trace }) => {
+        if (sees(trace.x, trace.y) && (now - trace.tick) * step < TRACE_LIFE[trace.kind]) return true
+        // Место держат только свои: пришедшие от хоста он уже отмерил.
+        if (trace.id < 0) density.release(trace)
+        return false
+      })
     },
     since(cursor) {
       let from = list.length

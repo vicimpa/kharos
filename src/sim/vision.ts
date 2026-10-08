@@ -1,4 +1,5 @@
 import type { Entity, World } from '../ecs'
+import { tileKey } from '../map/terrain'
 import { BUILDINGS, buildingSpec } from './buildings'
 import { Attached, Building, Owner, Player, Position, Shot, Site, Unit } from './components'
 import type { Sim } from './sim'
@@ -66,6 +67,11 @@ export interface Vision {
    * Для отрисовки тумана; changed растёт, когда что-то в них поменялось.
    */
   cells(player: number): { cells: Uint8Array; changed: number }
+  /**
+   * Ячейки стороной size тайлов, в которых игрок сейчас видит хоть один тайл, — ключами tileKey от номера ячейки.
+   * Так хост проверяет не всё разложенное по ячейкам, а только то, что игрок может видеть.
+   */
+  seenCells(player: number, size: number): ReadonlySet<number>
   /** Разведано ли хоть что-то в прямоугольнике тайлов: так скрывают месторождения, которых игрок не нашёл. */
   exploredIn(player: number, x: number, y: number, width: number, height: number): boolean
   /**
@@ -98,6 +104,8 @@ interface Sight {
   lit: number[]
   tick: number
   changed: number
+  /** Ячейки с видимыми тайлами, посчитанные для этого tick и этой стороны, см. Vision.seenCells. */
+  seen?: { tick: number; size: number; cells: Set<number> }
 }
 
 /** fog: false — тумана нет: каждому игроку видна вся карта, и считать обзор не нужно. */
@@ -189,6 +197,24 @@ export function createVision(world: World, bounds: Bounds, tick: () => number, f
       const { width: w, height: h } = BUILDINGS[building.type]
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (vision.sees(player, position.x + x, position.y + y)) return true
       return false
+    },
+    seenCells(player, size) {
+      const sight = sightOf(player)
+      if (sight.seen?.tick === sight.tick && sight.seen.size === size) return sight.seen.cells
+      const cells = new Set<number>()
+      if (!fog) {
+        for (let y = Math.floor(bounds.top / size); y <= Math.floor((bounds.bottom - 1) / size); y++) {
+          for (let x = Math.floor(bounds.left / size); x <= Math.floor((bounds.right - 1) / size); x++) cells.add(tileKey(x, y))
+        }
+      } else {
+        for (const index of sight.lit) {
+          const x = (index % width) + bounds.left
+          const y = Math.floor(index / width) + bounds.top
+          cells.add(tileKey(Math.floor(x / size), Math.floor(y / size)))
+        }
+      }
+      sight.seen = { tick: sight.tick, size, cells }
+      return cells
     },
     cells(player) {
       const { cells, changed } = sightOf(player)

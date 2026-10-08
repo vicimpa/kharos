@@ -4,7 +4,7 @@ import { Owner, Path, Position } from '../sim/components'
 import { pathOf, seenBy, sharedWireOf, type Wired } from './wire'
 import { encodeDelta, type Motion } from './codec'
 import type { ServerData } from './protocol'
-import type { Trace } from '../sim/traces'
+import { TRACE_CELL, type Trace } from '../sim/traces'
 import { cleanName, type PlayerInfo, type ServerMessage } from './protocol'
 
 /**
@@ -82,20 +82,21 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
   const peers = new Map<Send, number>()
   /** Какие следы каждое подключение уже получило. */
   const shown = new Map<Send, Set<number>>()
+  /** Ячейки следов, которые подключение видело при прошлом полном обходе, см. traces. */
+  const swept = new Map<Send, ReadonlySet<number>>()
   /** Какой мир каждое подключение уже получило: по сущности — JSON каждого её компонента. */
   const sent = new Map<Send, View>()
   let sinceSweep = 0
 
   /**
    * Следы, которые подключение видит — они в обзоре его юнитов и зданий прямо сейчас, — а ещё не получало. Новые проверяются каждый тик, все — раз в SWEEP_TICKS:
-   * так находятся старые следы там, куда игрок только что пришёл.
+   * так находятся старые следы там, куда игрок только что пришёл. Полный обход смотрит не все следы мира, а только
+   * ячейки, где игрок видит хоть что-то сейчас или видел при прошлом обходе: в остальных ничего не поменялось.
    */
   const traces = (send: Send, player: number, sweep: boolean) => {
     const known = shown.get(send)!
     const found: Trace[] = []
-    // Колею, оставленную на глазах у игрока, клиент кладёт сам: он видит того же юнита, см. traces.ts.
-    for (const trace of sim.traces.fresh()) if (trace.kind === 'track' && sim.vision.sees(player, trace.x, trace.y)) known.add(trace.id)
-    for (const trace of sweep ? sim.traces.all() : sim.traces.fresh()) {
+    const check = (trace: Trace) => {
       const seen = sim.vision.sees(player, trace.x, trace.y)
       if (seen && !known.has(trace.id)) {
         found.push(trace)
@@ -105,6 +106,16 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
         known.delete(trace.id)
       }
     }
+    // Колею, оставленную на глазах у игрока, клиент кладёт сам: он видит того же юнита, см. traces.ts.
+    for (const trace of sim.traces.fresh()) if (trace.kind === 'track' && sim.vision.sees(player, trace.x, trace.y)) known.add(trace.id)
+    if (!sweep) {
+      for (const trace of sim.traces.fresh()) check(trace)
+      return found
+    }
+    const cells = sim.vision.seenCells(player, TRACE_CELL)
+    for (const cell of cells) for (const trace of sim.traces.inCell(cell)) check(trace)
+    for (const cell of swept.get(send) ?? []) if (!cells.has(cell)) for (const trace of sim.traces.inCell(cell)) check(trace)
+    swept.set(send, cells)
     return found
   }
   /** Номер игрока по id, который ему выдал хост. */
@@ -308,6 +319,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
         leave() {
           peers.delete(send)
           shown.delete(send)
+          swept.delete(send)
           sent.delete(send)
           announce()
         },

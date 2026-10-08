@@ -104,3 +104,32 @@ test('следы приходят только в обзор: пришедший
   for (let i = 0; i < 1 / STEP; i++) tick()
   expect(enemyTracks(first.traces.all()).length).toBe(seen.length)
 })
+
+test('тайл держит не больше двух следов одного вида, а истёкшие освобождают место', () => {
+  const sim = createSim(options)
+  for (let i = 0; i < 10; i++) sim.traces.add({ kind: 'scar', x: 5.2, y: 5.7, size: 1 })
+  sim.traces.add({ kind: 'burn', x: 5.5, y: 5.5 })
+  sim.traces.add({ kind: 'scar', x: 6.5, y: 5.5, size: 1 })
+  const kinds = (x: number) => sim.traces.all().filter((trace) => Math.floor(trace.x) === x).map((trace) => trace.kind)
+  expect(kinds(5)).toEqual(['scar', 'scar', 'burn'])
+  expect(kinds(6)).toEqual(['scar'])
+
+  run(sim, TRACE_LIFE.scar + 1)
+  sim.traces.add({ kind: 'scar', x: 5.5, y: 5.5, size: 1 })
+  expect(kinds(5)).toEqual(['scar'])
+})
+
+test('толпа на одном месте не множит колею без предела', () => {
+  const sim = createSim(options)
+  const units = Array.from({ length: 40 }, (_, i) => spawnUnit(sim, 'infantry', 1, 10 + (i % 8) * 0.6, 10 + Math.floor(i / 8) * 0.6))
+  sim.send(1, { type: 'move', units, x: 40, y: 10 })
+  run(sim, 15)
+  const perTile = new Map<string, number>()
+  for (const trace of sim.traces.all()) {
+    if (trace.kind !== 'track') continue
+    const key = `${Math.floor(trace.x)},${Math.floor(trace.y)}`
+    perTile.set(key, (perTile.get(key) ?? 0) + 1)
+  }
+  expect(perTile.size).toBeGreaterThan(10)
+  expect(Math.max(...perTile.values())).toBe(2)
+})
