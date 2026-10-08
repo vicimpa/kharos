@@ -74,6 +74,15 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
     }
     return found
   }
+  /** Кого выбирает рамка с углами (fromX, fromY) и (toX, toY): юниты в ней главнее, здания — только если юнитов нет. */
+  const boxHits = (fromX: number, fromY: number, toX: number, toY: number) => {
+    const left = Math.min(fromX, toX)
+    const top = Math.min(fromY, toY)
+    const right = Math.max(fromX, toX)
+    const bottom = Math.max(fromY, toY)
+    const units = unitsInBox(left, top, right, bottom)
+    return units.length ? units : buildingsInBox(left, top, right, bottom)
+  }
   const typeOf = (entity: Entity) => scene.sim.world.get(entity, Building)?.type ?? scene.sim.world.get(entity, Site)?.type
   /** Прошлый щелчок по зданию: для двойного щелчка. */
   let lastBuildingClick: { building: Entity; at: number } | null = null
@@ -146,7 +155,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
   const stretchBox = () => {
     if (!pressed?.dragged || !anchor || !camera.pointer || scene.placing || scene.paving) return
     const to = camera.screenToTile(camera.pointer.x, camera.pointer.y)
-    scene.selectionBox = { fromX: anchor.x, fromY: anchor.y, toX: to.x, toY: to.y }
+    scene.selectionBox = { fromX: anchor.x, fromY: anchor.y, toX: to.x, toY: to.y, hits: boxHits(anchor.x, anchor.y, to.x, to.y) }
   }
   const onPointerUp = (event: PointerEvent) => {
     if (!pressed || event.button !== pressed.button) return
@@ -210,13 +219,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
       const box = scene.selectionBox
       scene.selectionBox = null
       if (dragged && box) {
-        const left = Math.min(box.fromX, box.toX)
-        const top = Math.min(box.fromY, box.toY)
-        const right = Math.max(box.fromX, box.toX)
-        const bottom = Math.max(box.fromY, box.toY)
-        // Юниты в рамке главнее: здания выбираются, только если юнитов в ней нет.
-        const units = unitsInBox(left, top, right, bottom)
-        select(units.length ? units : buildingsInBox(left, top, right, bottom), event.shiftKey)
+        select(boxHits(box.fromX, box.fromY, box.toX, box.toY), event.shiftKey)
       } else {
         const unit = unitAt(point.x, point.y)
         const now = performance.now()

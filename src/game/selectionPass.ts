@@ -15,6 +15,8 @@ const RING_MARGIN = 0.2
 /** Толщина рамок в пикселях экрана. */
 const BORDER = 1
 const BOX_FILL_ALPHA = 0.12
+/** Насколько ярко подсвечены те, кого выберет рамка, пока её тянут. */
+const HIT_ALPHA = 0.5
 /** Высота полоски прогресса в пикселях экрана и её отступ от сущности в тайлах. */
 const BAR_HEIGHT = 4
 const BAR_GAP = 0.3
@@ -177,19 +179,26 @@ export function createSelectionPass(gl: WebGL2RenderingContext, scene: Scene): P
         rect(toX - camera.x + pixel, toY - camera.y - 0.9, 0.45, 0.3, SELECTED, 1)
       }
 
-      for (const entity of scene.selection) {
+      /** Кольцо вокруг юнита или рамка вокруг здания; alpha — насколько ярко. */
+      const mark = (entity: Entity, alpha: number) => {
         const bounds = boundsOf(entity)
-        if (!bounds) continue
+        if (!bounds) return
         if (bounds.round) {
           sprites.push(
             bounds.x, bounds.y, bounds.width, bounds.height,
             ringFrame.u, ringFrame.v, ringFrame.width, ringFrame.height,
-            ...SELECTED, 1,
+            SELECTED[0] * alpha, SELECTED[1] * alpha, SELECTED[2] * alpha, alpha,
           )
         } else {
-          frame(bounds.x, bounds.y, bounds.width, bounds.height, pixel * 2, SELECTED)
+          rect(bounds.x, bounds.y, bounds.width, pixel * 2, SELECTED, alpha)
+          rect(bounds.x, bounds.y + bounds.height - pixel * 2, bounds.width, pixel * 2, SELECTED, alpha)
+          rect(bounds.x, bounds.y, pixel * 2, bounds.height, SELECTED, alpha)
+          rect(bounds.x + bounds.width - pixel * 2, bounds.y, pixel * 2, bounds.height, SELECTED, alpha)
         }
       }
+      for (const entity of scene.selection) mark(entity, 1)
+      // Кого выберет рамка, если отпустить её сейчас, — бледнее выбранных.
+      for (const entity of scene.selectionBox?.hits ?? []) if (!scene.selection.has(entity)) mark(entity, HIT_ALPHA)
 
       /** Полоска прогресса над сущностью: value от 0 до 1. */
       const bar = (entity: Entity, value: number, color: Color) => {
