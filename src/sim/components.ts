@@ -96,12 +96,10 @@ export const Site = component('Site', { type: 'generator' as BuildingType, progr
 export const Builds = component('Builds', { site: 0, ordered: true })
 
 /**
- * Месторождение, из которого уже добывали или которое правили в редакторе. Место — левый верхний тайл месторождения;
- * mined — сколько из него забрано. Правка редактора: kind — вид ('' — как у генератора), reserve — изначальный запас
- * (−1 — как у генератора), gone — месторождения здесь нет. Месторождение с kind заменяет то, что генератор положил
- * в его клетку, см. depositIn.
+ * Месторождение, из которого уже добывали: mined — сколько из него забрано. Место — левый верхний тайл месторождения.
+ * Сами месторождения — слой карты, см. DepositLayer.
  */
-export const Deposit = component('Deposit', { mined: 0, kind: '' as DepositKind | '', reserve: -1, gone: false })
+export const Deposit = component('Deposit', { mined: 0 })
 
 /**
  * Грузовик. Груз лежит в его складе (Inventory). mine — шахта, к которой его привязал игрок; -1 — свободен:

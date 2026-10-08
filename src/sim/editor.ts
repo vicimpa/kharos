@@ -1,8 +1,8 @@
 import type { Entity } from '../ecs'
 import { Terrain, isBuildable, isCliffFoot, setTile, terrainAt, tileBytes, tileKey } from '../map/terrain'
 import { BUILDINGS, canPlace, placeBuilding, type BuildingType } from './buildings'
-import { Attached, Builds, Building, Carrier, Deposit, Ghost, Harvester, Turret, Health, Inventory, Owner, Path, Player, Position, Unit } from './components'
-import { DEPOSIT_CELL, DEPOSIT_SIZE, depositEntity, depositAt, depositsIn, depositNear, forgetDeposits, reserveLeft, type DepositKind, type DepositSpot } from './deposits'
+import { Attached, Builds, Building, Carrier, Ghost, Harvester, Turret, Health, Inventory, Owner, Path, Player, Position, Unit } from './components'
+import { DEPOSIT_CELL, DEPOSIT_SIZE, addDeposit, depositAt, depositsIn, depositNear, dropDeposit, prepareDeposits, reserveLeft, type DepositKind, type DepositSpot } from './deposits'
 import { creditsOf, addCredits } from './economy'
 import { releaseHauler } from './hauling'
 import { apply, type Command } from './commands'
@@ -44,6 +44,8 @@ export interface Brush {
 export function paint(sim: Sim, x: number, y: number, size: number, brush: Brush) {
   const { bounds, land, landMemory } = sim
   const from = Math.floor(size / 2)
+  // Месторождения вокруг считаются по карте до правки: кисть их не создаёт и не двигает.
+  prepareDeposits(sim, x - from, y - from, x - from + size - 1, y - from + size - 1)
   for (let tileY = y - from; tileY < y - from + size; tileY++) {
     for (let tileX = x - from; tileX < x - from + size; tileX++) {
       if (tileX < bounds.left || tileY < bounds.top || tileX >= bounds.right || tileY >= bounds.bottom) continue
@@ -60,8 +62,6 @@ export function paint(sim: Sim, x: number, y: number, size: number, brush: Brush
       for (const known of landMemory.known.values()) known.delete(key)
     }
   }
-  // Месторождения лежат только на скале: после правки карты они считаются заново.
-  forgetDeposits(sim)
 }
 
 /** Игроки мира, по возрастанию номера. */
@@ -182,12 +182,6 @@ export function depositUnder(sim: Sim, x: number, y: number): DepositSpot | null
   return spot && x >= spot.x && x < spot.x + DEPOSIT_SIZE && y >= spot.y && y < spot.y + DEPOSIT_SIZE ? spot : null
 }
 
-/** Запись правок месторождения с левым верхним тайлом (x, y): сущность Deposit там, новая — если её нет. */
-function depositRecord(sim: Sim, x: number, y: number) {
-  const entity = depositEntity(sim, x, y) ?? sim.world.spawn(Position({ x, y }), Deposit())
-  return sim.world.get(entity, Deposit)!
-}
-
 /**
  * Можно ли положить месторождение левым верхним тайлом в (x, y): там, где встала бы шахта, — скала не у подножия
  * обрыва, — и не внахлёст с другим месторождением. ignore — месторождения, которые переносят: они уйдут со своих мест.
@@ -212,21 +206,20 @@ export function canPutDeposit(sim: Sim, x: number, y: number, ignore: readonly D
 /** Кладёт ещё одно месторождение вида kind с запасом reserve левым верхним тайлом в (x, y); прежние остаются, где были. */
 export function putDeposit(sim: Sim, x: number, y: number, kind: DepositKind, reserve: number, ignore: readonly DepositSpot[] = []) {
   if (!canPutDeposit(sim, x, y, ignore)) return false
-  Object.assign(depositRecord(sim, x, y), { kind, reserve: Math.max(0, Math.round(reserve)), mined: 0, gone: false })
-  forgetDeposits(sim)
+  addDeposit(sim, { x, y, kind, reserve: Math.max(0, Math.round(reserve)) })
   return true
 }
 
 /** Меняет месторождению вид и сколько в нём осталось. */
 export function setDeposit(sim: Sim, spot: DepositSpot, kind: DepositKind, left: number) {
-  Object.assign(depositRecord(sim, spot.x, spot.y), { kind, reserve: Math.max(0, Math.round(left)), mined: 0, gone: false })
-  forgetDeposits(sim)
+  // Добытое забывается: запас — ровно столько, сколько осталось.
+  dropDeposit(sim, spot.x, spot.y)
+  addDeposit(sim, { x: spot.x, y: spot.y, kind, reserve: Math.max(0, Math.round(left)) })
 }
 
 /** Убирает месторождение. */
 export function removeDeposit(sim: Sim, spot: DepositSpot) {
-  Object.assign(depositRecord(sim, spot.x, spot.y), { kind: '', gone: true })
-  forgetDeposits(sim)
+  dropDeposit(sim, spot.x, spot.y)
 }
 
 /**

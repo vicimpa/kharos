@@ -1,5 +1,5 @@
 import type { Entity } from '../ecs'
-import { Biome, biomeAt, hash, isBuildable, isCliffFoot, terrainAt, type Land } from '../map/terrain'
+import { Biome, biomeAt, hash, isBuildable, isCliffFoot, terrainAt, tileKey } from '../map/terrain'
 import { Deposit, Position } from './components'
 import type { Resource } from './resources'
 import type { Sim } from './sim'
@@ -63,56 +63,142 @@ export interface DepositSpot {
   reserve: number
 }
 
-/** Посчитанные месторождения клеток. count — сколько было сущностей Deposit: появилась новая — правки могли измениться. */
-const cache = new WeakMap<Land, { count: number; cells: Map<string, DepositSpot[]> }>()
-
-/** Забывает посчитанные месторождения: после правки карты или месторождений в редакторе. */
-export function forgetDeposits(sim: Sim) {
-  cache.delete(sim.land)
+/**
+ * Слой месторождений карты. Клетку генератор считает один раз — при первом обращении к ней или перед первой правкой
+ * земли рядом (см. prepareDeposits), — и дальше она хранится: правки карты месторождения не создают и не двигают, а
+ * правки редактора меняют сам слой. В сохранение слой ложится целиком, см. saveDeposits.
+ */
+export interface DepositLayer {
+  /** Месторождения взятых клеток по ключу клетки tileKey(cellX, cellY), левым верхним тайлом в клетке. */
+  cells: Map<number, DepositSpot[]>
+  /** Слой полный: клетки, которой в нём нет, генератор не считает — она пуста. Так у клиента: слой шлёт хост. */
+  complete: boolean
+  /** Номер правки: растёт с каждой. По нему хост узнаёт, что слой пора разослать заново. */
+  revision: number
 }
 
+/** Слой в сохранении: взятые клетки — cellX, cellY подряд; месторождения — x, y, номер вида в DEPOSIT_TYPES и запас подряд. */
+export interface DepositsSave {
+  cells: number[]
+  spots: number[]
+}
+
+export function createDeposits(save?: DepositsSave, complete = false): DepositLayer {
+  const layer: DepositLayer = { cells: new Map(), complete, revision: 0 }
+  if (save) loadDeposits(layer, save)
+  return layer
+}
+
+/** Заменяет слой сохранённым. */
+export function loadDeposits(layer: DepositLayer, save: DepositsSave) {
+  layer.cells.clear()
+  for (let i = 0; i + 1 < save.cells.length; i += 2) layer.cells.set(tileKey(save.cells[i], save.cells[i + 1]), [])
+  for (let i = 0; i + 3 < save.spots.length; i += 4) {
+    const [x, y, kind, reserve] = save.spots.slice(i, i + 4)
+    const key = cellOf(x, y)
+    if (!layer.cells.has(key)) layer.cells.set(key, [])
+    layer.cells.get(key)!.push({ x, y, kind: DEPOSIT_TYPES[kind] ?? 'metal', reserve })
+  }
+  layer.revision++
+}
+
+export function saveDeposits(layer: DepositLayer): DepositsSave {
+  const cells: number[] = []
+  const spots: number[] = []
+  for (const [key, list] of layer.cells) {
+    const { x, y } = keyCell(key)
+    cells.push(x, y)
+    for (const spot of list) spots.push(spot.x, spot.y, DEPOSIT_TYPES.indexOf(spot.kind), spot.reserve)
+  }
+  return { cells, spots }
+}
+
+/** Ключ клетки, в которой лежит тайл (x, y). */
+const cellOf = (x: number, y: number) => tileKey(Math.floor(x / DEPOSIT_CELL), Math.floor(y / DEPOSIT_CELL))
+/** Клетка по ключу tileKey. */
+const keyCell = (key: number) => ({ x: (key % 65536) - 32768, y: Math.floor(key / 65536) - 32768 })
+
 /**
- * Месторождение клетки (cellX, cellY) или null: то, что положил генератор, а если его нет — первое положенное
- * редактором. Все месторождения клетки — depositsIn.
+ * Месторождение клетки (cellX, cellY) или null: первое из её месторождений — то, что положил генератор, если его не
+ * убрали. Все месторождения клетки — depositsIn.
  */
 export function depositIn(sim: Sim, cellX: number, cellY: number): DepositSpot | null {
   return depositsIn(sim, cellX, cellY)[0] ?? null
 }
 
 /**
- * Месторождения клетки (cellX, cellY), левым верхним тайлом в ней. Как и местность, они не хранятся, а считаются из
- * сида: генератор кладёт в клетку не больше одного, на скалу — туда, где можно строить; что в нём, решает биом.
- * Поверх — правки редактора, см. компонент Deposit: он может убрать и поменять это месторождение и положить ещё.
- * Месторождение генератора — первым.
+ * Месторождения клетки (cellX, cellY), левым верхним тайлом в ней. Генератор кладёт в клетку не больше одного, на
+ * скалу — туда, где можно строить; что в нём, решает биом. Редактор может убрать, поменять и положить ещё.
  */
 export function depositsIn(sim: Sim, cellX: number, cellY: number): DepositSpot[] {
-  const { land, world } = sim
-  const count = world.count(Deposit)
-  let cached = cache.get(land)
-  if (!cached || cached.count !== count) cache.set(land, (cached = { count, cells: new Map() }))
-  const { cells } = cached
-  const key = `${cellX},${cellY}`
-  const known = cells.get(key)
-  if (known !== undefined) return known
-  const spots = withEdits(sim, cellX, cellY, generatedIn(sim, cellX, cellY))
-  cells.set(key, spots)
+  const layer = sim.deposits
+  const key = tileKey(cellX, cellY)
+  let spots = layer.cells.get(key)
+  if (spots) return spots
+  if (layer.complete) return []
+  const generated = generatedIn(sim, cellX, cellY)
+  spots = generated ? [generated] : []
+  layer.cells.set(key, spots)
   return spots
 }
 
-/** Правки редактора в клетке поверх месторождения генератора: см. компонент Deposit. */
-function withEdits(sim: Sim, cellX: number, cellY: number, generated: DepositSpot | null): DepositSpot[] {
-  let spot = generated
-  const added: DepositSpot[] = []
-  for (const [, position, deposit] of sim.world.query(Position, Deposit)) {
-    if (Math.floor(position.x / DEPOSIT_CELL) !== cellX || Math.floor(position.y / DEPOSIT_CELL) !== cellY) continue
-    if (generated && position.x === generated.x && position.y === generated.y) {
-      if (deposit.gone) spot = null
-      else spot = { ...generated, ...(deposit.kind && { kind: deposit.kind }), ...(deposit.reserve >= 0 && { reserve: deposit.reserve }) }
-    } else if (deposit.kind && !deposit.gone) added.push({ x: position.x, y: position.y, kind: deposit.kind, reserve: Math.max(0, deposit.reserve) })
+/**
+ * Берёт у генератора клетки с месторождениями, которые зависят от тайлов прямоугольника: перед правкой земли в нём,
+ * чтобы генератор считал их по прежней карте. С запасом в тайл: подножие обрыва зависит от соседей.
+ */
+export function prepareDeposits(sim: Sim, left: number, top: number, right: number, bottom: number) {
+  for (let cellY = Math.floor((top - 1) / DEPOSIT_CELL); cellY <= Math.floor((bottom + 1) / DEPOSIT_CELL); cellY++) {
+    for (let cellX = Math.floor((left - 1) / DEPOSIT_CELL); cellX <= Math.floor((right + 1) / DEPOSIT_CELL); cellX++) depositsIn(sim, cellX, cellY)
   }
-  // Порядок положенных — по месту: не зависит от порядка сущностей.
-  added.sort((a, b) => a.y - b.y || a.x - b.x)
-  return spot ? [spot, ...added] : added
+}
+
+/** Берёт у генератора все клетки карты: слой становится полным, и его можно отдать клиенту. */
+export function fillDeposits(sim: Sim) {
+  const { left, top, right, bottom } = sim.bounds
+  prepareDeposits(sim, left + 1, top + 1, right - 2, bottom - 2)
+}
+
+/** Кладёт месторождение в слой. */
+export function addDeposit(sim: Sim, spot: DepositSpot) {
+  depositsIn(sim, Math.floor(spot.x / DEPOSIT_CELL), Math.floor(spot.y / DEPOSIT_CELL)).push({ ...spot })
+  sim.deposits.revision++
+}
+
+/** Убирает из слоя месторождение с левым верхним тайлом (x, y) и забывает, сколько из него добыли. */
+export function dropDeposit(sim: Sim, x: number, y: number) {
+  const spots = depositsIn(sim, Math.floor(x / DEPOSIT_CELL), Math.floor(y / DEPOSIT_CELL))
+  const at = spots.findIndex((spot) => spot.x === x && spot.y === y)
+  if (at < 0) return
+  spots.splice(at, 1)
+  const mined = depositEntity(sim, x, y)
+  if (mined !== undefined) sim.world.destroy(mined)
+  sim.deposits.revision++
+}
+
+/**
+ * Правки месторождений из прежних сохранений: тогда они лежали в сущностях Deposit (kind, reserve, gone). Переносит их
+ * в слой; сущности остаются со своим mined.
+ */
+export function adoptLegacyDeposits(sim: Sim) {
+  type Legacy = { mined: number; kind?: DepositKind | ''; reserve?: number; gone?: boolean }
+  const edits: (Legacy & { x: number; y: number })[] = []
+  for (const [, position, deposit] of sim.world.query(Position, Deposit)) {
+    const old = deposit as Legacy
+    if (old.kind || old.gone || (old.reserve ?? -1) >= 0) edits.push({ x: position.x, y: position.y, ...old })
+    delete old.kind
+    delete old.reserve
+    delete old.gone
+  }
+  for (const { x, y, kind, reserve = -1, gone } of edits) {
+    const spots = depositsIn(sim, Math.floor(x / DEPOSIT_CELL), Math.floor(y / DEPOSIT_CELL))
+    const at = spots.findIndex((spot) => spot.x === x && spot.y === y)
+    if (gone) {
+      if (at >= 0) spots.splice(at, 1)
+    } else if (at >= 0) {
+      if (kind) spots[at].kind = kind
+      if (reserve >= 0) spots[at].reserve = reserve
+    } else if (kind) spots.push({ x, y, kind, reserve: Math.max(0, reserve) })
+  }
 }
 
 /** Месторождение, которое генератор кладёт в клетку, без правок. */

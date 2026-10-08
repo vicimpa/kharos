@@ -1,6 +1,7 @@
 import { World, type Component, type Entity, type Time } from '../ecs'
 import { applyEdits, areaOf, createLand, loadLand, saveLand } from '../map/terrain'
 import { inflate } from '../save/file'
+import { createDeposits, loadDeposits } from '../sim/deposits'
 import { createLandMemory } from '../sim/landMemory'
 import { DEFAULT_RULES, boundsOf, type Command, type Sim } from '../sim'
 import { createOccupancy } from '../sim/buildings'
@@ -86,6 +87,8 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     replica.bounds = boundsOf(options.size)
     // Пока не пришла карта мира, местность — по генератору; правки, пришедшие раньше карты, ждут её.
     replica.land = createLand(options.generator, areaOf(replica.bounds))
+    replica.deposits.cells.clear()
+    replica.deposits.revision++
     landWait++
     earlyEdits = []
     replica.rules = { ...DEFAULT_RULES, ...options.rules }
@@ -168,6 +171,8 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     land: undefined as unknown as Replica['land'],
     // Знание о правках карты держит хост: клиенту приходит уже то, что он знает.
     landMemory: createLandMemory(),
+    // Месторождения присылает хост слоем целиком; пока не прислал — их нет.
+    deposits: createDeposits(undefined, true),
     rules: undefined as unknown as Replica['rules'],
     // Кто в сети, клиенту знать незачем: доход считает хост.
     online: null,
@@ -270,6 +275,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
       else if (message.type === 'traces') replica.traces.receive(message.traces)
       else if (message.type === 'players') replica.players = message.players
       else if (message.type === 'land') receiveLand(message.data).catch((error) => replica.fail(`Карта мира не читается: ${error instanceof Error ? error.message : error}`))
+      else if (message.type === 'deposits') loadDeposits(replica.deposits, message.deposits)
       else if (message.type === 'tiles') {
         if (earlyEdits) earlyEdits.push(message.edits)
         else applyEdits(replica.land, message.edits)

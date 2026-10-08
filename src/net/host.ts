@@ -4,6 +4,7 @@ import { Owner, Path, Position } from '../sim/components'
 import { pathOf, seenBy, sharedWireOf, type Wired } from './wire'
 import { LAND, encodeDelta, type Motion } from './codec'
 import { deflate } from '../save/file'
+import { fillDeposits, saveDeposits } from '../sim/deposits'
 import { knownEdits, pristineLand, takeLearned } from '../sim/landMemory'
 import type { ServerData } from './protocol'
 import { TRACE_CELL, type Trace } from '../sim/traces'
@@ -78,6 +79,10 @@ export interface HostSave {
  */
 export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, 'sim'>): Host {
   let sim = first
+  // Клиенты получают месторождения слоем целиком: генератор у них их не считает.
+  fillDeposits(sim)
+  /** Какую правку месторождений уже разослали. */
+  let depositsSent = sim.deposits.revision
   // На сервере до первого подключения не в сети никто.
   if (player === undefined) sim.online = new Set()
   /** Подключённые: как отправить и за кого играет. */
@@ -267,7 +272,9 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
     })
     const edits = knownEdits(sim.landMemory, player)
     if (edits.length) send(JSON.stringify({ type: 'tiles', edits } satisfies ServerMessage))
+    send(depositsMessage())
   }
+  const depositsMessage = () => JSON.stringify({ type: 'deposits', deposits: saveDeposits(sim.deposits) } satisfies ServerMessage)
 
   const explored = (player: number) => JSON.stringify({ type: 'explored', map: sim.vision.map(player) } satisfies ServerMessage)
   const welcome = (player: number, id?: string) => JSON.stringify({ type: 'welcome', player, options: sim.options, step: sim.time.step, id } satisfies ServerMessage)
@@ -279,6 +286,8 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
     replace(next) {
       sim.destroy()
       sim = next
+      fillDeposits(sim)
+      depositsSent = sim.deposits.revision
       const cache = new Map<number, View>()
       for (const [send, player] of peers) {
         send(welcome(player))
@@ -373,6 +382,12 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
         if (edits.length) learned.set(player, JSON.stringify({ type: 'tiles', edits } satisfies ServerMessage))
       }
       sim.landMemory.learned.clear()
+      // Месторождения поменялись — всем слой заново: он невелик, а меняется редко.
+      if (sim.deposits.revision !== depositsSent) {
+        depositsSent = sim.deposits.revision
+        const text = depositsMessage()
+        for (const send of peers.keys()) send(text)
+      }
       for (const [send, player] of peers) {
         const text = learned.get(player)
         if (text) send(text)

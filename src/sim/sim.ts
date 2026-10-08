@@ -8,6 +8,7 @@ import { assemble } from './assembly'
 import { apply, type Command } from './commands'
 import { Building, Carrier, Inventory, Position, SAVED, Site, Unit } from './components'
 import { mountTurrets } from './turrets'
+import { adoptLegacyDeposits, createDeposits, saveDeposits, type DepositLayer, type DepositsSave } from './deposits'
 import { unitSpec } from './units'
 import type { Entity } from '../ecs'
 import { REPAIR_COST, REPAIR_PAUSE, REPAIR_SPEED, construct } from './construction'
@@ -120,6 +121,8 @@ export interface SimSave extends SimOptions {
   land: Uint8Array
   /** Что игроки знают о правках карты, см. landMemory.ts. */
   landMemory?: LandMemorySave
+  /** Месторождения, см. DepositLayer. В прежних сохранениях их нет: клетки досчитает генератор. */
+  deposits?: DepositsSave
 }
 
 /**
@@ -134,6 +137,8 @@ export interface Sim {
   readonly land: Land
   /** Что игроки знают о правках карты: правки в тумане игрок узнаёт, только увидев. */
   readonly landMemory: LandMemory
+  /** Месторождения: слой карты, см. deposits.ts. */
+  readonly deposits: DepositLayer
   readonly occupancy: Occupancy
   /** Какое покрытие — фундамент, дорога, мост — лежит на каком тайле. См. paving.ts. */
   readonly paving: Paving
@@ -221,6 +226,7 @@ export function createSim(source: SimOptions | SimSave): Sim {
     world,
     land: 'land' in source ? loadLand(options.generator, source.land) : createLand(options.generator, areaOf(bounds)),
     landMemory: createLandMemory('landMemory' in source ? source.landMemory : undefined),
+    deposits: createDeposits('deposits' in source ? source.deposits : undefined),
     occupancy: createOccupancy(world),
     paving: createPaving(world),
     vision: createVision(world, bounds, () => loop.time.tick, options.fog !== false),
@@ -240,6 +246,7 @@ export function createSim(source: SimOptions | SimSave): Sim {
       explored: Object.fromEntries(sim.vision.players().map((player) => [player, sim.vision.map(player)])),
       land: saveLand(sim.land),
       ...(sim.landMemory.original.size && { landMemory: saveLandMemory(sim.landMemory) }),
+      deposits: saveDeposits(sim.deposits),
     }),
     destroy() {
       sim.occupancy.destroy()
@@ -252,6 +259,7 @@ export function createSim(source: SimOptions | SimSave): Sim {
     world.restore(source.world, SAVED)
     refreshStorage(sim)
     remount(sim)
+    adoptLegacyDeposits(sim)
     for (const [player, map] of Object.entries(source.explored ?? {})) sim.vision.explore(Number(player), map)
   }
   return sim

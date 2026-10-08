@@ -1,4 +1,5 @@
 import { patchSavedTile, saveLand, setTile, tileBytes, tileKey, type TileEdit } from '../map/terrain'
+import { prepareDeposits } from './deposits'
 import type { Sim } from './sim'
 
 /**
@@ -61,6 +62,8 @@ export function editTile(sim: Sim, x: number, y: number, edit: TileEdit) {
   const key = tileKey(x, y)
   const before = tileBytes(sim.land, x, y)
   if (!sim.landMemory.original.has(key)) sim.landMemory.original.set(key, { x, y, tile: before })
+  // Месторождения вокруг считаются по карте до правки: правка их не создаёт и не двигает.
+  prepareDeposits(sim, x, y, x, y)
   setTile(sim.land, x, y, edit)
 }
 

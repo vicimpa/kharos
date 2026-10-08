@@ -1,4 +1,5 @@
 import type { Command, SimOptions } from '../sim'
+import type { DepositsSave } from '../sim/deposits'
 import type { Trace } from '../sim/traces'
 import { LAND, decodeDelta } from './codec'
 
@@ -7,7 +8,7 @@ import { LAND, decodeDelta } from './codec'
  * из тех же компонентов и правил, что у сервера. Поднимай её при каждом изменении протокола, компонентов из SAVED
  * или симуляции, которое меняет то, что видит клиент.
  */
-export const PROTOCOL_VERSION = 9
+export const PROTOCOL_VERSION = 10
 
 /** Почему сервер не пустил клиента другой версии: текст для игрока. */
 export function versionMismatch(server: number, client: number) {
@@ -50,6 +51,8 @@ export type ServerMessage =
   | { type: 'land'; data: Uint8Array }
   /** Правки карты, см. takeEdits: x, y и четыре байта тайла подряд. */
   | { type: 'tiles'; edits: number[] }
+  /** Месторождения: слой целиком, см. DepositLayer. Шлётся при входе и когда слой поменялся. */
+  | { type: 'deposits'; deposits: DepositsSave }
 
 /** Игрок хоста, каким его видят все: номер, ник и подключён ли он сейчас. */
 export interface PlayerInfo {
