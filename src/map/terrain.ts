@@ -26,7 +26,12 @@ export const Biome = {
 export type Biome = (typeof Biome)[keyof typeof Biome]
 
 export const CHUNK_SIZE = 32
-/** Четыре байта на тайл: [тип местности, биом (2 бита основной, 2 бита соседний, 4 бита доля соседнего), глубина в песках 0..255, 0]; у гор третий байт — радиус вершины, четвёртый — смещение до её центра. В таком же виде данные уходят в шейдер. */
+/**
+ * Четыре байта на тайл: [тип местности, биом (2 бита основной, 2 бита соседний, 4 бита доля соседнего), глубина в
+ * песках 0..255, рельеф]; у гор третий байт — радиус вершины, четвёртый — смещение до её центра. Рельеф у остальных:
+ * 2 младших бита — ярус (0 — пески и болота, 1..3 — ярусы плато), бит CLIFF_BIT — кромка тайла к нижним соседям
+ * обрывистая, а не пологая. В таком же виде данные уходят в шейдер.
+ */
 export const TILE_BYTES = 4
 
 const MAX_CACHED_CHUNKS = 4096
@@ -65,6 +70,12 @@ export interface GeneratorConfig {
   marshSwampShift: number
   marshRockShift: number
   marshPeakFactor: number
+  /** На сколько высота должна подняться над уровнем скал, чтобы плато поднялось на следующий ярус. */
+  tierStep: number
+  /** Характерная длина участков кромки, обрывистых или пологих, в тайлах. */
+  cliffScale: number
+  /** Доля обрывистой кромки: 0 — все кромки пологие, 1 — все обрывы. */
+  cliffShare: number
 }
 
 export const DEFAULT_CONFIG: GeneratorConfig = {
@@ -88,7 +99,15 @@ export const DEFAULT_CONFIG: GeneratorConfig = {
   marshSwampShift: 0.09,
   marshRockShift: 0.04,
   marshPeakFactor: 0.5,
+  tierStep: 0.065,
+  cliffScale: 20,
+  cliffShare: 0.6,
 }
+
+/** Ярусов плато над песками. */
+export const MAX_TIER = 3
+/** Бит обрывистой кромки в байте рельефа. Совпадает с CLIFF_BIT в terrain.frag. */
+export const CLIFF_BIT = 4
 
 /** Больше нельзя: шейдер ищет вершины только в соседних тайлах (PEAK_SEARCH в terrain.frag). */
 export const PEAK_RADIUS_LIMIT = 2
@@ -217,6 +236,17 @@ function classify(elevation: number, levels: { swamp: number; rock: number }): T
   return Terrain.Sand
 }
 
+/** Ярус тайла: пески и болота — 0, плато поднимается ступенями по мере роста высоты над уровнем скал. */
+function tierOf(elevation: number, levels: { rock: number }, config: GeneratorConfig): number {
+  if (elevation <= levels.rock) return 0
+  return Math.min(MAX_TIER, 1 + Math.floor((elevation - levels.rock) / config.tierStep))
+}
+
+/** Обрывиста ли кромка тайла: обрывы и пологие въезды чередуются участками длиной около cliffScale. */
+function isCliff(x: number, y: number, config: GeneratorConfig): boolean {
+  return fbm(x / config.cliffScale, y / config.cliffScale, config.seed + 17011, 2) < config.cliffShare * 0.5 + 0.25
+}
+
 /** Мир поделён на клетки такого размера (в тайлах); в каждой может стоять не больше одной группы вершин. Делит CHUNK_SIZE нацело. */
 const PEAK_CELL = 16
 /** Вершины-спутники в группе меньше главной. */
@@ -321,6 +351,8 @@ function generateChunk(config: GeneratorConfig, chunkX: number, chunkY: number):
       tiles[index] = classify(elevation, levels)
       tiles[index + 1] = packBiome(weights)
       tiles[index + 2] = Math.round(sandDepth(elevation, levels) * 255)
+      const tier = tierOf(elevation, levels, config)
+      tiles[index + 3] = tier | (tier && isCliff(worldX, worldY, config) ? CLIFF_BIT : 0)
 
       // В тайл записывается ближайшая из задевающих его вершин; остальные шейдер найдёт в соседних тайлах.
       let nearest: Peak | null = null

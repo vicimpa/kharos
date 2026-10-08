@@ -4,7 +4,7 @@ precision highp float;
 in vec2 vUV;
 out vec4 finalColor;
 
-uniform sampler2D uMap; // окно мира вокруг камеры, свёрнутое в тор: r = тип местности, g = биом, b = глубина в песках (у гор — радиус вершины), a = смещение до центра вершины
+uniform sampler2D uMap; // окно мира вокруг камеры, свёрнутое в тор: r = тип местности, g = биом, b = глубина в песках (у гор — радиус вершины), a = рельеф (у гор — смещение до центра вершины)
 // Размер экрана в CSS-пикселях.
 uniform vec2 uScreenSize;
 uniform vec2 uCamera; // центр экрана в тайлах, по модулю WINDOW
@@ -261,6 +261,85 @@ int peakShade(vec2 p, float grain, float dither) {
   return bestHeight > 0.0 ? shade(value, dither) : -1;
 }
 
+// Совпадает с CLIFF_BIT в terrain.ts: в байте рельефа два младших бита — ярус, этот — обрывистая кромка.
+const int CLIFF_BIT = 4;
+
+// Рельеф тайла: ярус и обрывистость кромки. У гор байт занят вершиной — их ярус считается неизвестным (-1).
+ivec2 relief(ivec2 cell) {
+  vec4 data = tile(cell);
+  if (int(data.r * 255.0 + 0.5) == MOUNTAIN) return ivec2(-1, 0);
+  int packed = int(data.a * 255.0 + 0.5);
+  return ivec2(packed & 3, (packed & CLIFF_BIT) != 0 ? 1 : 0);
+}
+
+// Высота рельефа в точке: ярусы соседних тайлов смешаны так же, как зоны в zones(), поэтому кромка нижнего
+// яруса совпадает с краем плато. Горы берут ярус соседей. y — обрывиста ли кромка у ближайшего тайла.
+vec2 height(vec2 q) {
+  q -= 0.5;
+  ivec2 cell = ivec2(floor(q));
+  vec2 f = smoothstep(0.3, 0.7, fract(q));
+  ivec2 r00 = relief(cell);
+  ivec2 r10 = relief(cell + ivec2(1, 0));
+  ivec2 r01 = relief(cell + ivec2(0, 1));
+  ivec2 r11 = relief(cell + ivec2(1, 1));
+  vec4 tiers = vec4(r00.x, r10.x, r01.x, r11.x);
+  float known = max(max(tiers.x, tiers.y), max(tiers.z, tiers.w));
+  tiers = mix(tiers, vec4(known), vec4(lessThan(tiers, vec4(0.0))));
+  float h = mix(mix(tiers.x, tiers.y, f.x), mix(tiers.z, tiers.w, f.x), f.y);
+  // Обрывистость решает самый высокий из четырёх тайлов: кромку образует он.
+  int flag = 0;
+  float top = -1.0;
+  if (tiers.x > top) { top = tiers.x; flag = r00.y; }
+  if (tiers.y > top) { top = tiers.y; flag = r10.y; }
+  if (tiers.z > top) { top = tiers.z; flag = r01.y; }
+  if (tiers.w > top) { top = tiers.w; flag = r11.y; }
+  return vec2(h, float(flag));
+}
+
+float level(float h) { return floor(h + 0.5); }
+
+// Высота стенки обрыва на экране, в тайлах.
+const float WALL = 0.7;
+const int WALL_STEPS = 7;
+
+// Обрывы в духе Dune: вид сверху и чуть с юга, поэтому стенка видна под кромкой, выходящей на юг, а у кромок
+// на север видна лишь тёмная линия. Возвращает x — 1 на стенке, y — глубина по стенке (0 у верха, 1 у подножия),
+// z — тень у подножия (0..1), w — кромка наверху: 1 — светлая (над стенкой), -1 — тёмная (северный край).
+vec4 cliff(vec2 q, vec2 p) {
+  // Неровный край: обкусан шумом.
+  vec2 jag = vec2(0.0, (noise(p, vec2(4.0)) - 0.5) * 0.25 + (noise(p, vec2(12.0)) - 0.5) * 0.1);
+  vec2 here = height(q + jag);
+  float own = level(here.x);
+  vec4 result = vec4(0.0);
+
+  for (int i = 1; i <= WALL_STEPS; i++) {
+    float s = WALL * float(i) / float(WALL_STEPS);
+    vec2 above = height(q + jag - vec2(0.0, s));
+    if (level(above.x) > own) {
+      if (above.y > 0.5) {
+        result.x = 1.0;
+        result.y = s / WALL;
+      }
+      return result;
+    }
+  }
+  // Тень от обрыва ложится вправо вниз.
+  for (int i = 1; i <= 3; i++) {
+    vec2 back = height(q + jag - vec2(0.12, 0.08) * float(i));
+    if (level(back.x) > own && back.y > 0.5) {
+      result.z = 1.0 - float(i - 1) / 3.0;
+      break;
+    }
+  }
+  if (here.y > 0.5) {
+    if (level(height(q + jag + vec2(0.0, 0.07)).x) < own) result.w = 1.0;
+    else if (level(height(q + jag - vec2(0.0, 0.07)).x) < own) result.w = -1.0;
+    else if (level(height(q + jag + vec2(0.07, 0.0)).x) < own) result.w = -1.0;
+    else if (level(height(q + jag - vec2(0.07, 0.0)).x) < own) result.w = 1.0;
+  }
+  return result;
+}
+
 // Цвет карты в точке мира. detail гасит зерно и дизеринг: 1 — в полную силу, 0 — ровная заливка.
 vec3 terrainColor(vec2 worldP, float detail) {
   // Всё считается в центре текселя пиксель-арта, а не в точке экрана.
@@ -292,6 +371,8 @@ vec3 terrainColor(vec2 worldP, float detail) {
     float value = 0.45 + (coarse - 0.5) * 0.7 + (grain - 0.5) * 0.45;
     // Тёмная кайма по краю плато.
     value -= (1.0 - smoothstep(0.5, 0.85, rock)) * 0.5;
+    // Верхние ярусы светлее, на пологих въездах яркость перетекает плавно.
+    value += (max(height(p + warp).x, 1.0) - 1.0) * 0.22;
     color = rockColor(biome, shade(value, dither));
   } else if (swamp > 0.5) {
     // Анимация шагами, как покадровая.
@@ -325,6 +406,20 @@ vec3 terrainColor(vec2 worldP, float detail) {
       int stone = biome == RED_WASTES ? speck(p, 1.0, 0.22) : 0;
       if (stone > 0) color = rockColor(biome, stone == 1 ? 4 : 1);
       else if (ridge >= 0) color = sandColor(biome, ridge);
+    }
+  }
+
+  if (peak < 0) {
+    vec4 wall = cliff(p + warp, p);
+    if (wall.x > 0.0) {
+      // Стенка: вертикальные трещины породы, светлее у верха, темнее к подножию.
+      float strata = noise(p, vec2(6.0, 0.5));
+      float value = 0.75 - wall.y * 0.8 + (strata - 0.5) * 0.7 + (grain - 0.5) * 0.2;
+      color = wall.y > 0.88 ? rockColor(biome, 0) * 0.6 : rockColor(biome, shade(value, dither));
+    } else {
+      color *= 1.0 - wall.z * 0.45;
+      if (wall.w > 0.0) color = rockColor(biome, 4);
+      else if (wall.w < 0.0) color = rockColor(biome, 0);
     }
   }
   return color;

@@ -1201,3 +1201,14 @@ body {
     text-align: center;
   }
 }
+
+.terrain-test {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  padding: 4px 8px;
+  background: rgb(0 0 0 / 0.6);
+  color: #ddd;
+  font-size: 12px;
+  pointer-events: none;
+}

@@ -4,12 +4,18 @@ import { GameView } from './GameView'
 import { launchFromAddress, recallLaunch, rememberLast, rememberLaunch, type Launch } from './launch'
 import { Menu } from './Menu'
 import { Showcase } from './Showcase'
+import { TerrainTest, isTerrainTest } from './TerrainTest'
 
 /**
  * Страница: главное меню над слайдами симуляции или сама игра. Игра, заданная адресной строкой (?server,
  * ?battle, ?sandbox), открывается сразу, минуя меню; после перезагрузки вкладка возвращается в свою игру.
  */
 export function App() {
+  if (isTerrainTest()) return <TerrainTest />
+  return <Game />
+}
+
+function Game() {
   const [launch, setLaunch] = useState<Launch | null>(() => launchFromAddress() ?? recallLaunch())
 
   // Перезагрузка страницы возвращает в ту же игру, а не в меню.
