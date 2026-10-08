@@ -4,6 +4,7 @@ import { Terrain, terrainAt } from '../src/map/terrain'
 import { Owner, Pave, Position, createSim, type BuildingType, type Sim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { zonesOf } from '../src/sim/zones'
+import { throughJson } from './throughJson'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024, rules: { techTree: false } }
 
@@ -43,7 +44,7 @@ test('здание в перекрытии двух зон соединяет и
 })
 
 /** Сохранение через JSON, как на сервере. */
-const reload = (sim: Sim) => createSim(JSON.parse(JSON.stringify(sim.save())))
+const reload = (sim: Sim) => createSim(throughJson(sim.save()))
 
 test('после загрузки сохранения зоны те же: шахта раньше главного и полоса фундамента', () => {
   const sim = createSim(options)

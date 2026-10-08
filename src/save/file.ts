@@ -7,7 +7,8 @@ import { SAVE_VERSION, type SimSave } from '../sim'
  * тег (4 байта ASCII), длина (uint32), данные. Незнакомые разделы загрузка пропускает, так что новая версия
  * может добавить раздел, не ломая чтение. Числа — little-endian.
  *
- * Разделы сейчас: META — параметры мира и тик (JSON), WRLD — сущности (JSON-снимок), EXPL — разведанное (JSON).
+ * Разделы сейчас: META — параметры мира и тик (JSON), WRLD — сущности (JSON-снимок), EXPL — разведанное (JSON),
+ * LAND — карта мира (см. saveLand в terrain.ts).
  * Вызывающий может добавить свои (extras) — например, сервер кладёт игроков, а файл экспорта — название слота.
  *
  * Старые файлы поднимаются до текущей версии цепочкой MIGRATIONS: каждая миграция переводит разделы из версии v
@@ -29,6 +30,10 @@ const decoder = new TextDecoder()
 
 export const jsonSection = (value: unknown) => encoder.encode(JSON.stringify(value))
 export const readJson = <T>(bytes: Uint8Array | undefined): T | undefined => (bytes ? (JSON.parse(decoder.decode(bytes)) as T) : undefined)
+
+/** Сжатие deflate: тем же, что тело файла, хост сжимает карту для клиентов. */
+export const deflate = (bytes: Uint8Array) => pipe(bytes, new CompressionStream('deflate-raw'))
+export const inflate = (bytes: Uint8Array) => pipe(bytes, new DecompressionStream('deflate-raw'))
 
 async function pipe(bytes: Uint8Array, stream: CompressionStream | DecompressionStream) {
   return new Uint8Array(await new Response(new Response(bytes as Uint8Array<ArrayBuffer>).body!.pipeThrough(stream)).arrayBuffer())
@@ -81,14 +86,15 @@ export async function unpackSections(file: Uint8Array): Promise<Sections> {
   return sections
 }
 
-type Meta = Omit<SimSave, 'version' | 'world' | 'explored'>
+type Meta = Omit<SimSave, 'version' | 'world' | 'explored' | 'land'>
 
 /** Сохранение мира в файл; extras — дополнительные JSON-разделы вызывающего, тег из 4 букв. */
 export function encodeSave(save: SimSave, extras: Record<string, unknown> = {}): Promise<Uint8Array> {
-  const { version: _, world, explored, ...meta } = save
+  const { version: _, world, explored, land, ...meta } = save
   const sections: Sections = new Map([
     ['META', jsonSection(meta satisfies Meta)],
     ['WRLD', jsonSection(world)],
+    ['LAND', land],
   ])
   if (explored) sections.set('EXPL', jsonSection(explored))
   for (const [tag, value] of Object.entries(extras)) sections.set(tag, jsonSection(value))
@@ -100,7 +106,9 @@ export async function decodeSave(file: Uint8Array): Promise<{ save: SimSave; sec
   const sections = await unpackSections(file)
   const meta = readJson<Meta>(sections.get('META'))
   const world = readJson<SimSave['world']>(sections.get('WRLD'))
-  if (!meta || !world) throw new Error('Файл сохранения повреждён')
+  const land = sections.get('LAND')
+  if (!meta || !world || !land) throw new Error('Файл сохранения повреждён')
   const explored = readJson<SimSave['explored']>(sections.get('EXPL'))
-  return { save: { version: SAVE_VERSION, ...meta, world, ...(explored && { explored }) }, sections }
+  // Копия: раздел — вид на тело файла, а карта живёт дольше него.
+  return { save: { version: SAVE_VERSION, ...meta, world, ...(explored && { explored }), land: land.slice() }, sections }
 }

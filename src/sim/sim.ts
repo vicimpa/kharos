@@ -1,6 +1,7 @@
 import { Loop, World, type System, type Time, type WorldSnapshot } from '../ecs'
 import type { WeatherOptions } from './weather'
-import { createLand, type GeneratorConfig, type Land } from '../map/terrain'
+import { areaOf, createLand, loadLand, saveLand, type GeneratorConfig, type Land } from '../map/terrain'
+import { createLandMemory, saveLandMemory, updateLandMemory, type LandMemory, type LandMemorySave } from './landMemory'
 import { buildingSpec, createOccupancy, type Occupancy } from './buildings'
 import { fight, recover } from './combat'
 import { assemble } from './assembly'
@@ -98,7 +99,8 @@ export interface SimOptions {
  * 17 — изделия: склады хранилищ помнят, что принимают, и в старых сохранениях не взяли бы стройблоки и боеприпасы;
  * у старых турелей нет склада патронов.
  * 19 — хранилища под каждый ресурс: общего хранилища больше нет.
- * 20 — двоичный файл, см. src/save/file.ts. С неё старые сохранения поднимаются миграциями, а не отбрасываются.
+ * 20 — двоичный файл, см. src/save/file.ts, и в нём карта мира. С неё старые сохранения поднимаются миграциями, а не
+ * отбрасываются.
  */
 export const SAVE_VERSION = 20
 
@@ -108,6 +110,10 @@ export interface SimSave extends SimOptions {
   world: WorldSnapshot
   /** Разведанное каждым игроком, см. Vision.map. В старых сохранениях его нет: там карта начинается закрытой. */
   explored?: Record<string, number[]>
+  /** Карта мира, см. saveLand: с ней мир не зависит от того, каким стал генератор. */
+  land: Uint8Array
+  /** Что игроки знают о правках карты, см. landMemory.ts. */
+  landMemory?: LandMemorySave
 }
 
 /**
@@ -120,6 +126,8 @@ export interface Sim {
   readonly bounds: Bounds
   readonly world: World
   readonly land: Land
+  /** Что игроки знают о правках карты: правки в тумане игрок узнаёт, только увидев. */
+  readonly landMemory: LandMemory
   readonly occupancy: Occupancy
   /** Какое покрытие — фундамент, дорога, мост — лежит на каком тайле. См. paving.ts. */
   readonly paving: Paving
@@ -197,13 +205,16 @@ export function createSim(source: SimOptions | SimSave): Sim {
       () => earn(sim),
       () => sim.traces.update(),
       () => sim.vision.update(),
+      // После обзора: игроки узнают правки карты, которые теперь видят.
+      () => updateLandMemory(sim),
     ],
   })
   const sim: Sim = {
     options,
     bounds,
     world,
-    land: createLand(options.generator),
+    land: 'land' in source ? loadLand(options.generator, source.land) : createLand(options.generator, areaOf(bounds)),
+    landMemory: createLandMemory('landMemory' in source ? source.landMemory : undefined),
     occupancy: createOccupancy(world),
     paving: createPaving(world),
     vision: createVision(world, bounds, () => loop.time.tick, options.fog !== false),
@@ -221,6 +232,8 @@ export function createSim(source: SimOptions | SimSave): Sim {
       tick: loop.time.tick,
       world: world.snapshot(SAVED),
       explored: Object.fromEntries(sim.vision.players().map((player) => [player, sim.vision.map(player)])),
+      land: saveLand(sim.land),
+      ...(sim.landMemory.original.size && { landMemory: saveLandMemory(sim.landMemory) }),
     }),
     destroy() {
       sim.occupancy.destroy()

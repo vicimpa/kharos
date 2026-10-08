@@ -10,6 +10,7 @@ import { Path } from '../src/sim/components'
 import { placeBuilding } from '../src/sim/buildings'
 import { addCredits } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
+import { throughJson } from './throughJson'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024, rules: { techTree: false } }
 const TICK = 1 / 20
@@ -206,7 +207,7 @@ test('шахта копит руду; привязанный грузовик в
   until(sim, () => hauler().from === mine)
 
   // Сохранение помнит и руду, и груз, и запас.
-  const copy = createSim(JSON.parse(JSON.stringify(sim.save())))
+  const copy = createSim(throughJson(sim.save()))
   expect(reserveLeft(copy, spot.x, spot.y)).toBe(reserveLeft(sim, spot.x, spot.y))
   expect(oreIn(copy, truck)).toBe(cargo())
   expect(metalIn(copy, refinery)).toBe(metalIn(sim, refinery))

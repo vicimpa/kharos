@@ -7,6 +7,7 @@ import {
 } from '../src/sim'
 import { REWARDS, STARTING_CREDITS } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
+import { throughJson } from './throughJson'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
 const TICK = 1 / 20
@@ -180,7 +181,7 @@ test('сохранение посреди превращения и произв
   sim.send(1, { type: 'produce', producer: mcv, unit: 'truck' })
   sim.send(1, { type: 'deploy', unit: mcv })
   seconds(sim, 1)
-  const copy = createSim(JSON.parse(JSON.stringify(sim.save())))
+  const copy = createSim(throughJson(sim.save()))
   seconds(sim, 10)
   seconds(copy, 10)
   expect(copy.save()).toEqual(sim.save())

@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Building, Pave, Position, canPlace, createSim, type Sim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { addCredits } from '../src/sim/economy'
+import { throughJson } from './throughJson'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
 /** Один тик симуляции: по умолчанию их двадцать в секунду. */
@@ -60,7 +61,7 @@ test('сохранение восстанавливает мир, тик и но
   placeBuilding(sim.world, 'turret', site.x, site.y, 1)
   sim.advance(TICK * 3)
   // Через JSON: сохранение должно переживать диск и сеть.
-  const save = JSON.parse(JSON.stringify(sim.save()))
+  const save = throughJson(sim.save())
 
   const loaded = createSim(save)
   expect(loaded.time.tick).toBe(3)

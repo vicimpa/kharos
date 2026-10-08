@@ -12,6 +12,8 @@ export const POSITION = 256
 export const FACING = 10000
 
 const DELTA = 1
+/** Кадр с картой мира: тип (1 байт), затем карта saveLand, сжатая deflate. */
+export const LAND = 2
 const HAS_FACING = 1
 
 /** Движение сущности в целых единицах сети: x, y и поворот; null — поворота у сущности нет. */

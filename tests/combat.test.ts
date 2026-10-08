@@ -6,6 +6,7 @@ import { placeBuilding } from '../src/sim/buildings'
 import { REPAIR_PAUSE } from '../src/sim/construction'
 import { addCredits } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
+import { throughJson } from './throughJson'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
 const TICK = 1 / 20
@@ -271,7 +272,7 @@ test('бой переживает сохранение', () => {
   spawnUnit(sim, 'tank', 1, x, y)
   const foe = spawnUnit(sim, 'tank', 2, x + 6, y)
   untilShot(sim)
-  const copy = createSim(JSON.parse(JSON.stringify(sim.save())))
+  const copy = createSim(throughJson(sim.save()))
   seconds(copy, 3)
   expect(copy.world.get(foe, Health)!.value).toBeLessThan(1)
   expect(UNITS.tank.hp).toBeGreaterThan(WEAPONS.cannon.damage * 2)
@@ -527,7 +528,7 @@ test('носитель везёт турели: они едут с ним, ра�
   expect(sim.world.get(carrier, Health)!.value).toBe(0.5)
 
   // Переживает сохранение, а с гибелью носителя турели исчезают.
-  const copy = createSim(JSON.parse(JSON.stringify(sim.save())))
+  const copy = createSim(throughJson(sim.save()))
   expect(copy.world.get(carrier, Carrier)!.turrets).toEqual(turrets)
   copy.world.destroy(carrier)
   copy.advance(TICK)
@@ -564,7 +565,7 @@ test('скорость и цена ремонта берутся из прави
 
   const sim = createSim({ ...options, rules: { repairCost: 1 } })
   expect(sim.rules).toMatchObject({ repairSpeed: 2, repairCost: 1, repairPause: 3 })
-  expect(createSim(JSON.parse(JSON.stringify(sim.save()))).rules.repairCost).toBe(1)
+  expect(createSim(throughJson(sim.save())).rules.repairCost).toBe(1)
 })
 
 test('под огнём не чинят: три секунды после попадания работа стоит', () => {

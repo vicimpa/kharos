@@ -210,7 +210,7 @@ test('закупка с орбиты: кредиты сразу, груз чер
 })
 
 test('старое сохранение получает нынешние пределы склада переработки', () => {
-  const sim = createSim({ seed: 1 })
+  const sim = createSim(options)
   const smelter = placeBuilding(sim.world, 'smelter', 0, 0, 1)
   const inventory = sim.world.get(smelter, Inventory)!
   Object.assign(inventory, { capacity: 60, limits: { metalOre: 25 } })

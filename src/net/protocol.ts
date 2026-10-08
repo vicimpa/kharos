@@ -1,13 +1,13 @@
 import type { Command, SimOptions } from '../sim'
 import type { Trace } from '../sim/traces'
-import { decodeDelta } from './codec'
+import { LAND, decodeDelta } from './codec'
 
 /**
  * Версия сетевой игры. Клиент и сервер играют вместе, только если она у них одна: копия мира у клиента собирается
  * из тех же компонентов и правил, что у сервера. Поднимай её при каждом изменении протокола, компонентов из SAVED
  * или симуляции, которое меняет то, что видит клиент.
  */
-export const PROTOCOL_VERSION = 8
+export const PROTOCOL_VERSION = 9
 
 /** Почему сервер не пустил клиента другой версии: текст для игрока. */
 export function versionMismatch(server: number, client: number) {
@@ -43,6 +43,13 @@ export type ServerMessage =
   | { type: 'explored'; map: number[] }
   /** Следы, которые игрок только что увидел: каждый приходит один раз, дальше клиент держит его сам до конца срока. */
   | { type: 'traces'; traces: Trace[] }
+  /**
+   * Карта мира, сжатая (см. saveLand и src/save/file.ts): двоичный кадр LAND после приветствия. До неё клиент рисует
+   * местность по генератору из приветствия.
+   */
+  | { type: 'land'; data: Uint8Array }
+  /** Правки карты, см. takeEdits: x, y и четыре байта тайла подряд. */
+  | { type: 'tiles'; edits: number[] }
 
 /** Игрок хоста, каким его видят все: номер, ник и подключён ли он сейчас. */
 export interface PlayerInfo {
@@ -68,7 +75,9 @@ export type ServerData = string | Uint8Array
 /** Разбирает сообщение сервера: текст или двоичный кадр изменений мира. */
 export function decodeServer(data: ServerData | ArrayBuffer): ServerMessage {
   if (typeof data === 'string') return JSON.parse(data) as ServerMessage
-  return { type: 'delta', ...decodeDelta(data instanceof Uint8Array ? data : new Uint8Array(data)) }
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
+  if (bytes[0] === LAND) return { type: 'land', data: bytes.subarray(1) }
+  return { type: 'delta', ...decodeDelta(bytes) }
 }
 
 /** Что клиент шлёт серверу. */

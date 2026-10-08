@@ -1,4 +1,4 @@
-import { biomeAt, terrainAt } from '../map/terrain'
+import { biomeAt, terrainAt, type Land } from '../map/terrain'
 import { Building, DEPOSIT_CELL, Owner, Position, Site, Unit, buildingSpec, depositIn, type Sim } from '../sim'
 import { ALERT_SECONDS } from './alerts'
 import { cssColor } from './resourceColors'
@@ -40,6 +40,9 @@ export function createMinimap(scene: Scene) {
   let terrain: ImageData | null = null
   let canvas: OffscreenCanvas | null = null
   let row = 0
+  /** С какой картой и правкой рисуется местность: клиенту настоящая карта приходит после приветствия, а правки — по ходу игры. */
+  let land: Land | null = null
+  let revision = 0
   let deposits: { x: number; y: number; color: string }[] = []
 
   /** Мир сменился — местность считается заново. */
@@ -84,6 +87,11 @@ export function createMinimap(scene: Scene) {
     /** Рисует мини-карту на холст размером MINIMAP_SIZE. */
     draw(context: CanvasRenderingContext2D) {
       if (sim !== scene.sim) reset()
+      if (land !== scene.sim.land || revision !== scene.sim.land.revision) {
+        land = scene.sim.land
+        revision = land.revision
+        row = 0
+      }
       prepare()
       const { world, bounds } = scene.sim
       const scale = MINIMAP_SIZE / (bounds.right - bounds.left)

@@ -2,7 +2,9 @@ import { Terrain, terrainAt } from '../map/terrain'
 import { isDefeated, isWalkable, shownTo, spawnStartingUnits, wipePlayer, type Command, type Sim, type SimSave } from '../sim'
 import { Owner, Path, Position } from '../sim/components'
 import { pathOf, seenBy, sharedWireOf, type Wired } from './wire'
-import { encodeDelta, type Motion } from './codec'
+import { LAND, encodeDelta, type Motion } from './codec'
+import { deflate } from '../save/file'
+import { knownEdits, pristineLand, takeLearned } from '../sim/landMemory'
 import type { ServerData } from './protocol'
 import { TRACE_CELL, type Trace } from '../sim/traces'
 import { cleanName, type PlayerInfo, type ServerMessage } from './protocol'
@@ -236,6 +238,35 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
     return player
   }
 
+  /**
+   * Сжатая карта мира, одна на всех: изменённые тайлы в ней исходные (см. pristineLand), а что из правок знает игрок,
+   * он получает следом сообщением tiles. Сжимается заново, когда карта поменялась или мир начался заново.
+   */
+  let landCache: { sim: Sim; revision: number; frame: Promise<Uint8Array> } | null = null
+  const landFrame = () => {
+    if (landCache?.sim !== sim || landCache.revision !== sim.land.revision) {
+      const frame = deflate(pristineLand(sim)).then((packed) => {
+        const bytes = new Uint8Array(packed.length + 1)
+        bytes[0] = LAND
+        bytes.set(packed, 1)
+        return bytes
+      })
+      landCache = { sim, revision: sim.land.revision, frame }
+    }
+    return landCache.frame
+  }
+  /**
+   * Шлёт карту мира, если подключение ещё здесь, когда она сожмётся, и сразу — что игрок знает о правках. Правки
+   * придут раньше карты, и клиент наложит их, когда она придёт.
+   */
+  const sendLand = (send: Send, player: number) => {
+    void landFrame().then((frame) => {
+      if (peers.has(send)) send(frame)
+    })
+    const edits = knownEdits(sim.landMemory, player)
+    if (edits.length) send(JSON.stringify({ type: 'tiles', edits } satisfies ServerMessage))
+  }
+
   const explored = (player: number) => JSON.stringify({ type: 'explored', map: sim.vision.map(player) } satisfies ServerMessage)
   const welcome = (player: number, id?: string) => JSON.stringify({ type: 'welcome', player, options: sim.options, step: sim.time.step, id } satisfies ServerMessage)
 
@@ -249,6 +280,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
       const cache = new Map<number, View>()
       for (const [send, player] of peers) {
         send(welcome(player))
+        sendLand(send, player)
         send(explored(player))
         sent.set(send, new Map())
         send(delta(send, player, cache))
@@ -280,6 +312,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
       shown.set(send, new Set())
       sent.set(send, new Map())
       send(welcome(joined, id))
+      sendLand(send, joined)
       send(explored(joined))
       // Мир сразу, не дожидаясь тика: иначе клиент начал бы с пустого экрана.
       send(delta(send, joined))
@@ -305,6 +338,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
             for (const [peer, owner] of peers) {
               if (owner !== joined) continue
               peer(welcome(joined))
+              sendLand(peer, joined)
               peer(explored(joined))
               sent.set(peer, new Map())
               shown.set(peer, new Set())
@@ -330,6 +364,17 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
     },
     advance(seconds) {
       const ticks = sim.advance(seconds)
+      // Правки карты — только тем, кто их увидел, см. landMemory.ts. Узнанное игроками без вкладок уже в их памяти.
+      const learned = new Map<number, string>()
+      for (const player of new Set(peers.values())) {
+        const edits = takeLearned(sim.landMemory, player)
+        if (edits.length) learned.set(player, JSON.stringify({ type: 'tiles', edits } satisfies ServerMessage))
+      }
+      sim.landMemory.learned.clear()
+      for (const [send, player] of peers) {
+        const text = learned.get(player)
+        if (text) send(text)
+      }
       if (ticks && peers.size) {
         const cache = new Map<number, View>()
         stateSize = 0

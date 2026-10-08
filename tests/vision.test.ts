@@ -3,6 +3,7 @@ import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { BUILDINGS, Position, buildingSight, createSim, unitSight, type Sim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { spawnUnit } from '../src/sim/units'
+import { throughJson } from './throughJson'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 256 }
 const TICK = 1 / 20
@@ -58,7 +59,7 @@ test('разведанное переживает сохранение, а ви�
   sim.advance(TICK)
   expect(sim.vision.explored(1, 0, 0)).toBe(true)
 
-  const loaded = createSim(JSON.parse(JSON.stringify(sim.save())))
+  const loaded = createSim(throughJson(sim.save()))
   expect(loaded.vision.explored(1, 0, 0)).toBe(true)
   expect(loaded.vision.sees(1, 0, 0)).toBe(false)
   expect(loaded.vision.sees(1, 60, 0)).toBe(true)
@@ -74,6 +75,6 @@ test('без тумана войны видно всё, и параметр пе
   expect(sim.vision.seesEntity(1, far)).toBe(true)
   // У игрока, у которого на карте ничего нет, — тоже.
   expect(sim.vision.sees(3, 0, 0)).toBe(true)
-  expect(createSim(JSON.parse(JSON.stringify(sim.save()))).vision.sees(1, 100, -100)).toBe(true)
+  expect(createSim(throughJson(sim.save())).vision.sees(1, 100, -100)).toBe(true)
   expect(createSim(options).options.fog).toBeUndefined()
 })

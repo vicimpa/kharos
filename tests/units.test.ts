@@ -6,6 +6,7 @@ import { Owner, Path, Position, UNITS, Unit, canPlace, createSim, isWalkable, sp
 import { findPath, isClear, smoothPath } from '../src/sim/path'
 import { orderMove, spawnUnit } from '../src/sim/units'
 import { placeBuilding } from '../src/sim/buildings'
+import { throughJson } from './throughJson'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
 const TICK = 1 / 20
@@ -296,7 +297,7 @@ test('сохранение посреди пути продолжается та
   sim.send(1, { type: 'move', units, x: x + 15, y: y - 4 })
   for (let i = 0; i < 20; i++) sim.advance(TICK)
 
-  const copy = createSim(JSON.parse(JSON.stringify(sim.save())))
+  const copy = createSim(throughJson(sim.save()))
   for (let i = 0; i < 200; i++) {
     sim.advance(TICK)
     copy.advance(TICK)

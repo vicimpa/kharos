@@ -9,6 +9,7 @@ import {
 import { BUILD_RATE, isUnlocked, placeBuilding } from '../src/sim/buildings'
 import { WORK_RADIUS } from '../src/sim/construction'
 import { spawnUnit } from '../src/sim/units'
+import { throughJson } from './throughJson'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024, rules: { techTree: false } }
 const TICK = 1 / 20
@@ -223,7 +224,7 @@ test('сохранение посреди стройки продолжаетс�
   const { sim, builders, site } = start()
   sim.send(1, { type: 'build', building: 'generator', x: site.x, y: site.y, builders })
   seconds(sim, 7)
-  const copy = createSim(JSON.parse(JSON.stringify(sim.save())))
+  const copy = createSim(throughJson(sim.save()))
   seconds(sim, 12)
   seconds(copy, 12)
   expect(copy.save()).toEqual(sim.save())

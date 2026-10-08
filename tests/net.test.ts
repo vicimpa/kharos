@@ -8,6 +8,7 @@ import { SAVED } from '../src/sim/components'
 import { wireOf } from '../src/net/wire'
 import type { Entity } from '../src/ecs'
 import { placeBuilding } from '../src/sim/buildings'
+import { throughJson } from './throughJson'
 
 const STEP = 1 / 20
 
@@ -223,7 +224,7 @@ test('сохранённый сервер после перезапуска уз
   join(host, undefined, 'Петя').peer.leave()
   host.advance(STEP * 4)
   const units = unitsOf(first.sim, 1).length
-  const save = JSON.parse(JSON.stringify(host.save())) as HostSave
+  const save = throughJson(host.save()) as HostSave
 
   const restarted = createHost(createSim(save.sim), undefined, save)
   const back = join(restarted, first.id)

@@ -1,6 +1,6 @@
 import { createTexture, type Texture } from '../gl'
 import type { Viewpoint } from '../render/renderer'
-import { CHUNK_SIZE, getChunk, type Land } from './terrain'
+import { CHUNK_SIZE, chunkRevision, getChunk, type Land } from './terrain'
 
 /** Сторона текстуры-окна в тайлах. Должна совпадать с WINDOW в шейдерах. */
 export const WINDOW = 512
@@ -26,7 +26,7 @@ export interface LandWindow {
   readonly uniforms: { uMap: Texture; uCamera: Float32Array }
   /**
    * Подгружает чанки вокруг точки обзора. Если местность сменилась, окно забывает загруженное
-   * и читает чанки заново. Зум не должен быть меньше minZoom().
+   * и читает чанки заново; правленые чанки (см. setTile) — тоже. Зум не должен быть меньше minZoom().
    */
   update(land: Land, viewpoint: Viewpoint, screenWidth: number, screenHeight: number): void
   destroy(): void
@@ -38,6 +38,8 @@ export function createLandWindow(gl: WebGL2RenderingContext): LandWindow {
   // Какой чанк сейчас лежит в каждом слоте окна. NaN — слот пуст.
   const slotChunkX = new Float64Array(WINDOW_CHUNKS * WINDOW_CHUNKS).fill(NaN)
   const slotChunkY = new Float64Array(WINDOW_CHUNKS * WINDOW_CHUNKS).fill(NaN)
+  /** С какой правкой чанк лёг в слот, см. chunkRevision: правленый чанк пишется заново. */
+  const slotRevision = new Float64Array(WINDOW_CHUNKS * WINDOW_CHUNKS)
   let loaded: Land | null = null
 
   return {
@@ -61,12 +63,14 @@ export function createLandWindow(gl: WebGL2RenderingContext): LandWindow {
           const slotX = wrap(chunkX, WINDOW_CHUNKS)
           const slotY = wrap(chunkY, WINDOW_CHUNKS)
           const slot = slotY * WINDOW_CHUNKS + slotX
-          if (slotChunkX[slot] === chunkX && slotChunkY[slot] === chunkY) continue
+          const revision = chunkRevision(land, chunkX, chunkY)
+          if (slotChunkX[slot] === chunkX && slotChunkY[slot] === chunkY && slotRevision[slot] === revision) continue
 
           // Чанк пишется прямо в свой угол текстуры: копия окна в памяти не нужна.
           texture.write(getChunk(land, chunkX, chunkY), slotX * CHUNK_SIZE, slotY * CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE)
           slotChunkX[slot] = chunkX
           slotChunkY[slot] = chunkY
+          slotRevision[slot] = revision
         }
       }
 

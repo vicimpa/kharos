@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { createSim, weatherAt, type SimOptions } from '../src/sim'
+import { throughJson } from './throughJson'
 
 const options: SimOptions = { generator: DEFAULT_SETTINGS.generator, size: 128 }
 
@@ -32,5 +33,5 @@ test('непогода бродит медленно и одинаково у в
 
 test('параметры погоды переживают сохранение', () => {
   const sim = createSim({ ...options, weather: { startHour: 21, dayLength: 600 } })
-  expect(createSim(JSON.parse(JSON.stringify(sim.save()))).options.weather).toEqual({ startHour: 21, dayLength: 600 })
+  expect(createSim(throughJson(sim.save())).options.weather).toEqual({ startHour: 21, dayLength: 600 })
 })

@@ -121,21 +121,63 @@ const STEP_SIDE = 1
 /** Больше нельзя: шейдер ищет вершины только в соседних тайлах (PEAK_SEARCH в terrain.frag). */
 export const PEAK_RADIUS_LIMIT = 2
 
-/** Местность: параметры генератора и уже посчитанные чанки. Не путать с миром ECS, где живут сущности. */
+/** Прямоугольник чанков: левый верхний чанк и размер, в чанках. */
+export interface LandArea {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
+/**
+ * Местность. Не путать с миром ECS, где живут сущности.
+ *
+ * Внутри области карты (area) чанки — данные мира: собранные однажды, они больше не берутся из генератора, могут
+ * меняться (setTile) и целиком уходят в сохранение (saveLand). Поэтому смена генератора не трогает уже начатые миры.
+ * Собираются они лениво, при первом обращении: генератор детерминирован, так что это то же самое, что собрать все
+ * сразу. Вне области — декоративный край мира: он всегда из генератора и только кэшируется.
+ *
+ * Глубина в песках и бит STEP_BIT в данных не хранятся: они выводятся из типов и ярусов соседей, см. deriveChunk.
+ */
 export interface Land {
   config: GeneratorConfig
-  /** Ключ — координаты чанка одним числом, см. tileKey. */
+  /** Область карты мира; null — карты нет, вся местность из генератора (предпросмотр, отладка). */
+  area: LandArea | null
+  /** Чанки карты по номеру (y * width + x) в области; undefined — ещё не собран. */
+  owned: (Uint8Array | undefined)[]
+  /** Кэш чанков вне области. Ключ — координаты чанка одним числом, см. tileKey. */
   chunks: Map<number, Uint8Array>
   /** Чанк, к которому обращались последним: соседние тайлы спрашивают подряд. */
   last: Uint8Array | null
   lastKey: number
+  /** Растёт с каждой правкой карты; по revisions — у каких чанков: окно на видеокарте перечитывает только их. */
+  revision: number
+  revisions: Map<number, number>
 }
 
 /** Пара целых координат одним числом: ключ для словарей и множеств тайлов, чанков, ячеек. */
 export const tileKey = (x: number, y: number) => (y + 32768) * 65536 + x + 32768
 
-export function createLand(config: GeneratorConfig): Land {
-  return { config, chunks: new Map(), last: null, lastKey: 0 }
+/** Местность; area — область карты мира, см. Land. */
+export function createLand(config: GeneratorConfig, area: LandArea | null = null): Land {
+  const owned: (Uint8Array | undefined)[] = area ? new Array(area.width * area.height) : []
+  return { config, area, owned, chunks: new Map(), last: null, lastKey: 0, revision: 0, revisions: new Map() }
+}
+
+/** Чанки, покрывающие прямоугольник тайлов [left, right) × [top, bottom). */
+export function areaOf({ left, top, right, bottom }: { left: number; top: number; right: number; bottom: number }): LandArea {
+  const fromX = Math.floor(left / CHUNK_SIZE)
+  const fromY = Math.floor(top / CHUNK_SIZE)
+  return { left: fromX, top: fromY, width: Math.ceil(right / CHUNK_SIZE) - fromX, height: Math.ceil(bottom / CHUNK_SIZE) - fromY }
+}
+
+/** Номер чанка в области или -1, если чанк вне её. */
+function ownedIndex(land: Land, chunkX: number, chunkY: number) {
+  const area = land.area
+  if (!area) return -1
+  const x = chunkX - area.left
+  const y = chunkY - area.top
+  return x >= 0 && y >= 0 && x < area.width && y < area.height ? y * area.width + x : -1
 }
 
 export function isBuildable(terrain: Terrain): boolean {
@@ -322,13 +364,6 @@ function peaksInCell(cellX: number, cellY: number, config: GeneratorConfig): Pea
   return peaks
 }
 
-/** Насколько тайл далеко от скал и болот: 0 у границы песков, 1 в их середине. Шейдер по этому значению отодвигает барханы от других зон. */
-function sandDepth(elevation: number, levels: { swamp: number; rock: number }): number {
-  if (levels.rock <= levels.swamp) return 0
-  const margin = Math.min(elevation - levels.swamp, levels.rock - elevation)
-  return Math.max(0, Math.min(1, margin / ((levels.rock - levels.swamp) / 2)))
-}
-
 /**
  * Зона и биом тайла (x, y) без чанков и гор: дёшево для схемы всей карты, например для предпросмотра в меню.
  * Совпадает с местностью мира везде, кроме самих гор — они слишком малы для схемы.
@@ -338,6 +373,17 @@ export function sampleTerrain(config: GeneratorConfig, x: number, y: number): { 
   return { terrain: classify(elevationAt(x, y, config), zoneLevels(weights, config)), biome: (packBiome(weights) >> 6) as Biome }
 }
 
+/** Тип и ярус тайла по генератору, без гор: дёшево, для соседей ещё не собранных чанков. */
+function baseTile(config: GeneratorConfig, x: number, y: number): [Terrain, number] {
+  const elevation = elevationAt(x, y, config)
+  const levels = zoneLevels(biomeWeights(x, y, config), config)
+  return [classify(elevation, levels), tierOf(elevation, levels, config)]
+}
+
+/**
+ * Чанк по генератору: тип, биом, рельеф и вершины гор. Глубину в песках и STEP_BIT досчитывает deriveChunk:
+ * они зависят от соседей, а соседи карты могли поменяться.
+ */
 function generateChunk(config: GeneratorConfig, chunkX: number, chunkY: number): Uint8Array {
   const tiles = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE * TILE_BYTES)
 
@@ -347,24 +393,6 @@ function generateChunk(config: GeneratorConfig, chunkX: number, chunkY: number):
     for (let cellX = 0; cellX < cellsPerChunk; cellX++) {
       cells.push(peaksInCell(chunkX * cellsPerChunk + cellX, chunkY * cellsPerChunk + cellY, config))
     }
-  }
-
-  // Ярусы чанка с полями: по ним ищутся перепады у краёв чанка.
-  const span = CHUNK_SIZE + STEP_SIDE * 2
-  const tiers = new Uint8Array(span * (CHUNK_SIZE + STEP_UP + STEP_DOWN))
-  for (let y = -STEP_UP; y < CHUNK_SIZE + STEP_DOWN; y++) {
-    for (let x = -STEP_SIDE; x < CHUNK_SIZE + STEP_SIDE; x++) {
-      const worldX = chunkX * CHUNK_SIZE + x
-      const worldY = chunkY * CHUNK_SIZE + y
-      tiers[(y + STEP_UP) * span + x + STEP_SIDE] = tierOf(elevationAt(worldX, worldY, config), zoneLevels(biomeWeights(worldX, worldY, config), config), config)
-    }
-  }
-  const stepNear = (x: number, y: number) => {
-    const tier = tiers[(y + STEP_UP) * span + x + STEP_SIDE]
-    for (let dy = -STEP_UP; dy <= STEP_DOWN; dy++) {
-      for (let dx = -STEP_SIDE; dx <= STEP_SIDE; dx++) if (tiers[(y + dy + STEP_UP) * span + x + dx + STEP_SIDE] !== tier) return true
-    }
-    return false
   }
 
   for (let y = 0; y < CHUNK_SIZE; y++) {
@@ -377,9 +405,8 @@ function generateChunk(config: GeneratorConfig, chunkX: number, chunkY: number):
       const levels = zoneLevels(weights, config)
       tiles[index] = classify(elevation, levels)
       tiles[index + 1] = packBiome(weights)
-      tiles[index + 2] = Math.round(sandDepth(elevation, levels) * 255)
-      const tier = tiers[(y + STEP_UP) * span + x + STEP_SIDE]
-      tiles[index + 3] = tier | (tier && isCliff(worldX, worldY, config) ? CLIFF_BIT : 0) | (stepNear(x, y) ? STEP_BIT : 0)
+      const tier = tierOf(elevation, levels, config)
+      tiles[index + 3] = tier | (tier && isCliff(worldX, worldY, config) ? CLIFF_BIT : 0)
 
       // В тайл записывается ближайшая из задевающих его вершин; остальные шейдер найдёт в соседних тайлах.
       let nearest: Peak | null = null
@@ -404,17 +431,116 @@ function generateChunk(config: GeneratorConfig, chunkX: number, chunkY: number):
   return tiles
 }
 
-/** Возвращает чанк по его координатам (в чанках), генерируя при первом обращении. */
+/** На сколько тайлов от края песков барханы сходят на нет: дальше глубина в песках равна 1. */
+const SAND_REACH = 8
+/** Поле вокруг чанка, которое смотрит deriveChunk: хватает и глубине песков, и STEP_BIT. */
+const DERIVE_MARGIN = Math.max(SAND_REACH, STEP_UP, STEP_DOWN, STEP_SIDE)
+
+/**
+ * Тип и ярус соседа (у гор ярус -1: их байт рельефа занят вершиной). Из карты, если его чанк собран, из chunk —
+ * если сосед в самом досчитываемом чанке, иначе из генератора: несобранный чанк карты ещё совпадает с ним.
+ * За краем карты для её чанков — ближайший тайл карты: так из сохранения выходит то же при любом генераторе.
+ */
+function neighbor(land: Land, x: number, y: number, chunk: Uint8Array, chunkX: number, chunkY: number): [Terrain, number] {
+  // Карта мира самодостаточна: за её краем для неё продолжается крайний тайл, а не генератор.
+  const area = land.area
+  if (area && ownedIndex(land, chunkX, chunkY) >= 0) {
+    x = Math.max(area.left * CHUNK_SIZE, Math.min((area.left + area.width) * CHUNK_SIZE - 1, x))
+    y = Math.max(area.top * CHUNK_SIZE, Math.min((area.top + area.height) * CHUNK_SIZE - 1, y))
+  }
+  const cx = Math.floor(x / CHUNK_SIZE)
+  const cy = Math.floor(y / CHUNK_SIZE)
+  const tiles = cx === chunkX && cy === chunkY ? chunk : land.owned[ownedIndex(land, cx, cy)]
+  if (!tiles) return baseTile(land.config, x, y)
+  const index = ((y - cy * CHUNK_SIZE) * CHUNK_SIZE + x - cx * CHUNK_SIZE) * TILE_BYTES
+  const terrain = tiles[index] as Terrain
+  return [terrain, terrain === Terrain.Mountain ? -1 : tiles[index + 3] & 3]
+}
+
+/**
+ * Досчитывает то, что выводится из соседей: глубину в песках (расстояние до скал и болот, см. SAND_REACH) и
+ * STEP_BIT. Горы не трогает: их байты заняты вершиной.
+ */
+function deriveChunk(land: Land, chunk: Uint8Array, chunkX: number, chunkY: number) {
+  const span = CHUNK_SIZE + DERIVE_MARGIN * 2
+  const types = new Uint8Array(span * span)
+  const tiers = new Int8Array(span * span)
+  for (let y = 0; y < span; y++) {
+    for (let x = 0; x < span; x++) {
+      const [terrain, tier] = neighbor(land, chunkX * CHUNK_SIZE + x - DERIVE_MARGIN, chunkY * CHUNK_SIZE + y - DERIVE_MARGIN, chunk, chunkX, chunkY)
+      types[y * span + x] = terrain
+      tiers[y * span + x] = tier
+    }
+  }
+
+  // Расстояние до ближайшего не-песка: два прохода по сетке с шагами 1 и √2.
+  const distance = new Float32Array(span * span)
+  for (let i = 0; i < span * span; i++) distance[i] = types[i] === Terrain.Sand ? Infinity : 0
+  const relax = (i: number, j: number, cost: number) => {
+    if (distance[j] + cost < distance[i]) distance[i] = distance[j] + cost
+  }
+  for (let y = 0; y < span; y++) {
+    for (let x = 0; x < span; x++) {
+      const i = y * span + x
+      if (x > 0) relax(i, i - 1, 1)
+      if (y > 0) {
+        relax(i, i - span, 1)
+        if (x > 0) relax(i, i - span - 1, Math.SQRT2)
+        if (x < span - 1) relax(i, i - span + 1, Math.SQRT2)
+      }
+    }
+  }
+  for (let y = span - 1; y >= 0; y--) {
+    for (let x = span - 1; x >= 0; x--) {
+      const i = y * span + x
+      if (x < span - 1) relax(i, i + 1, 1)
+      if (y < span - 1) {
+        relax(i, i + span, 1)
+        if (x < span - 1) relax(i, i + span + 1, Math.SQRT2)
+        if (x > 0) relax(i, i + span - 1, Math.SQRT2)
+      }
+    }
+  }
+
+  for (let y = 0; y < CHUNK_SIZE; y++) {
+    for (let x = 0; x < CHUNK_SIZE; x++) {
+      const index = (y * CHUNK_SIZE + x) * TILE_BYTES
+      if (chunk[index] === Terrain.Mountain) continue
+      const at = (y + DERIVE_MARGIN) * span + x + DERIVE_MARGIN
+      // Тайл у самой кромки — 0, на SAND_REACH тайлов вглубь — 1.
+      chunk[index + 2] = Math.round(Math.max(0, Math.min(1, (distance[at] - 0.5) / SAND_REACH)) * 255)
+      const tier = tiers[at]
+      let step = false
+      for (let dy = -STEP_UP; dy <= STEP_DOWN && !step; dy++) {
+        for (let dx = -STEP_SIDE; dx <= STEP_SIDE; dx++) {
+          const other = tiers[at + dy * span + dx]
+          if (other >= 0 && other !== tier) {
+            step = true
+            break
+          }
+        }
+      }
+      chunk[index + 3] = (chunk[index + 3] & ~STEP_BIT) | (step ? STEP_BIT : 0)
+    }
+  }
+}
+
+/** Возвращает чанк по его координатам (в чанках), собирая при первом обращении. */
 export function getChunk(land: Land, chunkX: number, chunkY: number): Uint8Array {
   const key = tileKey(chunkX, chunkY)
   if (land.last && land.lastKey === key) return land.last
-  let chunk = land.chunks.get(key)
+  const owned = ownedIndex(land, chunkX, chunkY)
+  let chunk = owned >= 0 ? land.owned[owned] : land.chunks.get(key)
   if (!chunk) {
     chunk = generateChunk(land.config, chunkX, chunkY)
-    land.chunks.set(key, chunk)
-    if (land.chunks.size > MAX_CACHED_CHUNKS) {
-      // Самый старый чанк можно выбросить: он детерминированно сгенерируется заново.
-      land.chunks.delete(land.chunks.keys().next().value!)
+    if (owned >= 0) land.owned[owned] = chunk
+    deriveChunk(land, chunk, chunkX, chunkY)
+    if (owned < 0) {
+      land.chunks.set(key, chunk)
+      if (land.chunks.size > MAX_CACHED_CHUNKS) {
+        // Самый старый чанк можно выбросить: он детерминированно сгенерируется заново.
+        land.chunks.delete(land.chunks.keys().next().value!)
+      }
     }
   }
   land.last = chunk
@@ -439,4 +565,153 @@ export function terrainAt(land: Land, x: number, y: number): Terrain {
   const localX = Math.floor(x) - chunkX * CHUNK_SIZE
   const localY = Math.floor(y) - chunkY * CHUNK_SIZE
   return chunk[(localY * CHUNK_SIZE + localX) * TILE_BYTES] as Terrain
+}
+
+/** Номер правки чанка: окно на видеокарте сравнивает его с тем, что уже загрузило. 0 — чанк не правили. */
+export const chunkRevision = (land: Land, chunkX: number, chunkY: number) => land.revisions.get(tileKey(chunkX, chunkY)) ?? 0
+
+/** Каким становится тайл: тип (кроме гор), биом в упаковке packBiome, ярус и обрывистость кромки. */
+export interface TileEdit {
+  terrain: Terrain
+  biome: number
+  tier: number
+  cliff: boolean
+}
+
+/**
+ * Меняет тайл карты. Вне области карты ничего не делает: край мира — из генератора. Пересчитывает глубину в песках
+ * и STEP_BIT соседей. Правки мира идут через editTile (landMemory.ts): он помнит, кто из игроков что знает.
+ */
+export function setTile(land: Land, x: number, y: number, edit: TileEdit) {
+  const chunkX = Math.floor(x / CHUNK_SIZE)
+  const chunkY = Math.floor(y / CHUNK_SIZE)
+  if (ownedIndex(land, chunkX, chunkY) < 0 || edit.terrain === Terrain.Mountain) return
+  // Соседи, которые выводят что-то из этого тайла, собираются до правки: несобранный посчитал бы его по генератору.
+  const reach = Math.ceil(DERIVE_MARGIN / CHUNK_SIZE)
+  const touched: [number, number][] = []
+  for (let cy = Math.floor((y - DERIVE_MARGIN) / CHUNK_SIZE); cy <= Math.floor((y + DERIVE_MARGIN) / CHUNK_SIZE); cy++) {
+    for (let cx = Math.floor((x - DERIVE_MARGIN) / CHUNK_SIZE); cx <= Math.floor((x + DERIVE_MARGIN) / CHUNK_SIZE); cx++) {
+      if (Math.abs(cx - chunkX) > reach || Math.abs(cy - chunkY) > reach || ownedIndex(land, cx, cy) < 0) continue
+      getChunk(land, cx, cy)
+      touched.push([cx, cy])
+    }
+  }
+  const chunk = getChunk(land, chunkX, chunkY)
+  const index = ((y - chunkY * CHUNK_SIZE) * CHUNK_SIZE + x - chunkX * CHUNK_SIZE) * TILE_BYTES
+  chunk[index] = edit.terrain
+  chunk[index + 1] = edit.biome
+  chunk[index + 2] = 0
+  chunk[index + 3] = (edit.tier & 3) | (edit.cliff ? CLIFF_BIT : 0)
+  land.revision++
+  for (const [cx, cy] of touched) {
+    deriveChunk(land, land.owned[ownedIndex(land, cx, cy)]!, cx, cy)
+    land.revisions.set(tileKey(cx, cy), land.revision)
+  }
+}
+
+/**
+ * Хранимые байты тайла: тип, биом, байт вершины и рельеф без выводимого (у не-гор третий байт и STEP_BIT — 0).
+ * Так тайл лежит в saveLand и ходит в правках.
+ */
+export function tileBytes(land: Land, x: number, y: number): number[] {
+  const chunkX = Math.floor(x / CHUNK_SIZE)
+  const chunkY = Math.floor(y / CHUNK_SIZE)
+  const chunk = getChunk(land, chunkX, chunkY)
+  const index = ((y - chunkY * CHUNK_SIZE) * CHUNK_SIZE + x - chunkX * CHUNK_SIZE) * TILE_BYTES
+  const mountain = chunk[index] === Terrain.Mountain
+  return [chunk[index], chunk[index + 1], mountain ? chunk[index + 2] : 0, mountain ? chunk[index + 3] : chunk[index + 3] & ~STEP_BIT]
+}
+
+/** Накладывает правки: x, y и хранимые байты тайла (см. tileBytes) подряд. */
+export function applyEdits(land: Land, edits: number[]) {
+  for (let i = 0; i + 5 < edits.length; i += 6) {
+    const relief = edits[i + 5]
+    setTile(land, edits[i], edits[i + 1], { terrain: edits[i + 2] as Terrain, biome: edits[i + 3], tier: relief & 3, cliff: (relief & CLIFF_BIT) !== 0 })
+  }
+}
+
+/** Подменяет тайл (x, y) в байтах saveLand хранимыми байтами tile. Тайл вне карты пропускает. */
+export function patchSavedTile(bytes: Uint8Array, x: number, y: number, tile: number[]) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const left = view.getInt32(1, true)
+  const top = view.getInt32(5, true)
+  const width = view.getInt32(9, true)
+  const height = view.getInt32(13, true)
+  const cx = Math.floor(x / CHUNK_SIZE) - left
+  const cy = Math.floor(y / CHUNK_SIZE) - top
+  if (cx < 0 || cy < 0 || cx >= width || cy >= height) return
+  const tiles = width * height * CHUNK_SIZE * CHUNK_SIZE
+  const at = (cy * width + cx) * CHUNK_SIZE * CHUNK_SIZE + (y - Math.floor(y / CHUNK_SIZE) * CHUNK_SIZE) * CHUNK_SIZE + x - Math.floor(x / CHUNK_SIZE) * CHUNK_SIZE
+  for (let plane = 0; plane < TILE_BYTES; plane++) bytes[LAND_HEADER + tiles * plane + at] = tile[plane]
+}
+
+/** Версия упаковки карты в saveLand. */
+const LAND_FORMAT = 1
+const LAND_HEADER = 1 + 4 * 4
+
+/**
+ * Карта мира в байты. Тайлы лежат плоскостями — сначала все типы, потом все биомы и т. д.: однородное подряд
+ * сжимается в разы лучше. То, что выводится из соседей (глубина в песках, STEP_BIT), не хранится. Несобранные
+ * чанки собираются. Заголовок: формат (1 байт), область в чанках (left, top, width, height — int32).
+ */
+export function saveLand(land: Land): Uint8Array {
+  const area = land.area
+  if (!area) throw new Error('У местности нет карты мира')
+  // Сначала все несобранные чанки, потом их производные: тогда соседи берутся из карты, а не считаются генератором заново.
+  const fresh: number[] = []
+  for (let n = 0; n < area.width * area.height; n++) {
+    if (land.owned[n]) continue
+    land.owned[n] = generateChunk(land.config, area.left + (n % area.width), area.top + Math.floor(n / area.width))
+    fresh.push(n)
+  }
+  for (const n of fresh) deriveChunk(land, land.owned[n]!, area.left + (n % area.width), area.top + Math.floor(n / area.width))
+  const tiles = area.width * area.height * CHUNK_SIZE * CHUNK_SIZE
+  const bytes = new Uint8Array(LAND_HEADER + tiles * TILE_BYTES)
+  const view = new DataView(bytes.buffer)
+  bytes[0] = LAND_FORMAT
+  view.setInt32(1, area.left, true)
+  view.setInt32(5, area.top, true)
+  view.setInt32(9, area.width, true)
+  view.setInt32(13, area.height, true)
+  let at = 0
+  for (let cy = 0; cy < area.height; cy++) {
+    for (let cx = 0; cx < area.width; cx++) {
+      const chunk = getChunk(land, area.left + cx, area.top + cy)
+      for (let i = 0; i < CHUNK_SIZE * CHUNK_SIZE; i++, at++) {
+        const index = i * TILE_BYTES
+        const mountain = chunk[index] === Terrain.Mountain
+        bytes[LAND_HEADER + at] = chunk[index]
+        bytes[LAND_HEADER + tiles + at] = chunk[index + 1]
+        bytes[LAND_HEADER + tiles * 2 + at] = mountain ? chunk[index + 2] : 0
+        bytes[LAND_HEADER + tiles * 3 + at] = mountain ? chunk[index + 3] : chunk[index + 3] & ~STEP_BIT
+      }
+    }
+  }
+  return bytes
+}
+
+/** Местность из saveLand. Бросает ошибку, если байты не карта. */
+export function loadLand(config: GeneratorConfig, bytes: Uint8Array): Land {
+  if (bytes.length < LAND_HEADER || bytes[0] !== LAND_FORMAT) throw new Error('Карта мира не читается')
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const area: LandArea = { left: view.getInt32(1, true), top: view.getInt32(5, true), width: view.getInt32(9, true), height: view.getInt32(13, true) }
+  const tiles = area.width * area.height * CHUNK_SIZE * CHUNK_SIZE
+  if (area.width <= 0 || area.height <= 0 || bytes.length !== LAND_HEADER + tiles * TILE_BYTES) throw new Error('Карта мира не читается')
+  const land = createLand(config, area)
+  let at = 0
+  for (let n = 0; n < area.width * area.height; n++) {
+    const chunk = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE * TILE_BYTES)
+    for (let i = 0; i < CHUNK_SIZE * CHUNK_SIZE; i++, at++) {
+      const index = i * TILE_BYTES
+      chunk[index] = bytes[LAND_HEADER + at]
+      chunk[index + 1] = bytes[LAND_HEADER + tiles + at]
+      chunk[index + 2] = bytes[LAND_HEADER + tiles * 2 + at]
+      chunk[index + 3] = bytes[LAND_HEADER + tiles * 3 + at]
+    }
+    land.owned[n] = chunk
+  }
+  for (let n = 0; n < area.width * area.height; n++) {
+    deriveChunk(land, land.owned[n]!, area.left + (n % area.width), area.top + Math.floor(n / area.width))
+  }
+  return land
 }

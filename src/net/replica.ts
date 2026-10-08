@@ -1,5 +1,7 @@
 import { World, type Component, type Entity, type Time } from '../ecs'
-import { createLand } from '../map/terrain'
+import { applyEdits, areaOf, createLand, loadLand, saveLand } from '../map/terrain'
+import { inflate } from '../save/file'
+import { createLandMemory } from '../sim/landMemory'
 import { DEFAULT_RULES, boundsOf, type Command, type Sim } from '../sim'
 import { createOccupancy } from '../sim/buildings'
 import { createPaving } from '../sim/paved'
@@ -64,14 +66,28 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
 
   const occupancy = createOccupancy(world)
   const paving = createPaving(world)
+  /** Какую карту ждём: растёт с каждым приветствием, и карта, пришедшая к прошлому, не ляжет на новый мир. */
+  let landWait = 0
+  /** Правки, пришедшие до карты: она снята раньше них и ляжет поверх, так что их накладываем после. null — карта пришла. */
+  let earlyEdits: number[][] | null = []
+  const receiveLand = async (data: Uint8Array) => {
+    const wait = landWait
+    const bytes = await inflate(data)
+    if (wait !== landWait || !replica.options) return
+    replica.land = loadLand(replica.options.generator, bytes)
+    for (const edits of earlyEdits ?? []) applyEdits(replica.land, edits)
+    earlyEdits = null
+  }
   /** Мир по приветствию: при первом подключении и когда хост начинает мир заново. */
   const meet = ({ options, step, player: own }: Extract<ServerMessage, { type: 'welcome' }>) => {
     player = own
     memory.clear()
-    const generator = replica.options?.generator
     replica.options = options
     replica.bounds = boundsOf(options.size)
-    if (JSON.stringify(generator) !== JSON.stringify(options.generator)) replica.land = createLand(options.generator)
+    // Пока не пришла карта мира, местность — по генератору; правки, пришедшие раньше карты, ждут её.
+    replica.land = createLand(options.generator, areaOf(replica.bounds))
+    landWait++
+    earlyEdits = []
     replica.rules = { ...DEFAULT_RULES, ...options.rules }
     // Разведанное в новом мире ничего не значит.
     replica.vision = createVision(world, replica.bounds, () => time.tick, options.fog !== false)
@@ -150,6 +166,8 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     options: undefined as unknown as Replica['options'],
     bounds: undefined as unknown as Replica['bounds'],
     land: undefined as unknown as Replica['land'],
+    // Знание о правках карты держит хост: клиенту приходит уже то, что он знает.
+    landMemory: createLandMemory(),
     rules: undefined as unknown as Replica['rules'],
     // Кто в сети, клиенту знать незачем: доход считает хост.
     online: null,
@@ -239,7 +257,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
       pending = []
       return ticks
     },
-    save: (): SimSave => ({ version: SAVE_VERSION, ...replica.options, tick: time.tick, world: world.snapshot(SAVED) }),
+    save: (): SimSave => ({ version: SAVE_VERSION, ...replica.options, tick: time.tick, world: world.snapshot(SAVED), land: saveLand(replica.land) }),
     destroy() {
       close()
       occupancy.destroy()
@@ -251,6 +269,11 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
       else if (message.type === 'explored') replica.vision.explore(player, message.map)
       else if (message.type === 'traces') replica.traces.receive(message.traces)
       else if (message.type === 'players') replica.players = message.players
+      else if (message.type === 'land') receiveLand(message.data).catch((error) => replica.fail(`Карта мира не читается: ${error instanceof Error ? error.message : error}`))
+      else if (message.type === 'tiles') {
+        if (earlyEdits) earlyEdits.push(message.edits)
+        else applyEdits(replica.land, message.edits)
+      }
       else if (message.type === 'refused') replica.fail(message.reason)
       else {
         meet(message)
