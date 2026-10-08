@@ -873,7 +873,7 @@ body {
 
 /* Меню поверх идущей игры: сцену видно сквозь затемнение. */
 .game__pause {
-  z-index: 10;
+  z-index: 30;
   align-items: center;
   background: rgba(8, 17, 28, 0.6);
   backdrop-filter: blur(2px);
@@ -1184,6 +1184,12 @@ body {
   .menu {
     align-items: flex-start;
     padding-left: 56px;
+  }
+
+  /* Меню поверх игры — посередине: витрины за ним нет. */
+  .game__pause {
+    align-items: center;
+    padding-left: 16px;
   }
 
   .menu__window:not(.menu__window--wide),
