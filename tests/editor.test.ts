@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { DEFAULT_CONFIG, Terrain, setTile, terrainAt } from '../src/map/terrain'
-import { Attached, Building, Ghost, Health, Inventory, Owner, Position, Unit, createSim, creditsOf, type Sim } from '../src/sim'
-import { addPlayer, depositUnder, entitiesIn, entityAt, erase, moveDeposit, moveGhost, moveGroup, moveUnit, paint, playersOf, putBuilding, putDeposit, putUnit, removeDeposit, setCredits, setDeposit, setHealth, setOwner, setStock } from '../src/sim/editor'
+import { Attached, Building, Ghost, Path, Health, Inventory, Owner, Position, Unit, createSim, creditsOf, type Sim } from '../src/sim'
+import { addPlayer, clearTasks, depositsInBox, orderNow, setFacing, setTurretFacing, turretFacing, depositUnder, entitiesIn, entityAt, erase, moveDeposit, moveGhost, moveGroup, moveUnit, paint, playersOf, putBuilding, putDeposit, putUnit, removeDeposit, setCredits, setDeposit, setHealth, setOwner, setStock } from '../src/sim/editor'
 import { depositAt, depositIn, depositNear, depositsIn, reserveLeft } from '../src/sim/deposits'
 import { editTile } from '../src/sim/landMemory'
 
@@ -112,7 +112,7 @@ test('юниты и здания тащатся вместе: всё или ни
   const tank = putUnit(sim, 'tank', 4, 0, player)!
   expect(entitiesIn(sim, -1, -1, 6, 3).sort()).toEqual([generator, tank].sort())
   // Здание заезжает на место, откуда ушло само.
-  expect(moveGroup(sim, [generator, tank], 1, 0)).toBe(true)
+  expect(moveGroup(sim, [generator, tank], 1, 0)).not.toBeNull()
   expect(sim.world.get(generator, Position)).toEqual({ x: 1, y: 0 })
   expect(sim.occupancy.at(1, 0)).toBe(generator)
   expect(sim.occupancy.at(0, 0)).toBeUndefined()
@@ -120,8 +120,8 @@ test('юниты и здания тащатся вместе: всё или ни
   // Танку некуда — не едет никто.
   paint(sim, 15, 0, 1, { terrain: Terrain.Rock, tier: 3, cliff: true })
   const blocked = putBuilding(sim, 'generator', 10, 0, player)!
-  expect(moveGroup(sim, [generator, tank], 0, 0)).toBe(true)
-  expect(moveGroup(sim, [generator, tank], 5, 0)).toBe(false)
+  expect(moveGroup(sim, [generator, tank], 0, 0)).not.toBeNull()
+  expect(moveGroup(sim, [generator, tank], 5, 0)).toBeNull()
   expect(sim.world.get(generator, Position)).toEqual({ x: 1, y: 0 })
   expect(sim.occupancy.at(1, 0)).toBe(generator)
   expect(blocked).toBeDefined()
@@ -140,4 +140,27 @@ test('месторождение тащится с видом и остатко�
   // Сдвиг на тайл — внахлёст с самим собой — можно.
   expect(moveDeposit(sim, moved, x + 1, 2)).toMatchObject({ x: x + 1 })
   expect(moveDeposit(sim, depositAt(sim, x + 1, 2)!, x + 5, 2)).toBeNull()
+})
+
+test('месторождения тащатся вместе с юнитами; поворот корпуса и турелей; задания снимаются и выдаются сразу', () => {
+  const sim = world()
+  const player = addPlayer(sim)
+  const tank = putUnit(sim, 'tank', 10, 10, player)!
+  const spot = depositIn(sim, 0, 0)!
+  const moved = moveGroup(sim, [tank], 3, 0, [spot])!
+  expect(moved[0]).toMatchObject({ x: spot.x + 3, y: spot.y, kind: spot.kind })
+  expect(depositsInBox(sim, spot.x + 3, spot.y, spot.x + 5, spot.y + 2)).toEqual([moved[0]])
+  expect(sim.world.get(tank, Position)!.x).toBe(13.5)
+
+  setFacing(sim, tank, Math.PI)
+  expect(Math.abs(sim.world.get(tank, Unit)!.facing)).toBeCloseTo(Math.PI)
+  if (turretFacing(sim, tank) !== undefined) {
+    setTurretFacing(sim, tank, 0.5)
+    expect(turretFacing(sim, tank)).toBeCloseTo(0.5)
+  }
+
+  expect(orderNow(sim, player, { type: 'move', units: [tank], x: 20, y: 10 })).toBe(true)
+  expect(sim.world.has(tank, Path)).toBe(true)
+  clearTasks(sim, tank)
+  expect(sim.world.has(tank, Path)).toBe(false)
 })

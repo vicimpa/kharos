@@ -76,7 +76,7 @@ interface Actions {
 }
 
 /** Кнопки стоек: подпись и подсказка. */
-const STANCE_SLOTS: { stance: Stance; label: string; title: string }[] = [
+export const STANCE_SLOTS: { stance: Stance; label: string; title: string }[] = [
   { stance: 'aggressive', label: 'Агрессивно', title: 'Идти на любого врага, которого видно, и гнаться за ним' },
   { stance: 'defensive', label: 'Оборона', title: `Бить тех, кого достаёт; на огонь отвечать погоней не дальше ${LEASH} тайлов и возвращаться на место` },
   { stance: 'hold', label: 'Держать позицию', title: 'С места не сходить: бить только тех, кого достаёт, и под огнём тоже' },

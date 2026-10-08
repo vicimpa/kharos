@@ -227,6 +227,10 @@ export function createSelectionPass(gl: WebGL2RenderingContext, scene: Scene): P
         if (bounds) frame(bounds.x, bounds.y, bounds.width, bounds.height, pixel, PLANNED)
       }
 
+      // Пометки редактора: выбранные месторождения, кисть карты.
+      for (const mark of scene.marks ?? []) {
+        frame(Math.min(mark.fromX, mark.toX) - camera.x, Math.min(mark.fromY, mark.toY) - camera.y, Math.abs(mark.toX - mark.fromX), Math.abs(mark.toY - mark.fromY), BORDER * pixel, SELECTED)
+      }
       const box = scene.selectionBox
       if (box) {
         const left = Math.min(box.fromX, box.toX) - camera.x

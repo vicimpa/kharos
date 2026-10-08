@@ -1,7 +1,7 @@
 import type { Alerts } from './alerts'
 import type { Entity } from '../ecs'
 import type { MapSettings } from '../map/settings'
-import type { BuildingType, PaveKind, Sim, Weather } from '../sim'
+import type { BuildingType, DepositKind, PaveKind, Sim, Weather } from '../sim'
 import type { Camera } from './camera'
 
 /** Прямоугольник в тайлах, заданный двумя противоположными углами. */
@@ -49,6 +49,10 @@ export interface Scene {
   paveFrom: { x: number; y: number } | null
   /** Показывать ли сетку тайлов. */
   grid: boolean
+  /** Пометки редактора рамками: выбранные месторождения, кисть карты. В отличие от рамки выделения, камеру у края не двигают. */
+  marks?: Box[]
+  /** Призрак месторождения под указателем в редакторе: какое встанет по щелчку; blocked — встать ему там нельзя. */
+  depositGhost?: { x: number; y: number; kind: DepositKind; blocked: boolean } | null
   /** Редактор сохранений: левая кнопка — его инструмент, а не выделение и приказы. Нет — обычная игра. */
   edit?: SceneEdit
   /** Погода в этом кадре: её считает симуляция по времени мира, игра обновляет каждый кадр. */
@@ -58,6 +62,8 @@ export interface Scene {
 /** Инструмент редактора на холсте: нажатие, протяжка и отпускание левой кнопки, указатель — каждый кадр. Точки — в тайлах. */
 export interface SceneEdit {
   press(point: { x: number; y: number }, phase: 'down' | 'drag' | 'up', shift: boolean): void
+  /** Щелчок правой кнопкой без протяжки. */
+  secondary(point: { x: number; y: number }): void
   hover(tile: { x: number; y: number } | null): void
 }
 

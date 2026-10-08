@@ -1,10 +1,15 @@
 import type { Entity } from '../ecs'
 import { Terrain, isBuildable, isCliffFoot, setTile, terrainAt, tileBytes, tileKey } from '../map/terrain'
 import { BUILDINGS, canPlace, placeBuilding, type BuildingType } from './buildings'
-import { Attached, Building, Carrier, Deposit, Ghost, Turret, Health, Inventory, Owner, Path, Player, Position, Unit } from './components'
+import { Attached, Builds, Building, Carrier, Deposit, Ghost, Harvester, Turret, Health, Inventory, Owner, Path, Player, Position, Unit } from './components'
 import { DEPOSIT_CELL, DEPOSIT_SIZE, depositEntity, depositAt, depositsIn, depositNear, forgetDeposits, reserveLeft, type DepositKind, type DepositSpot } from './deposits'
 import { creditsOf, addCredits } from './economy'
 import { releaseHauler } from './hauling'
+import { apply, type Command } from './commands'
+import { NONE, wrap } from './common'
+import { stopAttack } from './combat'
+import { clearOrders } from './orders'
+import { clearTactics } from './tactics'
 import type { Good } from './resources'
 import type { Sim } from './sim'
 import { followCarriers } from './turrets'
@@ -185,15 +190,15 @@ function depositRecord(sim: Sim, x: number, y: number) {
 
 /**
  * Можно ли положить месторождение левым верхним тайлом в (x, y): там, где встала бы шахта, — скала не у подножия
- * обрыва, — и не внахлёст с другим месторождением. ignore — месторождение, которое сюда переносят: ему не мешает оно само.
+ * обрыва, — и не внахлёст с другим месторождением. ignore — месторождения, которые переносят: они уйдут со своих мест.
  */
-export function canPutDeposit(sim: Sim, x: number, y: number, ignore?: DepositSpot) {
+export function canPutDeposit(sim: Sim, x: number, y: number, ignore: readonly DepositSpot[] = []) {
   const { bounds, land } = sim
   if (x < bounds.left || y < bounds.top || x + DEPOSIT_SIZE > bounds.right || y + DEPOSIT_SIZE > bounds.bottom) return false
   for (let cellY = Math.floor((y - DEPOSIT_SIZE) / DEPOSIT_CELL); cellY <= Math.floor((y + DEPOSIT_SIZE) / DEPOSIT_CELL); cellY++) {
     for (let cellX = Math.floor((x - DEPOSIT_SIZE) / DEPOSIT_CELL); cellX <= Math.floor((x + DEPOSIT_SIZE) / DEPOSIT_CELL); cellX++) {
       for (const other of depositsIn(sim, cellX, cellY)) {
-        if (ignore && other.x === ignore.x && other.y === ignore.y) continue
+        if (ignore.some((spot) => spot.x === other.x && spot.y === other.y)) continue
         if (Math.abs(other.x - x) < DEPOSIT_SIZE && Math.abs(other.y - y) < DEPOSIT_SIZE) return false
       }
     }
@@ -205,7 +210,7 @@ export function canPutDeposit(sim: Sim, x: number, y: number, ignore?: DepositSp
 }
 
 /** Кладёт ещё одно месторождение вида kind с запасом reserve левым верхним тайлом в (x, y); прежние остаются, где были. */
-export function putDeposit(sim: Sim, x: number, y: number, kind: DepositKind, reserve: number, ignore?: DepositSpot) {
+export function putDeposit(sim: Sim, x: number, y: number, kind: DepositKind, reserve: number, ignore: readonly DepositSpot[] = []) {
   if (!canPutDeposit(sim, x, y, ignore)) return false
   Object.assign(depositRecord(sim, x, y), { kind, reserve: Math.max(0, Math.round(reserve)), mined: 0, gone: false })
   forgetDeposits(sim)
@@ -246,12 +251,14 @@ export function moveGhost(sim: Sim, ghost: Entity | undefined, type: UnitType, p
 }
 
 /**
- * Сдвигает юниты и здания вместе на (dx, dy) тайлов: всё или ничего. Здания встают по правилам места, юниты — где им
- * стоять; друг другу сдвигаемые не мешают — места, откуда они ушли, свободны. Возвращает, удалось ли.
+ * Сдвигает юниты, здания и месторождения вместе на (dx, dy) тайлов: всё или ничего. Здания встают по правилам места,
+ * юниты — где им стоять, месторождения — где их можно положить; друг другу сдвигаемые не мешают — места, откуда они
+ * ушли, свободны. Возвращает новые места месторождений или null, если сдвинуть нельзя.
  */
-export function moveGroup(sim: Sim, entities: Iterable<Entity>, dx: number, dy: number) {
+export function moveGroup(sim: Sim, entities: Iterable<Entity>, dx: number, dy: number, deposits: readonly DepositSpot[] = []): DepositSpot[] | null {
   const { world } = sim
-  if (!dx && !dy) return true
+  if (!dx && !dy) return [...deposits]
+  if (!deposits.every((spot) => canPutDeposit(sim, spot.x + dx, spot.y + dy, deposits))) return null
   const buildings: { entity: Entity; x: number; y: number; type: BuildingType }[] = []
   const units: { entity: Entity; x: number; y: number }[] = []
   for (const entity of entities) {
@@ -277,15 +284,80 @@ export function moveGroup(sim: Sim, entities: Iterable<Entity>, dx: number, dy: 
   if (!ok) {
     for (const entity of placed) world.remove(entity, Position)
     for (const { entity, x, y } of buildings) world.add(entity, Position({ x, y }))
-    return false
+    return null
   }
   for (const { entity, x, y } of units) {
     Object.assign(world.get(entity, Position)!, { x: x + dx, y: y + dy })
     Object.assign(world.get(entity, Unit)!, { prevX: x + dx, prevY: y + dy })
     world.remove(entity, Path)
   }
+  // Месторождения сначала все уходят, потом все встают: иначе первое встало бы на ещё не освобождённое место второго.
+  const moving = deposits.map((spot) => ({ ...spot, left: reserveLeft(sim, spot.x, spot.y) }))
+  for (const spot of moving) removeDeposit(sim, spot)
+  for (const spot of moving) putDeposit(sim, spot.x + dx, spot.y + dy, spot.kind, spot.left, deposits)
   settle(sim)
-  return true
+  return moving.map((spot) => depositAt(sim, spot.x + dx, spot.y + dy)!)
+}
+
+/** Месторождения, середина которых в прямоугольнике в тайлах. */
+export function depositsInBox(sim: Sim, left: number, top: number, right: number, bottom: number): DepositSpot[] {
+  const found: DepositSpot[] = []
+  for (let cellY = Math.floor((top - DEPOSIT_SIZE) / DEPOSIT_CELL); cellY <= Math.floor(bottom / DEPOSIT_CELL); cellY++) {
+    for (let cellX = Math.floor((left - DEPOSIT_SIZE) / DEPOSIT_CELL); cellX <= Math.floor(right / DEPOSIT_CELL); cellX++) {
+      for (const spot of depositsIn(sim, cellX, cellY)) {
+        const x = spot.x + DEPOSIT_SIZE / 2
+        const y = spot.y + DEPOSIT_SIZE / 2
+        if (x >= left && x <= right && y >= top && y <= bottom) found.push(spot)
+      }
+    }
+  }
+  return found
+}
+
+/** Куда смотрит юнит, в радианах: корпус поворачивается сразу, без сглаживания. */
+export function setFacing(sim: Sim, entity: Entity, facing: number) {
+  const unit = sim.world.get(entity, Unit)
+  if (!unit) return
+  unit.facing = unit.prevFacing = wrap(facing)
+  settle(sim)
+}
+
+/** Куда смотрят турели юнита или здания, в радианах на карте: турель поворачивается относительно носителя. */
+export function setTurretFacing(sim: Sim, entity: Entity, facing: number) {
+  const { world } = sim
+  const base = world.get(entity, Unit)?.facing ?? 0
+  for (const turret of (world.get(entity, Carrier)?.turrets ?? []) as Entity[]) {
+    const state = world.get(turret, Turret)
+    if (state) state.angle = state.prevAngle = wrap(facing - base)
+  }
+}
+
+/** Куда смотрит первая турель юнита или здания, в радианах на карте; undefined — турелей нет. */
+export function turretFacing(sim: Sim, entity: Entity) {
+  const { world } = sim
+  const turret = (world.get(entity, Carrier)?.turrets ?? [])[0] as Entity | undefined
+  const state = turret === undefined ? undefined : world.get(turret, Turret)
+  return state && wrap(state.angle + (world.get(entity, Unit)?.facing ?? 0))
+}
+
+/** Снимает с юнита все задания: путь, стройку, цель, груз, месторождение, патруль и очередь приказов. */
+export function clearTasks(sim: Sim, entity: Entity) {
+  const { world } = sim
+  clearOrders(sim, [entity])
+  world.remove(entity, Path)
+  world.remove(entity, Builds)
+  const harvester = world.get(entity, Harvester)
+  if (harvester) Object.assign(harvester, { x: NONE, y: NONE, ordered: false, parked: true, seek: '' })
+  releaseHauler(sim, entity)
+  stopAttack(sim, entity)
+  clearTactics(sim, entity)
+}
+
+/** Выполняет приказ игрока player сразу, а не в начале тика: мир в редакторе стоит. */
+export function orderNow(sim: Sim, player: number, command: Command) {
+  const done = apply(sim, player, command)
+  settle(sim)
+  return done
 }
 
 /** Юниты и здания, середина которых в прямоугольнике в тайлах. */
@@ -306,9 +378,5 @@ export function entitiesIn(sim: Sim, left: number, top: number, right: number, b
 /** Переносит месторождение левым верхним тайлом в (x, y) вместе с видом и остатком. Возвращает новое место или null. */
 export function moveDeposit(sim: Sim, spot: DepositSpot, x: number, y: number): DepositSpot | null {
   if (spot.x === x && spot.y === y) return spot
-  if (!canPutDeposit(sim, x, y, spot)) return null
-  const left = reserveLeft(sim, spot.x, spot.y)
-  removeDeposit(sim, spot)
-  putDeposit(sim, x, y, spot.kind, left, spot)
-  return depositAt(sim, x, y)
+  return moveGroup(sim, [], x - spot.x, y - spot.y, [spot])?.[0] ?? null
 }

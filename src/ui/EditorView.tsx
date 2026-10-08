@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import type { Entity } from '../ecs'
 import { createGame, type Game } from '../game/game'
+import { ordersAt } from '../game/orders'
 import { placementOf } from '../game/placing'
 import type { SceneEdit } from '../game/scene'
 import { loadSave, storeSave } from '../game/storage'
@@ -8,8 +9,19 @@ import type { MapSettings } from '../map/settings'
 import { Terrain } from '../map/terrain'
 import { decodeSave, encodeSave, readJson, type Sections } from '../save/file'
 import {
+  Armed,
   BUILDING_TYPES,
+  Builds,
   Building,
+  Converting,
+  Harvester,
+  Hauler,
+  Orders,
+  Path,
+  Producer,
+  Site,
+  Tactics,
+  type Command,
   GOODS,
   Health,
   Inventory,
@@ -24,7 +36,7 @@ import {
   type SimSave,
   type UnitType,
 } from '../sim'
-import { DEPOSIT_KINDS, DEPOSIT_SIZE, DEPOSIT_TYPES, depositAt, reserveLeft, type DepositKind } from '../sim/deposits'
+import { DEPOSIT_KINDS, DEPOSIT_SIZE, DEPOSIT_TYPES, depositAt, reserveLeft, type DepositKind, type DepositSpot } from '../sim/deposits'
 import {
   addPlayer,
   depositUnder,
@@ -33,11 +45,17 @@ import {
   erase,
   moveGhost,
   entitiesIn,
-  moveDeposit,
+  clearTasks,
+  depositsInBox,
+  orderNow,
+  setFacing,
+  setTurretFacing,
+  turretFacing,
   moveGroup,
   paint,
   playersOf,
   putBuilding,
+  canPutDeposit,
   putDeposit,
   putUnit,
   removeDeposit,
@@ -48,21 +66,22 @@ import {
   setStock,
   type Brush,
 } from '../sim/editor'
-import type { Launch } from './launch'
+import { slotWorker, type Launch } from './launch'
+import { reloadLocal } from '../net/connect'
+import { STANCE_SLOTS } from './commands'
 import { download } from './Menu'
 import { BUILDING_NAMES, RESOURCE_NAMES, UNIT_NAMES, goodName } from './names'
 
 /** Как часто панель сверяется с миром, в миллисекундах. */
 const PANEL_INTERVAL = 150
 
-type Tool = 'select' | 'paint' | 'building' | 'unit' | 'deposit' | 'erase'
+type Tool = 'select' | 'paint' | 'building' | 'unit' | 'deposit'
 const TOOLS: [Tool, string][] = [
   ['select', 'Выбор'],
   ['paint', 'Карта'],
   ['building', 'Здания'],
   ['unit', 'Юниты'],
   ['deposit', 'Ресурсы'],
-  ['erase', 'Снос'],
 ]
 const TERRAINS: [Terrain | undefined, string][] = [
   [undefined, 'как есть'],
@@ -119,14 +138,14 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
   /** Вид и запас месторождения, которое кладёт инструмент «Ресурсы». */
   const [kind, setKind] = useState<DepositKind>('metal')
   const [reserve, setReserve] = useState(DEPOSIT_KINDS.metal.max)
-  /** Выбранное месторождение: левый верхний тайл. */
-  const [deposit, setDeposit] = useState<{ x: number; y: number } | null>(null)
+  /** Приказ мышью: следующий щелчок по карте — приказ выбранным юнитам. */
+  const [ordering, setOrdering] = useState(false)
   /** Призрак юнита под указателем, см. moveGhost. */
   const ghostRef = useRef<Entity | undefined>(undefined)
 
   // Обработчики холста читают свежее состояние через ref: игра создаётся один раз.
-  const state = useRef({ tool, player, brush, size, building, unit, kind, reserve, deposit })
-  state.current = { tool, player, brush, size, building, unit, kind, reserve, deposit }
+  const state = useRef({ tool, player, brush, size, building, unit, kind, reserve, ordering })
+  state.current = { tool, player, brush, size, building, unit, kind, reserve, ordering }
 
   useEffect(() => {
     let closed = false
@@ -173,31 +192,53 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
     setStatus(message)
   }
 
-  /** Обработчик левой кнопки на холсте: что делает инструмент. */
+  /** Выбранные месторождения: левые верхние тайлы. Живут в ref — их читают обработчики холста; панель и так перерисовывается. */
+  const pickedRef = useRef<DepositSpot[]>([])
+  const picked = (sim: Sim) => pickedRef.current.map((at) => depositAt(sim, at.x, at.y)).filter((spot) => spot !== null)
+  const isPicked = (spot: { x: number; y: number }) => pickedRef.current.some((at) => at.x === spot.x && at.y === spot.y)
+
+  /** Снимает весь выбор: юниты, здания и месторождения. */
+  const clearPicks = (game: Game) => {
+    game.scene.selection.clear()
+    pickedRef.current = []
+  }
+
+  /** Убирает выбранное: юниты, здания и месторождения. */
+  const eraseSelection = () => {
+    const sim = simRef.current
+    const game = gameRef.current
+    if (!sim || !game) return
+    const entities = [...game.scene.selection]
+    const spots = picked(sim)
+    if (!entities.length && !spots.length) return
+    for (const entity of entities) erase(sim, entity)
+    for (const spot of spots) removeDeposit(sim, spot)
+    clearPicks(game)
+    touched()
+  }
+
+  /** Обработчик кнопок мыши на холсте: что делает инструмент. */
   function createEdit(game: Game, sim: Sim): SceneEdit {
     const { scene } = game
-    /**
-     * Что тянут мышью: выбранные юниты и здания разом, месторождение или рамку выделения. from — тайл, от которого
-     * отсчитан уже сделанный сдвиг.
-     */
-    let dragging: { kind: 'group' | 'deposit'; from: { x: number; y: number } } | { kind: 'box'; from: { x: number; y: number } } | null = null
+    /** Что тянут мышью: выбранное разом или рамку выделения. from — тайл (у рамки — точка), от которого отсчитан сдвиг. */
+    let dragging: { kind: 'group' | 'box'; from: { x: number; y: number } } | null = null
     let last = ''
     return {
       press(point, phase, shift) {
-        const { tool, player, brush, size, building, unit, kind, reserve } = state.current
+        const { tool, player, brush, size, building, unit, kind, reserve, ordering } = state.current
         const x = Math.floor(point.x)
         const y = Math.floor(point.y)
         const tile = `${x},${y}`
+        if (ordering && phase === 'down') {
+          // Приказ мышью: выбранным юнитам, каждому от имени его владельца, как правой кнопкой в игре. Shift — ещё приказ.
+          giveOrders(game, sim, point, shift)
+          if (!shift) setOrdering(false)
+          return
+        }
         if (tool === 'paint') {
           if (phase === 'up' || (phase === 'drag' && tile === last)) return
           last = tile
           paint(sim, x, y, size, brush)
-          touched()
-        } else if (tool === 'erase') {
-          if (phase === 'up') return
-          const target = entityAt(sim, point.x, point.y)
-          if (target === undefined) return
-          erase(sim, target)
           touched()
         } else if (tool === 'building' && phase === 'down') {
           // Здание встаёт там, где его показывает рамка под указателем.
@@ -208,61 +249,47 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
         } else if (tool === 'unit' && phase === 'down') {
           if (putUnit(sim, unit, x, y, player) === undefined) setStatus(`${UNIT_NAMES[unit]} здесь не встанет`)
           else touched()
-        } else if (dragging?.kind === 'deposit') {
-          // Выбранное месторождение тянут мышью — в «Ресурсах» и в «Выборе» одинаково.
-          const at = state.current.deposit
-          const spot = at && depositAt(sim, at.x, at.y)
-          const moved = spot && (x !== dragging.from.x || y !== dragging.from.y) ? moveDeposit(sim, spot, at.x + x - dragging.from.x, at.y + y - dragging.from.y) : null
-          if (moved) {
-            dragging.from = { x, y }
-            // Ref — сразу: следующий сдвиг придёт раньше, чем Preact перерисует панель.
-            selectDeposit(moved)
-            touched()
-          }
-          if (phase === 'up') dragging = null
-        } else if (tool === 'deposit') {
-          if (phase !== 'down') return
-          // Щелчок по месторождению выбирает его, и его можно тащить. Мимо — снимает выбор, а если выбора не было, кладёт
-          // ещё одно: прежние остаются на местах.
-          const spot = depositUnder(sim, point.x, point.y)
-          if (spot) {
-            selectDeposit(spot)
-            dragging = { kind: 'deposit', from: { x, y } }
-          } else if (state.current.deposit) selectDeposit(null)
-          else if (putDeposit(sim, x, y, kind, reserve)) {
-            selectDeposit({ x, y })
-            touched()
-          } else setStatus('Месторождение ложится на скалу не у подножия обрыва и не внахлёст с другим')
+        } else if (tool === 'deposit' && phase === 'down') {
+          // Как здание: щелчок кладёт ещё одно там, где стоит призрак; выбирают и тащат месторождения в «Выборе».
+          const at = depositSpot(x, y)
+          if (putDeposit(sim, at.x, at.y, kind, reserve)) touched()
+          else setStatus('Месторождение ложится на скалу не у подножия обрыва и не внахлёст с другим')
         } else if (tool === 'select') {
           if (phase === 'down') {
             const target = entityAt(sim, point.x, point.y)
-            // Мимо юнитов и зданий — может быть, по месторождению: оно выбирается само по себе и тащится так же.
+            // Мимо юнитов и зданий — может быть, по месторождению: выбирается и тащится с ними наравне.
             const spot = target === undefined ? depositUnder(sim, point.x, point.y) : null
-            selectDeposit(spot)
-            if (spot) {
-              scene.selection.clear()
-              dragging = { kind: 'deposit', from: { x, y } }
-            } else if (target === undefined) {
-              // Мимо — рамка: юниты и здания вместе.
-              if (!shift) scene.selection.clear()
+            const chosen = target !== undefined ? scene.selection.has(target) : spot ? isPicked(spot) : false
+            if (target === undefined && !spot) {
+              // Мимо всего — рамка.
+              if (!shift) clearPicks(game)
               dragging = { kind: 'box', from: point }
+            } else if (shift && chosen) {
+              if (target !== undefined) scene.selection.delete(target)
+              else pickedRef.current = pickedRef.current.filter((at) => at.x !== spot!.x || at.y !== spot!.y)
             } else {
-              if (shift && scene.selection.has(target)) scene.selection.delete(target)
-              else {
-                if (!shift && !scene.selection.has(target)) scene.selection.clear()
-                scene.selection.add(target)
-                dragging = { kind: 'group', from: { x, y } }
-              }
+              if (!shift && !chosen) clearPicks(game)
+              if (target !== undefined) scene.selection.add(target)
+              else if (!chosen) pickedRef.current = [...pickedRef.current, spot!]
+              dragging = { kind: 'group', from: { x, y } }
             }
           } else if (dragging?.kind === 'box') {
             const { from } = dragging
-            const box = { fromX: from.x, fromY: from.y, toX: point.x, toY: point.y }
-            const hits = entitiesIn(sim, Math.min(box.fromX, box.toX), Math.min(box.fromY, box.toY), Math.max(box.fromX, box.toX), Math.max(box.fromY, box.toY))
-            scene.selectionBox = phase === 'up' ? null : { ...box, hits }
-            if (phase === 'up') for (const entity of hits) scene.selection.add(entity)
+            const left = Math.min(from.x, point.x)
+            const top = Math.min(from.y, point.y)
+            const right = Math.max(from.x, point.x)
+            const bottom = Math.max(from.y, point.y)
+            const hits = entitiesIn(sim, left, top, right, bottom)
+            scene.selectionBox = phase === 'up' ? null : { fromX: from.x, fromY: from.y, toX: point.x, toY: point.y, hits }
+            if (phase === 'up') {
+              for (const entity of hits) scene.selection.add(entity)
+              for (const spot of depositsInBox(sim, left, top, right, bottom)) if (!isPicked(spot)) pickedRef.current = [...pickedRef.current, spot]
+            }
           } else if (dragging?.kind === 'group' && (x !== dragging.from.x || y !== dragging.from.y)) {
             // Выбранное тянут мышью вместе: сдвиг целыми тайлами, если всем есть где встать.
-            if (moveGroup(sim, scene.selection, x - dragging.from.x, y - dragging.from.y)) {
+            const moved = moveGroup(sim, scene.selection, x - dragging.from.x, y - dragging.from.y, picked(sim))
+            if (moved) {
+              pickedRef.current = moved
               dragging.from = { x, y }
               touched()
             }
@@ -270,36 +297,59 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
           if (phase === 'up') dragging = null
         }
       },
+      secondary(point) {
+        // Правый щелчок сносит: по выбранному — всё выбранное, иначе — то, что под указателем.
+        const target = entityAt(sim, point.x, point.y)
+        const spot = target === undefined ? depositUnder(sim, point.x, point.y) : null
+        if (target === undefined && !spot) return
+        if (target !== undefined ? scene.selection.has(target) : isPicked(spot!)) return eraseSelection()
+        if (target !== undefined) erase(sim, target)
+        else removeDeposit(sim, spot!)
+        touched()
+      },
       hover(tile) {
-        const { tool, size, unit, player, deposit } = state.current
+        const { tool, size, unit, player, kind } = state.current
         setHover(tile)
-        // Месторождение под указателем или выбранное — в рамке. В «Выборе» рамка занята, пока тянут выделение.
-        if (tool === 'deposit' || (tool === 'select' && dragging?.kind !== 'box')) {
-          const spot = (tool === 'deposit' && tile && depositUnder(sim, tile.x + 0.5, tile.y + 0.5)) || deposit
-          scene.selectionBox = spot ? { fromX: spot.x, fromY: spot.y, toX: spot.x + DEPOSIT_SIZE, toY: spot.y + DEPOSIT_SIZE, hits: [] } : null
-          dropGhost()
-          return
-        }
-        // Юнит, который встанет по щелчку, виден под указателем призраком.
+        // Месторождение, которое встанет по щелчку, — призраком под указателем.
+        const at = tile && depositSpot(tile.x, tile.y)
+        scene.depositGhost = tool === 'deposit' && at ? { ...at, kind, blocked: !canPutDeposit(sim, at.x, at.y) } : null
+        // Юнит, который встанет по щелчку, — тоже призраком.
         if (tool === 'unit' && tile) ghostRef.current = moveGhost(sim, ghostRef.current, unit, player, tile.x, tile.y)
         else dropGhost()
-        // Кисть карты показана рамкой: сколько тайлов она накроет.
-        if (tool !== 'paint' || !tile) {
-          if (tool !== 'select') scene.selectionBox = null
-          return
+        // Пометки: выбранные месторождения и кисть карты — сколько тайлов она накроет.
+        const marks = picked(sim).map((spot) => ({ fromX: spot.x, fromY: spot.y, toX: spot.x + DEPOSIT_SIZE, toY: spot.y + DEPOSIT_SIZE }))
+        if (tool === 'paint' && tile) {
+          const from = Math.floor(size / 2)
+          marks.push({ fromX: tile.x - from, fromY: tile.y - from, toX: tile.x - from + size, toY: tile.y - from + size })
         }
-        const from = Math.floor(size / 2)
-        scene.selectionBox = { fromX: tile.x - from, fromY: tile.y - from, toX: tile.x - from + size, toY: tile.y - from + size, hits: [] }
+        scene.marks = marks
       },
     }
   }
 
-  /** Выбирает месторождение (null — снимает выбор). Ref — сразу: обработчики холста читают его раньше перерисовки. */
-  const selectDeposit = (spot: { x: number; y: number } | null) => {
-    const at = spot && { x: spot.x, y: spot.y }
-    state.current.deposit = at
-    setDeposit(at)
+  /** Приказ мышью выбранным юнитам: каждому — от имени его владельца, как правой кнопкой в игре; выполняется сразу. */
+  function giveOrders(game: Game, sim: Sim, point: { x: number; y: number }, queue: boolean) {
+    const { scene } = game
+    const byOwner = new Map<number, Entity[]>()
+    for (const entity of scene.selection) {
+      if (!sim.world.has(entity, Unit)) continue
+      const owner = sim.world.get(entity, Owner)?.player ?? 0
+      byOwner.set(owner, [...(byOwner.get(owner) ?? []), entity])
+    }
+    const viewer = scene.player
+    let given = 0
+    for (const [owner, units] of byOwner) {
+      // Свой и чужой — с точки зрения владельца: по его врагу — атака, по его стройке — помощь.
+      scene.player = owner
+      for (const command of ordersAt(scene, units, point, queue)) if (orderNow(sim, owner, command)) given++
+    }
+    scene.player = viewer
+    if (given) touched()
+    else setStatus('Приказ не принят')
   }
+
+  /** Где ляжет месторождение под указателем на тайле (x, y): серединой под ним, как здание. */
+  const depositSpot = (x: number, y: number) => ({ x: x - Math.floor(DEPOSIT_SIZE / 2), y: y - Math.floor(DEPOSIT_SIZE / 2) })
 
   /** Убирает призрак юнита: он не часть мира. */
   const dropGhost = () => {
@@ -307,6 +357,17 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
     if (sim && ghostRef.current !== undefined) erase(sim, ghostRef.current)
     ghostRef.current = undefined
   }
+
+  // Delete и Backspace сносят выбранное, Escape снимает приказ мышью.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLInputElement) return
+      if (event.code === 'Delete' || event.code === 'Backspace') eraseSelection()
+      if (event.code === 'Escape') setOrdering(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const save = async () => {
     const sim = simRef.current
@@ -319,6 +380,8 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
     try {
       if ('slot' in launch) {
         await storeSave(launch.slot.id, save)
+        // Если в слот играют в другой вкладке, её мир — поправленный: иначе автосохранение игры затёрло бы правки.
+        reloadLocal(slotWorker(launch.slot.id), save)
         setStatus('Сохранено в слот')
       } else {
         // Свои разделы файла (игроки сервера, имя слота) пишутся обратно как были.
@@ -340,7 +403,7 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
   const players = sim ? playersOf(sim) : []
   const selected = game ? [...game.scene.selection].filter((entity) => sim?.world.alive(entity)) : []
   const tile = hover && sim ? describeTile(sim, hover.x, hover.y) : null
-  const spot = deposit && sim ? depositAt(sim, deposit.x, deposit.y) : null
+  const spots = sim ? picked(sim) : []
 
   return (
     <main class="game editor">
@@ -429,29 +492,54 @@ export function EditorView({ launch, settings, exit }: { launch: EditorLaunch; s
                   Запас
                   <input type="number" min={0} step={100} value={reserve} onChange={(event) => setReserve(Number(event.currentTarget.value) || 0)} />
                 </label>
-                <p class="editor__note">Щелчок по месторождению — выбрать, тащить — перенести. Щелчок по скале кладёт ещё одно, щелчок мимо выбранного — снимает выбор.</p>
+                <p class="editor__note">Щелчок кладёт месторождение там, где призрак. Выбрать, перенести и поменять — в «Выборе».</p>
               </div>
             )}
-            {(tool === 'deposit' || tool === 'select') && spot && (
-              <div class="editor__options">
-                <h3>
-                  {RESOURCE_NAMES[spot.kind]} · {spot.x}, {spot.y}
-                </h3>
-                <Choice label="Вид" options={DEPOSIT_TYPES.map((type) => [type, RESOURCE_NAMES[type]])} value={spot.kind} set={(type) => (setDepositOf(sim, spot, type, reserveLeft(sim, spot.x, spot.y)), touched())} />
-                <label class="editor__field">
-                  Осталось
-                  <input type="number" min={0} step={100} value={reserveLeft(sim, spot.x, spot.y)} onChange={(event) => (setDepositOf(sim, spot, spot.kind, Number(event.currentTarget.value) || 0), touched())} />
-                </label>
-                <button class="menu__danger" onClick={() => (removeDeposit(sim, spot), selectDeposit(null), touched())}>
-                  Убрать месторождение
-                </button>
-              </div>
+            {tool === 'select' && (
+              <p class="editor__note">
+                Щелчок — выбрать, рамка — юниты, здания и месторождения вместе, Shift — добавить или снять. Выбранное тащится мышью разом. Правый щелчок или Delete — снести.
+              </p>
             )}
-            {tool === 'select' && <p class="editor__note">Щелчок — выбрать юнит, здание или месторождение, рамка — юниты и здания вместе, Shift — добавить или снять. Выбранное тащится мышью разом.</p>}
-            {tool === 'erase' && <p class="editor__note">Щелчок или протяжка убирает здание или юнит без взрыва и груза на земле.</p>}
           </section>
 
-          {tool === 'select' && selected.length > 0 && <Inspector sim={sim} entities={selected} changed={() => touched()} />}
+          {tool === 'select' && spots.length > 0 && (
+            <section class="editor__section">
+              <h3>
+                {spots.length === 1 ? `${RESOURCE_NAMES[spots[0].kind]} · ${spots[0].x}, ${spots[0].y}` : `Месторождений: ${spots.length}`}
+              </h3>
+              <Choice
+                label="Вид"
+                options={DEPOSIT_TYPES.map((type) => [type, RESOURCE_NAMES[type]])}
+                value={spots.every((spot) => spot.kind === spots[0].kind) ? spots[0].kind : undefined}
+                set={(type) => {
+                  for (const spot of spots) setDepositOf(sim, spot, type!, reserveLeft(sim, spot.x, spot.y))
+                  touched()
+                }}
+              />
+              <label class="editor__field">
+                Осталось{spots.length > 1 && ' в каждом'}
+                <input
+                  type="number"
+                  min={0}
+                  step={100}
+                  value={reserveLeft(sim, spots[0].x, spots[0].y)}
+                  onChange={(event) => {
+                    for (const spot of spots) setDepositOf(sim, spot, spot.kind, Number(event.currentTarget.value) || 0)
+                    touched()
+                  }}
+                />
+              </label>
+            </section>
+          )}
+
+          {tool === 'select' && selected.length > 0 && (
+            <Inspector sim={sim} entities={selected} changed={() => touched()} ordering={ordering} order={setOrdering} />
+          )}
+          {(selected.length > 0 || spots.length > 0) && tool === 'select' && (
+            <button class="menu__danger" onClick={eraseSelection}>
+              Снести выбранное
+            </button>
+          )}
 
           <footer class="editor__foot">
             <small class="editor__status">
@@ -505,8 +593,62 @@ function Choice<T>({ label, options, value, set }: { label: string; options: [T,
   )
 }
 
-/** Выбранное: владелец, прочность, склад. Если выбрано несколько — правится каждое. */
-function Inspector({ sim, entities, changed }: { sim: Sim; entities: Entity[]; changed(): void }) {
+const DEGREE = Math.PI / 180
+
+/** Что делает юнит или здание сейчас и что у него в очереди: строки для панели. */
+function tasksOf(sim: Sim, entity: Entity): string[] {
+  const { world } = sim
+  const tasks: string[] = []
+  const nameOf = (target: number) => {
+    const unit = world.get(target as Entity, Unit)?.type
+    const building = world.get(target as Entity, Building)?.type ?? world.get(target as Entity, Site)?.type
+    return unit ? UNIT_NAMES[unit] : building ? BUILDING_NAMES[building] : `#${target}`
+  }
+  const converting = world.get(entity, Converting)
+  if (converting) tasks.push(world.has(entity, Unit) ? 'Разворачивается в главное здание' : 'Сворачивается в MCV')
+  const producer = world.get(entity, Producer)
+  if (producer?.queue.length) tasks.push(`Производит: ${producer.queue.map((type) => UNIT_NAMES[type]).join(', ')}`)
+  const builds = world.get(entity, Builds)
+  if (builds && world.alive(builds.site as Entity)) tasks.push(`${world.has(builds.site as Entity, Site) ? 'Строит' : 'Чинит'}: ${nameOf(builds.site)}`)
+  const armed = world.get(entity, Armed)
+  if (armed && armed.target >= 0 && world.alive(armed.target as Entity)) tasks.push(`Атакует: ${nameOf(armed.target)}`)
+  const harvester = world.get(entity, Harvester)
+  if (harvester && harvester.x >= 0) tasks.push(`Копает месторождение ${harvester.x}, ${harvester.y}`)
+  else if (harvester?.seek) tasks.push(`Ищет месторождение: ${harvester.seek === 'any' ? 'любое' : RESOURCE_NAMES[harvester.seek]}`)
+  const hauler = world.get(entity, Hauler)
+  if (hauler && !harvester) {
+    if (hauler.mine >= 0) tasks.push(`Возит из шахты #${hauler.mine}`)
+    if (hauler.route.length) tasks.push(`Маршрут: ${hauler.route.map(nameOf).join(' → ')}`)
+    if (hauler.supply >= 0) tasks.push(`Обеспечивает: ${nameOf(hauler.supply)}`)
+    if (hauler.pickup >= 0) tasks.push('Вывозит дроп')
+    if (hauler.serve.length) tasks.push(`Обслуживает: ${hauler.serve.map(nameOf).join(', ')}`)
+    if (hauler.from >= 0) tasks.push(`Везёт ${goodName(hauler.resource)}: ${nameOf(hauler.from)} → ${hauler.to >= 0 ? nameOf(hauler.to) : '?'}`)
+  }
+  const tactics = world.get(entity, Tactics)
+  if (tactics?.patrol.length) tasks.push(`Патруль: ${tactics.patrol.length / 2} точ.`)
+  const path = world.get(entity, Path)
+  if (path) tasks.push(`Едет к ${path.goalX}, ${path.goalY}`)
+  for (const { command } of world.get(entity, Orders)?.list ?? []) tasks.push(`В очереди: ${COMMAND_NAMES[command.type] ?? command.type}`)
+  return tasks
+}
+
+const COMMAND_NAMES: Partial<Record<Command['type'], string>> = {
+  move: 'ехать',
+  attack: 'атаковать',
+  assist: 'строить',
+  harvest: 'копать',
+  haul: 'возить из шахты',
+  pickup: 'вывезти дроп',
+  supply: 'обеспечить',
+  patrol: 'патруль',
+  build: 'заложить здание',
+  pave: 'класть покрытие',
+  unpave: 'снять покрытие',
+  demolish: 'разобрать',
+}
+
+/** Выбранное: владелец, прочность, поворот, задания, склад. Если выбрано несколько — правится каждое. */
+function Inspector({ sim, entities, changed, ordering, order }: { sim: Sim; entities: Entity[]; changed(): void; ordering: boolean; order(on: boolean): void }) {
   const { world } = sim
   const first = entities[0]
   const type = world.get(first, Unit)?.type
@@ -516,6 +658,11 @@ function Inspector({ sim, entities, changed }: { sim: Sim; entities: Entity[]; c
   const inventory = world.get(first, Inventory)
   const owner = world.get(first, Owner)?.player ?? 0
   const players = [0, ...playersOf(sim)]
+  const units = entities.filter((entity) => world.has(entity, Unit))
+  const facing = world.get(units[0], Unit)?.facing
+  const turretAt = entities.map((entity) => turretFacing(sim, entity)).find((angle) => angle !== undefined)
+  const stance = world.get(first, Tactics)?.stance
+  const tasks = entities.length === 1 ? tasksOf(sim, first) : []
   const each = (action: (entity: Entity) => void) => {
     for (const entity of entities) action(entity)
     changed()
@@ -542,11 +689,47 @@ function Inspector({ sim, entities, changed }: { sim: Sim; entities: Entity[]; c
           <input type="range" min={1} max={100} value={Math.round((health.value / health.max) * 100)} onInput={(event) => each((entity) => setHealth(sim, entity, Number(event.currentTarget.value) / 100))} />
         </label>
       )}
+      {facing !== undefined && (
+        <label class="editor__field">
+          Корпус {Math.round(facing / DEGREE)}°
+          <input type="range" min={-180} max={180} step={15} value={Math.round(facing / DEGREE)} onInput={(event) => each((entity) => setFacing(sim, entity, Number(event.currentTarget.value) * DEGREE))} />
+        </label>
+      )}
+      {turretAt !== undefined && (
+        <label class="editor__field">
+          Турели {Math.round(turretAt / DEGREE)}°
+          <input type="range" min={-180} max={180} step={15} value={Math.round(turretAt / DEGREE)} onInput={(event) => each((entity) => setTurretFacing(sim, entity, Number(event.currentTarget.value) * DEGREE))} />
+        </label>
+      )}
+      {units.length > 0 && (
+        <div class="editor__stock">
+          <span>Задания</span>
+          {entities.length === 1 && (tasks.length ? tasks.map((task) => <small key={task}>{task}</small>) : <small class="editor__note">нет — стоит</small>)}
+          {stance && (
+            <div class="editor__chips">
+              {STANCE_SLOTS.map((slot) => (
+                <button
+                  key={slot.stance}
+                  title={slot.title}
+                  class={stance === slot.stance ? 'is-active' : ''}
+                  onClick={() => each((entity) => orderNow(sim, world.get(entity, Owner)?.player ?? 0, { type: 'stance', units: [entity], stance: slot.stance }))}
+                >
+                  {slot.label}
+                </button>
+              ))}
+            </div>
+          )}
+          <div class="editor__chips">
+            <button class={ordering ? 'is-active' : ''} title="Следующий щелчок по карте — приказ, как правой кнопкой в игре; с Shift — в очередь" onClick={() => order(!ordering)}>
+              Приказ мышью
+            </button>
+            <button onClick={() => each((entity) => clearTasks(sim, entity))}>Снять задания</button>
+          </div>
+        </div>
+      )}
       {inventory && entities.length === 1 && (
         <div class="editor__stock">
-          <span>
-            Склад · объём {inventory.capacity}
-          </span>
+          <span>Склад · объём {inventory.capacity}</span>
           {GOODS.map((good: Good) => (
             <label key={good} class="editor__field">
               {goodName(good)}
@@ -563,9 +746,6 @@ function Inspector({ sim, entities, changed }: { sim: Sim; entities: Entity[]; c
           ))}
         </div>
       )}
-      <button class="menu__danger" onClick={() => each((entity) => erase(sim, entity))}>
-        Убрать
-      </button>
     </section>
   )
 }

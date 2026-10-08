@@ -1,6 +1,7 @@
 import type { Entity } from '../ecs'
-import { type BuildingType, Building, Site, DEPOSIT_SIZE, Harvester, Producer, Hauler, depositNear, hasMine, type UnitType, Owner, Position, Repair, isOwn, UNITS, Unit, canAttack, canFight, canHaul, canRepair, canSupply, dropAt, isStop, siteAt, BUILDINGS, BRIDGE_COST, FOUNDATION_COST, ROAD_COST, creditsOf } from '../sim'
+import { type BuildingType, Building, Site, Harvester, Producer, Hauler, type UnitType, Owner, Position, isOwn, UNITS, Unit, canFight, isStop, siteAt, BUILDINGS, BRIDGE_COST, FOUNDATION_COST, ROAD_COST, creditsOf } from '../sim'
 import type { CameraMotion } from './cameraMotion'
+import { ordersAt } from './orders'
 import { paveStrokeOf, placementOf } from './placing'
 import type { Scene } from './scene'
 
@@ -171,9 +172,10 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
     pressed = null
     if (button !== LEFT) motion.release()
     const point = camera.screenToTile(event.offsetX, event.offsetY)
-    // В редакторе приказов нет: правая кнопка только двигает камеру.
+    // В редакторе правая кнопка — его же: протяжка двигает камеру, щелчок — см. SceneEdit.secondary.
     if (scene.edit) {
       if (button === LEFT) scene.edit.press(point, 'up', event.shiftKey)
+      else if (button === RIGHT && !dragged) scene.edit.secondary(point)
       return
     }
     // Рамка в наборе патруля — обычное выделение: набор кончается.
@@ -266,51 +268,8 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
       // Выбраны свои производящие здания: правый щелчок ставит им точку сбора.
       for (const building of scene.selection) scene.sim.send(scene.player, { type: 'rally', building, x: Math.floor(point.x), y: Math.floor(point.y) })
     } else if (button === RIGHT && !dragged && scene.selection.size) {
-      const { sim } = scene
-      const x = Math.floor(point.x)
-      const y = Math.floor(point.y)
-      const units = [...scene.selection]
       // С Shift приказ встаёт в очередь: юниты возьмутся за него, когда закончат нынешнее.
-      const queue = event.shiftKey
-      // Работа для строителей: стройка, разбор или своё повреждённое — здание или юнит.
-      const damaged = sim.occupancy.at(x, y)
-      const broken = unitAt(point.x, point.y) ?? damaged
-      const site = siteAt(sim, x, y) ?? (broken !== undefined && canRepair(sim, scene.player, broken) ? broken : undefined)
-      const builders = units.some((entity) => sim.world.has(entity, Repair))
-      // То, чему грузовики могут привезти груз: своя стройка или здание под курсором.
-      const needy = siteAt(sim, x, y) ?? damaged
-      // Строители по своей стройке — строят, по повреждённому зданию или юниту — чинят; остальные выбранные при этом стоят.
-      const trucks = units.some((entity) => sim.world.has(entity, Hauler) && !sim.world.has(entity, Harvester))
-      // Вооружённые по врагу — атакуют: по чужому юниту или зданию под курсором.
-      const enemy = unitAt(point.x, point.y, false) ?? damaged
-      const fighters = units.some((entity) => canFight(sim, entity))
-      // Харвестеры по месторождению — копают его, если на нём нет шахты.
-      const harvesters = units.some((entity) => sim.world.has(entity, Harvester))
-      const found = harvesters ? depositNear(sim, point.x, point.y, DEPOSIT_SIZE) : null
-      const known = found && sim.vision.exploredIn(scene.player, found.x, found.y, DEPOSIT_SIZE, DEPOSIT_SIZE)
-      const deposit = found && known && !hasMine(sim, found) ? found : null
-      const onDeposit = deposit && x >= deposit.x && x < deposit.x + DEPOSIT_SIZE && y >= deposit.y && y < deposit.y + DEPOSIT_SIZE
-      // Грузовики по своей шахте — привязываются к ней и возят добытое.
-      if (fighters && enemy !== undefined && canAttack(sim, scene.player, enemy)) {
-        sim.send(scene.player, { type: 'attack', units, target: enemy, queue })
-      } else if (deposit && onDeposit) {
-        sim.send(scene.player, { type: 'harvest', units, x: deposit.x, y: deposit.y, queue })
-      } else if (trucks && damaged !== undefined && canHaul(sim, scene.player, damaged)) {
-        sim.send(scene.player, { type: 'haul', units, mine: damaged, queue })
-      } else if (trucks && dropAt(sim, x, y) !== undefined) {
-        // Грузовики по дропу — вывозят его.
-        sim.send(scene.player, { type: 'pickup', units, drop: dropAt(sim, x, y)!, queue })
-      } else if (trucks && needy !== undefined && canSupply(sim, scene.player, needy)) {
-        // Грузовики по своему зданию или стройке, которым нужен груз, — обеспечивают их; строители при этом строят.
-        const haulers = units.filter((entity) => sim.world.has(entity, Hauler) && !sim.world.has(entity, Harvester))
-        sim.send(scene.player, { type: 'supply', units: haulers, target: needy, queue })
-        const rest = units.filter((entity) => !haulers.includes(entity) && sim.world.has(entity, Repair))
-        if (rest.length && siteAt(sim, x, y) === needy) sim.send(scene.player, { type: 'assist', units: rest, site: needy, queue })
-      } else if (site !== undefined && builders && isOwn(sim, scene.player, site)) {
-        sim.send(scene.player, { type: 'assist', units, site, queue })
-      } else {
-        sim.send(scene.player, { type: 'move', units, x, y, queue })
-      }
+      for (const command of ordersAt(scene, [...scene.selection], point, event.shiftKey)) scene.sim.send(scene.player, command)
     }
   }
   const onPointerCancel = () => {

@@ -64,6 +64,9 @@ function drawDeposit(kind: DepositKind) {
   return image
 }
 
+/** Непрозрачность призрака месторождения в редакторе. */
+const GHOST_ALPHA = 0.55
+
 /**
  * Проход месторождений. Месторождения, как и местность, считаются из сида, поэтому проход не обходит сущности,
  * а спрашивает клетки мира, попавшие на экран. Ставить сразу над местностью: шахта закрывает месторождение собой.
@@ -99,6 +102,13 @@ export function createDepositsPass(gl: WebGL2RenderingContext, scene: Scene): Pa
             )
           }
         }
+      }
+      // Призрак месторождения в редакторе: полупрозрачный, а где не встать — красный, как призрак юнита.
+      const ghost = scene.depositGhost
+      if (ghost) {
+        const frame = frames.get(ghost.kind)!
+        const [r, g, b] = ghost.blocked ? [GHOST_ALPHA, GHOST_ALPHA * 0.3, GHOST_ALPHA * 0.3] : [GHOST_ALPHA, GHOST_ALPHA, GHOST_ALPHA]
+        sprites.push(ghost.x - camera.x, ghost.y - camera.y, DEPOSIT_SIZE, DEPOSIT_SIZE, frame.u, frame.v, frame.width, frame.height, r, g, b, GHOST_ALPHA)
       }
       setBlend(gl, 'alpha')
       program.use(view, { uTexture: atlas.texture })
