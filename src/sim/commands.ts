@@ -9,7 +9,7 @@ import { Builds, Building, Harvester, Producer, Unit } from './components'
 import { assignBuilders, cancelBuild, demolish, orderBuild } from './construction'
 import { DEPLOY_SECONDS, PACK_SECONDS, canDeploy, canPack, cancelDeploy, startConverting } from './conversion'
 import { assignHaulers, assignPickup, assignSupply, releaseHauler } from './hauling'
-import { clearOrders, queueOrder, unitsOf } from './orders'
+import { clearOrders, isBusyBuilder, queueOrder, unitsOf } from './orders'
 import { orderPave, removePave, type PaveKind } from './paving'
 import { cancelUnit, orderUnit } from './production'
 import { setFilter, setRoute, setServe } from './routes'
@@ -98,8 +98,9 @@ const isTile = (x: unknown, y: unknown) => Number.isInteger(x) && Number.isInteg
  */
 export function apply(sim: Sim, player: number, command: Command): boolean {
   if (command.queue) return queueOrder(sim, player, command)
-  // Приказ без Shift забывает очередь; стойка и фильтр груза — не приказы, а настройки.
-  if (command.type !== 'stance' && command.type !== 'filter') clearOrders(sim, unitsOf(command).filter((entity) => isOwn(sim, player, entity)))
+  // Приказ без Shift забывает очередь; стойка и фильтр груза — не приказы, а настройки. Стройка из меню очередь
+  // не трогает: занятым строителям она сама встаёт в конец.
+  if (command.type !== 'stance' && command.type !== 'filter' && command.type !== 'build') clearOrders(sim, unitsOf(command).filter((entity) => isOwn(sim, player, entity)))
   switch (command.type) {
     case 'move': {
       if (!isTile(command.x, command.y) || !Array.isArray(command.units)) return false
@@ -123,7 +124,13 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
     }
     case 'build': {
       if (!Object.hasOwn(BUILDINGS, command.building) || !Array.isArray(command.builders)) return false
-      return orderBuild(sim, player, command.building, command.x, command.y, command.builders as Entity[]) !== undefined
+      // Стройка из меню не отнимает строителя у работы, которую дал ему игрок: занятым она встаёт в очередь.
+      const builders = command.builders as Entity[]
+      const busy = builders.filter((entity) => isBusyBuilder(sim, entity))
+      const site = orderBuild(sim, player, command.building, command.x, command.y, builders.filter((entity) => !busy.includes(entity)))
+      if (site === undefined) return false
+      if (busy.length) queueOrder(sim, player, { type: 'assist', units: busy, site, queue: true })
+      return true
     }
     case 'assist': {
       if (!Array.isArray(command.units)) return false

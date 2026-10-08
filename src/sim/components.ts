@@ -89,8 +89,11 @@ export const Converting = component('Converting', { left: 0, total: 0 })
  */
 export const Site = component('Site', { type: 'generator' as BuildingType, progress: 0, demolish: false })
 
-/** Ремонтник едет к работе site — стройке, разбору или тому, что надо починить, — чтобы она оказалась в его радиусе. */
-export const Builds = component('Builds', { site: 0 })
+/**
+ * Ремонтник едет к работе site — стройке, разбору или тому, что надо починить, — чтобы она оказалась в его радиусе.
+ * ordered — работу дал игрок, а не взял сам свободный строитель рядом: новую стройку из меню такой ставит в очередь.
+ */
+export const Builds = component('Builds', { site: 0, ordered: true })
 
 /** Месторождение, из которого уже добывали: mined — сколько из него забрано. Место — левый верхний тайл месторождения. */
 export const Deposit = component('Deposit', { mined: 0 })

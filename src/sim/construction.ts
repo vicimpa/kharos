@@ -208,7 +208,7 @@ const isOwnSite = (sim: Sim, player: number, site: Entity) =>
  * Посылает строителей игрока на его стройку, разбор или к повреждённому зданию или юниту — чинить.
  * Юниты без Repair и чужие из списка выбрасываются; сам себя ремонтник не чинит.
  */
-export function assignBuilders(sim: Sim, player: number, site: Entity, units: Entity[]) {
+export function assignBuilders(sim: Sim, player: number, site: Entity, units: Entity[], ordered = true) {
   const { world } = sim
   if (!isOwn(sim, player, site) || !workAt(sim, site)) return false
   const builders = [...new Set(units)].filter((entity) => {
@@ -216,7 +216,7 @@ export function assignBuilders(sim: Sim, player: number, site: Entity, units: En
   })
   const claimed = new Set<number>()
   for (const builder of builders) {
-    world.add(builder, Builds({ site }))
+    world.add(builder, Builds({ site, ordered }))
     approach(sim, builder, site, claimed)
   }
   return builders.length > 0
@@ -347,7 +347,7 @@ function volunteer(sim: Sim) {
       best = site.entity
       bestDistance = distance
     }
-    if (best !== undefined) assignBuilders(sim, player, best, [builder])
+    if (best !== undefined) assignBuilders(sim, player, best, [builder], false)
   }
 }
 

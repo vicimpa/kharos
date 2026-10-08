@@ -55,6 +55,11 @@ export function queueOrder(sim: Sim, player: number, command: Command) {
   return true
 }
 
+/** Строитель на работе, которую дал ему игрок, или с приказами в очереди: новую стройку из меню он берёт в очередь. */
+export function isBusyBuilder(sim: Sim, entity: Entity) {
+  return !!sim.world.get(entity, Builds)?.ordered || !!sim.world.get(entity, Orders)?.list.length
+}
+
 /** Нечем занят: не едет, не строит, не гонится за целью по приказу, не патрулирует и не работает по приказу игрока. */
 function idle(sim: Sim, entity: Entity) {
   const { world } = sim

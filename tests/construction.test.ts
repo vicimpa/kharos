@@ -66,7 +66,7 @@ test('строитель возводит здание: кредиты спис�
   // Пока строитель не доехал, площадка никому не мешает, но второе здание на неё не поставить.
   expect(isWalkable(sim, site.x, site.y)).toBe(true)
   expect(canBuild(sim, 1, 'metalYard', site.x, site.y)).toBe(false)
-  expect(sim.world.get(builders[0], Builds)).toEqual({ site: entity })
+  expect(sim.world.get(builders[0], Builds)).toMatchObject({ site: entity })
 
   seconds(sim, 8)
   expect(sim.world.has(entity, Building)).toBe(true)
@@ -188,7 +188,7 @@ test('отмена возвращает кредиты, а приказ идти
   // Строителя можно вернуть на стройку.
   sim.send(1, { type: 'assist', units: [builders[0]], site: entity })
   sim.advance(TICK)
-  expect(sim.world.get(builders[0], Builds)).toEqual({ site: entity })
+  expect(sim.world.get(builders[0], Builds)).toMatchObject({ site: entity })
 
   sim.send(1, { type: 'cancelBuild', site: entity })
   seconds(sim, 0.2)
@@ -236,7 +236,7 @@ test('свободный строитель сам берётся за стро�
   sim.send(1, { type: 'build', building: 'generator', x: site.x, y: site.y, builders: [] })
   seconds(sim, 1.1)
   const entity = siteAt(sim, site.x, site.y)!
-  expect(sim.world.get(builders[0], Builds)).toEqual({ site: entity })
+  expect(sim.world.get(builders[0], Builds)).toMatchObject({ site: entity })
   seconds(sim, 6)
   expect(sim.world.get(entity, Site)!.progress).toBeGreaterThan(0)
 

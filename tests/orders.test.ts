@@ -101,3 +101,24 @@ test('очередь построек: стройка закладывается
   seconds(sim, 10)
   expect(sim.world.get(builder, Builds)?.site ?? (sim.world.has(placed!, Site) ? -1 : placed)).toBe(placed!)
 })
+
+test('стройка из меню: строитель на своей стройке берёт новую в очередь, а ПКМ по ней — бросает всё и идёт', () => {
+  const { sim, builders, site } = start()
+  const [builder] = builders
+  sim.send(1, { type: 'build', building: 'generator', x: site.x, y: site.y, builders: [builder] })
+  seconds(sim, 0.1)
+  const first = siteAt(sim, site.x, site.y)!
+  expect(sim.world.get(builder, Builds)?.site).toBe(first)
+
+  sim.send(1, { type: 'build', building: 'generator', x: site.x, y: site.y + 3, builders: [builder] })
+  seconds(sim, 0.1)
+  const second = siteAt(sim, site.x, site.y + 3)!
+  expect(second).toBeDefined()
+  expect(sim.world.get(builder, Builds)?.site).toBe(first)
+  expect(sim.world.get(builder, Orders)!.list[0].command).toMatchObject({ type: 'assist', site: second })
+
+  sim.send(1, { type: 'assist', units: [builder], site: second })
+  seconds(sim, 0.1)
+  expect(sim.world.get(builder, Builds)?.site).toBe(second)
+  expect(sim.world.get(builder, Orders)!.list.length).toBe(0)
+})
