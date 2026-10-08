@@ -6,7 +6,10 @@ import { buildingSpec, createOccupancy, type Occupancy } from './buildings'
 import { fight, recover } from './combat'
 import { assemble } from './assembly'
 import { apply, type Command } from './commands'
-import { Building, Inventory, SAVED, Site } from './components'
+import { Building, Carrier, Inventory, Position, SAVED, Site, Unit } from './components'
+import { mountTurrets } from './turrets'
+import { unitSpec } from './units'
+import type { Entity } from '../ecs'
 import { REPAIR_COST, REPAIR_PAUSE, REPAIR_SPEED, construct } from './construction'
 import { convert } from './conversion'
 import { harvest } from './harvesting'
@@ -248,9 +251,27 @@ export function createSim(source: SimOptions | SimSave): Sim {
   if ('world' in source) {
     world.restore(source.world, SAVED)
     refreshStorage(sim)
+    remount(sim)
     for (const [player, map] of Object.entries(source.explored ?? {})) sim.vision.explore(Number(player), map)
   }
   return sim
+}
+
+/**
+ * Турели, положенные виду, но которых нет: их дали виду позже, чем записано сохранение (так MCV получил пушку
+ * на крыше). Юниты и здания с турелями сохраняются вместе с ними, поэтому ставятся только недостающие.
+ */
+function remount(sim: Sim) {
+  const { world } = sim
+  const bare: Entity[] = []
+  for (const [entity] of world.query(Position)) {
+    if (world.has(entity, Carrier) || world.has(entity, Site)) continue
+    const unit = world.get(entity, Unit)
+    const building = unit ? undefined : world.get(entity, Building)
+    const mounts = unit ? unitSpec(unit.type).mounts : building ? buildingSpec(building.type).mounts : undefined
+    if (mounts?.length) bare.push(entity)
+  }
+  for (const entity of bare) mountTurrets(world, entity)
 }
 
 /**

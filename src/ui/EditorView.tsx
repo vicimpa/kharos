@@ -50,7 +50,7 @@ import {
   orderNow,
   setFacing,
   setTurretFacing,
-  turretFacing,
+  turretFacings,
   moveGroup,
   paint,
   playersOf,
@@ -660,7 +660,9 @@ function Inspector({ sim, entities, changed, ordering, order }: { sim: Sim; enti
   const players = [0, ...playersOf(sim)]
   const units = entities.filter((entity) => world.has(entity, Unit))
   const facing = world.get(units[0], Unit)?.facing
-  const turretAt = entities.map((entity) => turretFacing(sim, entity)).find((angle) => angle !== undefined)
+  // У одного выбранного — ползунок на каждую турель, у нескольких — общий на все.
+  const turrets = entities.length === 1 ? turretFacings(sim, first) : []
+  const turretAt = entities.map((entity) => turretFacings(sim, entity)[0]).find((angle) => angle !== undefined)
   const stance = world.get(first, Tactics)?.stance
   const tasks = entities.length === 1 ? tasksOf(sim, first) : []
   const each = (action: (entity: Entity) => void) => {
@@ -695,7 +697,14 @@ function Inspector({ sim, entities, changed, ordering, order }: { sim: Sim; enti
           <input type="range" min={-180} max={180} step={15} value={Math.round(facing / DEGREE)} onInput={(event) => each((entity) => setFacing(sim, entity, Number(event.currentTarget.value) * DEGREE))} />
         </label>
       )}
-      {turretAt !== undefined && (
+      {turrets.length > 0 &&
+        turrets.map((angle, index) => (
+          <label key={index} class="editor__field">
+            {turrets.length > 1 ? `Турель ${index + 1}` : 'Турель'} {Math.round(angle / DEGREE)}°
+            <input type="range" min={-180} max={180} step={15} value={Math.round(angle / DEGREE)} onInput={(event) => each((entity) => setTurretFacing(sim, entity, Number(event.currentTarget.value) * DEGREE, index))} />
+          </label>
+        ))}
+      {entities.length > 1 && turretAt !== undefined && (
         <label class="editor__field">
           Турели {Math.round(turretAt / DEGREE)}°
           <input type="range" min={-180} max={180} step={15} value={Math.round(turretAt / DEGREE)} onInput={(event) => each((entity) => setTurretFacing(sim, entity, Number(event.currentTarget.value) * DEGREE))} />

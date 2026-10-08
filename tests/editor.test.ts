@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { DEFAULT_CONFIG, Terrain, setTile, terrainAt } from '../src/map/terrain'
-import { Attached, Building, Ghost, Path, Health, Inventory, Owner, Position, Unit, createSim, creditsOf, type Sim } from '../src/sim'
-import { addPlayer, clearTasks, depositsInBox, orderNow, setFacing, setTurretFacing, turretFacing, depositUnder, entitiesIn, entityAt, erase, moveDeposit, moveGhost, moveGroup, moveUnit, paint, playersOf, putBuilding, putDeposit, putUnit, removeDeposit, setCredits, setDeposit, setHealth, setOwner, setStock } from '../src/sim/editor'
+import { Attached, Building, Ghost, Path, canFight, Health, Inventory, Owner, Position, Unit, createSim, creditsOf, type Sim } from '../src/sim'
+import { addPlayer, clearTasks, depositsInBox, orderNow, setFacing, setTurretFacing, turretFacings, depositUnder, entitiesIn, entityAt, erase, moveDeposit, moveGhost, moveGroup, moveUnit, paint, playersOf, putBuilding, putDeposit, putUnit, removeDeposit, setCredits, setDeposit, setHealth, setOwner, setStock } from '../src/sim/editor'
 import { depositAt, depositIn, depositNear, depositsIn, reserveLeft } from '../src/sim/deposits'
 import { editTile } from '../src/sim/landMemory'
 
@@ -154,10 +154,20 @@ test('месторождения тащатся вместе с юнитами; 
 
   setFacing(sim, tank, Math.PI)
   expect(Math.abs(sim.world.get(tank, Unit)!.facing)).toBeCloseTo(Math.PI)
-  if (turretFacing(sim, tank) !== undefined) {
-    setTurretFacing(sim, tank, 0.5)
-    expect(turretFacing(sim, tank)).toBeCloseTo(0.5)
-  }
+  setTurretFacing(sim, tank, 0.5)
+  expect(turretFacings(sim, tank)[0]).toBeCloseTo(0.5)
+  // У носителя турели поворачиваются по одной.
+  const carrier = putUnit(sim, 'carrier', 20, 20, player)!
+  const before = turretFacings(sim, carrier)
+  expect(before.length).toBeGreaterThan(1)
+  setTurretFacing(sim, carrier, 1, 1)
+  const after = turretFacings(sim, carrier)
+  expect(after[1]).toBeCloseTo(1)
+  expect(after[0]).toBeCloseTo(before[0])
+  // У MCV — пушка на крыше: поворачивается, но не стреляет.
+  const mcv = putUnit(sim, 'mcv', 25, 25, player)!
+  expect(turretFacings(sim, mcv)).toHaveLength(1)
+  expect(canFight(sim, mcv)).toBe(false)
 
   expect(orderNow(sim, player, { type: 'move', units: [tank], x: 20, y: 10 })).toBe(true)
   expect(sim.world.has(tank, Path)).toBe(true)

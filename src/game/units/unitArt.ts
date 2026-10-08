@@ -145,8 +145,7 @@ const mcv: UnitArt = (g, angle, team, phase) => {
   p.bar(-10, 11, -5, 2, STEEL[2])
   p.bar(6, 11, 0, 10, STEEL[3])
   p.bar(8, 10, 0, 6, team[2])
-  // Пушка будущего ядра едет на крыше, стволами вперёд.
-  coreGun(p, -3, 15, team)
+  // Пушка будущего ядра едет на крыше — отдельной турелью mcv, см. TURRET_ART.
 }
 
 /** Строитель: небольшая колёсная машина со стрелой. */
@@ -680,4 +679,4 @@ const laserTurret: UnitArt = (g, angle, team) => {
 
 const coreTurret: UnitArt = (g, angle, team) => coreGun(pen(g, angle), 0, 14, team)
 
-export const TURRET_ART = { gunner: gunnerTurret, arc: arcTurret, cannon: cannonTurret, rocket: rocketTurret, repair: repairTurret, laser: laserTurret, core: coreTurret } satisfies Record<TurretType, UnitArt>
+export const TURRET_ART = { gunner: gunnerTurret, arc: arcTurret, cannon: cannonTurret, rocket: rocketTurret, repair: repairTurret, laser: laserTurret, core: coreTurret, mcv: coreTurret } satisfies Record<TurretType, UnitArt>

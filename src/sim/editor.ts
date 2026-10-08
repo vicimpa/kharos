@@ -322,22 +322,30 @@ export function setFacing(sim: Sim, entity: Entity, facing: number) {
   settle(sim)
 }
 
-/** Куда смотрят турели юнита или здания, в радианах на карте: турель поворачивается относительно носителя. */
-export function setTurretFacing(sim: Sim, entity: Entity, facing: number) {
+/**
+ * Куда смотрят турели юнита или здания, в радианах на карте: турель поворачивается относительно носителя.
+ * index — только эта турель по порядку креплений; нет — все.
+ */
+export function setTurretFacing(sim: Sim, entity: Entity, facing: number, index?: number) {
   const { world } = sim
   const base = world.get(entity, Unit)?.facing ?? 0
-  for (const turret of (world.get(entity, Carrier)?.turrets ?? []) as Entity[]) {
+  const turrets = (world.get(entity, Carrier)?.turrets ?? []) as Entity[]
+  for (const [i, turret] of turrets.entries()) {
     const state = world.get(turret, Turret)
-    if (state) state.angle = state.prevAngle = wrap(facing - base)
+    if (state && (index === undefined || index === i)) state.angle = state.prevAngle = wrap(facing - base)
   }
 }
 
-/** Куда смотрит первая турель юнита или здания, в радианах на карте; undefined — турелей нет. */
-export function turretFacing(sim: Sim, entity: Entity) {
+/** Куда смотрит каждая турель юнита или здания, в радианах на карте, по порядку креплений. */
+export function turretFacings(sim: Sim, entity: Entity): number[] {
   const { world } = sim
-  const turret = (world.get(entity, Carrier)?.turrets ?? [])[0] as Entity | undefined
-  const state = turret === undefined ? undefined : world.get(turret, Turret)
-  return state && wrap(state.angle + (world.get(entity, Unit)?.facing ?? 0))
+  const base = world.get(entity, Unit)?.facing ?? 0
+  const facings: number[] = []
+  for (const turret of (world.get(entity, Carrier)?.turrets ?? []) as Entity[]) {
+    const state = world.get(turret, Turret)
+    if (state) facings.push(wrap(state.angle + base))
+  }
+  return facings
 }
 
 /** Снимает с юнита все задания: путь, стройку, цель, груз, месторождение, патруль и очередь приказов. */
