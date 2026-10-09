@@ -4,7 +4,7 @@ import { Owner, Path, Position } from '../sim/components'
 import { pathOf, seenBy, sharedWireOf, type Wired } from './wire'
 import { LAND, encodeDelta, type Motion } from './codec'
 import { deflate } from '../save/file'
-import { fillDeposits, saveDeposits } from '../sim/deposits'
+import { DEPOSIT_SIZE, fillDeposits, saveDeposits } from '../sim/deposits'
 import { knownEdits, pristineLand, takeLearned } from '../sim/landMemory'
 import type { ServerData } from './protocol'
 import { TRACE_CELL, type Trace } from '../sim/traces'
@@ -83,6 +83,8 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
   fillDeposits(sim)
   /** Какую правку месторождений уже разослали. */
   let depositsSent = sim.deposits.revision
+  /** Какой слой месторождений каждое подключение получило последним: шлётся заново, только если он поменялся. */
+  const depositsShown = new Map<Send, string>()
   // На сервере до первого подключения не в сети никто.
   if (player === undefined) sim.online = new Set()
   /** Подключённые: как отправить и за кого играет. */
@@ -274,9 +276,29 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
     })
     const edits = knownEdits(sim.landMemory, player)
     if (edits.length) send(JSON.stringify({ type: 'tiles', edits } satisfies ServerMessage))
-    send(depositsMessage())
+    depositsShown.delete(send)
+    sendDeposits(send, player)
   }
-  const depositsMessage = () => JSON.stringify({ type: 'deposits', deposits: saveDeposits(sim.deposits) } satisfies ServerMessage)
+  /**
+   * Месторождения, которые игрок знает: те, что на разведанной им земле. Остальные клиенту не шлются — иначе их видно
+   * сквозь туман. cache — слой на игрока за один проход по подключениям.
+   */
+  const depositsMessage = (player: number) => {
+    const { cells, spots } = saveDeposits(sim.deposits)
+    const known: number[] = []
+    for (let i = 0; i + 3 < spots.length; i += 4) {
+      if (sim.vision.exploredIn(player, spots[i], spots[i + 1], DEPOSIT_SIZE, DEPOSIT_SIZE)) known.push(...spots.slice(i, i + 4))
+    }
+    return JSON.stringify({ type: 'deposits', deposits: { cells, spots: known } } satisfies ServerMessage)
+  }
+  /** Шлёт подключению слой месторождений, если игрок узнал новые или слой поменялся. */
+  const sendDeposits = (send: Send, player: number, cache = new Map<number, string>()) => {
+    let text = cache.get(player)
+    if (text === undefined) cache.set(player, (text = depositsMessage(player)))
+    if (depositsShown.get(send) === text) return
+    depositsShown.set(send, text)
+    send(text)
+  }
 
   const explored = (player: number) => JSON.stringify({ type: 'explored', map: sim.vision.map(player) } satisfies ServerMessage)
   const welcome = (player: number, id?: string) => JSON.stringify({ type: 'welcome', player, options: sim.options, step: sim.time.step, id } satisfies ServerMessage)
@@ -367,6 +389,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
           peers.delete(send)
           shown.delete(send)
           swept.delete(send)
+          depositsShown.delete(send)
           sent.delete(send)
           announce()
         },
@@ -384,11 +407,11 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
         if (edits.length) learned.set(player, JSON.stringify({ type: 'tiles', edits } satisfies ServerMessage))
       }
       sim.landMemory.learned.clear()
-      // Месторождения поменялись — всем слой заново: он невелик, а меняется редко.
+      // Месторождения поменялись — всем слой заново: он невелик, а меняется редко. Узнанные разведкой — при обходе ниже.
       if (sim.deposits.revision !== depositsSent) {
         depositsSent = sim.deposits.revision
-        const text = depositsMessage()
-        for (const send of peers.keys()) send(text)
+        const cache = new Map<number, string>()
+        for (const [send, player] of peers) sendDeposits(send, player, cache)
       }
       for (const [send, player] of peers) {
         const text = learned.get(player)
@@ -401,9 +424,11 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
         const sweep = sinceSweep >= SWEEP_TICKS
         if (sweep) sinceSweep = 0
         const expired = sim.traces.expired()
+        const deposits = new Map<number, string>()
         for (const [send, player] of peers) {
           const known = shown.get(send)!
           for (const id of expired) known.delete(id)
+          if (sweep) sendDeposits(send, player, deposits)
           const found = traces(send, player, sweep)
           if (found.length) send(JSON.stringify({ type: 'traces', traces: found } satisfies ServerMessage))
           const text = delta(send, player, cache)

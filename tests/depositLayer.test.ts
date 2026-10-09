@@ -42,8 +42,8 @@ test('слой месторождений — в сохранении: и пра
   expect(depositsIn(again, cellX, cellY)).toEqual([{ x: cellX * DEPOSIT_CELL + 20, y: cellY * DEPOSIT_CELL + 20, kind: 'kharite', reserve: 77 }])
 })
 
-test('клиент получает месторождения от хоста и правки — следом', () => {
-  const sim = world()
+/** Хост на sim и подключённый к нему клиент; mirrored — сколько месторождений у клиента. */
+function joined(sim: Sim) {
   const host = createHost(sim, 1)
   let replica: Replica | undefined
   const peer = host.join((data) => {
@@ -51,8 +51,13 @@ test('клиент получает месторождения от хоста �
     if (message.type === 'welcome' && !replica) replica = createReplica(message, (reply) => peer.receive(reply), () => peer.leave())
     else replica!.receive(message)
   })
+  return { host, mirrored: () => [...replica!.deposits.cells.values()].flat().length }
+}
+
+test('клиент получает месторождения от хоста и правки — следом', () => {
+  const sim = createSim({ generator: DEFAULT_CONFIG, size: 256, fog: false })
+  const { host, mirrored } = joined(sim)
   const spots = () => [...sim.deposits.cells.values()].flat().length
-  const mirrored = () => [...replica!.deposits.cells.values()].flat().length
   expect(mirrored()).toBe(spots())
   expect(mirrored()).toBeGreaterThan(0)
   const at = depositsIn(sim, 0, 0)[0] ?? depositsIn(sim, 1, 0)[0]
@@ -60,6 +65,14 @@ test('клиент получает месторождения от хоста �
   putDeposit(sim, at.x + 3, at.y, 'fuel', 10)
   host.advance(1 / 20)
   expect(mirrored()).toBe(spots())
+})
+
+test('месторождения в тумане клиенту не шлются', () => {
+  const sim = world()
+  const { host, mirrored } = joined(sim)
+  host.advance(1)
+  expect([...sim.deposits.cells.values()].flat().length).toBeGreaterThan(0)
+  expect(mirrored()).toBe(0)
 })
 
 test('правки месторождений из прежних сохранений переносятся в слой', () => {
