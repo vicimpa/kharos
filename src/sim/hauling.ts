@@ -9,6 +9,7 @@ import { acceptsDelivery, deliveryFor, dispatch, mineOre, offersOf, offersPickup
 import { GOODS, resourceOf, type Good } from './resources'
 import type { Sim } from './sim'
 import { UNITS } from './units'
+import { networkOf } from './zones'
 import { runRoutes } from './routes'
 import { sweepDrops } from './drops'
 
@@ -253,7 +254,8 @@ export function haul(sim: Sim) {
         // Руду, которую некуда везти, не берёт: ждёт у шахты, пока на переработке не освободится место. Место
         // бронирует сразу и набирает не больше него: иначе все грузовики шахты набрали бы по кузову на одно место.
         if (!retry) continue
-        const to = refineryFor(sim, entity, ore)
+        // Переработку в сети шахты руда достигает по трубам: грузовик возит только в другие сети.
+        const to = refineryFor(sim, entity, ore, NONE as Entity, networkOf(sim, hauler.mine as Entity))
         if (to === NONE) continue
         hauler.from = hauler.mine
         hauler.to = to

@@ -287,8 +287,8 @@ export function storeFor(sim: Sim, truck: Entity, resource: Good, except: Entity
   return best
 }
 
-/** Ближайшая к грузовику своя переработка этой руды, куда она поместится с учётом едущего туда; NONE — такой нет. */
-export function refineryFor(sim: Sim, truck: Entity, ore: Ore, except: Entity = NONE as Entity): Entity {
+/** Ближайшая к грузовику своя переработка этой руды, куда она поместится с учётом едущего туда, не из сети skip; NONE — такой нет. */
+export function refineryFor(sim: Sim, truck: Entity, ore: Ore, except: Entity = NONE as Entity, skip?: Zone): Entity {
   const player = sim.world.get(truck, Owner)?.player ?? 0
   const flows = flowsOf(sim, truck)
   let best = NONE as Entity
@@ -296,6 +296,7 @@ export function refineryFor(sim: Sim, truck: Entity, ore: Ore, except: Entity = 
   for (const [entity, , building] of sim.world.query(Inventory, Building)) {
     if (entity === except || buildingSpec(building.type).refines !== ore || !isReady(sim, player, entity) || sim.world.has(entity, Converting) || sim.world.has(entity, Off)) continue
     if (spaceFor(sim, truck, entity, ore, flows) <= 1e-9) continue
+    if (skip && networkOf(sim, entity) === skip) continue
     const far = distance(sim, truck, entity)
     if (far < bestDistance) {
       best = entity

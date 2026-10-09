@@ -24,6 +24,7 @@ import { createSoundscape } from './soundscape'
 import { createDepositsPass } from './depositsPass'
 import { createPavingPass } from './pavingPass'
 import { createDropsPass } from './dropsPass'
+import { createFlowPass } from './flowPass'
 import { startFrames } from './frames'
 import { readHud, type HudState } from './hud'
 import { createMinimap, type Minimap } from './minimap'
@@ -166,6 +167,8 @@ export function createGame(
         createDecalsPass(gl, scene),
         units.ground,
         buildings,
+        // Поток по трубам — поверх труб, под турелями и летающими.
+        createFlowPass(gl, scene),
         units.emplacements,
         // Пыль от винтов — на земле и на крышах, под летающими.
         combat.dust,

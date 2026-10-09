@@ -9,7 +9,7 @@ const seconds = (sim: Sim, time: number) => {
   for (let i = 0; i < Math.round(time / TICK); i++) sim.advance(TICK)
 }
 
-test('тестовая карта: готовая база с энергией, грузовики сами возят добытое в хранилища', () => {
+test('тестовая карта: готовая база с энергией, добытое по трубам идёт в хранилища', () => {
   const sim = createSim(options)
   expect(spawnSandbox(sim, 1)).toBeDefined()
   const types: string[] = []
@@ -23,7 +23,8 @@ test('тестовая карта: готовая база с энергией, 
   for (const [entity] of sim.world.query(Unit, Owner)) units.push(entity)
   const trucks = units.filter((entity) => sim.world.has(entity, Hauler) && !sim.world.has(entity, Harvester))
   expect(trucks.length).toBe(4)
-  expect(trucks.filter((entity) => sim.world.get(entity, Hauler)!.mine >= 0).length).toBe(1)
+  // Шахта в сети базы: грузовик к ней не привязан, руду несут трубы.
+  expect(trucks.filter((entity) => sim.world.get(entity, Hauler)!.mine >= 0).length).toBe(0)
   expect(units.length).toBeGreaterThan(trucks.length + 5)
 
   // Шахта работает: руда идёт через переработку, и металла в хранилищах становится больше.

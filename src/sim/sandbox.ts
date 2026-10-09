@@ -7,6 +7,7 @@ import { addCredits } from './economy'
 import { orderSeek } from './harvesting'
 import { assignHaulers } from './hauling'
 import { connectAll } from './piping'
+import { networkOf } from './zones'
 import { put } from './inventory'
 import { entriesOf, type Amounts } from './resources'
 import type { Sim } from './sim'
@@ -135,6 +136,7 @@ export function spawnSandbox(sim: Sim, player: number) {
     // Харвестер сам не ищет: здесь ему сразу велено искать любое месторождение.
     if (type === 'harvester') orderSeek(sim, player, [unit], 'any')
   }
-  assignHaulers(sim, player, mine, trucks.slice(0, 1))
+  // Шахта в сети базы: руду на переработку несут трубы, привязывать грузовик к ней незачем.
+  if (networkOf(sim, mine) !== networkOf(sim, core ?? mine)) assignHaulers(sim, player, mine, trucks.slice(0, 1))
   return { x: at.x, y: at.y }
 }
