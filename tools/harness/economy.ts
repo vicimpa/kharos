@@ -14,10 +14,11 @@ import type { Entity } from '../../src/ecs'
 import {
   BUILDINGS, BUILDING_TYPES, Builds, Building, DEPOSIT_KINDS, DEPOSIT_TYPES, Inventory, Owner, PRODUCTS, PRODUCT_SPECS, REFINE_RATE, RESOURCE_SPECS,
   REWARDS, Site, TRUCK_CAPACITY, TURRETS, Trade, UNITS, Unit, WEAPONS, amountOf, buildingSpec, canBuild, canPlace, canSell, creditsOf, cycleSeconds,
-  depositIn, economyOf, entriesOf, isProduct, rewardsOf, stockOf, totalOf, unitSpec,
+  depositIn, economyOf, networkOf, pipeRoute, Position, entriesOf, isProduct, rewardsOf, stockOf, totalOf, unitSpec,
   type Amounts, type BuildingType, type DepositSpot, type Resource, type Sim, type TurretSpec, type UnitType, type WeaponSpec,
 } from '../../src/sim'
 import { placeBuilding } from '../../src/sim/buildings'
+import { connectAll } from '../../src/sim/piping'
 import { STARTING_CREDITS, addCredits } from '../../src/sim/economy'
 import { freeTilesNear, spawnUnit } from '../../src/sim/units'
 import { TICK, clock, newSim, placeableNear, printTable, rectOf, rectsApart, rings, round, spotNear } from './lib'
@@ -94,6 +95,7 @@ function mineScene(freeTrucks = FREE_TRUCKS): Mine {
       sim.destroy()
       continue
     }
+    connectAll(sim, 1)
     const truck = spawnUnit(sim, 'truck', 1, mineTiles[0], mineTiles[1])
     for (let i = 0; i < freeTrucks; i++) spawnUnit(sim, 'truck', 1, coreTiles[i * 2], coreTiles[i * 2 + 1])
     sim.send(1, { type: 'haul', units: [truck], mine })
@@ -134,7 +136,7 @@ function measureMine(): number {
   runMine({ sim, port }, 180, firstSale)
   const measured = (creditsOf(sim, 1) - before) / 180
   const line = Math.max(0, measured - passive)
-  const invested = BUILDINGS.mine.cost + (FREE_TRUCKS + 1) * UNITS.truck.cost + BUILDINGS.silo.cost + BUILDINGS.smelter.cost + BUILDINGS.spaceport.cost + 2 * BUILDINGS.generator.cost
+  const invested = BUILDINGS.mine.cost + (FREE_TRUCKS + 1) * UNITS.truck.cost + BUILDINGS.metalYard.cost + BUILDINGS.smelter.cost + BUILDINGS.spaceport.cost + 2 * BUILDINGS.generator.cost
 
   console.log(`\nРудник в симуляции: шахта, ${FREE_TRUCKS + 1} грузовика, переработка, хранилище и космопорт; продажа металла, 5 минут`)
   console.log(`  первая продажа         ${firstSale ? clock(firstSale) : 'не дождались'}`)
@@ -273,17 +275,15 @@ interface Opening {
   core?: Entity
   mine?: Entity
   port?: Entity
-  /** Грузовик, привязанный к шахте. */
-  bound?: Entity
   builders: Entity[]
   trucks: Entity[]
 }
 
-/** Сколько готовых зданий этого вида у игрока. */
-function countBuildings(sim: Sim, type: BuildingType) {
+/** Сколько готовых зданий этого вида у игрока; sites — считать и заложенные. */
+function countBuildings(sim: Sim, type: BuildingType, sites = false) {
   let count = 0
   for (const [entity, building, owner] of sim.world.query(Building, Owner)) {
-    if (owner.player === 1 && building.type === type && !sim.world.has(entity, Site)) count++
+    if (owner.player === 1 && building.type === type && (sites || !sim.world.has(entity, Site))) count++
   }
   return count
 }
@@ -324,13 +324,52 @@ function makeSteps(opening: Opening, core: { x: number; y: number }, deposit: De
       if (builder === undefined) return false
       const suit = (tx: number, ty: number) =>
         canBuild(sim, 1, type, tx, ty) && (type === 'mine' || rectsApart(rectOf(type, tx, ty), mine, 1))
-      const tile = spotNear(x, y, suit, 12)
+      const tile = spotNear(x, y, suit, 20)
       if (!tile) return false
       sim.send(1, { type: 'build', building: type, x: tile.x, y: tile.y, builders: [builder] })
       return true
     },
+    // Заложено: дальше к площадке тянут трубу, по ней придут материалы стройки.
+    done: (sim) => countBuildings(sim, type, true) >= count,
+  })
+  /** Готово: здание достроено. */
+  const ready = (title: string, type: BuildingType, count: number): Step => ({
+    title,
+    cost: 0,
+    started: false,
+    run: () => true,
     done: (sim) => countBuildings(sim, type) >= count,
   })
+  /**
+   * Подключение трубой: каждое здание этого вида, готовое или заложенное, — к сети главного здания. Труба — протяжкой, как игрок:
+   * трасса от основания до ближайшей своей сети (pipeRoute), заказ — командой «pipes».
+   */
+  const connect = (type: BuildingType): Step => {
+    const loose = (sim: Sim, opening: Opening) => {
+      const home = opening.core === undefined ? undefined : networkOf(sim, opening.core)
+      for (const [entity, building, owner] of sim.world.query(Building, Owner)) {
+        if (owner.player === 1 && building.type === type && networkOf(sim, entity) !== home) return entity
+      }
+      return undefined
+    }
+    return {
+      title: `труба к зданию «${type}»`,
+      cost: 0,
+      started: false,
+      run(sim, opening) {
+        const entity = loose(sim, opening)
+        const builder = freeBuilder(sim, opening)
+        if (entity === undefined || builder === undefined || opening.core === undefined) return entity === undefined
+        const home = networkOf(sim, opening.core)
+        const position = sim.world.get(entity, Position)!
+        const tiles = pipeRoute(sim, 1, position.x, position.y, BUILDINGS[type].width, BUILDINGS[type].height, (zone) => zone === home)
+        if (!tiles?.length) return false
+        sim.send(1, { type: 'pipes', tiles, builders: [builder] })
+        return true
+      },
+      done: (sim, opening) => loose(sim, opening) === undefined,
+    }
+  }
   const produce = (title: string, unit: UnitType, count: number): Step => ({
     title,
     cost: UNITS[unit].cost,
@@ -353,22 +392,36 @@ function makeSteps(opening: Opening, core: { x: number; y: number }, deposit: De
       },
       done: (_sim, opening) => opening.core !== undefined,
     },
-    build('электростанция', 'generator', 1, core.x + 5, core.y - 4),
-    build('шахта', 'mine', 1, deposit.x, deposit.y),
-    build('генератор материи', 'matter', 1, core.x + 2, core.y - 4),
-    build('хранилище', 'metalYard', 1, core.x + 4, core.y + 5),
-    produce('грузовик', 'truck', 1),
-    // Второй грузовик — свободный: привязанный к шахте руду на переработку возит, а космопорту нужен металл.
-    produce('второй грузовик', 'truck', 2),
-    // Переработка идёт до космопорта: продавать нечего, пока руда не станет металлом.
-    build('переработка', 'smelter', 1, core.x + 5, core.y + 4),
-    build('космопорт', 'spaceport', 1, core.x + 8, core.y + 4),
-    build('вторая электростанция', 'generator', 2, core.x - 5, core.y - 4),
-    build('второй генератор материи', 'matter', 2, core.x - 2, core.y - 4),
+    // Каждое здание сразу подключают трубой: энергия и груз ходят только по своей сети.
+    build('заложено: электростанция', 'generator', 1, core.x + 5, core.y - 4),
+    connect('generator'),
+    ready('электростанция', 'generator', 1),
+    build('заложено: шахта', 'mine', 1, deposit.x, deposit.y),
+    connect('mine'),
+    ready('шахта', 'mine', 1),
+    build('заложено: генератор материи', 'matter', 1, core.x + 2, core.y - 4),
+    connect('matter'),
+    ready('генератор материи', 'matter', 1),
+    // Переработка до хранилища: хранилище металла открывается ею, и без неё продавать нечего.
+    build('заложено: переработка', 'smelter', 1, core.x + 5, core.y + 4),
+    connect('smelter'),
+    ready('переработка', 'smelter', 1),
+    build('заложено: хранилище', 'metalYard', 1, core.x + 4, core.y + 7),
+    connect('metalYard'),
+    ready('хранилище', 'metalYard', 1),
+    build('заложено: космопорт', 'spaceport', 1, core.x + 8, core.y + 4),
+    connect('spaceport'),
+    ready('космопорт', 'spaceport', 1),
+    build('заложено: вторая электростанция', 'generator', 2, core.x - 5, core.y - 4),
+    connect('generator'),
+    ready('вторая электростанция', 'generator', 2),
+    build('заложено: второй генератор материи', 'matter', 2, core.x - 2, core.y - 4),
+    connect('matter'),
+    ready('второй генератор материи', 'matter', 2),
   ]
 }
 
-/** Обновляет, что уже построено и кто свободен; привязывает первый грузовик к шахте. */
+/** Обновляет, что уже построено и кто свободен. */
 function refresh(sim: Sim, opening: Opening) {
   for (const [entity, building, owner] of sim.world.query(Building, Owner)) {
     if (owner.player !== 1 || sim.world.has(entity, Site)) continue
@@ -382,10 +435,6 @@ function refresh(sim: Sim, opening: Opening) {
     if (owner.player !== 1) continue
     if (unit.type === 'builder') opening.builders.push(entity)
     if (unit.type === 'truck') opening.trucks.push(entity)
-  }
-  if (opening.mine !== undefined && opening.bound === undefined && opening.trucks.length) {
-    sim.send(1, { type: 'haul', units: [opening.trucks[0]], mine: opening.mine })
-    opening.bound = opening.trucks[0]
   }
 }
 
