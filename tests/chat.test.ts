@@ -3,7 +3,7 @@ import { DEFAULT_CONFIG } from '../src/map/terrain'
 import { createHost } from '../src/net/host'
 import { CHAT_LENGTH, decodeServer, type ChatLine } from '../src/net/protocol'
 import { complete } from '../src/net/chatCommands'
-import { Owner, Player, createSim } from '../src/sim'
+import { Owner, Player, Unit, createSim } from '../src/sim'
 
 /** Подключение к хосту, которое копит пришедшие сообщения чата: игроков — в lines, сервера — в notices. */
 function connect(host: ReturnType<typeof createHost>, name: string) {
@@ -114,4 +114,35 @@ test('дополнение: команды по началу, ники в кав
   expect(complete('/msg иг', commands, ['Игрок 2', 'Вася']).map((item) => item.text)).toEqual(['/msg "Игрок 2" '])
   expect(complete('/msg ', commands, ['Вася']).map((item) => item.text)).toEqual(['/msg Вася '])
   expect(complete('привет', commands, ['Вася'])).toEqual([])
+})
+
+test('админ: spawn у базы, killunits, heal, reset и reveal', () => {
+  const sim = createSim({ generator: DEFAULT_CONFIG, size: 256 })
+  const host = createHost(sim)
+  const one = connect(host, 'Первый')
+  const out: string[] = []
+  const admin = { admin: true, reply: (text: string) => out.push(text) }
+  const units = () => {
+    let count = 0
+    for (const [entity, owner] of sim.world.query(Owner)) if (owner.player === one.peer.player && sim.world.has(entity, Unit)) count++
+    return count
+  }
+  const before = units()
+  host.command('spawn tank 3 Первый', admin)
+  expect(units()).toBe(before + 3)
+  host.command('spawn nonsense', admin)
+  expect(out.at(-1)).toContain('Юниты:')
+  host.command('killunits all', admin)
+  expect(units()).toBe(0)
+  host.command('reset Первый', admin)
+  expect(units()).toBeGreaterThan(0)
+  host.command('reveal Первый', admin)
+  expect(sim.vision.explored(one.peer.player, sim.bounds.right - 2, sim.bounds.bottom - 2)).toBe(true)
+  host.command('players', admin)
+  expect(out.at(-1)).toContain('Первый')
+})
+
+test('дополнение аргумента из списка: виды юнитов', () => {
+  const commands = [{ name: 'spawn', args: ['<юнит>'], choices: [['tank', 'trike']], help: '' }]
+  expect(complete('/spawn t', commands, []).map((item) => item.text)).toEqual(['/spawn tank ', '/spawn trike '])
 })

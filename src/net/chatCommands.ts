@@ -9,6 +9,8 @@ export interface CommandInfo {
   /** Аргументы: «<игрок>» дописывается ником, остальное — подсказка. */
   args: string[]
   help: string
+  /** Чем дописываются аргументы, по их порядку: например, виды юнитов. Аргумент «<игрок>» дописывается ником и без них. */
+  choices?: (readonly string[] | null)[]
   /** Команда ждёт пароль: клиент спрашивает его скрытым полем и шлёт /name <пароль>, в строке чата его не видно. */
   secret?: true
 }
@@ -67,8 +69,12 @@ export function complete(draft: string, commands: readonly CommandInfo[], names:
   const index = words.length - 2
   const arg = command.args[index]
   const head = draft.slice(0, draft.length - words.at(-1)!.length)
-  if (arg !== PLAYER_ARG) return arg ? [{ text: draft, label: [`/${command.name}`, ...command.args].join(' '), help: command.help }] : []
   const typed = words.at(-1)!.replace(/"/g, '').toLowerCase()
+  const choices = command.choices?.[index]
+  if (choices) {
+    return choices.filter((choice) => choice.toLowerCase().startsWith(typed)).map((choice) => ({ text: `${head}${choice} `, label: choice, help: arg ?? '' }))
+  }
+  if (arg !== PLAYER_ARG) return arg ? [{ text: draft, label: [`/${command.name}`, ...command.args].join(' '), help: command.help }] : []
   return names
     .filter((name) => name.toLowerCase().startsWith(typed))
     .map((name) => ({ text: `${head}${quoteName(name)} `, label: name, help: command.help }))

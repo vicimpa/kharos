@@ -1,6 +1,7 @@
+import type { Entity } from '../ecs'
 import { Terrain, terrainAt } from '../map/terrain'
-import { creditsOf, isDefeated, notWalledIn, isWalkable, openSpawn, shownTo, spawnStartingUnits, wipePlayer, type Command, type Sim, type SimSave } from '../sim'
-import { Owner, Path, Position } from '../sim/components'
+import { UNIT_TYPES, creditsOf, flies, isDefeated, type UnitType, notWalledIn, isWalkable, openSpawn, shownTo, spawnStartingUnits, wipePlayer, type Command, type Sim, type SimSave } from '../sim'
+import { Attached, Building, Owner, Path, Position, Unit } from '../sim/components'
 import { pathOf, seenBy, sharedWireOf, type Wired } from './wire'
 import { LAND, encodeDelta, type Motion } from './codec'
 import { deflate } from '../save/file'
@@ -10,7 +11,8 @@ import type { ServerData } from './protocol'
 import { TRACE_CELL, type Trace } from '../sim/traces'
 import { cleanChat, cleanName, type ChatLine, type PlayerInfo, type ServerMessage } from './protocol'
 import { PLAYER_ARG, parseCommand, type CommandInfo } from './chatCommands'
-import { setCredits } from '../sim/editor'
+import { erase, putUnit, setCredits, setHealth } from '../sim/editor'
+import { freeTilesNear } from '../sim/units'
 
 /**
  * Где появляется новый игрок: в случайной точке карты, на скале, где хватит места под базу, и не ближе SPAWN_APART
@@ -29,6 +31,8 @@ const SPAWN_RADIUS = 24
 const SWEEP_TICKS = 5
 /** Как часто, в мс, одно подключение может писать в чат. */
 const CHAT_GAP = 500
+/** Больше скольких юнитов /spawn за раз не ставит. */
+const SPAWN_MOST = 50
 /** Сколько мс после неверного пароля администратора подключение не может попробовать снова. */
 const ADMIN_LOCK = 3000
 /** Имя, которым подписаны сообщения администратора и консоли сервера, /say. */
@@ -219,7 +223,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
     [...commands.values()]
       .filter((command) => !command.console && (admin || !command.admin))
       // Локальной игре пароль не нужен, и клиент не спросит его.
-      .map(({ name, args, help, secret }) => (secret && player === undefined ? { name, args, help, secret } : { name, args, help }))
+      .map(({ name, args, help, secret, choices }) => ({ name, args, help, ...(choices && { choices }), ...(secret && player === undefined && { secret }) }))
   const sendCommands = (send: Send) => send(JSON.stringify({ type: 'commands', commands: commandsFor(admins.has(send)), admin: admins.has(send) } satisfies ServerMessage))
   const serverSay = (text: string) => broadcast([{ player: 0, name: SERVER_NAME, text, system: true }])
   /** Подключение по его reply: команде из игры нужно знать, кто её прислал. */
@@ -362,6 +366,126 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
     },
   })
 
+  /**
+   * Игрок, о котором команда: по нику или номеру, а без аргумента — тот, кто её позвал. Не нашёлся — ответ caller и
+   * undefined.
+   */
+  const target = (arg: string | undefined, caller: Caller) => {
+    const who = arg === undefined ? caller.player : findPlayer(arg)
+    if (who === undefined) caller.reply(arg === undefined ? 'Укажите игрока' : `Нет игрока «${arg}»`)
+    return who
+  }
+  /** Своё у игрока: юниты и здания, без турелей — они уходят вместе с носителем. */
+  const ownedBy = (who: number) => {
+    const units: Entity[] = []
+    const buildings: Entity[] = []
+    for (const [entity, owner] of sim.world.query(Owner)) {
+      if (owner.player !== who || sim.world.has(entity, Attached)) continue
+      if (sim.world.has(entity, Unit)) units.push(entity)
+      else if (sim.world.has(entity, Building)) buildings.push(entity)
+    }
+    return { units, buildings }
+  }
+  /** Середина базы игрока: среднее его зданий, а без них — юнитов. */
+  const baseOf = (who: number) => {
+    const { units, buildings } = ownedBy(who)
+    const points = (buildings.length ? buildings : units).map((entity) => sim.world.get(entity, Position)!)
+    if (!points.length) return undefined
+    return { x: Math.floor(points.reduce((sum, p) => sum + p.x, 0) / points.length), y: Math.floor(points.reduce((sum, p) => sum + p.y, 0) / points.length) }
+  }
+
+  add({
+    name: 'players',
+    args: [],
+    help: 'все игроки мира: номер, в сети ли, кредиты, юниты и здания',
+    admin: true,
+    run(_args, _rest, caller) {
+      const here = new Set(peers.values())
+      for (const [who, name] of names) {
+        const { units, buildings } = ownedBy(who)
+        const state = isDefeated(sim, who) ? 'побеждён' : here.has(who) ? 'в сети' : 'не в сети'
+        caller.reply(`#${who} ${name} — ${state}, ${creditsOf(sim, who)} кр., юнитов ${units.length}, зданий ${buildings.length}`)
+      }
+    },
+  })
+  add({
+    name: 'spawn',
+    args: ['<юнит>', '[кол-во]', `[${PLAYER_ARG.slice(1, -1)}]`],
+    choices: [UNIT_TYPES, null, null],
+    help: 'поставить юнитов у базы игрока (себе — без ника)',
+    admin: true,
+    run(args, _rest, caller) {
+      const type = args[0] as UnitType
+      if (!UNIT_TYPES.includes(type)) return caller.reply(`Юниты: ${UNIT_TYPES.join(', ')}`)
+      const count = Math.min(SPAWN_MOST, Math.max(1, Math.floor(Number(args[1] ?? 1)) || 1))
+      const who = target(args[2], caller)
+      if (who === undefined) return
+      const base = baseOf(who)
+      if (!base) return caller.reply(`У ${nameOf(who)} нет базы: /reset ${who}`)
+      const tiles = freeTilesNear(sim, base.x, base.y, count, 2, undefined, flies(type))
+      let made = 0
+      for (let i = 0; i + 1 < tiles.length; i += 2) if (putUnit(sim, type, tiles[i], tiles[i + 1], who)) made++
+      caller.reply(`${nameOf(who)}: ${type} × ${made}`)
+      options.log?.(`! spawn ${type} × ${made} → ${nameOf(who)}`)
+    },
+  })
+  add({
+    name: 'killunits',
+    args: [`${PLAYER_ARG.slice(0, -1)}|all>`],
+    help: 'убрать все юниты игрока или всех (all); здания остаются',
+    admin: true,
+    run(args, _rest, caller) {
+      const all = args[0]?.toLowerCase() === 'all'
+      const who = all ? undefined : target(args[0], caller)
+      if (!all && who === undefined) return
+      const units = all ? [...names.keys()].flatMap((each) => ownedBy(each).units) : ownedBy(who!).units
+      for (const entity of units) erase(sim, entity)
+      const count = units.length
+      caller.reply(`Убрано юнитов: ${count}`)
+      options.log?.(`! killunits ${all ? 'all' : nameOf(who!)}: ${count}`)
+    },
+  })
+  add({
+    name: 'heal',
+    args: [PLAYER_ARG],
+    help: 'вся техника и здания игрока целы',
+    admin: true,
+    run(args, _rest, caller) {
+      const who = target(args[0], caller)
+      if (who === undefined) return
+      const { units, buildings } = ownedBy(who)
+      for (const entity of [...units, ...buildings]) setHealth(sim, entity, 1)
+      caller.reply(`${nameOf(who)}: починено ${units.length + buildings.length}`)
+    },
+  })
+  add({
+    name: 'reset',
+    args: [PLAYER_ARG],
+    help: 'снести всё у игрока и дать ему новый стартовый набор',
+    admin: true,
+    run(args, _rest, caller) {
+      const who = target(args[0], caller)
+      if (who === undefined) return
+      restart(who)
+      caller.reply(`${nameOf(who)} начинает заново`)
+      options.log?.(`! reset ${nameOf(who)}`)
+    },
+  })
+  add({
+    name: 'reveal',
+    args: [PLAYER_ARG],
+    help: 'открыть игроку всю карту',
+    admin: true,
+    run(args, _rest, caller) {
+      const who = target(args[0], caller)
+      if (who === undefined) return
+      // Один отрезок «разведано» длиннее любой карты: explore обрежет его по её краю.
+      sim.vision.explore(who, [0, 2 ** 31])
+      for (const [peer, owner] of peers) if (owner === who) peer(explored(who))
+      caller.reply(`${nameOf(who)} видит всю карту`)
+    },
+  })
+
   const runCommand = (text: string, caller: Caller) => {
     const parsed = parseCommand(text.startsWith('/') ? text : `/${text}`)
     if (!parsed || !parsed.name) return
@@ -371,6 +495,25 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
       return caller.reply(`Нет команды /${parsed.name}: /help — список`)
     }
     command.run(parsed.args, parsed.rest, caller)
+  }
+
+  /** Игрок начинает заново: остатки базы исчезают, туман закрыт, новый стартовый набор в новом месте. */
+  const restart = (who: number) => {
+    wipePlayer(sim, who)
+    defeated.delete(who)
+    if (player === undefined) notice(who, 'начинает заново')
+    sim.vision.forget(who)
+    place(who)
+    // Вкладки игрока начинают как в новом мире: туман закрыт, камера встаёт на новый стартовый набор.
+    for (const [peer, owner] of peers) {
+      if (owner !== who) continue
+      peer(welcome(who))
+      sendLand(peer, who)
+      peer(explored(who))
+      sent.set(peer, new Map())
+      shown.set(peer, new Set())
+      peer(delta(peer, who))
+    }
   }
 
   /** Кто уже побеждён: о поражении сообщается один раз, когда оно случилось. */
@@ -619,22 +762,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
           }
           // Проигравший начинает заново: остатки его базы исчезают, а сам он получает новый стартовый набор.
           if (type === 'respawn') {
-            if (!isDefeated(sim, joined)) return
-            wipePlayer(sim, joined)
-            defeated.delete(joined)
-            if (player === undefined) notice(joined, 'начинает заново')
-            sim.vision.forget(joined)
-            place(joined)
-            // Вкладки игрока начинают как в новом мире: туман закрыт, камера встаёт на новый стартовый набор.
-            for (const [peer, owner] of peers) {
-              if (owner !== joined) continue
-              peer(welcome(joined))
-              sendLand(peer, joined)
-              peer(explored(joined))
-              sent.set(peer, new Map())
-              shown.set(peer, new Set())
-              peer(delta(peer, joined))
-            }
+            if (isDefeated(sim, joined)) restart(joined)
             return
           }
           if (type !== 'command' || typeof command !== 'object' || command === null) return
