@@ -1,5 +1,6 @@
+import { applyEdit, type EditOp } from '../sim/editOps'
 import type { Entity } from '../ecs'
-import { Terrain, terrainAt } from '../map/terrain'
+import { Terrain, terrainAt, tileBytes } from '../map/terrain'
 import { UNIT_TYPES, creditsOf, flies, isDefeated, type UnitType, notWalledIn, isWalkable, openSpawn, shownTo, spawnStartingUnits, wipePlayer, type Command, type Sim, type SimSave } from '../sim'
 import { Attached, Building, Owner, Path, Position, Unit } from '../sim/components'
 import { pathOf, seenBy, sharedWireOf, type Wired } from './wire'
@@ -201,6 +202,8 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
   const online = (who: number) => [...peers.values()].includes(who)
   /** Подключения в режиме администратора. */
   const admins = new Set<Send>()
+  /** Администраторы в редакторе: видят весь мир и правят его, см. EditOp. */
+  const editing = new Set<Send>()
   /** Когда подключению снова можно пробовать пароль администратора, в мс. */
   const adminLocked = new Map<Send, number>()
   /** Как закрыть подключение: им администратор выгоняет игрока. */
@@ -312,8 +315,25 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
     run(_args, _rest, caller) {
       const send = callers.get(caller)!
       admins.delete(send)
+      if (editing.delete(send)) resync(send, caller.player!, true)
       sendCommands(send)
       caller.reply('Режим администратора выключен')
+    },
+  })
+  add({
+    name: 'editor',
+    args: [],
+    help: 'редактор живого мира: вся карта без тумана, правки сразу видны всем; ещё раз — выйти',
+    admin: true,
+    game: true,
+    run(_args, _rest, caller) {
+      const send = callers.get(caller)!
+      const on = !editing.has(send)
+      if (on) editing.add(send)
+      else editing.delete(send)
+      resync(send, caller.player!, true)
+      caller.reply(on ? 'Редактор: правки сразу видны всем. /editor — выйти' : 'Редактор закрыт')
+      options.log?.(`! ${nameOf(caller.player!)} ${on ? 'открыл' : 'закрыл'} редактор`)
     },
   })
   add({
@@ -505,15 +525,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
     sim.vision.forget(who)
     place(who)
     // Вкладки игрока начинают как в новом мире: туман закрыт, камера встаёт на новый стартовый набор.
-    for (const [peer, owner] of peers) {
-      if (owner !== who) continue
-      peer(welcome(who))
-      sendLand(peer, who)
-      peer(explored(who))
-      sent.set(peer, new Map())
-      shown.set(peer, new Set())
-      peer(delta(peer, who))
-    }
+    for (const [peer, owner] of peers) if (owner === who) resync(peer, who)
   }
 
   /** Кто уже побеждён: о поражении сообщается один раз, когда оно случилось. */
@@ -522,24 +534,28 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
   /** Сущности, какими они уходят всем, кроме пути, — собранные в этом тике, см. sharedWireOf. */
   const common: { tick: number; sim: Sim | undefined; wired: Map<number, Wired> } = { tick: -1, sim: undefined, wired: new Map() }
 
-  /** Мир глазами игрока: только то, что он видит. Вкладки одного игрока смотрят на один и тот же. */
-  const view = (player: number, cache?: Map<number, View>) => {
-    let found = cache?.get(player)
+  /**
+   * Мир глазами игрока: только то, что он видит. Вкладки одного игрока смотрят на один и тот же. В редакторе (god)
+   * — весь мир, со складами и целями чужих: администратор правит всё. В кэше такой мир — под номером -player.
+   */
+  const view = (player: number, cache?: Map<number, View>, god = false) => {
+    const slot = god ? -player : player
+    let found = cache?.get(slot)
     if (found === undefined) {
       found = new Map()
       const tick = sim.time.tick
       if (common.tick !== tick || common.sim !== sim) Object.assign(common, { tick, sim, wired: new Map() })
       for (const entity of sim.world.all) {
-        if (!shownTo(sim, player, entity)) continue
+        if (!god && !shownTo(sim, player, entity)) continue
         // Общее для всех собирается раз за тик — у первого, кто увидел сущность; путь — свой у каждого.
         let shared = common.wired.get(entity)
         if (!shared) common.wired.set(entity, (shared = sharedWireOf(sim.world, entity, tick)))
-        let wired = seenBy(shared, player)
+        let wired = god ? shared : seenBy(shared, player)
         const path = pathOf(sim.world, entity, player)
         if (path !== undefined) wired = { parts: new Map(wired.parts).set(Path.key, path), motion: wired.motion }
         if (wired.parts.size || wired.motion) found.set(entity, wired)
       }
-      cache?.set(player, found)
+      cache?.set(slot, found)
     }
     return found
   }
@@ -550,7 +566,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
    */
   const delta = (send: Send, player: number, cache?: Map<number, View>) => {
     const before = sent.get(send)!
-    const now = view(player, cache)
+    const now = view(player, cache, editing.has(send))
     const set: string[] = []
     const unset: [number, string[]][] = []
     const remove: number[] = []
@@ -646,7 +662,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
     void landFrame().then((frame) => {
       if (peers.has(send)) send(frame)
     })
-    const edits = knownEdits(sim.landMemory, player)
+    const edits = editing.has(send) ? currentEdits() : knownEdits(sim.landMemory, player)
     if (edits.length) send(JSON.stringify({ type: 'tiles', edits } satisfies ServerMessage))
     depositsShown.delete(send)
     sendDeposits(send, player)
@@ -655,25 +671,49 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
    * Месторождения, которые игрок знает: те, что на разведанной им земле. Остальные клиенту не шлются — иначе их видно
    * сквозь туман. cache — слой на игрока за один проход по подключениям.
    */
-  const depositsMessage = (player: number) => {
+  const depositsMessage = (player: number, god = false) => {
     const { cells, spots } = saveDeposits(sim.deposits)
     const known: number[] = []
     for (let i = 0; i + 3 < spots.length; i += 4) {
-      if (sim.vision.exploredIn(player, spots[i], spots[i + 1], DEPOSIT_SIZE, DEPOSIT_SIZE)) known.push(...spots.slice(i, i + 4))
+      if (god || sim.vision.exploredIn(player, spots[i], spots[i + 1], DEPOSIT_SIZE, DEPOSIT_SIZE)) known.push(...spots.slice(i, i + 4))
     }
     return JSON.stringify({ type: 'deposits', deposits: { cells, spots: known } } satisfies ServerMessage)
   }
   /** Шлёт подключению слой месторождений, если игрок узнал новые или слой поменялся. */
   const sendDeposits = (send: Send, player: number, cache = new Map<number, string>()) => {
-    let text = cache.get(player)
-    if (text === undefined) cache.set(player, (text = depositsMessage(player)))
+    const god = editing.has(send)
+    const slot = god ? -player : player
+    let text = cache.get(slot)
+    if (text === undefined) cache.set(slot, (text = depositsMessage(player, god)))
     if (depositsShown.get(send) === text) return
     depositsShown.set(send, text)
     send(text)
   }
 
+  /** Все изменённые тайлы, какие они сейчас: редактору правки видны без тумана. */
+  const currentEdits = () => {
+    const edits: number[] = []
+    for (const { x, y } of sim.landMemory.original.values()) edits.push(x, y, ...tileBytes(sim.land, x, y))
+    return edits
+  }
+  /** Какую версию карты получили редакторы: при правке им уходят все изменённые тайлы заново. */
+  let landShown = sim.land.revision
   const explored = (player: number) => JSON.stringify({ type: 'explored', map: sim.vision.map(player) } satisfies ServerMessage)
-  const welcome = (player: number, id?: string) => JSON.stringify({ type: 'welcome', player, options: sim.options, step: sim.time.step, id } satisfies ServerMessage)
+  const welcome = (player: number, id?: string, god = false) =>
+    JSON.stringify({ type: 'welcome', player, options: god ? { ...sim.options, fog: false } : sim.options, step: sim.time.step, id, ...(god && { editor: true }) } satisfies ServerMessage)
+  /**
+   * Подключение получает мир заново, как при входе: при новом стартовом наборе, при входе в редактор и выходе из него.
+   * keep — камера остаётся, где была.
+   */
+  const resync = (send: Send, who: number, keep = false) => {
+    const god = editing.has(send)
+    send(god || keep ? JSON.stringify({ ...JSON.parse(welcome(who, undefined, god)), keep: true }) : welcome(who))
+    sendLand(send, who)
+    send(explored(who))
+    sent.set(send, new Map())
+    shown.set(send, new Set())
+    send(delta(send, who))
+  }
 
   return {
     get sim() {
@@ -765,6 +805,19 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
             if (isDefeated(sim, joined)) restart(joined)
             return
           }
+          // Правка редактора — только от администратора в редакторе; что не удалось, он узнаёт ответом в чат.
+          if (type === 'edit') {
+            if (!editing.has(send)) return
+            const { edit } = message as { edit?: EditOp }
+            if (typeof edit !== 'object' || edit === null) return
+            try {
+              const failed = applyEdit(sim, edit)
+              if (failed) reply(send)(failed)
+            } catch {
+              reply(send)('Правка не применилась')
+            }
+            return
+          }
           if (type !== 'command' || typeof command !== 'object' || command === null) return
           // Что внутри команды, проверит сама симуляция: она не доверяет и локальному клиенту.
           sim.send(joined, command as Command)
@@ -776,6 +829,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
           depositsShown.delete(send)
           lastChat.delete(send)
           admins.delete(send)
+          editing.delete(send)
           adminLocked.delete(send)
           closers.delete(send)
           sent.delete(send)
@@ -802,7 +856,13 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
         const cache = new Map<number, string>()
         for (const [send, player] of peers) sendDeposits(send, player, cache)
       }
+      const landChanged = sim.land.revision !== landShown
+      landShown = sim.land.revision
       for (const [send, player] of peers) {
+        if (editing.has(send)) {
+          if (landChanged) send(JSON.stringify({ type: 'tiles', edits: currentEdits() } satisfies ServerMessage))
+          continue
+        }
         const text = learned.get(player)
         if (text) send(text)
       }

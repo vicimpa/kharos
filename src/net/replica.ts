@@ -1,3 +1,4 @@
+import type { EditOp } from '../sim/editOps'
 import type { CommandInfo } from './chatCommands'
 import { World, type Component, type Entity, type Time } from '../ecs'
 import { applyEdits, areaOf, createLand, loadLand, saveLand } from '../map/terrain'
@@ -44,6 +45,12 @@ export interface Replica extends Sim {
   /** Команды чата, которые хост разрешает этому игроку, и администратор ли он, см. chatCommands.ts. */
   readonly commands: readonly CommandInfo[]
   readonly admin: boolean
+  /** Игрок в редакторе: мир весь, без тумана, и правки уходят хосту, см. edit. */
+  readonly editor: boolean
+  /** Последнее приветствие было тем же миром заново: камера остаётся, где была. */
+  readonly kept: boolean
+  /** Шлёт хосту правку редактора. */
+  edit(edit: EditOp): void
   /** Написать в чат. */
   say(text: string): void
 }
@@ -91,8 +98,10 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     earlyEdits = null
   }
   /** Мир по приветствию: при первом подключении и когда хост начинает мир заново. */
-  const meet = ({ options, step, player: own }: Extract<ServerMessage, { type: 'welcome' }>) => {
+  const meet = ({ options, step, player: own, editor, keep }: Extract<ServerMessage, { type: 'welcome' }>) => {
     player = own
+    replica.editor = !!editor
+    replica.kept = !!keep
     memory.clear()
     replica.options = options
     replica.bounds = boundsOf(options.size, options.height)
@@ -192,6 +201,8 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     chat: [] as (ChatLine & { at: number })[],
     commands: [] as CommandInfo[],
     admin: false,
+    editor: false,
+    kept: false,
     world,
     occupancy,
     paving,
@@ -200,6 +211,9 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     time,
     respawn() {
       send(JSON.stringify({ type: 'respawn' } satisfies ClientMessage))
+    },
+    edit(edit: EditOp) {
+      send(JSON.stringify({ type: 'edit', edit } satisfies ClientMessage))
     },
     say(text: string) {
       send(JSON.stringify({ type: 'chat', text } satisfies ClientMessage))

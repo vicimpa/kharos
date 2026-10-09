@@ -1,3 +1,4 @@
+import type { EditOp } from '../sim/editOps'
 import { createAudio } from '../audio/audio'
 import { createLandWindow, minZoom, type LandWindow } from '../map/landWindow'
 import type { MapSettings } from '../map/settings'
@@ -54,7 +55,7 @@ const SHOWCASE_MENU = 400
  * Что игра показывает: обычно копию мира хоста (Session), а витрина меню — симуляцию, которую считает сама
  * вкладка; у неё нет поколений мира — она не начинается заново из-под игры.
  */
-export type GameSession = Omit<Session, 'sim'> & { sim: Sim & { readonly generation?: number; respawn?(): void; say?(text: string): void } }
+export type GameSession = Omit<Session, 'sim'> & { sim: Sim & { readonly generation?: number; readonly kept?: boolean; respawn?(): void; say?(text: string): void; edit?(edit: EditOp): void } }
 
 export interface GameOptions {
   slot?: string
@@ -84,6 +85,8 @@ export interface Game {
   respawn(): void
   /** Написать в чат сетевой игры. */
   say(text: string): void
+  /** Правка редактора живого мира: уходит хосту, см. /editor. */
+  edit(edit: EditOp): void
   /** Начинает выбор точки патруля выбранным бойцам; false — отменяет. */
   patrol(start: boolean): void
   /** Мини-карта нижней панели. */
@@ -268,7 +271,8 @@ export function createGame(
       scene.routing = null
       scene.serving = null
       scene.patrolling = false
-      centered = false
+      // Тот же мир заново — вход в редактор и выход из него: камера остаётся, где была.
+      centered = !!session.sim.kept
     }
     controls?.update(seconds)
     if (showcase) direct(seconds)
@@ -342,6 +346,9 @@ export function createGame(
     },
     say(text) {
       session.sim.say?.(text)
+    },
+    edit(edit) {
+      session.sim.edit?.(edit)
     },
     respawn() {
       if (session.local) restart()

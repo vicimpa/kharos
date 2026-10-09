@@ -1,4 +1,5 @@
 import type { Command, SimOptions } from '../sim'
+import type { EditOp } from '../sim/editOps'
 import type { DepositsSave } from '../sim/deposits'
 import type { Trace } from '../sim/traces'
 import type { CommandInfo } from './chatCommands'
@@ -25,8 +26,10 @@ export type ServerMessage =
   /**
    * Первое сообщение: за кого клиент играет и из чего собрать местность. step — длина тика в секундах. id — под каким
    * именем этот сервер помнит игрока: клиент хранит его и подключается с ним снова; у локальной игры его нет.
+   * editor — игрок в редакторе: мир приходит весь, без тумана, и клиент показывает панель редактора. keep — тот же
+   * мир заново (вход в редактор и выход из него): камера остаётся, где была.
    */
-  | { type: 'welcome'; player: number; options: SimOptions; step: number; id?: string }
+  | { type: 'welcome'; player: number; options: SimOptions; step: number; id?: string; editor?: true; keep?: true }
   /** Кто играет на хосте: ники и кто сейчас подключён. Приходит после приветствия и при каждом изменении. */
   | { type: 'players'; players: PlayerInfo[] }
   /**
@@ -120,3 +123,5 @@ export type ClientMessage =
   | { type: 'respawn' }
   /** Сообщение в чат: хост разошлёт его всем с ником автора. */
   | { type: 'chat'; text: string }
+  /** Правка редактора от администратора в редакторе, см. EditOp и /editor. */
+  | { type: 'edit'; edit: EditOp }

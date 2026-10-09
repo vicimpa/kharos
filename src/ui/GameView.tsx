@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import { createGame, type Game } from '../game/game'
 import type { HudState } from '../game/hud'
 import type { MapSettings } from '../map/settings'
+import { EditorPanel } from './EditorPanel'
+import type { Replica } from '../net/replica'
 import { Hud } from './Hud'
 import { Settings } from './Menu'
 import { PasswordRequired } from '../net/connect'
@@ -121,6 +123,20 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
             </button>
           }
         />
+      )}
+      {hud?.editor && error === null && gameRef.current && (
+        <EditorPanel
+          sim={gameRef.current.scene.sim}
+          game={gameRef.current}
+          remote
+          // Ответ хоста приходит в чат: здесь правка всегда «ушла».
+          apply={(edit) => void gameRef.current?.edit(edit)}
+          title="Редактор мира"
+          subtitle={launch.kind === 'server' ? 'на сервере' : 'живой мир'}
+          names={new Map(((gameRef.current.scene.sim as Partial<Replica>).players ?? []).map(({ player, name }) => [player, name]))}
+        >
+          <button onClick={() => gameRef.current?.say('/editor')}>Выйти из редактора</button>
+        </EditorPanel>
       )}
       {paused && hud && error === null && (
         <div class="menu game__pause">

@@ -35,6 +35,8 @@ export interface HudState {
   /** Команды чата для дополнения и администратор ли игрок; в локальной игре команд нет. */
   commands: readonly CommandInfo[]
   admin: boolean
+  /** Игрок в редакторе живого мира, см. /editor: поверх игры — панель редактора. */
+  editor: boolean
   /** Игрок набирает маршрут или список обслуживания: Enter сейчас завершает его, а не открывает чат. */
   picking: boolean
   /** Пришёл ли мир от хоста: до этого наград ноль не потому, что их нет, а потому, что мира ещё нет. */
@@ -435,6 +437,7 @@ export function readHud(scene: Scene): HudState {
     chat: 'say' in sim ? (sim as Replica).chat.map(({ player, name, text, at, system, whisper }) => ({ name, own: player === scene.player, text, at, system: !!system, whisper })) : null,
     commands: 'commands' in sim ? (sim as Replica).commands : [],
     admin: 'admin' in sim && (sim as Replica).admin,
+    editor: 'editor' in sim && (sim as Replica).editor,
     picking: !!(scene.routing || scene.serving),
     players: 'players' in sim ? (sim as Replica).players.map(({ player, name, online }) => ({ name, own: player === scene.player, online })) : [],
     income: round(economyOf(sim, player).income),

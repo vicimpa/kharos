@@ -146,3 +146,42 @@ test('дополнение аргумента из списка: виды юни
   const commands = [{ name: 'spawn', args: ['<юнит>'], choices: [['tank', 'trike']], help: '' }]
   expect(complete('/spawn t', commands, []).map((item) => item.text)).toEqual(['/spawn tank ', '/spawn trike '])
 })
+
+test('редактор живого мира: только после /editor, мир без тумана, правки применяются к миру хоста', () => {
+  const sim = createSim({ generator: DEFAULT_CONFIG, size: 256 })
+  const host = createHost(sim, undefined, undefined, { admin: 'секрет' })
+  const welcomes: { editor?: true; fog?: boolean }[] = []
+  const replies: string[] = []
+  const peer = host.join((data) => {
+    const message = decodeServer(data)
+    if (message.type === 'welcome') welcomes.push({ editor: message.editor, fog: message.options.fog })
+    if (message.type === 'chat') for (const line of message.lines) if (!line.name) replies.push(line.text)
+  }, undefined, 'Админ')
+  const other = connect(host, 'Другой')
+  const tell = (message: object) => peer.receive(JSON.stringify(message))
+  const units = () => {
+    let count = 0
+    for (const [, owner] of sim.world.query(Owner, Unit)) if (owner.player === other.peer.player) count++
+    return count
+  }
+  const before = units()
+  // Без редактора правка молча отбрасывается.
+  tell({ type: 'edit', edit: { op: 'addPlayer' } })
+  const spawn = { type: 'edit', edit: { op: 'unit', type: 'tank', x: 0, y: 0, player: other.peer.player } }
+  tell(spawn)
+  expect(units()).toBe(before)
+  tell({ type: 'chat', text: '/admin секрет' })
+  // /editor — не для того, кто просто знает про чат: нужен режим администратора, а за ним пауза между сообщениями.
+  const now = Date.now
+  Date.now = () => now() + 1000
+  tell({ type: 'chat', text: '/editor' })
+  Date.now = now
+  expect(welcomes.at(-1)).toEqual({ editor: true, fog: false })
+  // Где встанет танк — найдём свободный тайл перебором.
+  const { left, top, right, bottom } = sim.bounds
+  for (let y = top + 20; y < bottom - 20 && units() === before; y += 3) {
+    for (let x = left + 20; x < right - 20 && units() === before; x += 3) tell({ type: 'edit', edit: { ...spawn.edit, x, y } })
+  }
+  expect(units()).toBe(before + 1)
+  expect(replies.some((text) => text.startsWith('Редактор'))).toBe(true)
+})
