@@ -2,7 +2,7 @@ import type { Entity } from '../ecs'
 import { setBlend } from '../gl'
 import type { Pass } from '../render/renderer'
 import { createLineProgram, createLines } from '../render/lines'
-import { BUILDINGS, Batch, Building, Position, Site, isPipe } from '../sim'
+import { BUILDINGS, Batch, Building, Owner, Position, Site, isPipe, zonesOf } from '../sim'
 import { GOOD_COLORS } from './resourceColors'
 import type { Scene } from './scene'
 
@@ -26,6 +26,39 @@ export function createFlowPass(gl: WebGL2RenderingContext, scene: Scene): Pass {
     const type = world.get(entity, Building)?.type ?? world.get(entity, Site)?.type
     if (!position || type === undefined) return undefined
     return { x: position.x + BUILDINGS[type].width / 2, y: position.y + BUILDINGS[type].height / 2, well: type === 'well' }
+  }
+
+  /**
+   * Подземные отрезки своих колодцев: пунктир от колодца до парного, по графу сети (см. zones.ts). У колодца
+   * без пары — красная метка: под землёй он ни с чем не связан.
+   */
+  const drawWells = (camera: { x: number; y: number }) => {
+    const { world } = scene.sim
+    const paired = new Set<number>()
+    for (const zone of zonesOf(scene.sim, scene.player)) {
+      for (let i = 0; i < zone.edges.length; i += 3) {
+        const a = zone.edges[i] as Entity
+        const b = zone.edges[i + 1] as Entity
+        if (world.get(a, Building)?.type !== 'well' || world.get(b, Building)?.type !== 'well') continue
+        paired.add(a).add(b)
+        const one = centerOf(a)!
+        const two = centerOf(b)!
+        const length = Math.hypot(two.x - one.x, two.y - one.y)
+        // Штрих на каждом тайле отрезка, кроме самих колодцев.
+        for (let step = 0.75; step < length - 0.5; step += 1) {
+          const from = step / length
+          const to = Math.min(step + 0.5, length - 0.5) / length
+          lines.push(one.x + (two.x - one.x) * from - camera.x, one.y + (two.y - one.y) * from - camera.y, one.x + (two.x - one.x) * to - camera.x, one.y + (two.y - one.y) * to - camera.y, 0.12, 0.25, 0.39, 0.56, 0.7)
+        }
+      }
+    }
+    for (const [entity, building, position, owner] of world.query(Building, Position, Owner)) {
+      if (building.type !== 'well' || owner.player !== scene.player || paired.has(entity) || world.has(entity, Site)) continue
+      const x = position.x + 0.5 - camera.x
+      const y = position.y + 0.5 - camera.y
+      lines.push(x - 0.3, y - 0.3, x + 0.3, y + 0.3, 0.12, 0.81, 0.18, 0.14, 0.9)
+      lines.push(x - 0.3, y + 0.3, x + 0.3, y - 0.3, 0.12, 0.81, 0.18, 0.14, 0.9)
+    }
   }
 
   return {
@@ -74,6 +107,7 @@ export function createFlowPass(gl: WebGL2RenderingContext, scene: Scene): Pass {
           break
         }
       }
+      drawWells(camera)
       setBlend(gl, 'alpha')
       program.use(view)
       lines.draw()
