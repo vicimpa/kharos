@@ -1,7 +1,7 @@
 import type { HudState, Stack } from '../game/hud'
 import type { PaveIcon } from '../game/portraits'
 import type { PaveTool } from '../game/scene'
-import { BRIDGE_COST, BUILDING_TYPES, DEPOSIT_TYPES, REQUIRES, FOUNDATION_COST, LEASH, ORES, ROAD_COST, WARES, type Stance, type BuildingType, type Command, type DepositKind, type Good } from '../sim'
+import { BRIDGE_COST, BUILDINGS, BUILDING_TYPES, DEPOSIT_TYPES, REQUIRES, FOUNDATION_COST, LEASH, ORES, ROAD_COST, WARES, type Stance, type BuildingType, type Command, type DepositKind, type Good } from '../sim'
 import { BUILDING_INFO, BUILDING_NAMES, RESOURCE_NAMES, UNIT_NAMES, goodName } from './names'
 
 /** Клавиши ячеек сетки команд по порядку: три ряда по четыре, как на клавиатуре, справа от WASD. */
@@ -87,6 +87,7 @@ export const STANCE_SLOTS: { stance: Stance; label: string; title: string }[] = 
 const PAVE_TOOLS: { tool: PaveTool; label: string; cost?: number; title: string }[] = [
   { tool: 'foundation', label: 'Фундамент', cost: FOUNDATION_COST, title: 'Здания на нём строятся вдвое быстрее, на песке он разрешает стройку; полоса от зоны расширяет её на клетку вокруг — так соединяют зоны. Взрывы его разбивают. Тяни мышью прямоугольник' },
   { tool: 'road', label: 'Дорога', cost: ROAD_COST, title: `Наземные едут быстрее; по болоту — мост за ${BRIDGE_COST} за тайл. Тяни мышью линию` },
+  { tool: 'pipe', label: 'Труба', cost: BUILDINGS.pipe.cost, title: 'Связывает здания в сеть: по трубам идут груз и энергия, они расширяют зону. Перекрывает проезд — под проездом веди колодцами. Тяни мышью линию, хоть за край зоны' },
   { tool: 'remove', label: 'Снять', title: 'Строители разберут своё покрытие; недостроенное отменится с возвратом кредитов. Тяни мышью прямоугольник' },
 ]
 
@@ -110,13 +111,13 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
       // У каждого раздела своё место: закрытый оставляет пустую ячейку, и кнопки не сдвигаются, когда открываются новые.
       const count = (page: Page) => construction.options.filter(({ building }) => sectionOf(building) === page).length
       sections.forEach((section, i) => (slots[i] = opened(section.page) ? { ...section, group: count(section.page) } : null))
-      slots[sections.length] = { label: 'Покрытие', pave: 'road', group: PAVE_TOOLS.length, title: 'Фундамент, дороги и мосты', run: () => open('paving') }
+      slots[sections.length] = { label: 'Покрытие', pave: 'road', group: PAVE_TOOLS.length, title: 'Фундамент, дороги, мосты и трубы', run: () => open('paving') }
     } else if (page === 'paving') {
       PAVE_TOOLS.forEach(({ tool, label, cost, title }, i) => {
         const active = construction.paving?.tool === tool
         slots[i] = {
           label,
-          pave: tool,
+          ...(tool === 'pipe' ? { building: 'pipe' as const } : { pave: tool }),
           cost: active && construction.paving!.tiles > 1 ? construction.paving!.cost : cost,
           active,
           disabled: tool !== 'remove' && cost !== undefined && credits < cost,

@@ -79,6 +79,8 @@ test('стройка ждёт материалов: без стройблоко�
   const { sim, x, y, store, stash } = base([])
   const builder = spawnUnit(sim, 'builder', 1, x + 5, y + 4)
   sim.send(1, { type: 'build', building: 'factory', x, y: y + 4, builders: [builder] })
+  // Труба от главного здания к площадке: стройка в сети базы.
+  placeBuilding(sim.world, 'pipe', x, y + 3, 1)
   sim.advance(TICK)
   let site: Entity | undefined
   site = siteAt(sim, x, y + 4)
@@ -87,7 +89,7 @@ test('стройка ждёт материалов: без стройблоко�
   expect(awaitsMaterials(sim, site!)).toBe(true)
   expect(sim.world.get(site!, Site)!.progress).toBe(0)
 
-  // Стройблоки в хранилище — стройка идёт до конца: труба к ней заложена вместе с ней.
+  // Стройблоки в хранилище — стройка идёт до конца: к ней подведена труба.
   stash({ blocks: 50 })
   until(sim, () => materialShare(sim, site!) > 0)
   expect(sim.world.get(site!, Site)!.progress).toBeLessThanOrEqual(siteTicks('factory', TICK) * materialShare(sim, site!) + 1e-6)
@@ -205,6 +207,8 @@ test('чего нет в сети стройки, свободный грузо�
   const { sim, x, y } = base([])
   const builder = spawnUnit(sim, 'builder', 1, x + 5, y + 8)
   sim.send(1, { type: 'build', building: 'factory', x, y: y + 4, builders: [builder] })
+  // Труба от главного здания к площадке: стройка в сети базы.
+  placeBuilding(sim.world, 'pipe', x, y + 3, 1)
   sim.advance(TICK)
   let site: Entity | undefined
   site = siteAt(sim, x, y + 4)

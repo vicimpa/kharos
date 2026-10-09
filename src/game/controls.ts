@@ -18,7 +18,7 @@ const CLICK_SLOP = 4
 const PICK_MARGIN = 6
 const LEFT = 0
 /** Почём тайл покрытия бывает: дорога по болоту — мост — дороже. Режим держится, пока хватает на самый дешёвый. */
-const PAVE_COSTS = { foundation: [FOUNDATION_COST], road: [ROAD_COST, BRIDGE_COST] } as const
+const PAVE_COSTS = { foundation: [FOUNDATION_COST], road: [ROAD_COST, BRIDGE_COST], pipe: [BUILDINGS.pipe.cost] } as const
 const RIGHT = 2
 
 /**
@@ -220,7 +220,8 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
         const tiles = stroke.tiles.filter((_, i) => stroke.allowed[i >> 1])
         if (tiles.length) {
           const builders = [...scene.selection]
-          scene.sim.send(scene.player, stroke.tool === 'remove' ? { type: 'unpave', tiles, builders } : { type: 'pave', kind: stroke.tool, tiles, builders })
+          const { tool } = stroke
+          scene.sim.send(scene.player, tool === 'remove' ? { type: 'unpave', tiles, builders } : tool === 'pipe' ? { type: 'pipes', tiles, builders } : { type: 'pave', kind: tool, tiles, builders })
         }
       }
     } else if (scene.placing) {

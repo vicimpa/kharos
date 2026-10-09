@@ -68,5 +68,6 @@ export interface SceneEdit {
 }
 
 /** Чем работает игрок на покрытии: кладёт фундамент или дорогу, или снимает своё. */
-export type PaveTool = PaveKind | 'remove'
+/** Инструмент протяжки: покрытие, его снятие или наземная труба. */
+export type PaveTool = PaveKind | 'remove' | 'pipe'
 

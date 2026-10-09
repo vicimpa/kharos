@@ -1,13 +1,15 @@
 import { expect, test } from 'bun:test'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Terrain, terrainAt } from '../src/map/terrain'
-import { Assembly, Batch, Inventory, createSim, type Sim } from '../src/sim'
+import { Assembly, Batch, Inventory, Site, createSim, type Sim } from '../src/sim'
 import { placeBuilding } from '../src/sim/buildings'
 import { amountOf, put } from '../src/sim/inventory'
 import { powerSupply } from '../src/sim/income'
 import { BATCH } from '../src/sim/pipes'
 import { networkOf, zonesOf } from '../src/sim/zones'
-import { wellPartners } from '../src/sim/piping'
+import { pipeStroke, wellPartners } from '../src/sim/piping'
+import { addCredits } from '../src/sim/economy'
+import { spawnUnit } from '../src/sim/units'
 import { throughJson } from './throughJson'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024, rules: { techTree: false } }
@@ -139,4 +141,25 @@ test('при постройке колодца видно, с какими ко�
   expect(wellPartners(sim, 1, x + 1, y)).toEqual([])
   expect(wellPartners(sim, 1, x + 4, y + 2)).toEqual([])
   expect(wellPartners(sim, 1, x + 11, y)).toEqual([])
+})
+
+test('трубу тянут за край зоны: цепочка закладывается целиком, строитель проходит её по очереди', () => {
+  const sim = createSim(options)
+  const { x, y } = rock(sim, 40, 4)
+  placeBuilding(sim.world, 'command', x, y, 1)
+  addCredits(sim, 1, 1000)
+  const builder = spawnUnit(sim, 'builder', 1, x + 3, y + 3)
+  // От главного здания вправо на 30 тайлов — дальше его зоны (12 от центра).
+  const tiles: number[] = []
+  for (let tx = x + 3; tx < x + 33; tx++) tiles.push(tx, y + 1)
+  expect(pipeStroke(sim, 1, tiles).every(Boolean)).toBe(true)
+  // Отдельный тайл вне зоны, не примыкающий к цепочке, не годится.
+  expect(pipeStroke(sim, 1, [x + 30, y + 3])).toEqual([false])
+  sim.send(1, { type: 'pipes', tiles, builders: [builder] })
+  run(sim, 1)
+  let sites = 0
+  for (const [, site] of sim.world.query(Site)) if (site.type === 'pipe') sites++
+  expect(sites).toBe(30)
+  run(sim, 20 * 90)
+  expect(networkOf(sim, sim.occupancy.at(x + 32, y + 1)!)).toBe(networkOf(sim, sim.occupancy.at(x, y)!))
 })

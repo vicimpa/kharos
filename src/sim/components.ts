@@ -272,9 +272,6 @@ export const Doomed = component('Doomed', { left: 0 })
  */
 export const Batch = component('Batch', () => ({ from: -1, to: -1, resource: 'metal' as Good, amount: 0, sent: 0, arrive: 0, push: false, path: [] as number[] }))
 
-/** Труба автоподключения: заложена вместе со стройкой site и отменяется вместе с ней, если её ещё не начали. */
-export const AutoPipe = component('AutoPipe', { site: -1 })
-
 /** Компоненты, которые попадают в сохранение и в сеть. Новый компонент симуляции добавляй сюда. */
 /**
  * Призрак: чужое здание или месторождение, каким клиент видел его последний раз. Живёт только в клиенте: хост
@@ -283,4 +280,4 @@ export const AutoPipe = component('AutoPipe', { site: -1 })
  */
 export const Ghost = component('Ghost', { blocked: false })
 
-export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Harvester, Inventory, Beam, Assembly, Trade, Armed, Shot, Blast, Pave, Drop, Tactics, Doomed, Orders, Off, Batch, AutoPipe]
+export const SAVED = [Position, Building, Health, Repair, Turret, Attached, Carrier, Owner, Unit, Path, Player, Producer, Converting, Site, Builds, Deposit, Hauler, Harvester, Inventory, Beam, Assembly, Trade, Armed, Shot, Blast, Pave, Drop, Tactics, Doomed, Orders, Off, Batch]

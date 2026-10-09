@@ -3,21 +3,24 @@ import { tileKey } from '../map/terrain'
 import { BUILDINGS, UNDERGROUND_REACH, buildingSpec, canPlace, placeBuilding, type BuildingType } from './buildings'
 import { Building, Owner, Position, Site } from './components'
 import type { Sim } from './sim'
-import { allZones, networkOf, type Zone } from './zones'
+import { assignBuilders } from './construction'
+import { pay } from './economy'
+import { PAVE_LIMIT } from './paving'
+import { allZones, inCircles, inForeignZone, networkOf, zoneOf, type Zone } from './zones'
 
 /**
- * Автоподключение: короткая труба от основания нового здания до ближайшего узла своей сети. Строится вместе
- * со зданием и входит в его цену; другую трассу игрок кладёт руками.
+ * Прокладка труб: протяжка наземной трубы, пары колодцев и трассы, которыми тесты и готовые базы (тестовая карта,
+ * витрина) соединяют здания без стройки.
  */
 
-/** Дальше скольких тайлов автоподключение трассу не ищет: такую трубу кладут руками. */
-export const AUTO_PIPE_REACH = 16
+/** Дальше скольких тайлов pipeRoute трассу не ищет. */
+export const ROUTE_REACH = 16
 
 const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const
 
 /**
  * Трасса наземной трубы от основания (x, y, width, height) до узла сети игрока: тайлы x, y подряд, от основания
- * к сети. Пусто — к основанию уже подходит своя труба. undefined — сети ближе AUTO_PIPE_REACH нет. Узел сети —
+ * к сети. Пусто — к основанию уже подходит своя труба. undefined — сети ближе ROUTE_REACH нет. Узел сети —
  * готовая труба или колодец, готовое здание сети (кроме стен) или заложенная своя труба. joins — какую сеть
  * годится брать; без него — любую. planned — тайлы, уже занятые другой заложенной трассой.
  */
@@ -72,7 +75,7 @@ export function pipeRoute(sim: Sim, player: number, x: number, y: number, width:
       for (let i = back.length - 2; i >= 0; i -= 2) tiles.push(back[i], back[i + 1])
       return tiles
     }
-    if (length >= AUTO_PIPE_REACH) continue
+    if (length >= ROUTE_REACH) continue
     for (const [dx, dy] of SIDES) {
       const key = tileKey(tx + dx, ty + dy)
       if (previous.has(key) || !free(tx + dx, ty + dy)) continue
@@ -148,4 +151,43 @@ export function wellPartners(sim: Sim, player: number, x: number, y: number) {
     }
   }
   return found
+}
+
+/**
+ * Какие тайлы протянутой трубы можно заложить, по тайлу: место годится под трубу, не в чужой зоне и либо в своей
+ * зоне, либо вплотную к уже принятому тайлу этой же протяжки. Так трубу тянут за край зоны: каждая готовая труба
+ * расширяет зону на PIPE_REACH, и строители проходят цепочку по очереди. Кредиты здесь не считаются.
+ */
+export function pipeStroke(sim: Sim, player: number, tiles: readonly number[]): boolean[] {
+  const zone = zoneOf(sim, player)
+  const taken = new Set<number>()
+  const allowed: boolean[] = []
+  for (let i = 0; i + 1 < tiles.length; i += 2) {
+    const x = tiles[i]
+    const y = tiles[i + 1]
+    const chained = SIDES.some(([dx, dy]) => taken.has(tileKey(x + dx, y + dy)))
+    const ok = !taken.has(tileKey(x, y)) && canPlace(sim, 'pipe', x, y) && !inForeignZone(sim, player, x, y, 1, 1) && (chained || inCircles(zone, x + 0.5, y + 0.5))
+    if (ok) taken.add(tileKey(x, y))
+    allowed.push(ok)
+  }
+  return allowed
+}
+
+/**
+ * Закладывает протянутую наземную трубу (тайлы x, y подряд, по порядку протяжки) и посылает к ней строителей.
+ * Платят за каждый тайл сразу; на что не хватило кредитов и куда нельзя (см. pipeStroke) — не кладут; без кредитов
+ * цепочка дальше не тянется. Возвращает, сколько заложено.
+ */
+export function orderPipes(sim: Sim, player: number, tiles: readonly number[], builders: Entity[]) {
+  const allowed = pipeStroke(sim, player, tiles.slice(0, PAVE_LIMIT * 2))
+  let first: Entity | undefined
+  let count = 0
+  for (let i = 0; i < allowed.length; i++) {
+    if (!allowed[i] || !pay(sim, player, BUILDINGS.pipe.cost)) break
+    const site = sim.world.spawn(Position({ x: tiles[i * 2], y: tiles[i * 2 + 1] }), Site({ type: 'pipe' }), Owner({ player }))
+    first ??= site
+    count++
+  }
+  if (first !== undefined) assignBuilders(sim, player, first, builders)
+  return count
 }

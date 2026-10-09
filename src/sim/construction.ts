@@ -2,7 +2,7 @@ import type { Entity } from '../ecs'
 import { tileKey } from '../map/terrain'
 import { BUILDINGS, BUILD_RATE, CORE, buildingSpec, canPlace, durabilityOf, equip, isUnlocked, newBuilding, siteAt, type BuildingSpec, type BuildingType } from './buildings'
 import { NONE, isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './common'
-import { AutoPipe, Building, Builds, Converting, Health, Inventory, Owner, Path, Pave, Position, Producer, Repair, Site, Unit } from './components'
+import { Building, Builds, Converting, Health, Inventory, Owner, Path, Pave, Position, Producer, Repair, Site, Unit } from './components'
 import { reserveLeft } from './deposits'
 import { amountOf } from './inventory'
 import { entriesOf, totalOf } from './resources'
@@ -10,7 +10,6 @@ import { addCredits, creditsOf, pay, reward, spend } from './economy'
 import { overbuiltPlants } from './income'
 import type { Sim } from './sim'
 import { buildSpeed, paveCost } from './paving'
-import { pipeRoute } from './piping'
 import { clearDrops, dropCargo } from './drops'
 import { inCircles, inForeignZone, zoneOf } from './zones'
 import { carrierOf, turnerOf } from './turrets'
@@ -228,12 +227,8 @@ export function assignBuilders(sim: Sim, player: number, site: Entity, units: En
  * Возвращает площадку или undefined, если заложить не вышло.
  */
 export function orderBuild(sim: Sim, player: number, type: BuildingType, x: number, y: number, builders: Entity[]) {
-  if (!canBuild(sim, player, type, x, y)) return undefined
-  // Труба до сети закладывается вместе со зданием и входит в цену. Сети рядом нет — здание встанет само по себе.
-  const route = autoPipeOf(sim, player, type, x, y)
-  if (!pay(sim, player, BUILDINGS[type].cost + (route.length / 2) * BUILDINGS.pipe.cost)) return undefined
+  if (!canBuild(sim, player, type, x, y) || !pay(sim, player, BUILDINGS[type].cost)) return undefined
   const site = sim.world.spawn(Position({ x, y }), Site({ type }), Owner({ player }))
-  for (let i = 0; i < route.length; i += 2) sim.world.spawn(Position({ x: route[i], y: route[i + 1] }), Site({ type: 'pipe' }), Owner({ player }), AutoPipe({ site }))
   // Материалы привезут грузовики: площадка заказывает их у своей зоны, см. logistics.ts.
   const materials = buildingSpec(type).materials
   if (materials) {
@@ -250,20 +245,6 @@ export function orderBuild(sim: Sim, player: number, type: BuildingType, x: numb
  * (это сама труба, стена, к основанию уже подходит труба) или сети рядом нет. Тайлы в чужой зоне выпадают. Дальние тайлы
  * могут быть вне своей зоны: их стройка подождёт, пока зону не дотянут ближние.
  */
-/** Во что обойдётся заложить здание здесь: само здание и труба автоподключения. */
-export function buildPrice(sim: Sim, player: number, type: BuildingType, x: number, y: number) {
-  return BUILDINGS[type].cost + (autoPipeOf(sim, player, type, x, y).length / 2) * BUILDINGS.pipe.cost
-}
-
-export function autoPipeOf(sim: Sim, player: number, type: BuildingType, x: number, y: number): number[] {
-  const spec = buildingSpec(type)
-  if (spec.pipe || spec.isolated) return []
-  const route = pipeRoute(sim, player, x, y, spec.width, spec.height) ?? []
-  const tiles: number[] = []
-  for (let i = 0; i < route.length; i += 2) if (!inForeignZone(sim, player, route[i], route[i + 1], 1, 1)) tiles.push(route[i], route[i + 1])
-  return tiles
-}
-
 /**
  * Отменяет стройку: площадка или недостроенное здание исчезает, кредиты возвращаются целиком.
  * Отмена разбора оставляет здание целым: денег за него ещё не выдавали.
@@ -279,13 +260,6 @@ export function cancelBuild(sim: Sim, player: number, site: Entity) {
   // Привезённые материалы остаются на земле.
   dropCargo(sim, site)
   sim.world.destroy(site)
-  // Трубу автоподключения, к которой ещё не приступили, отменяют вместе со зданием; начатая остаётся.
-  const pipes: Entity[] = []
-  for (const [entity, auto] of sim.world.query(AutoPipe, Site)) if (auto.site === site && !sim.world.has(entity, Building)) pipes.push(entity)
-  for (const entity of pipes) {
-    addCredits(sim, player, BUILDINGS.pipe.cost)
-    sim.world.destroy(entity)
-  }
   return true
 }
 
@@ -641,7 +615,6 @@ export function construct(sim: Sim) {
     site.progress = Math.max(site.progress, Math.min(site.progress + count * speed, siteTicks(site.type, time.step) * materialShare(sim, entity)))
     if (site.progress < siteTicks(site.type, time.step)) continue
     world.remove(entity, Site)
-    world.remove(entity, AutoPipe)
     // Материалы ушли в здание; склад у готового здания свой.
     world.remove(entity, Inventory)
     if (buildingSpec(site.type).produces) world.add(entity, Producer)

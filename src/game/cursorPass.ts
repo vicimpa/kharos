@@ -2,7 +2,7 @@ import { setBlend } from '../gl'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites, createWhiteTexture } from '../render/sprites'
 import type { Entity } from '../ecs'
-import { BUILDINGS, Building, CONTROL_RADIUS, Hauler, Position, Tactics, allZones, autoPipeOf, buildingSpec, pipeRoute, wellPartners, type BuildingType } from '../sim'
+import { BUILDINGS, Building, CONTROL_RADIUS, Hauler, Position, Tactics, allZones, buildingSpec, pipeRoute, wellPartners, type BuildingType } from '../sim'
 import { paveStrokeOf, placementOf } from './placing'
 import type { Scene } from './scene'
 
@@ -24,7 +24,7 @@ const ROUTE: Color = [1, 0.85, 0.3]
 /** Здания, которые обслуживают выбранные грузовики: только рамки, без пунктира. */
 const SERVE: Color = [0.45, 0.85, 1]
 const ROUTE_DOT = 3
-/** Чем ставящееся свяжется с сетью: труба автоподключения и подземный отрезок колодца. */
+/** Подземный отрезок колодца, с которым свяжется ставящийся. */
 const LINK: Color = [0.4, 0.75, 1]
 const ROUTE_STEP = 0.5
 
@@ -174,8 +174,8 @@ export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass
           else for (const zone of zones) outline(zone.circles, FORBIDDEN)
         }
         /**
-         * С чем свяжется ставящееся: колодец — пунктир до парных колодцев, без пары — красная метка; здание — трасса
-         * трубы автоподключения до сети, а без сети рядом — красная метка «не подключено».
+         * С чем свяжется ставящееся: колодец — пунктир до парных колодцев, без пары — красная метка; здание, к основанию
+         * которого не подходит своя труба, — красная метка «не подключено».
          */
         const connections = (type: BuildingType, x: number, y: number) => {
           const dot = ROUTE_DOT / camera.zoom
@@ -200,10 +200,8 @@ export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass
           }
           const spec = buildingSpec(type)
           if (spec.pipe || spec.isolated) return
-          const route = autoPipeOf(scene.sim, scene.player, type, x, y)
-          for (let i = 0; i < route.length; i += 2) area(route[i], route[i + 1], 1, 1, LINK)
-          // Ни трубы к основанию, ни сети рядом: здание встанет отдельной сетью.
-          if (!route.length && !pipeRoute(scene.sim, scene.player, x, y, spec.width, spec.height)) cross(x + spec.width / 2, y + spec.height / 2)
+          // К основанию не подходит своя труба: здание встанет отдельной сетью.
+          if (pipeRoute(scene.sim, scene.player, x, y, spec.width, spec.height)?.length !== 0) cross(x + spec.width / 2, y + spec.height / 2)
         }
         if (placement) {
           const { width, height } = BUILDINGS[placement.type]
