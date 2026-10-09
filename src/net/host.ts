@@ -176,9 +176,12 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
   let nextPlayer = Math.max(0, ...players.values()) + 1
   /** Ники игроков по номеру. */
   const names = new Map<number, string>(Object.entries(saved?.names ?? {}).map(([player, name]) => [Number(player), name]))
-  const roster = () => {
+  /** Скрытые администраторы, /hide: для остальных их нет — ни в списке, ни в сообщениях о входе. До перезапуска. */
+  const hidden = new Set<number>()
+  /** Кто играет — глазами viewer: скрытых он не видит, кроме самого себя. */
+  const roster = (viewer?: number) => {
     const online = new Set(peers.values())
-    const list: PlayerInfo[] = [...names].map(([player, name]) => ({ player, name, online: online.has(player) }))
+    const list: PlayerInfo[] = [...names].filter(([who]) => !hidden.has(who) || who === viewer).map(([player, name]) => ({ player, name, online: online.has(player) }))
     return JSON.stringify({ type: 'players', players: list } satisfies ServerMessage)
   }
   /** Сообщает всем подключённым, кто сейчас в игре. */
@@ -186,8 +189,12 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
     // Кто в сети, знает только сервер: доход игрока не в сети урезан, см. Rules.offlineIncome. Локальная игра
     // (player задан) идёт, только пока открыта, и там все в сети.
     if (player === undefined) sim.online = new Set(peers.values())
-    const text = roster()
-    for (const send of peers.keys()) send(text)
+    const texts = new Map<number, string>()
+    for (const [send, viewer] of peers) {
+      let text = texts.get(viewer)
+      if (text === undefined) texts.set(viewer, (text = roster(viewer)))
+      send(text)
+    }
   }
   let stateSize = 0
   /** Когда подключение писало в чат последний раз, в мс: чаще CHAT_GAP сообщения отбрасываются. */
@@ -213,7 +220,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
     for (const send of editing) {
       const own = peers.get(send)
       const list: PlayerView[] = []
-      for (const [peer, box] of views) if (peers.get(peer) !== own) list.push({ player: peers.get(peer)!, name: nameOf(peers.get(peer)!), ...box })
+      for (const [peer, box] of views) if (peers.get(peer) !== own && !hidden.has(peers.get(peer)!)) list.push({ player: peers.get(peer)!, name: nameOf(peers.get(peer)!), ...box })
       const text = JSON.stringify({ type: 'views', views: list } satisfies ServerMessage)
       if (viewsShown.get(send) === text) continue
       viewsShown.set(send, text)
@@ -228,8 +235,12 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
   const reply = (send: Send) => (text: string) => send(JSON.stringify({ type: 'chat', lines: [{ player: 0, name: '', text, system: true }] } satisfies ServerMessage))
   const nameOf = (who: number) => names.get(who) ?? `Игрок ${who}`
   /** Игрок по номеру или нику без учёта регистра; не нашёлся — undefined. */
-  const findPlayer = (text: string | undefined) => {
+  const findPlayer = (text: string | undefined, admin = true) => {
     if (!text) return undefined
+    const found = findAny(text)
+    return found !== undefined && (admin || !hidden.has(found)) ? found : undefined
+  }
+  const findAny = (text: string) => {
     const number = Number(text)
     if (Number.isInteger(number) && names.has(number)) return number
     const lower = text.toLowerCase()
@@ -267,7 +278,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
     args: [],
     help: 'кто сейчас в игре',
     run(_args, _rest, caller) {
-      const here = [...new Set(peers.values())].map(nameOf)
+      const here = [...new Set(peers.values())].filter((who) => caller.admin || !hidden.has(who)).map((who) => (hidden.has(who) ? `${nameOf(who)} (скрыт)` : nameOf(who)))
       caller.reply(here.length ? `В игре ${here.length}: ${here.join(', ')}` : 'В игре никого')
     },
   })
@@ -287,14 +298,14 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
     help: 'личное сообщение',
     game: true,
     run(args, rest, caller) {
-      const to = findPlayer(args[0])
+      const to = findPlayer(args[0], caller.admin)
       const text = rest(1)
       if (to === undefined) return caller.reply(`Нет игрока «${args[0] ?? ''}»`)
       if (!text) return caller.reply(usage(this))
       const out = JSON.stringify({ type: 'chat', lines: [{ player: caller.player!, name: nameOf(caller.player!), text, whisper: nameOf(to) }] } satisfies ServerMessage)
       const self = callers.get(caller)
       for (const [peer, owner] of peers) if (owner === to || owner === caller.player || peer === self) peer(out)
-      if (![...peers.values()].includes(to)) caller.reply(`${nameOf(to)} сейчас не в игре`)
+      if (![...peers.values()].includes(to) || (hidden.has(to) && !caller.admin)) caller.reply(`${nameOf(to)} сейчас не в игре`)
     },
   })
   add({
@@ -350,6 +361,27 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
       resync(send, caller.player!, true)
       caller.reply(on ? 'Редактор: правки сразу видны всем. /editor — выйти' : 'Редактор закрыт')
       options.log?.(`! ${nameOf(caller.player!)} ${on ? 'открыл' : 'закрыл'} редактор`)
+    },
+  })
+  add({
+    name: 'hide',
+    args: [],
+    help: 'исчезнуть для игроков: нет в списке, вход и выход не объявляются; ещё раз — появиться',
+    admin: true,
+    game: true,
+    run(_args, _rest, caller) {
+      const who = caller.player!
+      // Для остальных — как будто вышел или зашёл.
+      if (hidden.delete(who)) {
+        notice(who, 'заходит в игру')
+        caller.reply('Вас снова видно')
+      } else {
+        notice(who, 'выходит из игры')
+        hidden.add(who)
+        caller.reply('Вас не видно: /hide — появиться')
+      }
+      announce()
+      options.log?.(`! ${nameOf(who)} ${hidden.has(who) ? 'скрылся' : 'появился'}`)
     },
   })
   add({
@@ -778,7 +810,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
       const nick = cleanName(name ?? '')
       if (nick || !names.has(joined)) names.set(joined, nick || `Игрок ${joined}`)
       // О входе — только когда игрок появился: вторая вкладка того же игрока не в счёт. Локальной игре не нужно.
-      if (player === undefined && !online(joined)) notice(joined, 'заходит в игру')
+      if (player === undefined && !online(joined) && !hidden.has(joined)) notice(joined, 'заходит в игру')
       peers.set(send, joined)
       shown.set(send, new Set())
       sent.set(send, new Map())
@@ -858,7 +890,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
           adminLocked.delete(send)
           closers.delete(send)
           sent.delete(send)
-          if (player === undefined && !online(joined)) notice(joined, 'выходит из игры')
+          if (player === undefined && !online(joined) && !hidden.has(joined)) notice(joined, 'выходит из игры')
           announce()
         },
       }
@@ -903,7 +935,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
           for (const who of names.keys()) {
             if (defeated.has(who) || !isDefeated(sim, who)) continue
             defeated.add(who)
-            notice(who, 'терпит поражение')
+            if (!hidden.has(who)) notice(who, 'терпит поражение')
           }
         }
         const expired = sim.traces.expired()

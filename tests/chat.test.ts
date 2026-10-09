@@ -185,3 +185,30 @@ test('редактор живого мира: только после /editor, �
   expect(units()).toBe(before + 1)
   expect(replies.some((text) => text.startsWith('Редактор'))).toBe(true)
 })
+
+test('/hide: скрытого администратора нет в списке игроков у других, вход не объявляется', () => {
+  const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: 256 }), undefined, undefined, { admin: 'секрет' })
+  const rosters: string[][] = []
+  let id: string | undefined
+  const admin = host.join((data) => {
+    const message = decodeServer(data)
+    if (message.type === 'welcome') id ??= message.id
+  }, undefined, 'Админ')
+  const other = connect(host, 'Другой')
+  const watcher = host.join((data) => {
+    const message = decodeServer(data)
+    if (message.type === 'players') rosters.push(message.players.map((info) => info.name))
+  }, undefined, 'Смотрящий')
+  admin.receive(JSON.stringify({ type: 'chat', text: '/admin секрет' }))
+  const now = Date.now
+  Date.now = () => now() + 1000
+  admin.receive(JSON.stringify({ type: 'chat', text: '/hide' }))
+  Date.now = now
+  expect(rosters.at(-1)).not.toContain('Админ')
+  expect(other.notices.at(-1)).toMatchObject({ name: 'Админ', text: 'выходит из игры' })
+  const count = other.notices.length
+  admin.leave()
+  host.join(() => {}, id, 'Админ')
+  expect(other.notices.length).toBe(count)
+  void watcher
+})

@@ -325,7 +325,8 @@ export function createGame(
     motion.measure(seconds)
 
     soundscape?.update(seconds, motion.speed)
-    scene.alerts?.update(seconds)
+    // В редакторе тревоги ни к чему: администратор видит весь мир, и «замечен враг» сыпалось бы без конца.
+    if (!(session.sim as { editor?: boolean }).editor) scene.alerts?.update(seconds)
     machines?.update(seconds)
     interfaceSounds?.update(seconds, scene.selection)
     shake.update(seconds)

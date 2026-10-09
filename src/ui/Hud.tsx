@@ -732,7 +732,7 @@ export function Hud({ state, send, place, pave, route, serve, patrol, minimap, l
         </div>
       )}
 
-      {state.alerts.length > 0 && (
+      {state.alerts.length > 0 && !state.editor && (
         <div class="hud hud--alerts" role="status">
           {state.alerts.map(({ kind, text, x, y, at }) => (
             <button key={at} class={`hud__alert is-${kind}`} data-tip="Показать место" onClick={() => flyTo(x, y)}>
@@ -753,9 +753,10 @@ export function Hud({ state, send, place, pave, route, serve, patrol, minimap, l
         </div>
       )}
 
-      <section class="hud bar">
+      {/* В редакторе справа его панель: от нижней остаётся только мини-карта. */}
+      <section class={`hud bar${state.editor ? ' is-editor' : ''}`}>
         <MinimapView minimap={minimap} lookAt={lookAt} moveSelected={moveSelected} />
-        {selected ? (
+        {state.editor ? null : selected ? (
           <Info state={state} lookAtSelection={lookAtSelection} narrow={narrow} />
         ) : (
           <div class="bar__info bar__info--empty">
@@ -763,7 +764,7 @@ export function Hud({ state, send, place, pave, route, serve, patrol, minimap, l
             группу, цифра — выбрать её
           </div>
         )}
-        <CommandGrid slots={selected ? slots : Array(GRID_KEYS.length).fill(null)} />
+        {!state.editor && <CommandGrid slots={selected ? slots : Array(GRID_KEYS.length).fill(null)} />}
       </section>
     </>
   )

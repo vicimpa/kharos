@@ -374,6 +374,10 @@ body {
   padding: 6px 8px;
 }
 
+.bar.is-editor {
+  right: auto;
+}
+
 .bar__minimap {
   flex: none;
   width: 196px;
