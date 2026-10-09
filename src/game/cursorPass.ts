@@ -2,7 +2,7 @@ import { setBlend } from '../gl'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites, createWhiteTexture } from '../render/sprites'
 import type { Entity } from '../ecs'
-import { BUILDINGS, Building, CONTROL_RADIUS, Hauler, Position, Tactics, allZones, buildingSpec, hubTargets, hubsReaching, pipeRoute, wellPartners, type BuildingType } from '../sim'
+import { BUILDINGS, Building, CONTROL_RADIUS, Hauler, Position, Tactics, allZones, buildingSpec, hubTargets, hubsReaching, wellPartners, type BuildingType } from '../sim'
 import { paveStrokeOf, placementOf } from './placing'
 import type { Scene } from './scene'
 
@@ -175,8 +175,7 @@ export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass
         }
         /**
          * С чем свяжется ставящееся: колодец — пунктир до парных колодцев, без пары — красная метка; узел связи — радиус
-         * и пунктир до всего, что подключит; здание в радиусе узла — пунктир до него; здание, к основанию которого
-         * не подходит своя труба и не достаёт узел, — красная метка «не подключено».
+         * и пунктир до всего, что подключит; здание в радиусе узла — пунктир до него.
          */
         const connections = (type: BuildingType, x: number, y: number) => {
           const dot = ROUTE_DOT / camera.zoom
@@ -223,8 +222,6 @@ export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass
           // В радиусе своего узла связи: здание подключит он.
           const hubs = hubsReaching(scene.sim, scene.player, x, y, spec.width, spec.height)
           for (const hub of hubs) dashed(hub.x, hub.y, cx, cy, BORDER_ALPHA)
-          // К основанию не подходит своя труба и нет узла рядом: здание встанет отдельной сетью.
-          if (!hubs.length && pipeRoute(scene.sim, scene.player, x, y, spec.width, spec.height)?.length !== 0) cross(cx, cy)
         }
         if (placement) {
           const { width, height } = BUILDINGS[placement.type]
