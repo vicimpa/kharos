@@ -1,6 +1,6 @@
 import type { Entity } from '../ecs'
 import { tileKey } from '../map/terrain'
-import { BUILDINGS, UNDERGROUND_REACH, buildingSpec, canPlace, placeBuilding, type BuildingType } from './buildings'
+import { BUILDINGS, UNDERGROUND_REACH, buildingSpec, canPlace, placeBuilding, siteAt, type BuildingType } from './buildings'
 import { Building, Owner, Position, Site } from './components'
 import type { Sim } from './sim'
 import { assignBuilders } from './construction'
@@ -187,4 +187,17 @@ export function orderPipes(sim: Sim, player: number, tiles: readonly number[], b
   }
   if (first !== undefined) assignBuilders(sim, player, first, builders)
   return count
+}
+
+/**
+ * Своя труба или колодец в тайле — готовые, строящиеся или только заложенные; undefined — такой нет или её уже
+ * разбирают. Её снимает инструмент «Снять» вместе с покрытием, см. removePave.
+ */
+export function pipeAt(sim: Sim, player: number, x: number, y: number): Entity | undefined {
+  const { world } = sim
+  const entity = sim.occupancy.at(x, y) ?? siteAt(sim, x, y)
+  if (entity === undefined || world.get(entity, Owner)?.player !== player) return undefined
+  const site = world.get(entity, Site)
+  const type = world.get(entity, Building)?.type ?? site?.type
+  return type !== undefined && buildingSpec(type).pipe && !site?.demolish ? entity : undefined
 }

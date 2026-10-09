@@ -2,8 +2,9 @@ import type { Entity } from '../ecs'
 import { Terrain, isCliffFoot, isPassable, terrainAt } from '../map/terrain'
 import { BUILDINGS, siteAt, type BuildingType } from './buildings'
 import { isOwn } from './common'
-import { Owner, Pave, Position, Repair, Unit } from './components'
-import { assignBuilders } from './construction'
+import { Owner, Pave, Position, Repair, Site, Unit } from './components'
+import { assignBuilders, cancelBuild, demolish } from './construction'
+import { pipeAt } from './piping'
 import { addCredits, pay } from './economy'
 import type { Sim } from './sim'
 import { inForeignZone } from './zones'
@@ -68,15 +69,19 @@ export function orderPave(sim: Sim, player: number, kind: PaveKind, tiles: reado
 }
 
 /**
- * Снимает своё покрытие с тайлов строителями: недостроенное отменяется сразу, с возвратом кредитов целиком, готовое
- * строители разбирают, как здание, — без возврата. Без своих строителей среди units не снимают ничего.
+ * Снимает своё покрытие и свои трубы с колодцами с тайлов строителями: недостроенное покрытие и не начатая труба
+ * отменяются сразу, с возвратом кредитов целиком; готовое покрытие строители разбирают без возврата, готовую трубу —
+ * как здание, с возвратом половины. Без своих строителей среди units не снимают ничего.
  */
 export function removePave(sim: Sim, player: number, tiles: readonly number[], units: Entity[]) {
   const builders = units.filter((entity) => isOwn(sim, player, entity) && sim.world.has(entity, Repair) && sim.world.has(entity, Unit))
   if (!builders.length) return false
   let first: Entity | undefined
   let count = 0
+  const pipes: Entity[] = []
   for (let i = 0; i + 1 < tiles.length && i < PAVE_LIMIT * 2; i += 2) {
+    const pipe = pipeAt(sim, player, tiles[i], tiles[i + 1])
+    if (pipe !== undefined && !pipes.includes(pipe)) pipes.push(pipe)
     const entity = sim.paving.at(tiles[i], tiles[i + 1])
     if (entity === undefined || !isOwn(sim, player, entity)) continue
     const pave = sim.world.get(entity, Pave)!
@@ -88,6 +93,12 @@ export function removePave(sim: Sim, player: number, tiles: readonly number[], u
     }
     pave.remove = true
     first ??= entity
+  }
+  for (const pipe of pipes) {
+    count++
+    // Начатую стройку трубы тоже отменяют целиком: с возвратом, как площадку.
+    if (sim.world.has(pipe, Site)) cancelBuild(sim, player, pipe)
+    else if (demolish(sim, player, pipe, [])) first ??= pipe
   }
   if (first !== undefined) assignBuilders(sim, player, first, builders)
   return count > 0

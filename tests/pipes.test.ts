@@ -2,13 +2,13 @@ import { expect, test } from 'bun:test'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Terrain, terrainAt } from '../src/map/terrain'
 import { Assembly, Batch, Inventory, Site, canBuild, createSim, type Sim } from '../src/sim'
-import { placeBuilding } from '../src/sim/buildings'
+import { placeBuilding, siteAt } from '../src/sim/buildings'
 import { amountOf, put } from '../src/sim/inventory'
 import { powerSupply } from '../src/sim/income'
 import { BATCH } from '../src/sim/pipes'
 import { networkOf, zonesOf } from '../src/sim/zones'
 import { pipeStroke, wellPartners } from '../src/sim/piping'
-import { addCredits } from '../src/sim/economy'
+import { addCredits, creditsOf } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
 import { throughJson } from './throughJson'
 
@@ -166,4 +166,24 @@ test('трубу тянут без зоны: цепочка закладывае
   // В чужой зоне класть нельзя.
   placeBuilding(sim.world, 'command', x + 36, y, 2)
   expect(pipeStroke(sim, 1, [x + 34, y + 3])).toEqual([false])
+})
+
+test('«Снять» убирает и трубы: заложенную — сразу с возвратом, готовую разбирают строители', () => {
+  const sim = createSim(options)
+  const { x, y } = rock(sim, 16, 4)
+  placeBuilding(sim.world, 'command', x, y, 1)
+  addCredits(sim, 1, 1000)
+  const builder = spawnUnit(sim, 'builder', 1, x + 3, y + 3)
+  const built = placeBuilding(sim.world, 'pipe', x + 3, y + 1, 1)
+  sim.send(1, { type: 'pipes', tiles: [x + 10, y + 1], builders: [] })
+  run(sim, 1)
+  const credits = creditsOf(sim, 1)
+  sim.send(1, { type: 'unpave', tiles: [x + 3, y + 1, x + 10, y + 1], builders: [builder] })
+  run(sim, 1)
+  // Заложенная отменилась с полным возвратом; готовую разбирают.
+  expect(siteAt(sim, x + 10, y + 1)).toBeUndefined()
+  expect(creditsOf(sim, 1) - credits).toBeGreaterThanOrEqual(5)
+  expect(sim.world.get(built, Site)?.demolish).toBe(true)
+  run(sim, 20 * 10)
+  expect(sim.world.alive(built)).toBe(false)
 })
