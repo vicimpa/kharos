@@ -6,7 +6,7 @@ import type { Sim } from './sim'
 import { assignBuilders } from './construction'
 import { pay } from './economy'
 import { PAVE_LIMIT } from './paving'
-import { allZones, inCircles, inForeignZone, networkOf, zoneOf, type Zone } from './zones'
+import { allZones, inForeignZone, networkOf, type Zone } from './zones'
 
 /**
  * Прокладка труб: протяжка наземной трубы, пары колодцев и трассы, которыми тесты и готовые базы (тестовая карта,
@@ -154,19 +154,16 @@ export function wellPartners(sim: Sim, player: number, x: number, y: number) {
 }
 
 /**
- * Какие тайлы протянутой трубы можно заложить, по тайлу: место годится под трубу, не в чужой зоне и либо в своей
- * зоне, либо вплотную к уже принятому тайлу этой же протяжки. Так трубу тянут за край зоны: каждая готовая труба
- * расширяет зону на PIPE_REACH, и строители проходят цепочку по очереди. Кредиты здесь не считаются.
+ * Какие тайлы протянутой трубы можно заложить, по тайлу: место годится под трубу и не в чужой зоне. Своя зона
+ * трубе не нужна: её тянут куда угодно. Кредиты здесь не считаются.
  */
 export function pipeStroke(sim: Sim, player: number, tiles: readonly number[]): boolean[] {
-  const zone = zoneOf(sim, player)
   const taken = new Set<number>()
   const allowed: boolean[] = []
   for (let i = 0; i + 1 < tiles.length; i += 2) {
     const x = tiles[i]
     const y = tiles[i + 1]
-    const chained = SIDES.some(([dx, dy]) => taken.has(tileKey(x + dx, y + dy)))
-    const ok = !taken.has(tileKey(x, y)) && canPlace(sim, 'pipe', x, y) && !inForeignZone(sim, player, x, y, 1, 1) && (chained || inCircles(zone, x + 0.5, y + 0.5))
+    const ok = !taken.has(tileKey(x, y)) && canPlace(sim, 'pipe', x, y) && !inForeignZone(sim, player, x, y, 1, 1)
     if (ok) taken.add(tileKey(x, y))
     allowed.push(ok)
   }

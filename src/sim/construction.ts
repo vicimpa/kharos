@@ -44,11 +44,11 @@ export function inControl(sim: Sim, player: number, type: BuildingType, x: numbe
 
 /**
  * Нужна ли зданию своя зона строительства: здание с собственной зоной её не требует — оно начинает новую,
- * а оборонительные постройки ставят и вовсе где угодно, лишь бы не в чужой зоне.
+ * а оборонительные постройки и трубы ставят и вовсе где угодно, лишь бы не в чужой зоне.
  */
 function needsZone(type: BuildingType) {
-  const { zone, defense } = buildingSpec(type)
-  return zone === undefined && !defense
+  const { zone, defense, pipe } = buildingSpec(type)
+  return zone === undefined && !defense && !pipe
 }
 
 /** Стоит ли стройка здесь без зоны: здание её требует, а в зоне игрока его нет. Фундамент зону не заменяет. */
