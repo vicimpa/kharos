@@ -183,8 +183,8 @@ function Chat({ lines, picking, say }: { lines: NonNullable<HudState['chat']>; p
         {shown.map((line, i) => {
           const left = CHAT_SHOWN - (now - line.at) / 1000
           return (
-            <div key={i} class="chat__line" style={open ? undefined : { opacity: Math.min(1, left / CHAT_FADE) }}>
-              <b class={line.own ? 'is-own' : undefined}>&lt;{line.name}&gt;</b> {line.text}
+            <div key={i} class={`chat__line${line.system ? ' is-system' : ''}`} style={open ? undefined : { opacity: Math.min(1, left / CHAT_FADE) }}>
+              {line.system ? `${line.name} ${line.text}` : <><b class={line.own ? 'is-own' : undefined}>&lt;{line.name}&gt;</b> {line.text}</>}
             </div>
           )
         })}

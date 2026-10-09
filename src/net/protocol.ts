@@ -61,6 +61,8 @@ export interface ChatLine {
   player: number
   name: string
   text: string
+  /** Сообщение самого сервера: кто зашёл, вышел, проиграл. name у него — о ком оно. */
+  system?: true
 }
 
 /** Самое длинное сообщение чата; длиннее обрезается. */

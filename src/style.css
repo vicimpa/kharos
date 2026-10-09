@@ -1390,3 +1390,9 @@ body {
   text-shadow: 2px 2px 0 #3f3f3f;
   pointer-events: auto;
 }
+
+/* Сообщения сервера — жёлтые, как «зашёл в игру» в Minecraft. */
+.chat__line.is-system {
+  color: #ffff55;
+  text-shadow: 2px 2px 0 #3f3f15;
+}

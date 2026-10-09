@@ -150,6 +150,16 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
   let stateSize = 0
   /** Когда подключение писало в чат последний раз, в мс: чаще CHAT_GAP сообщения отбрасываются. */
   const lastChat = new Map<Send, number>()
+  /** Рассылает сообщения чата всем подключённым. */
+  const broadcast = (lines: ChatLine[]) => {
+    const out = JSON.stringify({ type: 'chat', lines } satisfies ServerMessage)
+    for (const peer of peers.keys()) peer(out)
+  }
+  /** Сообщение сервера о игроке: «<ник> text». */
+  const notice = (about: number, text: string) => broadcast([{ player: about, name: names.get(about) ?? `Игрок ${about}`, text, system: true }])
+  const online = (who: number) => [...peers.values()].includes(who)
+  /** Кто уже побеждён: о поражении сообщается один раз, когда оно случилось. */
+  const defeated = new Set([...names.keys()].filter((who) => isDefeated(sim, who)))
 
   /** Сущности, какими они уходят всем, кроме пути, — собранные в этом тике, см. sharedWireOf. */
   const common: { tick: number; sim: Sim | undefined; wired: Map<number, Wired> } = { tick: -1, sim: undefined, wired: new Map() }
@@ -316,6 +326,8 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
       sim = next
       fillDeposits(sim)
       depositsSent = sim.deposits.revision
+      defeated.clear()
+      for (const who of names.keys()) if (isDefeated(sim, who)) defeated.add(who)
       const cache = new Map<number, View>()
       for (const [send, player] of peers) {
         send(welcome(player))
@@ -347,6 +359,8 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
       const joined = own
       const nick = cleanName(name ?? '')
       if (nick || !names.has(joined)) names.set(joined, nick || `Игрок ${joined}`)
+      // О входе — только когда игрок появился: вторая вкладка того же игрока не в счёт. Локальной игре не нужно.
+      if (player === undefined && !online(joined)) notice(joined, 'заходит в игру')
       peers.set(send, joined)
       shown.set(send, new Set())
       sent.set(send, new Map())
@@ -373,14 +387,15 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
             if (!clean || now - (lastChat.get(send) ?? -Infinity) < CHAT_GAP) return
             lastChat.set(send, now)
             const line: ChatLine = { player: joined, name: names.get(joined) ?? `Игрок ${joined}`, text: clean }
-            const out = JSON.stringify({ type: 'chat', lines: [line] } satisfies ServerMessage)
-            for (const peer of peers.keys()) peer(out)
+            broadcast([line])
             return
           }
           // Проигравший начинает заново: остатки его базы исчезают, а сам он получает новый стартовый набор.
           if (type === 'respawn') {
             if (!isDefeated(sim, joined)) return
             wipePlayer(sim, joined)
+            defeated.delete(joined)
+            if (player === undefined) notice(joined, 'начинает заново')
             sim.vision.forget(joined)
             place(joined)
             // Вкладки игрока начинают как в новом мире: туман закрыт, камера встаёт на новый стартовый набор.
@@ -406,6 +421,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
           depositsShown.delete(send)
           lastChat.delete(send)
           sent.delete(send)
+          if (player === undefined && !online(joined)) notice(joined, 'выходит из игры')
           announce()
         },
       }
@@ -438,6 +454,14 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
         sinceSweep += ticks
         const sweep = sinceSweep >= SWEEP_TICKS
         if (sweep) sinceSweep = 0
+        // Поражение — сообщение всем, один раз. Локальной игре не нужно: там игрок один.
+        if (sweep && player === undefined) {
+          for (const who of names.keys()) {
+            if (defeated.has(who) || !isDefeated(sim, who)) continue
+            defeated.add(who)
+            notice(who, 'терпит поражение')
+          }
+        }
         const expired = sim.traces.expired()
         const deposits = new Map<number, string>()
         for (const [send, player] of peers) {
