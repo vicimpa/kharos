@@ -3,9 +3,9 @@ import type { Replica } from '../net/replica'
 import { knownReserve } from './knownReserve'
 import type { Entity } from '../ecs'
 import {
-  Assembly, Harvester, BUILDABLE, isUnlocked, buyPrice, roomFor, BUILDINGS, Building, Converting, Hauler, Health, CORE, GOODS, PRODUCT_SPECS, REFINE_RATE, RESOURCES, RESOURCE_SPECS, buildingSpec, cycleSeconds, isOwn, missingRequirements, producibleBy, productStock, hasRoom, Trade, Inventory, amountOf, loadOf, deliveredTo, stockOf, stockOfZone, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit, unitSpec,
+  Assembly, Harvester, BUILDABLE, isUnlocked, buyPrice, roomFor, BUILDINGS, Building, Converting, Hauler, Health, CORE, GOODS, PRODUCT_SPECS, REFINE_RATE, RESOURCES, RESOURCE_SPECS, buildingSpec, cycleSeconds, isOwn, missingRequirements, producibleBy, productStock, hasRoom, Trade, Inventory, amountOf, loadOf, deliveredTo, stockOf, stockOfZone, isPipe, networkOf, zoneWith, Producer, QUEUE_LIMIT, Site, UNITS, UNIT_TYPES, Unit, unitSpec,
   awaitsMaterials, buildTicks, canDemolish, canFight, canDeploy, canPack, depositAt, depositNear, DEPOSIT_SIZE, entriesOf, isDeployBlocked, creditsOf, coreless, economyOf, isSiteBlocked, materialsFor, reserveLeft, powerOf, powerStates, refundOf, repairCostOf, rewardsOf, siteTicks, spareOf, unlinked, zoneEconomies, gridsOf,
-  Off, Position, Tactics, isDefeated, stanceOf, type Stance, type Amounts, type BuildingType, type Command, type DepositKind, type Good, type Ore, type Product, type Resource, type UnitType,
+  Off, Owner, Position, Tactics, isDefeated, stanceOf, type Stance, type Amounts, type BuildingType, type Command, type DepositKind, type Good, type Ore, type Product, type Resource, type UnitType,
 } from '../sim'
 import { paveStrokeOf } from './placing'
 import type { PaveTool, Scene } from './scene'
@@ -20,6 +20,8 @@ export interface HudState {
    * чтобы подсказка встала рядом. null — указатель не над месторождением.
    */
   hover: { kind: DepositKind; left: number | null; x: number; y: number } | null
+  /** Своя труба, колодец или узел связи под указателем: сколько зданий в его сети и что у неё в запасе. */
+  pipeHover: { buildings: number; stock: Stack[]; capacity: number; x: number; y: number } | null
   /** Награды, которые игрок уже получил, по порядку. */
   rewards: string[]
   /** Время суток в мире, «чч:мм», и идёт ли непогода. */
@@ -205,6 +207,22 @@ function hoverOf(scene: Scene): HudState['hover'] {
   // В тумане — остаток, каким его видели в последний раз: чужую добычу сквозь туман не видно.
   const left = knownReserve(sim, scene.player, spot)
   return { kind: spot.kind, left: left === null ? null : Math.floor(left), x: camera.pointer.x, y: camera.pointer.y }
+}
+
+/** Своя труба, колодец или узел под указателем мыши, см. HudState.pipeHover. */
+function pipeHoverOf(scene: Scene): HudState['pipeHover'] {
+  const { camera, sim } = scene
+  const tile = camera.pointerTile
+  if (!tile || !camera.pointer) return null
+  const entity = sim.occupancy.at(tile.x, tile.y)
+  if (entity === undefined || sim.world.get(entity, Owner)?.player !== scene.player) return null
+  const type = sim.world.get(entity, Building)?.type
+  if (type === undefined || (!isPipe(type) && !buildingSpec(type).link)) return null
+  const network = networkOf(sim, entity)
+  if (!network) return null
+  const buildings = network.buildings.filter((member) => !isPipe(sim.world.get(member, Building)!.type) && !buildingSpec(sim.world.get(member, Building)!.type).link).length
+  const { items, capacity } = stockOfZone(sim, network)
+  return { buildings, stock: stacksOf(items), capacity, x: camera.pointer.x, y: camera.pointer.y }
 }
 
 /** Собирает состояние интерфейса из симуляции и выделения. */
@@ -397,6 +415,7 @@ export function readHud(scene: Scene): HudState {
   const state: HudState = {
     credits,
     hover: hoverOf(scene),
+    pipeHover: pipeHoverOf(scene),
     rewards: [...rewardsOf(sim, player)],
     loaded: sim.time.tick > 0,
     defeated: sim.time.tick > 0 && isDefeated(sim, player),

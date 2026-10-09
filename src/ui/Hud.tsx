@@ -562,6 +562,17 @@ export function Hud({ state, send, place, pave, route, serve, patrol, minimap, l
         </div>
       )}
 
+      {state.pipeHover && (
+        <div class="hud tip" style={{ left: `${state.pipeHover.x + 16}px`, top: `${state.pipeHover.y + 16}px` }}>
+          Сеть: зданий {state.pipeHover.buildings}
+          <small>
+            {state.pipeHover.stock.length
+              ? state.pipeHover.stock.map(({ resource, amount }) => <Res key={resource} resource={resource} amount={amount} />)
+              : state.pipeHover.capacity ? 'хранилища пусты' : 'хранилищ нет'}
+          </small>
+        </div>
+      )}
+
       {state.alerts.length > 0 && (
         <div class="hud hud--alerts" role="status">
           {state.alerts.map(({ kind, text, x, y, at }) => (

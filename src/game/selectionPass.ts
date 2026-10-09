@@ -4,7 +4,7 @@ import { createAtlas } from '../render/atlas'
 import { Pixmap } from '../render/pixmap'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites } from '../render/sprites'
-import { BUILDINGS, Building, Converting, DEPOSIT_SIZE, Orders, Owner, Path, Position, Producer, Site, UNITS, Unit, buildTicks, siteTicks } from '../sim'
+import { BUILDINGS, Building, Converting, DEPOSIT_SIZE, Orders, Owner, Path, Position, Producer, Site, UNITS, Unit, buildTicks, networkOf, siteTicks } from '../sim'
 import type { Scene } from './scene'
 import { drawnPosition } from './units/unitsPass'
 
@@ -17,6 +17,8 @@ const BORDER = 1
 const BOX_FILL_ALPHA = 0.12
 /** Насколько ярко подсвечены те, кого выберет рамка, пока её тянут. */
 const HIT_ALPHA = 0.5
+/** Насколько ярки рамки остальной сети труб выбранного здания или трубы. */
+const NETWORK_ALPHA = 0.35
 /** Высота полоски прогресса в пикселях экрана и её отступ от сущности в тайлах. */
 const BAR_HEIGHT = 4
 const BAR_GAP = 0.3
@@ -196,6 +198,17 @@ export function createSelectionPass(gl: WebGL2RenderingContext, scene: Scene): P
           rect(bounds.x + bounds.width - pixel * 2, bounds.y, pixel * 2, bounds.height, SELECTED, alpha)
         }
       }
+      // Обзор сети: у выбранного своего здания, трубы или стройки — бледные рамки на всём, что с ним в одной сети.
+      // Чего в рамках нет, то от сети отрезано.
+      const networked = new Set<Entity>()
+      for (const entity of scene.selection) {
+        if (world.get(entity, Owner)?.player !== scene.player) continue
+        const network = networkOf(scene.sim, entity)
+        if (!network) continue
+        for (const member of network.buildings) networked.add(member)
+        for (const member of network.sites) networked.add(member)
+      }
+      for (const entity of networked) if (!scene.selection.has(entity)) mark(entity, NETWORK_ALPHA)
       for (const entity of scene.selection) mark(entity, 1)
       // Кого выберет рамка, если отпустить её сейчас, — бледнее выбранных.
       for (const entity of scene.selectionBox?.hits ?? []) if (!scene.selection.has(entity)) mark(entity, HIT_ALPHA)
