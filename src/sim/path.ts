@@ -9,7 +9,7 @@ export type Slowness = (x: number, y: number) => number
 const EVEN: Slowness = () => 1
 
 /** Сколько тайлов поиск осматривает, прежде чем сдаться и повести к ближайшему найденному, если не сказано иначе. */
-const SEARCH_LIMIT = 20000
+export const SEARCH_LIMIT = 20000
 const DIAGONAL = Math.SQRT2
 /** Насколько по бокам от линии движения должно быть свободно, в тайлах. */
 const CLEARANCE = 0.3

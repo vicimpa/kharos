@@ -7,7 +7,7 @@ import { unitSight } from './vision'
 import { STARTING_CREDITS, addCredits } from './economy'
 import { equipStorage, type BeamSpec } from './inventory'
 import type { Amounts } from './resources'
-import { findPath, smoothPath } from './path'
+import { SEARCH_LIMIT, beyondWindow, findPath, smoothPath } from './path'
 import type { Sim } from './sim'
 import { mountTurrets, turretSpec, type MountSpec } from './turrets'
 import type { UnitClass, WeaponType } from './weapons'
@@ -386,6 +386,9 @@ export function spawnStartingUnits(sim: Sim, player: number, x: number, y: numbe
   return units
 }
 
+/** Во сколько раз дольше ищется путь, если обычный поиск не дошёл до цели: см. orderMove. */
+const LONG_SEARCH = 4
+
 /**
  * Отправляет юнит в тайл (x, y): прокладывает путь и кладёт его в компонент Path.
  * Стоящих юнитов путь обходит; если в самой цели кто-то стоит, юнит идёт на свободный тайл рядом.
@@ -427,7 +430,20 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
   // Подход на расстояние ищется недолго: не вышло обойти — юнит встанет поближе и попробует оттуда.
   // Оценка с запасом на дорогу дороже обычной — поиск осматривает больше тайлов; нужна она, только если дорога в виду.
   const fastest = fastestOf(type) > 1 && roadInSight(sim, entity) ? 1 / fastestOf(type) : 1
-  const tiles = findPath(walkable, fromX, fromY, x, y, near, near ? APPROACH_LIMIT : limit, slowness, fastest)
+  let tiles = findPath(walkable, fromX, fromY, x, y, near, near ? APPROACH_LIMIT : limit, slowness, fastest)
+  // С ценой шага поиск осматривает в разы больше тайлов: в лабиринте песков и болот он упирается в лимит раньше,
+  // чем дойдёт, хотя путь есть. Тогда — ещё раз с запасом. Путь без цены шага не годится: он ведёт напрямик через
+  // едкое болото, и оно сжигает грузовик в дороге.
+  const reaches = (path: number[]) => {
+    if (!path.length) return fromX === x && fromY === y
+    const dx = path[path.length - 2] - x
+    const dy = path[path.length - 1] - y
+    return dx * dx + dy * dy <= near * near
+  }
+  if (!near && !reaches(tiles) && !beyondWindow(fromX, fromY, x, y)) {
+    const longer = findPath(walkable, fromX, fromY, x, y, near, (limit ?? SEARCH_LIMIT) * LONG_SEARCH, slowness, fastest)
+    if (reaches(longer)) tiles = longer
+  }
   // Уже достаточно близко, а идти всё равно велят: значит, надо подойти вплотную. Цель рядом — и искать недолго.
   if (near && !tiles.length && (fromX - x) ** 2 + (fromY - y) ** 2 <= near * near) return orderMove(sim, entity, x, y, ignore, tries, 0, APPROACH_LIMIT)
   // Юнит идёт по центрам тайлов.
