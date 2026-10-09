@@ -4,7 +4,7 @@ import { createAtlas } from '../render/atlas'
 import { Pixmap } from '../render/pixmap'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites } from '../render/sprites'
-import { BUILDINGS, Building, Health, Position, powerStates, type PowerState } from '../sim'
+import { BUILDINGS, Building, Health, Position, powerStates, unlinked, type PowerState } from '../sim'
 import type { Scene } from './scene'
 
 /** Сторона картинки молнии в пикселях: молния растягивается на всё здание. */
@@ -78,6 +78,20 @@ function drawIcon() {
   return image
 }
 
+/** Значок «Не подключено к сети»: разорванная труба на оранжевом круге. */
+function drawLoose() {
+  const image = new Pixmap(ICON_SIZE, ICON_SIZE)
+  image.circle(8, 8, 8, 0x0b111b)
+  image.circle(8, 8, 7, 0xd9822b)
+  image.circle(7.5, 7.5, 5.5, 0xf09a3e)
+  // Два обрубка трубы с зазором посередине.
+  for (const [x, width] of [[2, 4], [10, 4]] as const) {
+    image.rect(x, 6, width, 5, 0x0b111b)
+    image.rect(x, 7, width, 3, 0xdfe6ee)
+  }
+  return image
+}
+
 type Color = readonly [number, number, number]
 const BAR_BACK: Color = [0.03, 0.05, 0.08]
 const BAR_GOOD: Color = [0.45, 0.9, 0.55]
@@ -85,15 +99,16 @@ const BAR_BAD: Color = [1, 0.35, 0.25]
 
 /**
  * Проход нехватки энергии: молнии перегруза на электростанциях, значок над зданиями, которые из-за нехватки
- * работают медленнее, и полоска прочности под повреждёнными зданиями. Ставить выше освещения, чтобы ночью не темнело.
+ * работают медленнее, значок «Не подключено к сети» над своими зданиями со складом без труб, и полоска прочности под повреждёнными зданиями. Ставить выше освещения, чтобы ночью не темнело.
  */
 export function createPowerPass(gl: WebGL2RenderingContext, scene: Scene): Pass {
   const bolts = Array.from({ length: BOLTS }, (_, i) => drawBolt(i))
   const white = new Pixmap(4, 4).rect(0, 0, 4, 4, 0xffffff)
-  const atlas = createAtlas(gl, [...bolts, drawIcon(), white])
+  const atlas = createAtlas(gl, [...bolts, drawIcon(), white, drawLoose()])
   const boltFrames = atlas.frames.slice(0, BOLTS)
   const iconFrame = atlas.frames[BOLTS]
   const whiteFrame = atlas.frames[BOLTS + 1]
+  const looseFrame = atlas.frames[BOLTS + 2]
   const whiteU = whiteFrame.u + whiteFrame.width / 2
   const whiteV = whiteFrame.v + whiteFrame.height / 2
 
@@ -136,9 +151,19 @@ export function createPowerPass(gl: WebGL2RenderingContext, scene: Scene): Pass 
             1, 1, 1, 1,
           )
         }
+        // Два значка сразу — рядом, а не друг на друге.
+        const loose = unlinked(sim, scene.player, entity)
+        const shift = loose && state === 'starved' ? ICON_TILES / 2 : 0
+        if (loose && iconOn) {
+          sprites.push(
+            x + spec.width / 2 - ICON_TILES / 2 - shift, y - ICON_TILES / 2, ICON_TILES, ICON_TILES,
+            looseFrame.u, looseFrame.v, looseFrame.width, looseFrame.height,
+            1, 1, 1, 1,
+          )
+        }
         if (state === 'starved' && iconOn) {
           sprites.push(
-            x + spec.width / 2 - ICON_TILES / 2, y - ICON_TILES / 2, ICON_TILES, ICON_TILES,
+            x + spec.width / 2 - ICON_TILES / 2 + shift, y - ICON_TILES / 2, ICON_TILES, ICON_TILES,
             iconFrame.u, iconFrame.v, iconFrame.width, iconFrame.height,
             1, 1, 1, 1,
           )

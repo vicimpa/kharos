@@ -1,7 +1,7 @@
 import type { Entity } from '../ecs'
 import { tileKey } from '../map/terrain'
-import { BUILDINGS, UNDERGROUND_REACH, buildingSpec, canPlace, placeBuilding, siteAt, type BuildingType } from './buildings'
-import { Building, Owner, Position, Site } from './components'
+import { BUILDINGS, CORE, UNDERGROUND_REACH, buildingSpec, isPipe, canPlace, placeBuilding, siteAt, type BuildingType } from './buildings'
+import { Building, Inventory, Owner, Position, Site } from './components'
 import type { Sim } from './sim'
 import { assignBuilders } from './construction'
 import { pay } from './economy'
@@ -258,4 +258,16 @@ export function isWellPair(tiles: readonly number[]) {
   const [ax, ay, bx, by] = tiles
   const length = Math.abs(bx - ax) + Math.abs(by - ay)
   return (ax === bx || ay === by) && length >= 2 && length <= UNDERGROUND_REACH
+}
+
+/**
+ * Не подключено к сети: готовое здание игрока со складом, которое ни с чем не соединено трубой или узлом — ресурсы
+ * к нему не придут и от него не уйдут. Главное здание не в счёт: с него сеть начинается.
+ */
+export function unlinked(sim: Sim, player: number, entity: Entity) {
+  const { world } = sim
+  const type = world.get(entity, Building)?.type
+  if (type === undefined || type === CORE || isPipe(type) || world.has(entity, Site)) return false
+  if (world.get(entity, Owner)?.player !== player || !world.has(entity, Inventory)) return false
+  return (networkOf(sim, entity)?.buildings.length ?? 1) <= 1
 }

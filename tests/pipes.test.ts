@@ -7,7 +7,7 @@ import { amountOf, put } from '../src/sim/inventory'
 import { powerSupply } from '../src/sim/income'
 import { BATCH } from '../src/sim/pipes'
 import { networkOf, zonesOf } from '../src/sim/zones'
-import { pipeStroke, wellPartners } from '../src/sim/piping'
+import { pipeStroke, unlinked, wellPartners } from '../src/sim/piping'
 import { addCredits, creditsOf } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
 import { throughJson } from './throughJson'
@@ -268,4 +268,16 @@ test('узел связи подключает стройку: материал�
   expect(networkOf(sim, yard)).toBe(networkOf(sim, hub))
   run(sim, 200)
   expect(amountOf(sim.world.get(site, Inventory)!, 'metal')).toBeGreaterThan(0)
+})
+
+test('здание со складом без трубы — не подключено к сети, с трубой — подключено', () => {
+  const sim = createSim(options)
+  const { x, y } = rock(sim, 12, 4)
+  const yard = placeBuilding(sim.world, 'metalYard', x, y, 1)
+  const radar = placeBuilding(sim.world, 'radar', x + 8, y, 1)
+  expect(unlinked(sim, 1, yard)).toBe(true)
+  expect(unlinked(sim, 1, radar)).toBe(false)
+  expect(unlinked(sim, 2, yard)).toBe(false)
+  lay(sim, x, y + 2, 10)
+  expect(unlinked(sim, 1, yard)).toBe(false)
 })
