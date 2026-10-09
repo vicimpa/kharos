@@ -1,3 +1,4 @@
+import type { ViewBox } from '../net/protocol'
 import type { EditOp } from '../sim/editOps'
 import { createAudio } from '../audio/audio'
 import { createLandWindow, minZoom, type LandWindow } from '../map/landWindow'
@@ -55,7 +56,10 @@ const SHOWCASE_MENU = 400
  * Что игра показывает: обычно копию мира хоста (Session), а витрина меню — симуляцию, которую считает сама
  * вкладка; у неё нет поколений мира — она не начинается заново из-под игры.
  */
-export type GameSession = Omit<Session, 'sim'> & { sim: Sim & { readonly generation?: number; readonly kept?: boolean; respawn?(): void; say?(text: string): void; edit?(edit: EditOp): void } }
+/** Как часто, в секундах, вкладка может сообщить хосту, где её камера: редактор показывает камеры игроков. */
+const VIEW_GAP = 0.5
+
+export type GameSession = Omit<Session, 'sim'> & { sim: Sim & { readonly generation?: number; readonly kept?: boolean; respawn?(): void; say?(text: string): void; edit?(edit: EditOp): void; view?(box: ViewBox): void } }
 
 export interface GameOptions {
   slot?: string
@@ -259,9 +263,23 @@ export function createGame(
   // Мир один на все вкладки, и начинает его заново хост; на сервере — не может никто.
   const restart = () => session.local?.restart(simOptions(scene.settings), scene.settings.battle)
 
+  /** Какую видимую часть хост знает: камера шлётся, когда сдвинулась хотя бы на тайл, не чаще раза в VIEW_GAP с. */
+  let viewSent = ''
+  let sinceView = 0
   const stop = startFrames((seconds) => {
     const { sim } = scene
     sim.advance(seconds)
+    sinceView += seconds
+    if (session.sim.view && sinceView >= VIEW_GAP) {
+      sinceView = 0
+      const { from, to } = scene.camera.visible
+      const box = { left: Math.round(from.x), top: Math.round(from.y), right: Math.round(to.x), bottom: Math.round(to.y) }
+      const key = JSON.stringify(box)
+      if (key !== viewSent) {
+        viewSent = key
+        session.sim.view(box)
+      }
+    }
     if (session.sim.generation !== generation) {
       generation = session.sim.generation
       scene.selection.clear()

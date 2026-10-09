@@ -14,7 +14,7 @@ import { BUILDINGS, type BuildingType } from '../sim/buildings'
 import { Armed, Attached, Ghost, Position, SAVED, Turret, Unit } from '../sim/components'
 import { placeTurret } from '../sim/turrets'
 import { SAVE_VERSION, type SimSave } from '../sim/sim'
-import type { ChatLine, ClientMessage, PlayerInfo, ServerMessage } from './protocol'
+import type { ChatLine, ClientMessage, PlayerInfo, PlayerView, ServerMessage, ViewBox } from './protocol'
 
 /** Из чего собираются призраки: сохраняемое и метка призрака. */
 const REMEMBERED = [...SAVED, Ghost]
@@ -49,6 +49,10 @@ export interface Replica extends Sim {
   readonly editor: boolean
   /** Последнее приветствие было тем же миром заново: камера остаётся, где была. */
   readonly kept: boolean
+  /** Камеры других игроков: приходят только в редакторе. */
+  readonly views: readonly PlayerView[]
+  /** Сообщает хосту, где камера вкладки. */
+  view(box: ViewBox): void
   /** Шлёт хосту правку редактора. */
   edit(edit: EditOp): void
   /** Написать в чат. */
@@ -101,6 +105,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
   const meet = ({ options, step, player: own, editor, keep }: Extract<ServerMessage, { type: 'welcome' }>) => {
     player = own
     replica.editor = !!editor
+    replica.views = []
     replica.kept = !!keep
     memory.clear()
     replica.options = options
@@ -202,6 +207,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     commands: [] as CommandInfo[],
     admin: false,
     editor: false,
+    views: [] as PlayerView[],
     kept: false,
     world,
     occupancy,
@@ -211,6 +217,9 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     time,
     respawn() {
       send(JSON.stringify({ type: 'respawn' } satisfies ClientMessage))
+    },
+    view(box: ViewBox) {
+      send(JSON.stringify({ type: 'view', ...box } satisfies ClientMessage))
     },
     edit(edit: EditOp) {
       send(JSON.stringify({ type: 'edit', edit } satisfies ClientMessage))
@@ -305,6 +314,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
       else if (message.type === 'explored') replica.vision.explore(player, message.map)
       else if (message.type === 'traces') replica.traces.receive(message.traces)
       else if (message.type === 'players') replica.players = message.players
+      else if (message.type === 'views') replica.views = message.views
       else if (message.type === 'commands') {
         replica.commands = message.commands
         replica.admin = message.admin

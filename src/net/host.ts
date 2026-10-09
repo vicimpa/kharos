@@ -10,7 +10,7 @@ import { DEPOSIT_SIZE, fillDeposits, saveDeposits } from '../sim/deposits'
 import { knownEdits, pristineLand, takeLearned } from '../sim/landMemory'
 import type { ServerData } from './protocol'
 import { TRACE_CELL, type Trace } from '../sim/traces'
-import { cleanChat, cleanName, type ChatLine, type PlayerInfo, type ServerMessage } from './protocol'
+import { cleanChat, cleanName, type ChatLine, type PlayerInfo, type PlayerView, type ServerMessage, type ViewBox } from './protocol'
 import { PLAYER_ARG, parseCommand, type CommandInfo } from './chatCommands'
 import { erase, putUnit, setCredits, setHealth } from '../sim/editor'
 import { freeTilesNear } from '../sim/units'
@@ -204,6 +204,22 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
   const admins = new Set<Send>()
   /** Администраторы в редакторе: видят весь мир и правят его, см. EditOp. */
   const editing = new Set<Send>()
+  /** Где камера у каждой вкладки, см. ViewBox: редактор показывает их на карте. */
+  const views = new Map<Send, ViewBox>()
+  /** Какие камеры каждый редактор получил последними: шлются заново, только если что-то сдвинулось. */
+  const viewsShown = new Map<Send, string>()
+  /** Шлёт редакторам камеры игроков — всех, кроме своих. */
+  const sendViews = () => {
+    for (const send of editing) {
+      const own = peers.get(send)
+      const list: PlayerView[] = []
+      for (const [peer, box] of views) if (peers.get(peer) !== own) list.push({ player: peers.get(peer)!, name: nameOf(peers.get(peer)!), ...box })
+      const text = JSON.stringify({ type: 'views', views: list } satisfies ServerMessage)
+      if (viewsShown.get(send) === text) continue
+      viewsShown.set(send, text)
+      send(text)
+    }
+  }
   /** Когда подключению снова можно пробовать пароль администратора, в мс. */
   const adminLocked = new Map<Send, number>()
   /** Как закрыть подключение: им администратор выгоняет игрока. */
@@ -805,6 +821,13 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
             if (isDefeated(sim, joined)) restart(joined)
             return
           }
+          if (type === 'view') {
+            const { left, top, right, bottom } = message as Record<string, unknown>
+            const box = [left, top, right, bottom]
+            if (!box.every((value) => typeof value === 'number' && Number.isFinite(value))) return
+            views.set(send, { left: left as number, top: top as number, right: right as number, bottom: bottom as number })
+            return
+          }
           // Правка редактора — только от администратора в редакторе; что не удалось, он узнаёт ответом в чат.
           if (type === 'edit') {
             if (!editing.has(send)) return
@@ -830,6 +853,8 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
           lastChat.delete(send)
           admins.delete(send)
           editing.delete(send)
+          views.delete(send)
+          viewsShown.delete(send)
           adminLocked.delete(send)
           closers.delete(send)
           sent.delete(send)
@@ -873,6 +898,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
         const sweep = sinceSweep >= SWEEP_TICKS
         if (sweep) sinceSweep = 0
         // Поражение — сообщение всем, один раз. Локальной игре не нужно: там игрок один.
+        if (editing.size) sendViews()
         if (sweep && player === undefined) {
           for (const who of names.keys()) {
             if (defeated.has(who) || !isDefeated(sim, who)) continue

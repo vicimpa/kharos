@@ -64,6 +64,8 @@ export type ServerMessage =
    * входит в режим администратора или выходит из него; admin — он сейчас администратор.
    */
   | { type: 'commands'; commands: CommandInfo[]; admin: boolean }
+  /** Только редактору: где сейчас камеры игроков, см. PlayerView. Приходит, когда они сдвинулись. */
+  | { type: 'views'; views: PlayerView[] }
 
 /** Сообщение чата: кто написал и что. */
 export interface ChatLine {
@@ -74,6 +76,20 @@ export interface ChatLine {
   system?: true
   /** Личное сообщение, /msg: ник того, кому оно. Приходит только ему и автору. */
   whisper?: string
+}
+
+/** Видимая часть карты у вкладки игрока, в тайлах. */
+export interface ViewBox {
+  left: number
+  top: number
+  right: number
+  bottom: number
+}
+
+/** Камера вкладки игрока, какой её видит редактор. */
+export interface PlayerView extends ViewBox {
+  player: number
+  name: string
 }
 
 /** Самое длинное сообщение чата; длиннее обрезается. */
@@ -123,5 +139,7 @@ export type ClientMessage =
   | { type: 'respawn' }
   /** Сообщение в чат: хост разошлёт его всем с ником автора. */
   | { type: 'chat'; text: string }
+  /** Где камера вкладки: шлётся, когда она сдвинулась; хост показывает камеры редактору. */
+  | ({ type: 'view' } & ViewBox)
   /** Правка редактора от администратора в редакторе, см. EditOp и /editor. */
   | { type: 'edit'; edit: EditOp }

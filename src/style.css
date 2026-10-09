@@ -1430,3 +1430,28 @@ body {
   color: #ffff55;
   text-shadow: 2px 2px 0 #3f3f15;
 }
+
+/* Камеры игроков в редакторе живого мира: рамка экрана и ник над ней. */
+.player-views {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.player-view {
+  position: absolute;
+  border: 2px dashed #ffe066;
+}
+
+.player-view::before {
+  content: attr(data-name);
+  position: absolute;
+  left: -2px;
+  bottom: 100%;
+  padding: 1px 6px;
+  color: #ffe066;
+  font-size: 12px;
+  white-space: nowrap;
+  background: rgb(0 0 0 / 0.6);
+}

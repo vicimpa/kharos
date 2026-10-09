@@ -124,6 +124,7 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
           }
         />
       )}
+      {hud?.editor && error === null && gameRef.current && <PlayerViews game={gameRef.current} />}
       {hud?.editor && error === null && gameRef.current && (
         <EditorPanel
           sim={gameRef.current.scene.sim}
@@ -229,4 +230,32 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
       )}
     </main>
   )
+}
+
+/**
+ * Камеры других игроков в редакторе: рамка того, что у каждого на экране, с ником. Двигается каждый кадр вместе со
+ * своей камерой, а не по перерисовке интерфейса.
+ */
+function PlayerViews({ game }: { game: Game }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    let frame = requestAnimationFrame(function draw() {
+      const root = ref.current
+      const views = (game.scene.sim as Partial<Replica>).views ?? []
+      if (root) {
+        while (root.children.length < views.length) root.appendChild(Object.assign(document.createElement('div'), { className: 'player-view' }))
+        while (root.children.length > views.length) root.lastChild!.remove()
+        views.forEach((view, i) => {
+          const box = root.children[i] as HTMLDivElement
+          const from = game.scene.camera.tileToScreen(view.left, view.top)
+          const to = game.scene.camera.tileToScreen(view.right, view.bottom)
+          Object.assign(box.style, { left: `${from.x}px`, top: `${from.y}px`, width: `${to.x - from.x}px`, height: `${to.y - from.y}px` })
+          box.dataset.name = view.name
+        })
+      }
+      frame = requestAnimationFrame(draw)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [game])
+  return <div ref={ref} class="player-views" />
 }
