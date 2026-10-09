@@ -1231,6 +1231,11 @@ body {
   overflow-y: auto;
 }
 
+/* Редактор живого мира — поверх игры: верхняя строка с кредитами остаётся видна. */
+.editor__panel.is-live {
+  top: 46px;
+}
+
 .editor__head {
   display: flex;
   justify-content: space-between;

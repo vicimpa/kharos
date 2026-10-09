@@ -404,7 +404,7 @@ export function EditorPanel({ sim, game, apply, remote = false, title, subtitle,
   const spots = picked()
 
   return (
-    <aside class="hud editor__panel">
+    <aside class={`hud editor__panel${remote ? ' is-live' : ''}`}>
       <header class="editor__head">
         <strong>{title}</strong>
         <span>{subtitle}</span>
