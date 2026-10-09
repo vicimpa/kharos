@@ -30,6 +30,8 @@ const SECTIONS: Partial<Record<Page, BuildingType[]>> = {
   industry: ['smelter', 'siliconWorks', 'distillery', 'enricher', 'blockPlant', 'ammoPlant', 'partsPlant'],
   military: ['barracks', 'factory', 'airfield', 'techCenter'],
   defense: ['wall', 'turret', 'rocketTurret', 'cannonTurret', 'laserTurret', 'radar'],
+  // В логистике, кроме инструментов протяжки, — узел связи.
+  logistics: ['hub'],
 }
 /** Описание здания для карточки: что делает и какие здания открывает. */
 function aboutOf(building: BuildingType) {
@@ -105,6 +107,22 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
   const { construction, production, conversion, assembly, trade, site, demolish, credits } = state
 
   if (construction) {
+    /** Кнопка здания из списка строителя. */
+    const buildingSlot = ({ building, cost, affordable, power, materials }: (typeof construction.options)[number]): Slot => ({
+      label: BUILDING_NAMES[building],
+      building,
+      cost,
+      power,
+      materials,
+      active: construction.placing === building,
+      about: aboutOf(building),
+      disabled: !affordable,
+      title: affordable ? undefined : 'Не хватает кредитов',
+      run: () => {
+        pave(null)
+        place(construction.placing === building ? null : building)
+      },
+    })
     if (page === 'root') {
       // Раздел появляется, когда в нём открыто хоть одно здание; покрытие доступно всегда.
       const opened = (page: Page) => construction.options.some(({ building }) => sectionOf(building) === page)
@@ -119,7 +137,7 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
       const count = (page: Page) => construction.options.filter(({ building }) => sectionOf(building) === page).length
       sections.forEach((section, i) => (slots[i] = opened(section.page) ? { ...section, group: count(section.page) } : null))
       slots[sections.length] = { label: 'Покрытие', pave: 'road', group: PAVE_TOOLS.length, title: 'Фундамент, дороги и мосты', run: () => open('paving') }
-      slots[sections.length + 1] = { label: 'Логистика', building: 'pipe', group: PIPE_TOOLS.length, title: 'Трубы и колодцы: связывают здания в сеть', run: () => open('logistics') }
+      slots[sections.length + 1] = { label: 'Логистика', building: 'pipe', group: PIPE_TOOLS.length, title: 'Трубы, колодцы и узлы связи: связывают здания в сеть', run: () => open('logistics') }
       // Разбор — сразу инструмент, без раздела.
       const active = construction.paving?.tool === 'remove'
       slots[sections.length + 2] = { label: 'Разобрать', pave: 'remove', active, title: REMOVE_TITLE, run: () => pave(active ? null : 'remove') }
@@ -133,33 +151,28 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
           active,
           disabled: tool !== 'remove' && cost !== undefined && credits < cost,
           title,
-          run: () => pave(active ? null : tool),
+          run: () => {
+            place(null)
+            pave(active ? null : tool)
+          },
         }
       })
+      // Здания раздела — после инструментов: узел связи, когда он открыт.
+      if (page === 'logistics') {
+        construction.options.filter(({ building }) => sectionOf(building) === page).forEach((option, i) => (slots[PIPE_TOOLS.length + i] = buildingSlot(option)))
+      }
       slots[BACK] = {
         label: 'Назад',
         title: 'К разделам; Esc отменяет укладку',
         run: () => {
           pave(null)
+          place(null)
           open('root')
         },
       }
     } else {
       const wanted = construction.options.filter(({ building }) => sectionOf(building) === page)
-      wanted.slice(0, BACK).forEach(({ building, cost, affordable, power, materials }, i) => {
-        slots[i] = {
-          label: BUILDING_NAMES[building],
-          building,
-          cost,
-          power,
-          materials,
-          active: construction.placing === building,
-          about: aboutOf(building),
-          disabled: !affordable,
-          title: affordable ? undefined : 'Не хватает кредитов',
-          run: () => place(construction.placing === building ? null : building),
-        }
-      })
+      wanted.slice(0, BACK).forEach((option, i) => (slots[i] = buildingSlot(option)))
       slots[BACK] = {
         label: 'Назад',
         title: 'К разделам; Esc отменяет выбор места',

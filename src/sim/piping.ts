@@ -6,7 +6,7 @@ import type { Sim } from './sim'
 import { assignBuilders } from './construction'
 import { pay } from './economy'
 import { PAVE_LIMIT } from './paving'
-import { allZones, inForeignZone, networkOf, type Zone } from './zones'
+import { allZones, inForeignZone, linkGap, networkOf, type Zone } from './zones'
 
 /**
  * Прокладка труб: протяжка наземной трубы, пары колодцев и трассы, которыми тесты и готовые базы (тестовая карта,
@@ -107,6 +107,37 @@ export function connectAll(sim: Sim, player: number) {
       break
     }
   }
+}
+
+/**
+ * Что подключит узел связи с центром (cx, cy) и радиусом reach: свои здания, трубы и стройки, кроме узлов и стен.
+ * Для показа при установке узла.
+ */
+export function hubTargets(sim: Sim, player: number, cx: number, cy: number, reach: number) {
+  const found: { x: number; y: number; width: number; height: number; ready: boolean }[] = []
+  for (const [entity, position, owner] of sim.world.query(Position, Owner)) {
+    const site = sim.world.get(entity, Site)
+    const type = sim.world.get(entity, Building)?.type ?? site?.type
+    if (owner.player !== player || type === undefined || site?.demolish) continue
+    const spec = buildingSpec(type)
+    if (spec.link || spec.isolated) continue
+    const { width, height } = BUILDINGS[type]
+    if (linkGap(cx, cy, position.x, position.y, width, height) <= reach) found.push({ x: position.x, y: position.y, width, height, ready: !site })
+  }
+  return found
+}
+
+/** Готовые свои узлы связи, радиус которых задевает основание (x, y, width, height): их центры. */
+export function hubsReaching(sim: Sim, player: number, x: number, y: number, width: number, height: number) {
+  const found: { x: number; y: number }[] = []
+  for (const [entity, position, building, owner] of sim.world.query(Position, Building, Owner)) {
+    const reach = buildingSpec(building.type).link
+    if (!reach || owner.player !== player || sim.world.has(entity, Site)) continue
+    const cx = position.x + BUILDINGS[building.type].width / 2
+    const cy = position.y + BUILDINGS[building.type].height / 2
+    if (linkGap(cx, cy, x, y, width, height) <= reach) found.push({ x: cx, y: cy })
+  }
+  return found
 }
 
 /**

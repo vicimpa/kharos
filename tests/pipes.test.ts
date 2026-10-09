@@ -227,3 +227,43 @@ test('«Разобрать» рамкой разбирает здания, то�
   expect(sim.world.get(inside, Site)?.demolish).toBe(true)
   expect(sim.world.has(half, Site)).toBe(false)
 })
+
+test('узел связи подключает всё своё в радиусе без труб, но не другие узлы', () => {
+  const sim = createSim(options)
+  const { x, y } = rock(sim, 30, 4)
+  const generator = placeBuilding(sim.world, 'generator', x, y, 1)
+  const hub = placeBuilding(sim.world, 'hub', x + 6, y, 1)
+  const radar = placeBuilding(sim.world, 'radar', x + 12, y, 1)
+  // Радар за краем радиуса: от центра узла (x + 7) до основания радара — 5 тайлов, до генератора — 5.
+  expect(networkOf(sim, generator)).toBe(networkOf(sim, hub))
+  expect(networkOf(sim, radar)).toBe(networkOf(sim, hub))
+  expect(powerSupply(sim).get(radar)).toBe(1)
+  // Чужое узел не подключает.
+  const foreign = placeBuilding(sim.world, 'matter', x + 9, y + 2, 2)
+  expect(networkOf(sim, foreign)).not.toBe(networkOf(sim, hub))
+  // Второй узел в радиусе первого с ним не связан: связь — только через здание, которое задевают оба.
+  const far = placeBuilding(sim.world, 'hub', x + 24, y, 1)
+  const other = placeBuilding(sim.world, 'hub', x + 12, y + 2, 1)
+  expect(networkOf(sim, far)).not.toBe(networkOf(sim, hub))
+  // other задевает радар — через него он в общей сети, хотя узел с узлом не связаны напрямую.
+  expect(networkOf(sim, other)).toBe(networkOf(sim, hub))
+  const zone = networkOf(sim, hub)!
+  for (let i = 0; i < zone.edges.length; i += 3) expect([zone.edges[i], zone.edges[i + 1]].sort()).not.toEqual([hub, other].sort())
+})
+
+test('узел связи подключает стройку: материалы приходят без трубы', () => {
+  const sim = createSim(options)
+  const { x, y } = rock(sim, 20, 6)
+  placeBuilding(sim.world, 'generator', x, y, 1)
+  const yard = placeBuilding(sim.world, 'metalYard', x, y + 3, 1)
+  put(sim.world.get(yard, Inventory)!, 'metal', 100)
+  const hub = placeBuilding(sim.world, 'hub', x + 4, y, 1)
+  addCredits(sim, 1, 1000)
+  sim.send(1, { type: 'build', building: 'spaceport', x: x + 8, y, builders: [] })
+  run(sim, 1)
+  const site = siteAt(sim, x + 8, y)!
+  expect(networkOf(sim, site)).toBe(networkOf(sim, hub))
+  expect(networkOf(sim, yard)).toBe(networkOf(sim, hub))
+  run(sim, 200)
+  expect(amountOf(sim.world.get(site, Inventory)!, 'metal')).toBeGreaterThan(0)
+})
