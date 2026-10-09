@@ -54,7 +54,7 @@ const SHOWCASE_MENU = 400
  * Что игра показывает: обычно копию мира хоста (Session), а витрина меню — симуляцию, которую считает сама
  * вкладка; у неё нет поколений мира — она не начинается заново из-под игры.
  */
-export type GameSession = Omit<Session, 'sim'> & { sim: Sim & { readonly generation?: number; respawn?(): void } }
+export type GameSession = Omit<Session, 'sim'> & { sim: Sim & { readonly generation?: number; respawn?(): void; say?(text: string): void } }
 
 export interface GameOptions {
   slot?: string
@@ -82,6 +82,8 @@ export interface Game {
   serve(start: boolean): void
   /** Проигравший начинает заново: на сервере — новый стартовый набор в новом месте, в локальной игре — новый мир. */
   respawn(): void
+  /** Написать в чат сетевой игры. */
+  say(text: string): void
   /** Начинает выбор точки патруля выбранным бойцам; false — отменяет. */
   patrol(start: boolean): void
   /** Мини-карта нижней панели. */
@@ -337,6 +339,9 @@ export function createGame(
     place(building) {
       scene.placing = building
       if (building) scene.paving = null
+    },
+    say(text) {
+      session.sim.say?.(text)
     },
     respawn() {
       if (session.local) restart()

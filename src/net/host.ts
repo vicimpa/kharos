@@ -8,7 +8,7 @@ import { DEPOSIT_SIZE, fillDeposits, saveDeposits } from '../sim/deposits'
 import { knownEdits, pristineLand, takeLearned } from '../sim/landMemory'
 import type { ServerData } from './protocol'
 import { TRACE_CELL, type Trace } from '../sim/traces'
-import { cleanName, type PlayerInfo, type ServerMessage } from './protocol'
+import { cleanChat, cleanName, type ChatLine, type PlayerInfo, type ServerMessage } from './protocol'
 
 /**
  * Где появляется новый игрок: в случайной точке карты, на скале, где хватит места под базу, и не ближе SPAWN_APART
@@ -25,6 +25,8 @@ const SPAWN_MARGIN = 16
 const SPAWN_RADIUS = 24
 /** Раз во сколько тиков хост ищет для игроков старые следы, а не только новые. */
 const SWEEP_TICKS = 5
+/** Как часто, в мс, одно подключение может писать в чат. */
+const CHAT_GAP = 500
 /** Сколько игроков помещается на круге появления; следующие встают на круг шире. */
 const SPAWN_SLOTS = 8
 
@@ -146,6 +148,8 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
     for (const send of peers.keys()) send(text)
   }
   let stateSize = 0
+  /** Когда подключение писало в чат последний раз, в мс: чаще CHAT_GAP сообщения отбрасываются. */
+  const lastChat = new Map<Send, number>()
 
   /** Сущности, какими они уходят всем, кроме пути, — собранные в этом тике, см. sharedWireOf. */
   const common: { tick: number; sim: Sim | undefined; wired: Map<number, Wired> } = { tick: -1, sim: undefined, wired: new Map() }
@@ -362,7 +366,17 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
             return
           }
           if (typeof message !== 'object' || message === null) return
-          const { type, command } = message as { type?: unknown; command?: unknown }
+          const { type, command, text: said } = message as { type?: unknown; command?: unknown; text?: unknown }
+          if (type === 'chat') {
+            const clean = typeof said === 'string' ? cleanChat(said) : ''
+            const now = Date.now()
+            if (!clean || now - (lastChat.get(send) ?? -Infinity) < CHAT_GAP) return
+            lastChat.set(send, now)
+            const line: ChatLine = { player: joined, name: names.get(joined) ?? `Игрок ${joined}`, text: clean }
+            const out = JSON.stringify({ type: 'chat', lines: [line] } satisfies ServerMessage)
+            for (const peer of peers.keys()) peer(out)
+            return
+          }
           // Проигравший начинает заново: остатки его базы исчезают, а сам он получает новый стартовый набор.
           if (type === 'respawn') {
             if (!isDefeated(sim, joined)) return
@@ -390,6 +404,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
           shown.delete(send)
           swept.delete(send)
           depositsShown.delete(send)
+          lastChat.delete(send)
           sent.delete(send)
           announce()
         },

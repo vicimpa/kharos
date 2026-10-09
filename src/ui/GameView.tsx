@@ -114,6 +114,7 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
           lookAtSelection={() => gameRef.current?.lookAtSelection()}
           narrow={(type, remove) => gameRef.current?.narrow(type, remove)}
           moveSelected={(x, y) => gameRef.current?.moveSelected(x, y)}
+          say={(text) => gameRef.current?.say(text)}
           menu={
             <button data-tip="Меню игры" onClick={() => setPaused(true)}>
               Меню

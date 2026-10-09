@@ -1335,3 +1335,58 @@ body {
   justify-content: flex-end;
   gap: 4px;
 }
+
+/* Чат, как в Minecraft: строки на полупрозрачной подложке над нижней панелью слева. */
+.chat {
+  left: 12px;
+  bottom: 224px;
+  display: flex;
+  flex-direction: column;
+  width: min(480px, calc(100vw - 24px));
+  font-size: 14px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.chat__lines {
+  display: flex;
+  flex-direction: column;
+  max-height: 40vh;
+  overflow: hidden;
+  justify-content: flex-end;
+}
+
+.chat.is-open .chat__lines {
+  overflow-y: auto;
+  pointer-events: auto;
+  user-select: text;
+}
+
+.chat__line {
+  padding: 1px 6px;
+  color: #fff;
+  background: rgb(0 0 0 / 0.45);
+  text-shadow: 2px 2px 0 #3f3f3f;
+  overflow-wrap: anywhere;
+}
+
+.chat__line b {
+  font-weight: normal;
+  color: #ffffff;
+}
+
+.chat__line b.is-own {
+  color: #ffe066;
+}
+
+.chat__input {
+  margin-top: 2px;
+  padding: 3px 6px;
+  border: none;
+  outline: none;
+  color: #fff;
+  font: inherit;
+  background: rgb(0 0 0 / 0.6);
+  text-shadow: 2px 2px 0 #3f3f3f;
+  pointer-events: auto;
+}

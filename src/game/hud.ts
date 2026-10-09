@@ -29,6 +29,10 @@ export interface HudState {
   storm: boolean
   /** Кто ещё на сервере: ники, свой ли, подключён ли. Пусто в локальной игре. */
   players: { name: string; own: boolean; online: boolean }[]
+  /** Чат сетевой игры: сообщения и когда пришли (мс, performance.now); null — игра локальная, чата нет. */
+  chat: { name: string; own: boolean; text: string; at: number }[] | null
+  /** Игрок набирает маршрут или список обслуживания: Enter сейчас завершает его, а не открывает чат. */
+  picking: boolean
   /** Пришёл ли мир от хоста: до этого наград ноль не потому, что их нет, а потому, что мира ещё нет. */
   loaded: boolean
   /** Игрок проиграл: у него не осталось ни зданий, ни MCV. */
@@ -424,6 +428,8 @@ export function readHud(scene: Scene): HudState {
     storm: scene.weather.precipitation > 0.05,
     alerts: (scene.alerts?.current() ?? []).map(({ kind, text, x, y, at }) => ({ kind, text, x, y, at })),
     // Список игроков есть только у копии мира с сервера.
+    chat: 'say' in sim ? (sim as Replica).chat.map(({ player, name, text, at }) => ({ name, own: player === scene.player, text, at })) : null,
+    picking: !!(scene.routing || scene.serving),
     players: 'players' in sim ? (sim as Replica).players.map(({ player, name, online }) => ({ name, own: player === scene.player, online })) : [],
     income: round(economyOf(sim, player).income),
     power,

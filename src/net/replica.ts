@@ -12,7 +12,7 @@ import { BUILDINGS, type BuildingType } from '../sim/buildings'
 import { Armed, Attached, Ghost, Position, SAVED, Turret, Unit } from '../sim/components'
 import { placeTurret } from '../sim/turrets'
 import { SAVE_VERSION, type SimSave } from '../sim/sim'
-import type { ClientMessage, PlayerInfo, ServerMessage } from './protocol'
+import type { ChatLine, ClientMessage, PlayerInfo, ServerMessage } from './protocol'
 
 /** Из чего собираются призраки: сохраняемое и метка призрака. */
 const REMEMBERED = [...SAVED, Ghost]
@@ -22,6 +22,9 @@ const KEPT: Record<string, string[]> = { Unit: ['facing', 'prevX', 'prevY', 'pre
 const BY_KEY = new Map<string, Component<any>>(SAVED.map((component) => [component.key, component]))
 
 type Delta = Extract<ServerMessage, { type: 'delta' }>
+
+/** Сколько последних сообщений чата держит клиент. */
+const CHAT_KEPT = 50
 
 /** Копия чужой симуляции: выглядит как Sim, но сама игру не считает. */
 export interface Replica extends Sim {
@@ -35,6 +38,10 @@ export interface Replica extends Sim {
   readonly generation: number
   /** Кто играет на хосте, как его прислал хост; пусто, пока не прислал. */
   readonly players: readonly PlayerInfo[]
+  /** Чат: последние сообщения по порядку, at — когда клиент его получил, в мс по performance.now. */
+  readonly chat: readonly (ChatLine & { at: number })[]
+  /** Написать в чат. */
+  say(text: string): void
 }
 
 /**
@@ -178,6 +185,7 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     online: null,
     generation: 0,
     players: [] as PlayerInfo[],
+    chat: [] as (ChatLine & { at: number })[],
     world,
     occupancy,
     paving,
@@ -186,6 +194,9 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     time,
     respawn() {
       send(JSON.stringify({ type: 'respawn' } satisfies ClientMessage))
+    },
+    say(text: string) {
+      send(JSON.stringify({ type: 'chat', text } satisfies ClientMessage))
     },
     send(_player: number, command: Command) {
       // Игрока сервер знает по соединению; номеру из сообщения он бы и не поверил.
@@ -274,6 +285,10 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
       else if (message.type === 'explored') replica.vision.explore(player, message.map)
       else if (message.type === 'traces') replica.traces.receive(message.traces)
       else if (message.type === 'players') replica.players = message.players
+      else if (message.type === 'chat') {
+        const at = performance.now()
+        replica.chat = [...replica.chat, ...message.lines.map((line) => ({ ...line, at }))].slice(-CHAT_KEPT)
+      }
       else if (message.type === 'land') receiveLand(message.data).catch((error) => replica.fail(`Карта мира не читается: ${error instanceof Error ? error.message : error}`))
       else if (message.type === 'deposits') loadDeposits(replica.deposits, message.deposits)
       else if (message.type === 'tiles') {

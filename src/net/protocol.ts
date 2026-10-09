@@ -8,7 +8,7 @@ import { LAND, decodeDelta } from './codec'
  * из тех же компонентов и правил, что у сервера. Поднимай её при каждом изменении протокола, компонентов из SAVED
  * или симуляции, которое меняет то, что видит клиент.
  */
-export const PROTOCOL_VERSION = 12
+export const PROTOCOL_VERSION = 13
 
 /** Почему сервер не пустил клиента другой версии: текст для игрока. */
 export function versionMismatch(server: number, client: number) {
@@ -53,6 +53,26 @@ export type ServerMessage =
   | { type: 'tiles'; edits: number[] }
   /** Месторождения: слой целиком, см. DepositLayer. Шлётся при входе и когда слой поменялся. */
   | { type: 'deposits'; deposits: DepositsSave }
+  /** Новые сообщения чата. Хост их не хранит: вошедший позже прошлых не увидит. */
+  | { type: 'chat'; lines: ChatLine[] }
+
+/** Сообщение чата: кто написал и что. */
+export interface ChatLine {
+  player: number
+  name: string
+  text: string
+}
+
+/** Самое длинное сообщение чата; длиннее обрезается. */
+export const CHAT_LENGTH = 200
+
+/** Сообщение чата, каким его примет хост: без управляющих символов и лишних пробелов, не длиннее CHAT_LENGTH. */
+export const cleanChat = (text: string) =>
+  text
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, CHAT_LENGTH)
 
 /** Игрок хоста, каким его видят все: номер, ник и подключён ли он сейчас. */
 export interface PlayerInfo {
@@ -88,3 +108,5 @@ export type ClientMessage =
   | { type: 'command'; command: Command }
   /** Проигравший начинает заново: хост убирает его остатки и ставит новый стартовый набор в новом месте. */
   | { type: 'respawn' }
+  /** Сообщение в чат: хост разошлёт его всем с ником автора. */
+  | { type: 'chat'; text: string }

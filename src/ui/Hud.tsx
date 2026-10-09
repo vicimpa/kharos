@@ -33,6 +33,8 @@ interface HudProps {
   narrow: (type: UnitType, remove: boolean) => void
   /** Выделенных — в точку карты. */
   moveSelected: (x: number, y: number) => void
+  /** Написать в чат сетевой игры. */
+  say: (text: string) => void
   /** Кнопки меню справа на верхней полосе. */
   menu: ComponentChildren
 }
@@ -138,6 +140,78 @@ function useNewRewards(rewards: string[], loaded: boolean) {
  * Мини-карта: перерисовывается каждый кадр. Левая кнопка (и протяжка) ставит туда камеру, правая — посылает
  * туда выделенных.
  */
+/** Сколько секунд сообщение чата видно, пока чат закрыт, и сколько из них оно гаснет. */
+const CHAT_SHOWN = 10
+const CHAT_FADE = 1
+/** Сколько последних сообщений видно в закрытом чате. */
+const CHAT_RECENT = 8
+
+/**
+ * Чат, как в Minecraft: Enter открывает строку ввода, Enter отправляет, Escape закрывает. Закрытый чат показывает
+ * свежие сообщения, и через CHAT_SHOWN секунд они гаснут; открытый — всю историю.
+ */
+function Chat({ lines, picking, say }: { lines: NonNullable<HudState['chat']>; picking: boolean; say: (text: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState('')
+  const input = useRef<HTMLInputElement>(null)
+  const pickingRef = useRef(picking)
+  pickingRef.current = picking
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLInputElement || event.repeat || pickingRef.current) return
+      if (event.code !== 'Enter' && event.code !== 'NumpadEnter') return
+      event.preventDefault()
+      setOpen(true)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+  useEffect(() => {
+    if (open) input.current?.focus()
+  }, [open])
+  const close = () => {
+    setOpen(false)
+    setDraft('')
+    input.current?.blur()
+  }
+  const now = performance.now()
+  const shown = open ? lines : lines.slice(-CHAT_RECENT).filter((line) => now - line.at < CHAT_SHOWN * 1000)
+  if (!open && !shown.length) return null
+  return (
+    <div class={`hud chat${open ? ' is-open' : ''}`}>
+      <div class="chat__lines">
+        {shown.map((line, i) => {
+          const left = CHAT_SHOWN - (now - line.at) / 1000
+          return (
+            <div key={i} class="chat__line" style={open ? undefined : { opacity: Math.min(1, left / CHAT_FADE) }}>
+              <b class={line.own ? 'is-own' : undefined}>&lt;{line.name}&gt;</b> {line.text}
+            </div>
+          )
+        })}
+      </div>
+      {open && (
+        <input
+          ref={input}
+          class="chat__input"
+          value={draft}
+          maxLength={200}
+          onInput={(event) => setDraft(event.currentTarget.value)}
+          onBlur={close}
+          onKeyDown={(event) => {
+            // Клавиши чата не доходят ни до игры, ни до сетки команд.
+            event.stopPropagation()
+            if (event.code === 'Escape') close()
+            if (event.code === 'Enter' || event.code === 'NumpadEnter') {
+              if (draft.trim()) say(draft)
+              close()
+            }
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
 function MinimapView({ minimap, lookAt, moveSelected }: Pick<HudProps, 'minimap' | 'lookAt' | 'moveSelected'>) {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
@@ -472,7 +546,7 @@ function Info({ state, lookAtSelection, narrow }: { state: HudState; lookAtSelec
 }
 
 /** Интерфейс игрока: верхняя полоса со счётом и нижняя панель — мини-карта, выбранное, сетка команд. */
-export function Hud({ state, send, place, pave, route, serve, patrol, minimap, lookAt, flyTo, lookAtSelection, narrow, moveSelected, menu }: HudProps) {
+export function Hud({ state, send, place, pave, route, serve, patrol, minimap, lookAt, flyTo, lookAtSelection, narrow, moveSelected, say, menu }: HudProps) {
   const selected = state.units.length > 0 || state.building !== null
   const fresh = useNewRewards(state.rewards, state.loaded)
 
@@ -555,6 +629,7 @@ export function Hud({ state, send, place, pave, route, serve, patrol, minimap, l
       </header>
 
       <Tip />
+      {state.chat && <Chat lines={state.chat} picking={state.picking} say={say} />}
       {state.hover && (
         <div class="hud tip" style={{ left: `${state.hover.x + 16}px`, top: `${state.hover.y + 16}px` }}>
           <Res resource={state.hover.kind} /> Месторождение: {RESOURCE_NAMES[state.hover.kind].toLowerCase()}
