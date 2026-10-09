@@ -2,9 +2,9 @@ import type { Entity } from '../ecs'
 import { BUILDINGS, buildingSpec, type BuildingSpec, type BuildingType } from './buildings'
 import { Assembly, Building, Health, Off, Player } from './components'
 import type { Sim } from './sim'
-import { allZones, type Zone } from './zones'
+import { allGrids, type Zone } from './zones'
 
-/** Хозяйство одной зоны строительства на этот тик. Энергия у каждой зоны своя: из зоны в зону она не передаётся. */
+/** Хозяйство одной энергосети на этот тик (см. allGrids). Энергия у каждой своя: между ними она не передаётся. */
 export interface Economy {
   /** Сколько энергии дают здания зоны и сколько её просят потребители. */
   produced: number
@@ -64,7 +64,7 @@ interface Book {
  */
 function books(sim: Sim): Book[] {
   const result: Book[] = []
-  for (const [player, zones] of allZones(sim)) {
+  for (const [player, zones] of allGrids(sim)) {
     for (const zone of zones) result.push({ player, zone, economy: economyOfZone(sim, zone) })
   }
   return result

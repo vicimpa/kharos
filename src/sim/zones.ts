@@ -38,6 +38,8 @@ export interface Zone {
 /** Посчитанные сети мира: пересчитываются, только когда появилось или пропало здание или стройка. */
 interface Cache {
   zones?: Map<number, Zone[]>
+  /** Энергосети, см. allGrids. */
+  grids?: Map<number, Zone[]>
   /** В какой сети каждое здание, труба и подключённая стройка. */
   index?: Map<Entity, Zone>
 }
@@ -48,8 +50,8 @@ function cacheOf(world: World) {
   if (!cache) {
     const fresh: Cache = {}
     const reset = () => {
-      fresh.zones = fresh.index = undefined
-      return () => void (fresh.zones = fresh.index = undefined)
+      fresh.zones = fresh.index = fresh.grids = undefined
+      return () => void (fresh.zones = fresh.index = fresh.grids = undefined)
     }
     world.observe([Building], reset)
     world.observe([Site], reset)
@@ -61,7 +63,7 @@ function cacheOf(world: World) {
 /** Забыть посчитанные сети: так делают, когда меняется то, за чем кэш сам не следит. */
 export const resetZones = (sim: Sim) => {
   const cache = cacheOf(sim.world)
-  cache.zones = cache.index = undefined
+  cache.zones = cache.index = cache.grids = undefined
 }
 
 /**
@@ -222,6 +224,66 @@ function computeZones(sim: Sim): Map<number, Zone[]> {
   }
   return result
 }
+
+/**
+ * Энергосети всех игроков: сети труб, слитые по касанию — основание здания или трубы одной сети задевает круг другой.
+ * Энергия и доход считаются по энергосети: трубы расширяют зону, и энергия идёт по всей зоне, а ресурсы — только по
+ * трубам своей сети. В энергосети buildings — все её здания и трубы, главное здание первым; edges пусты.
+ */
+export function allGrids(sim: Sim): Map<number, Zone[]> {
+  const cache = cacheOf(sim.world)
+  if (!cache.grids) {
+    const zones = allZones(sim)
+    cache.grids = new Map()
+    for (const [player, list] of zones) cache.grids.set(player, mergeTouching(sim.world, list))
+  }
+  return cache.grids
+}
+
+/** Сливает сети, задевающие друг друга, в энергосети. Порядок — как у сетей: с главным зданием первыми. */
+function mergeTouching(world: World, zones: Zone[]): Zone[] {
+  const parent = zones.map((_, i) => i)
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])))
+  // Основание каждого здания сети: x, y, ширина, высота.
+  const bases = zones.map((zone) =>
+    zone.buildings.flatMap((entity) => {
+      const position = world.get(entity, Position)!
+      const { width, height } = BUILDINGS[world.get(entity, Building)!.type]
+      return [position.x, position.y, width, height]
+    }),
+  )
+  const touches = (base: number[], circles: number[]) => {
+    for (let i = 0; i < base.length; i += 4) {
+      for (let j = 0; j < circles.length; j += 3) {
+        if (linkGap(circles[j], circles[j + 1], base[i], base[i + 1], base[i + 2], base[i + 3]) <= circles[j + 2]) return true
+      }
+    }
+    return false
+  }
+  for (let a = 0; a < zones.length; a++) {
+    for (let b = a + 1; b < zones.length; b++) {
+      if (find(a) === find(b)) continue
+      if (touches(bases[a], zones[b].circles) || touches(bases[b], zones[a].circles)) parent[find(b)] = find(a)
+    }
+  }
+  const merged = new Map<number, Zone>()
+  zones.forEach((zone, i) => {
+    const root = find(i)
+    const grid = merged.get(root)
+    if (!grid) merged.set(root, { circles: [...zone.circles], buildings: [...zone.buildings], sites: [...zone.sites], edges: [] })
+    else {
+      grid.circles.push(...zone.circles)
+      // Главное здание — первым в энергосети.
+      if (isCore(world, zone.buildings[0]) && !isCore(world, grid.buildings[0])) grid.buildings.unshift(...zone.buildings)
+      else grid.buildings.push(...zone.buildings)
+      grid.sites.push(...zone.sites)
+    }
+  })
+  return [...merged.values()]
+}
+
+/** Энергосети одного игрока. */
+export const gridsOf = (sim: Sim, player: number): readonly Zone[] => allGrids(sim).get(player) ?? NONE
 
 const isCore = (world: World, entity: Entity) => world.get(entity, Building)?.type === CORE
 

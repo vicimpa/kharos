@@ -49,14 +49,16 @@ test('здания вплотную без трубы — разные сети,
   expect(zonesOf(sim, 1).length).toBe(1)
 })
 
-test('энергия идёт только по сети: без трубы потребитель стоит', () => {
+test('энергия идёт по зоне: рядом — и без трубы, вдали — по трубе', () => {
   const sim = createSim(options)
-  const { x, y } = rock(sim, 12, 4)
+  const { x, y } = rock(sim, 24, 4)
   placeBuilding(sim.world, 'generator', x, y, 1)
-  const radar = placeBuilding(sim.world, 'radar', x + 6, y, 1)
-  expect(powerSupply(sim).get(radar)).toBe(0)
-  lay(sim, x, y + 2, 8)
-  expect(powerSupply(sim).get(radar)).toBe(1)
+  const near = placeBuilding(sim.world, 'radar', x + 4, y, 1)
+  const far = placeBuilding(sim.world, 'radar', x + 20, y, 1)
+  expect(powerSupply(sim).get(near)).toBeGreaterThan(0)
+  expect(powerSupply(sim).get(far)).toBe(0)
+  lay(sim, x, y + 2, 22)
+  expect(powerSupply(sim).get(far)).toBeGreaterThan(0)
 })
 
 test('колодцы связываются подземным отрезком по прямой', () => {
