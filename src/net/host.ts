@@ -569,7 +569,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
   const restart = (who: number) => {
     wipePlayer(sim, who)
     defeated.delete(who)
-    if (player === undefined) notice(who, 'начинает заново')
+    if (player === undefined && !hidden.has(who)) notice(who, 'начинает заново')
     sim.vision.forget(who)
     place(who)
     // Вкладки игрока начинают как в новом мире: туман закрыт, камера встаёт на новый стартовый набор.
