@@ -211,7 +211,8 @@ export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass
         }
         if (stroke) {
           const good = stroke.tool === 'remove' ? REMOVE : ALLOWED
-          // Пара колодцев: между концами — пунктир подземного отрезка.
+          // Один колодец — с кем он свяжется; пара — пунктир подземного отрезка между концами.
+          if (stroke.tool === 'well' && stroke.tiles.length === 2) connections('well', stroke.tiles[0], stroke.tiles[1])
           if (stroke.tool === 'well' && stroke.tiles.length === 4) {
             const [ax, ay, bx, by] = stroke.tiles
             const dot = ROUTE_DOT / camera.zoom

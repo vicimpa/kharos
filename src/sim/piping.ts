@@ -203,16 +203,21 @@ export function pipeAt(sim: Sim, player: number, x: number, y: number): Entity |
 }
 
 /**
- * Закладывает пару колодцев — концы подземного отрезка (tiles: x, y первого и второго) — и посылает к ним строителей.
- * Колодцы — на одной прямой, от 2 до UNDERGROUND_REACH тайлов друг от друга; каждый — где можно положить трубу
- * (см. pipeStroke). Кладут оба или ни одного: одинокий колодец ни с чем не связан. Возвращает, заложены ли.
+ * Закладывает колодцы и посылает к ним строителей: один (tiles — его x, y; свяжется с уже стоящим по прямой, см.
+ * wellPartners) или пару — концы подземного отрезка (x, y первого и второго): на одной прямой, от 2
+ * до UNDERGROUND_REACH тайлов. Каждый — где можно положить трубу (см. pipeStroke). Пару кладут целиком или никак.
+ * Возвращает, заложено ли.
  */
 export function orderWells(sim: Sim, player: number, tiles: readonly number[], builders: Entity[]) {
-  if (!isWellPair(tiles) || !pipeStroke(sim, player, tiles).every(Boolean)) return false
-  if (!pay(sim, player, BUILDINGS.well.cost * 2)) return false
-  const first = sim.world.spawn(Position({ x: tiles[0], y: tiles[1] }), Site({ type: 'well' }), Owner({ player }))
-  sim.world.spawn(Position({ x: tiles[2], y: tiles[3] }), Site({ type: 'well' }), Owner({ player }))
-  assignBuilders(sim, player, first, builders)
+  const single = tiles.length === 2 && tiles.every(Number.isInteger)
+  if ((!single && !isWellPair(tiles)) || !pipeStroke(sim, player, tiles).every(Boolean)) return false
+  if (!pay(sim, player, (BUILDINGS.well.cost * tiles.length) / 2)) return false
+  let first: Entity | undefined
+  for (let i = 0; i < tiles.length; i += 2) {
+    const site = sim.world.spawn(Position({ x: tiles[i], y: tiles[i + 1] }), Site({ type: 'well' }), Owner({ player }))
+    first ??= site
+  }
+  assignBuilders(sim, player, first!, builders)
   return true
 }
 

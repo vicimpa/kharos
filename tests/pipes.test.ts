@@ -187,7 +187,7 @@ test('«Снять» убирает и трубы: заложенную — ср
   expect(sim.world.alive(built)).toBe(false)
 })
 
-test('колодцы кладут парой: по прямой, от 2 до 10 тайлов, оба или ни одного', () => {
+test('колодцы кладут парой (по прямой, от 2 до 10 тайлов, оба или ни одного) или по одному', () => {
   const sim = createSim(options)
   const { x, y } = rock(sim, 16, 4)
   addCredits(sim, 1, 1000)
@@ -205,6 +205,11 @@ test('колодцы кладут парой: по прямой, от 2 до 10 
   run(sim, 1)
   expect(wells()).toBe(2)
   expect(credits - creditsOf(sim, 1)).toBe(80)
+  // И по одному: щелчок без протяжки.
+  sim.send(1, { type: 'wells', tiles: [x + 12, y], builders: [] })
+  run(sim, 1)
+  expect(wells()).toBe(3)
+  expect(credits - creditsOf(sim, 1)).toBe(120)
 })
 
 test('«Разобрать» рамкой разбирает здания, только целиком попавшие в неё', () => {

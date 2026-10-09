@@ -37,8 +37,8 @@ export function placementOf(scene: Scene): Placement | null {
 
 
 /**
- * Пара колодцев: от тайла, где зажали кнопку, по прямой вдоль длинной стороны протяжки, не дальше UNDERGROUND_REACH.
- * Пока кнопку не зажали или концы ближе двух тайлов — один тайл, класть нечего.
+ * Колодцы: от тайла, где зажали кнопку, по прямой вдоль длинной стороны протяжки, не дальше UNDERGROUND_REACH, —
+ * пара. Без протяжки — один колодец под указателем: он свяжется с уже стоящим по прямой.
  */
 function wellStrokeOf(scene: Scene, from: { x: number; y: number }, tile: { x: number; y: number }): PaveStroke {
   const horizontal = Math.abs(tile.x - from.x) >= Math.abs(tile.y - from.y)
@@ -49,14 +49,17 @@ function wellStrokeOf(scene: Scene, from: { x: number; y: number }, tile: { x: n
   const { sim, player } = scene
   const cost = BUILDINGS.well.cost * 2
   const fits = pipeStroke(sim, player, tiles)
-  const pair = isWellPair(tiles)
-  const affordable = creditsOf(sim, player) >= cost
+  // Без протяжки — один колодец; протянули, но ближе двух тайлов — пару не положить.
+  const single = tiles.length === 2
+  const valid = single || isWellPair(tiles)
+  const price = single ? cost / 2 : cost
+  const affordable = creditsOf(sim, player) >= price
   return {
     tool: 'well',
     tiles,
-    allowed: fits.map((ok) => ok && pair && affordable),
-    short: fits.map((ok) => ok && pair && !affordable),
-    cost: pair ? cost : 0,
+    allowed: fits.map((ok) => ok && valid && affordable),
+    short: fits.map((ok) => ok && valid && !affordable),
+    cost: valid ? price : 0,
   }
 }
 
