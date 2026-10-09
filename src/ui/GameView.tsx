@@ -178,7 +178,7 @@ export function GameView({ launch, settings, exit }: GameViewProps) {
           )}
         </div>
       )}
-      {real && hud?.defeated && error === null && (
+      {real && hud?.defeated && !hud.editor && error === null && (
         <div class="game__defeat" role="alert">
           <strong>Поражение</strong>
           <span>{launch.kind === 'server' ? 'Не осталось ни зданий, ни MCV. Можно начать заново в новом месте этого мира.' : 'Не осталось ни зданий, ни MCV.'}</span>
