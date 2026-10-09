@@ -201,3 +201,25 @@ export function pipeAt(sim: Sim, player: number, x: number, y: number): Entity |
   const type = world.get(entity, Building)?.type ?? site?.type
   return type !== undefined && buildingSpec(type).pipe && !site?.demolish ? entity : undefined
 }
+
+/**
+ * Закладывает пару колодцев — концы подземного отрезка (tiles: x, y первого и второго) — и посылает к ним строителей.
+ * Колодцы — на одной прямой, от 2 до UNDERGROUND_REACH тайлов друг от друга; каждый — где можно положить трубу
+ * (см. pipeStroke). Кладут оба или ни одного: одинокий колодец ни с чем не связан. Возвращает, заложены ли.
+ */
+export function orderWells(sim: Sim, player: number, tiles: readonly number[], builders: Entity[]) {
+  if (!isWellPair(tiles) || !pipeStroke(sim, player, tiles).every(Boolean)) return false
+  if (!pay(sim, player, BUILDINGS.well.cost * 2)) return false
+  const first = sim.world.spawn(Position({ x: tiles[0], y: tiles[1] }), Site({ type: 'well' }), Owner({ player }))
+  sim.world.spawn(Position({ x: tiles[2], y: tiles[3] }), Site({ type: 'well' }), Owner({ player }))
+  assignBuilders(sim, player, first, builders)
+  return true
+}
+
+/** Годятся ли тайлы концами подземного отрезка: два целых тайла на одной прямой, от 2 до UNDERGROUND_REACH. */
+export function isWellPair(tiles: readonly number[]) {
+  if (tiles.length !== 4 || !tiles.every(Number.isInteger)) return false
+  const [ax, ay, bx, by] = tiles
+  const length = Math.abs(bx - ax) + Math.abs(by - ay)
+  return (ax === bx || ay === by) && length >= 2 && length <= UNDERGROUND_REACH
+}

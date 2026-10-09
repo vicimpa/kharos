@@ -1,4 +1,4 @@
-import { BUILDINGS, DEPOSIT_SIZE, Owner, Pave, PAVE_LIMIT, canBuild, canPlace, canPave, creditsOf, depositNear, paveCost, pipeAt, pipeStroke, type BuildingSpec, type BuildingType } from '../sim'
+import { BUILDINGS, DEPOSIT_SIZE, Owner, Pave, PAVE_LIMIT, canBuild, canPlace, canPave, creditsOf, depositNear, paveCost, pipeAt, pipeStroke, isWellPair, UNDERGROUND_REACH, type BuildingSpec, type BuildingType } from '../sim'
 import type { PaveTool, Scene } from './scene'
 
 /** Где встанет здание, которое игрок сейчас выбирает место: левый верхний тайл основания и годится ли место. */
@@ -35,6 +35,30 @@ export function placementOf(scene: Scene): Placement | null {
 }
 
 
+/**
+ * Пара колодцев: от тайла, где зажали кнопку, по прямой вдоль длинной стороны протяжки, не дальше UNDERGROUND_REACH.
+ * Пока кнопку не зажали или концы ближе двух тайлов — один тайл, класть нечего.
+ */
+function wellStrokeOf(scene: Scene, from: { x: number; y: number }, tile: { x: number; y: number }): PaveStroke {
+  const horizontal = Math.abs(tile.x - from.x) >= Math.abs(tile.y - from.y)
+  const along = horizontal ? tile.x - from.x : tile.y - from.y
+  const length = Math.min(Math.abs(along), UNDERGROUND_REACH) * Math.sign(along)
+  const end = horizontal ? { x: from.x + length, y: from.y } : { x: from.x, y: from.y + length }
+  const tiles = length ? [from.x, from.y, end.x, end.y] : [from.x, from.y]
+  const { sim, player } = scene
+  const cost = BUILDINGS.well.cost * 2
+  const fits = pipeStroke(sim, player, tiles)
+  const pair = isWellPair(tiles)
+  const affordable = creditsOf(sim, player) >= cost
+  return {
+    tool: 'well',
+    tiles,
+    allowed: fits.map((ok) => ok && pair && affordable),
+    short: fits.map((ok) => ok && pair && !affordable),
+    cost: pair ? cost : 0,
+  }
+}
+
 /** Тайлы, которые накроет укладка покрытия, пока игрок тянет её мышью, и сколько она стоит. */
 export interface PaveStroke {
   tool: PaveTool
@@ -58,6 +82,7 @@ export function paveStrokeOf(scene: Scene): PaveStroke | null {
   if (!tool || !tile) return null
   const from = scene.paveFrom ?? tile
   const tiles: number[] = []
+  if (tool === 'well') return wellStrokeOf(scene, from, tile)
   if (tool === 'road' || tool === 'pipe') {
     const horizontal = Math.abs(tile.x - from.x) >= Math.abs(tile.y - from.y)
     const corner = horizontal ? { x: tile.x, y: from.y } : { x: from.x, y: tile.y }

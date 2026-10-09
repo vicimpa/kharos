@@ -211,6 +211,17 @@ export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass
         }
         if (stroke) {
           const good = stroke.tool === 'remove' ? REMOVE : ALLOWED
+          // Пара колодцев: между концами — пунктир подземного отрезка.
+          if (stroke.tool === 'well' && stroke.tiles.length === 4) {
+            const [ax, ay, bx, by] = stroke.tiles
+            const dot = ROUTE_DOT / camera.zoom
+            const length = Math.hypot(bx - ax, by - ay)
+            const color = stroke.allowed[0] && stroke.allowed[1] ? LINK : FORBIDDEN
+            for (let along = 0.75; along < length - 0.5; along += ROUTE_STEP) {
+              const t = along / length
+              rect(ax + 0.5 + (bx - ax) * t - camera.x - dot / 2, ay + 0.5 + (by - ay) * t - camera.y - dot / 2, dot, dot, color, BORDER_ALPHA)
+            }
+          }
           for (let i = 0; i < stroke.tiles.length; i += 2) {
             const tile = i >> 1
             area(stroke.tiles[i], stroke.tiles[i + 1], 1, 1, stroke.allowed[tile] ? good : stroke.short[tile] ? SHORT : FORBIDDEN)

@@ -223,7 +223,7 @@ export const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[]
 export const BUILDABLE: BuildingType[] = [
   'generator', 'matter', 'mine', 'smelter', 'siliconWorks', 'distillery', 'enricher', 'blockPlant', 'ammoPlant', 'partsPlant',
   'metalYard', 'siliconStore', 'fuelTank', 'khariteVault', 'blockYard', 'ammoBunker', 'partsLocker', 'spaceport', 'barracks', 'factory', 'airfield', 'techCenter',
-  'radar', 'wall', 'turret', 'rocketTurret', 'cannonTurret', 'laserTurret', 'well',
+  'radar', 'wall', 'turret', 'rocketTurret', 'cannonTurret', 'laserTurret',
 ]
 
 /** Труба ли это или колодец. */

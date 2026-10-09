@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Terrain, terrainAt } from '../src/map/terrain'
-import { Assembly, Batch, Inventory, Site, canBuild, createSim, type Sim } from '../src/sim'
+import { Assembly, Batch, Inventory, Site, createSim, type Sim } from '../src/sim'
 import { placeBuilding, siteAt } from '../src/sim/buildings'
 import { amountOf, put } from '../src/sim/inventory'
 import { powerSupply } from '../src/sim/income'
@@ -155,7 +155,6 @@ test('трубу тянут без зоны: цепочка закладывае
   expect(pipeStroke(sim, 1, tiles).every(Boolean)).toBe(true)
   // Своя зона не нужна и отдельному тайлу.
   expect(pipeStroke(sim, 1, [x + 30, y + 3])).toEqual([true])
-  expect(canBuild(sim, 1, 'well', x + 30, y + 3)).toBe(true)
   sim.send(1, { type: 'pipes', tiles, builders: [builder] })
   run(sim, 1)
   let sites = 0
@@ -186,4 +185,24 @@ test('«Снять» убирает и трубы: заложенную — ср
   expect(sim.world.get(built, Site)?.demolish).toBe(true)
   run(sim, 20 * 10)
   expect(sim.world.alive(built)).toBe(false)
+})
+
+test('колодцы кладут парой: по прямой, от 2 до 10 тайлов, оба или ни одного', () => {
+  const sim = createSim(options)
+  const { x, y } = rock(sim, 16, 4)
+  addCredits(sim, 1, 1000)
+  const wells = () => {
+    let count = 0
+    for (const [, site] of sim.world.query(Site)) if (site.type === 'well') count++
+    return count
+  }
+  // Не по прямой, слишком близко и слишком далеко — не кладут.
+  for (const tiles of [[x, y, x + 4, y + 1], [x, y, x + 1, y], [x, y, x + 11, y]]) sim.send(1, { type: 'wells', tiles, builders: [] })
+  run(sim, 1)
+  expect(wells()).toBe(0)
+  const credits = creditsOf(sim, 1)
+  sim.send(1, { type: 'wells', tiles: [x, y, x + 8, y], builders: [] })
+  run(sim, 1)
+  expect(wells()).toBe(2)
+  expect(credits - creditsOf(sim, 1)).toBe(80)
 })

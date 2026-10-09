@@ -1,7 +1,7 @@
 import type { HudState, Stack } from '../game/hud'
 import type { PaveIcon } from '../game/portraits'
 import type { PaveTool } from '../game/scene'
-import { BRIDGE_COST, BUILDINGS, BUILDING_TYPES, DEPOSIT_TYPES, REQUIRES, FOUNDATION_COST, LEASH, ORES, ROAD_COST, WARES, type Stance, type BuildingType, type Command, type DepositKind, type Good } from '../sim'
+import { BRIDGE_COST, BUILDINGS, UNDERGROUND_REACH, BUILDING_TYPES, DEPOSIT_TYPES, REQUIRES, FOUNDATION_COST, LEASH, ORES, ROAD_COST, WARES, type Stance, type BuildingType, type Command, type DepositKind, type Good } from '../sim'
 import { BUILDING_INFO, BUILDING_NAMES, RESOURCE_NAMES, UNIT_NAMES, goodName } from './names'
 
 /** Клавиши ячеек сетки команд по порядку: три ряда по четыре, как на клавиатуре, справа от WASD. */
@@ -88,6 +88,7 @@ const PAVE_TOOLS: { tool: PaveTool; label: string; cost?: number; title: string 
   { tool: 'foundation', label: 'Фундамент', cost: FOUNDATION_COST, title: 'Здания на нём строятся вдвое быстрее, на песке он разрешает стройку; полоса от зоны расширяет её на клетку вокруг — так соединяют зоны. Взрывы его разбивают. Тяни мышью прямоугольник' },
   { tool: 'road', label: 'Дорога', cost: ROAD_COST, title: `Наземные едут быстрее; по болоту — мост за ${BRIDGE_COST} за тайл. Тяни мышью линию` },
   { tool: 'pipe', label: 'Труба', cost: BUILDINGS.pipe.cost, title: 'Связывает здания в сеть: по трубам идут груз и энергия, они расширяют зону. Перекрывает проезд — под проездом веди колодцами. Своя зона не нужна. Тяни мышью линию' },
+  { tool: 'well', label: 'Колодцы', cost: BUILDINGS.well.cost * 2, title: `Пара колодцев — подземная труба: тяни мышью от первого ко второму по прямой, до ${UNDERGROUND_REACH} тайлов. Над ней ездят и строят, уязвимы только колодцы. Своя зона не нужна` },
   { tool: 'remove', label: 'Снять', title: 'Строители разберут своё покрытие и трубы с колодцами (за трубу вернут половину); недостроенное отменится с возвратом кредитов. Тяни мышью прямоугольник' },
 ]
 
@@ -117,7 +118,7 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
         const active = construction.paving?.tool === tool
         slots[i] = {
           label,
-          ...(tool === 'pipe' ? { building: 'pipe' as const } : { pave: tool }),
+          ...(tool === 'pipe' || tool === 'well' ? { building: tool } : { pave: tool }),
           cost: active && construction.paving!.tiles > 1 ? construction.paving!.cost : cost,
           active,
           disabled: tool !== 'remove' && cost !== undefined && credits < cost,

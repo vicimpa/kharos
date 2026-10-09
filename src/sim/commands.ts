@@ -11,7 +11,7 @@ import { DEPLOY_SECONDS, PACK_SECONDS, canDeploy, canPack, cancelDeploy, startCo
 import { assignHaulers, assignPickup, assignSupply, releaseHauler } from './hauling'
 import { clearOrders, isBusyBuilder, queueOrder, unitsOf } from './orders'
 import { orderPave, removePave, type PaveKind } from './paving'
-import { orderPipes } from './piping'
+import { orderPipes, orderWells } from './piping'
 import { cancelUnit, orderUnit } from './production'
 import { setFilter, setRoute, setServe } from './routes'
 import { surrender } from './defeat'
@@ -86,6 +86,8 @@ export type Command = (
   | { type: 'pave'; kind: PaveKind; tiles: number[]; builders: number[] }
   /** Протянуть наземную трубу по тайлам (x и y подряд, по порядку) и послать к ней своих строителей. */
   | { type: 'pipes'; tiles: number[]; builders: number[] }
+  /** Заложить пару колодцев — концы подземной трубы (x, y первого и второго) — и послать к ним своих строителей. */
+  | { type: 'wells'; tiles: number[]; builders: number[] }
   /** Снять своё покрытие с тайлов (x и y подряд) своими строителями: недостроенное — сразу с возвратом, готовое разберут. */
   | { type: 'unpave'; tiles: number[]; builders: number[] }
 ) & {
@@ -187,6 +189,8 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
     }
     case 'pipes':
       return Array.isArray(command.tiles) && Array.isArray(command.builders) && orderPipes(sim, player, command.tiles, command.builders as Entity[]) > 0
+    case 'wells':
+      return Array.isArray(command.tiles) && Array.isArray(command.builders) && orderWells(sim, player, command.tiles, command.builders as Entity[])
     case 'unpave':
       return Array.isArray(command.tiles) && Array.isArray(command.builders) && removePave(sim, player, command.tiles, command.builders as Entity[])
     case 'demolish': {
