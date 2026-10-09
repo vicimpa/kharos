@@ -2,7 +2,7 @@ import type { Entity } from '../ecs'
 import { setBlend } from '../gl'
 import type { Pass } from '../render/renderer'
 import { createLineProgram, createLines } from '../render/lines'
-import { BUILDINGS, Batch, Building, Position, Site } from '../sim'
+import { BUILDINGS, Batch, Building, Position, Site, isPipe } from '../sim'
 import { GOOD_COLORS } from './resourceColors'
 import type { Scene } from './scene'
 
@@ -13,7 +13,7 @@ const OUTLINE = 0.08
 /**
  * Проход потока: что идёт по трубам — бегущие метки цвета груза. Пачка известна клиенту целиком с отправки
  * (путь узлами, тики отправки и прихода, см. Batch), так что метка едет сама, без вестей с хоста. На подземном
- * отрезке между колодцами метки не видно. Хост шлёт пачки только хозяину труб.
+ * отрезке между колодцами и над зданиями метки не видно — только на трубе. Хост шлёт пачки только хозяину труб.
  */
 export function createFlowPass(gl: WebGL2RenderingContext, scene: Scene): Pass {
   const program = createLineProgram(gl)
@@ -55,8 +55,14 @@ export function createFlowPass(gl: WebGL2RenderingContext, scene: Scene): Pass {
           // Под землёй — между двумя колодцами, не соседними, — пачки не видно.
           if (from.well && to.well && length > 1) break
           const part = length ? Math.min(1, left / length) : 1
-          const x = from.x + (to.x - from.x) * part - camera.x
-          const y = from.y + (to.y - from.y) * part - camera.y
+          const atX = from.x + (to.x - from.x) * part
+          const atY = from.y + (to.y - from.y) * part
+          // Груз видно только на трубе: над зданием метку не рисуют.
+          const under = scene.sim.occupancy.at(Math.floor(atX), Math.floor(atY))
+          const type = under === undefined ? undefined : world.get(under, Building)?.type
+          if (type === undefined || !isPipe(type)) break
+          const x = atX - camera.x
+          const y = atY - camera.y
           if (Math.abs(x) > halfWidth || Math.abs(y) > halfHeight) break
           const color = GOOD_COLORS[batch.resource]
           const r = ((color >> 16) & 255) / 255
