@@ -7,6 +7,7 @@ import { amountOf, put } from '../src/sim/inventory'
 import { powerSupply } from '../src/sim/income'
 import { BATCH } from '../src/sim/pipes'
 import { networkOf, zonesOf } from '../src/sim/zones'
+import { wellPartners } from '../src/sim/piping'
 import { throughJson } from './throughJson'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024, rules: { techTree: false } }
@@ -126,4 +127,16 @@ test('пачки в пути переживают сохранение', () => {
   expect(loaded.world.count(Batch)).toBe(1)
   run(loaded, 40)
   expect(amountOf(loaded.world.get(plant, Inventory)!, 'metal')).toBeGreaterThan(0)
+})
+
+test('при постройке колодца видно, с какими колодцами он свяжется', () => {
+  const sim = createSim(options)
+  const { x, y } = rock(sim, 16, 4)
+  placeBuilding(sim.world, 'well', x, y, 1)
+  // Чужой колодец не в счёт, вплотную — не подземная связь.
+  placeBuilding(sim.world, 'well', x + 4, y + 2, 2)
+  expect(wellPartners(sim, 1, x + 6, y)).toEqual([{ x, y, ready: true }])
+  expect(wellPartners(sim, 1, x + 1, y)).toEqual([])
+  expect(wellPartners(sim, 1, x + 4, y + 2)).toEqual([])
+  expect(wellPartners(sim, 1, x + 11, y)).toEqual([])
 })

@@ -16,7 +16,7 @@ export { Armed, Assembly, AutoPipe, Batch, Blast, Building, Builds, Converting, 
 export { DEMOLISH_REFUND, DEMOLISH_SPEED, REPAIR_COST, REPAIR_SPEED, activeRepairs, autoPipeOf, awaitsMaterials, buildPrice, materialShare, repairCostOf, canBuild, canDemolish, canRepair, coreCenters, isSiteBlocked, refundOf, siteTicks } from './construction'
 export { CONTROL_RADIUS, EXPAND_RADIUS, allZones, networkOf, zoneOf, zonesOf } from './zones'
 export { BATCH, pipeFlow, routesFrom } from './pipes'
-export { AUTO_PIPE_REACH, connectAll, connectBuilding, pipeRoute } from './piping'
+export { AUTO_PIPE_REACH, connectAll, connectBuilding, pipeRoute, wellPartners } from './piping'
 export type { Zone } from './zones'
 export type { RepairLink } from './construction'
 export { canDeploy, canPack, deploySite, isDeployBlocked } from './conversion'

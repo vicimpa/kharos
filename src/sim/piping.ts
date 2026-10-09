@@ -1,6 +1,6 @@
 import type { Entity } from '../ecs'
 import { tileKey } from '../map/terrain'
-import { BUILDINGS, buildingSpec, canPlace, placeBuilding, type BuildingType } from './buildings'
+import { BUILDINGS, UNDERGROUND_REACH, buildingSpec, canPlace, placeBuilding, type BuildingType } from './buildings'
 import { Building, Owner, Position, Site } from './components'
 import type { Sim } from './sim'
 import { allZones, networkOf, type Zone } from './zones'
@@ -122,4 +122,30 @@ export function connectBuilding(sim: Sim, building: Entity): Entity[] {
   const pipes: Entity[] = []
   for (let i = 0; i < tiles.length; i += 2) pipes.push(placeBuilding(world, 'pipe', tiles[i], tiles[i + 1], player))
   return pipes
+}
+
+/**
+ * С какими своими колодцами связался бы колодец в тайле (x, y): ближайший по прямой в каждую сторону, не дальше
+ * UNDERGROUND_REACH и не вплотную (вплотную он связан как наземная труба). Как считает сеть, см. zones.ts; заложенные
+ * колодцы тоже в счёте — ready у них false: связь появится, когда достроят.
+ */
+export function wellPartners(sim: Sim, player: number, x: number, y: number) {
+  const { world, occupancy } = sim
+  const sites = new Map<number, Entity>()
+  for (const [entity, position, site, owner] of world.query(Position, Site, Owner)) {
+    if (owner.player === player && site.type === 'well' && !site.demolish) sites.set(tileKey(position.x, position.y), entity)
+  }
+  const found: { x: number; y: number; ready: boolean }[] = []
+  for (const [dx, dy] of SIDES) {
+    for (let step = 2; step <= UNDERGROUND_REACH; step++) {
+      const tx = x + dx * step
+      const ty = y + dy * step
+      const other = occupancy.at(tx, ty)
+      const ready = other !== undefined && world.get(other, Building)?.type === 'well' && world.get(other, Owner)?.player === player && !world.has(other, Site)
+      if (!ready && !sites.has(tileKey(tx, ty))) continue
+      found.push({ x: tx, y: ty, ready })
+      break
+    }
+  }
+  return found
 }
