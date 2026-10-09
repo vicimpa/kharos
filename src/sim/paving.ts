@@ -1,8 +1,8 @@
 import type { Entity } from '../ecs'
-import { Terrain, isCliffFoot, isPassable, terrainAt } from '../map/terrain'
-import { BUILDINGS, siteAt, type BuildingType } from './buildings'
+import { Terrain, isCliffFoot, isPassable, terrainAt, tileKey } from '../map/terrain'
+import { BUILDINGS, CORE, siteAt, type BuildingType } from './buildings'
 import { isOwn } from './common'
-import { Owner, Pave, Position, Repair, Site, Unit } from './components'
+import { Building, Owner, Pave, Position, Repair, Site, Unit } from './components'
 import { assignBuilders, cancelBuild, demolish } from './construction'
 import { pipeAt } from './piping'
 import { addCredits, pay } from './economy'
@@ -69,19 +69,25 @@ export function orderPave(sim: Sim, player: number, kind: PaveKind, tiles: reado
 }
 
 /**
- * Снимает своё покрытие и свои трубы с колодцами с тайлов строителями: недостроенное покрытие и не начатая труба
- * отменяются сразу, с возвратом кредитов целиком; готовое покрытие строители разбирают без возврата, готовую трубу —
- * как здание, с возвратом половины. Без своих строителей среди units не снимают ничего.
+ * Разбирает строителями своё на тайлах: покрытие, трубы с колодцами и здания, основание которых целиком попало
+ * в тайлы (главное здание не разбирают — его сворачивают). Недостроенное покрытие и не начатые стройки отменяются
+ * сразу, с возвратом кредитов целиком; готовое покрытие строители разбирают без возврата, готовые трубы и здания —
+ * с возвратом половины цены. Без своих строителей среди units не разбирают ничего.
  */
 export function removePave(sim: Sim, player: number, tiles: readonly number[], units: Entity[]) {
   const builders = units.filter((entity) => isOwn(sim, player, entity) && sim.world.has(entity, Repair) && sim.world.has(entity, Unit))
   if (!builders.length) return false
   let first: Entity | undefined
   let count = 0
-  const pipes: Entity[] = []
+  const taken: Entity[] = []
+  const covered = new Set<number>()
+  for (let i = 0; i + 1 < tiles.length && i < PAVE_LIMIT * 2; i += 2) covered.add(tileKey(tiles[i], tiles[i + 1]))
   for (let i = 0; i + 1 < tiles.length && i < PAVE_LIMIT * 2; i += 2) {
+    // Трубу снимают, даже если рамка задела её одним тайлом: она сама в тайл.
     const pipe = pipeAt(sim, player, tiles[i], tiles[i + 1])
-    if (pipe !== undefined && !pipes.includes(pipe)) pipes.push(pipe)
+    if (pipe !== undefined && !taken.includes(pipe)) taken.push(pipe)
+    const building = buildingWithin(sim, player, tiles[i], tiles[i + 1], covered)
+    if (building !== undefined && !taken.includes(building)) taken.push(building)
     const entity = sim.paving.at(tiles[i], tiles[i + 1])
     if (entity === undefined || !isOwn(sim, player, entity)) continue
     const pave = sim.world.get(entity, Pave)!
@@ -94,14 +100,33 @@ export function removePave(sim: Sim, player: number, tiles: readonly number[], u
     pave.remove = true
     first ??= entity
   }
-  for (const pipe of pipes) {
+  for (const entity of taken) {
     count++
-    // Начатую стройку трубы тоже отменяют целиком: с возвратом, как площадку.
-    if (sim.world.has(pipe, Site)) cancelBuild(sim, player, pipe)
-    else if (demolish(sim, player, pipe, [])) first ??= pipe
+    // Стройку отменяют целиком, с возвратом, как площадку; готовое строители разбирают.
+    if (sim.world.has(entity, Site)) cancelBuild(sim, player, entity)
+    else if (demolish(sim, player, entity, [])) first ??= entity
   }
   if (first !== undefined) assignBuilders(sim, player, first, builders)
   return count > 0
+}
+
+/**
+ * Своё здание или стройка в тайле (x, y), основание которого целиком лежит в covered (ключи tileKey);
+ * undefined — такого нет. Главное здание и то, что уже разбирают, не в счёт.
+ */
+export function buildingWithin(sim: Sim, player: number, x: number, y: number, covered: ReadonlySet<number>): Entity | undefined {
+  const { world } = sim
+  const entity = sim.occupancy.at(x, y) ?? siteAt(sim, x, y)
+  if (entity === undefined || !isOwn(sim, player, entity)) return undefined
+  const site = world.get(entity, Site)
+  const type = world.get(entity, Building)?.type ?? site?.type
+  if (type === undefined || type === CORE || site?.demolish) return undefined
+  const position = world.get(entity, Position)!
+  const { width, height } = BUILDINGS[type]
+  for (let ty = position.y; ty < position.y + height; ty++) {
+    for (let tx = position.x; tx < position.x + width; tx++) if (!covered.has(tileKey(tx, ty))) return undefined
+  }
+  return entity
 }
 
 /**

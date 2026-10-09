@@ -206,3 +206,19 @@ test('колодцы кладут парой: по прямой, от 2 до 10 
   expect(wells()).toBe(2)
   expect(credits - creditsOf(sim, 1)).toBe(80)
 })
+
+test('«Разобрать» рамкой разбирает здания, только целиком попавшие в неё', () => {
+  const sim = createSim(options)
+  const { x, y } = rock(sim, 16, 4)
+  addCredits(sim, 1, 1000)
+  const builder = spawnUnit(sim, 'builder', 1, x + 6, y + 3)
+  const inside = placeBuilding(sim.world, 'generator', x, y, 1)
+  const half = placeBuilding(sim.world, 'generator', x + 3, y, 1)
+  // Рамка 4×2 от (x, y): первая станция целиком, вторая — наполовину.
+  const tiles: number[] = []
+  for (let ty = y; ty < y + 2; ty++) for (let tx = x; tx < x + 4; tx++) tiles.push(tx, ty)
+  sim.send(1, { type: 'unpave', tiles, builders: [builder] })
+  run(sim, 1)
+  expect(sim.world.get(inside, Site)?.demolish).toBe(true)
+  expect(sim.world.has(half, Site)).toBe(false)
+})

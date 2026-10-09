@@ -22,7 +22,7 @@ const TRADE = 8
 const LIST = 8
 
 /** Страница сетки строителя: корень с разделами или сами здания раздела. */
-export type Page = 'root' | 'economy' | 'storage' | 'industry' | 'military' | 'defense' | 'paving' | 'filter' | 'sell' | 'buy'
+export type Page = 'root' | 'economy' | 'storage' | 'industry' | 'military' | 'defense' | 'paving' | 'logistics' | 'filter' | 'sell' | 'buy'
 
 /** Разделы строителя: в какой странице какое здание. Остальное — хозяйство: энергия, добыча, торговля. */
 const SECTIONS: Partial<Record<Page, BuildingType[]>> = {
@@ -85,12 +85,18 @@ export const STANCE_SLOTS: { stance: Stance; label: string; title: string }[] = 
 
 /** Инструменты раздела «Покрытие»: подпись, цена тайла и подсказка. */
 const PAVE_TOOLS: { tool: PaveTool; label: string; cost?: number; title: string }[] = [
-  { tool: 'foundation', label: 'Фундамент', cost: FOUNDATION_COST, title: 'Здания на нём строятся вдвое быстрее, на песке он разрешает стройку; полоса от зоны расширяет её на клетку вокруг — так соединяют зоны. Взрывы его разбивают. Тяни мышью прямоугольник' },
+  { tool: 'foundation', label: 'Фундамент', cost: FOUNDATION_COST, title: 'Здания на нём строятся вдвое быстрее, на песке он разрешает стройку. Взрывы его разбивают. Тяни мышью прямоугольник' },
   { tool: 'road', label: 'Дорога', cost: ROAD_COST, title: `Наземные едут быстрее; по болоту — мост за ${BRIDGE_COST} за тайл. Тяни мышью линию` },
+]
+
+/** Инструменты раздела «Логистика»: трубы и колодцы. */
+const PIPE_TOOLS: { tool: PaveTool; label: string; cost?: number; title: string }[] = [
   { tool: 'pipe', label: 'Труба', cost: BUILDINGS.pipe.cost, title: 'Связывает здания в сеть: по трубам идут груз и энергия, они расширяют зону. Перекрывает проезд — под проездом веди колодцами. Своя зона не нужна. Тяни мышью линию' },
   { tool: 'well', label: 'Колодцы', cost: BUILDINGS.well.cost * 2, title: `Пара колодцев — подземная труба: тяни мышью от первого ко второму по прямой, до ${UNDERGROUND_REACH} тайлов. Над ней ездят и строят, уязвимы только колодцы. Своя зона не нужна` },
-  { tool: 'remove', label: 'Снять', title: 'Строители разберут своё покрытие и трубы с колодцами (за трубу вернут половину); недостроенное отменится с возвратом кредитов. Тяни мышью прямоугольник' },
 ]
+
+/** Подсказка инструмента «Разобрать». */
+const REMOVE_TITLE = 'Строители разберут своё в рамке: покрытие, трубы с колодцами и здания, целиком попавшие в неё (за трубы и здания вернут половину цены); недостроенное отменится с возвратом кредитов. Тяни мышью прямоугольник'
 
 /** Сетка команд для выбранного: GRID_SIZE ячеек, пустые — null. */
 export function commandsOf(state: HudState, page: Page, { send, place, pave, route, serve, patrol, open }: Actions): (Slot | null)[] {
@@ -112,9 +118,13 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
       // У каждого раздела своё место: закрытый оставляет пустую ячейку, и кнопки не сдвигаются, когда открываются новые.
       const count = (page: Page) => construction.options.filter(({ building }) => sectionOf(building) === page).length
       sections.forEach((section, i) => (slots[i] = opened(section.page) ? { ...section, group: count(section.page) } : null))
-      slots[sections.length] = { label: 'Покрытие', pave: 'road', group: PAVE_TOOLS.length, title: 'Фундамент, дороги, мосты и трубы', run: () => open('paving') }
-    } else if (page === 'paving') {
-      PAVE_TOOLS.forEach(({ tool, label, cost, title }, i) => {
+      slots[sections.length] = { label: 'Покрытие', pave: 'road', group: PAVE_TOOLS.length, title: 'Фундамент, дороги и мосты', run: () => open('paving') }
+      slots[sections.length + 1] = { label: 'Логистика', building: 'pipe', group: PIPE_TOOLS.length, title: 'Трубы и колодцы: связывают здания в сеть', run: () => open('logistics') }
+      // Разбор — сразу инструмент, без раздела.
+      const active = construction.paving?.tool === 'remove'
+      slots[sections.length + 2] = { label: 'Разобрать', pave: 'remove', active, title: REMOVE_TITLE, run: () => pave(active ? null : 'remove') }
+    } else if (page === 'paving' || page === 'logistics') {
+      ;(page === 'paving' ? PAVE_TOOLS : PIPE_TOOLS).forEach(({ tool, label, cost, title }, i) => {
         const active = construction.paving?.tool === tool
         slots[i] = {
           label,
