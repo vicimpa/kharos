@@ -1391,6 +1391,40 @@ body {
   pointer-events: auto;
 }
 
+/* Режим администратора — красная полоса слева у строки ввода. */
+.chat__input.is-admin {
+  box-shadow: inset 3px 0 0 #ff5555;
+}
+
+/* Личные сообщения — серые и курсивом, как /msg в Minecraft. */
+.chat__whisper {
+  color: #aaaaaa;
+}
+
+/* Подсказки команд над строкой ввода; выбранная — та, что подставит Tab. */
+.chat__suggestions {
+  display: flex;
+  flex-direction: column;
+  margin-top: 2px;
+  pointer-events: auto;
+}
+
+.chat__suggestion {
+  padding: 1px 6px;
+  color: #aaaaaa;
+  background: rgb(0 0 0 / 0.7);
+  cursor: pointer;
+}
+
+.chat__suggestion b {
+  font-weight: normal;
+  color: #fff;
+}
+
+.chat__suggestion.is-chosen b {
+  color: #ffff55;
+}
+
 /* Сообщения сервера — жёлтые, как «зашёл в игру» в Minecraft. */
 .chat__line.is-system {
   color: #ffff55;

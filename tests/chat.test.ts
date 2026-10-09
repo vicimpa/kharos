@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import { DEFAULT_CONFIG } from '../src/map/terrain'
 import { createHost } from '../src/net/host'
 import { CHAT_LENGTH, decodeServer, type ChatLine } from '../src/net/protocol'
+import { complete } from '../src/net/chatCommands'
 import { Owner, Player, createSim } from '../src/sim'
 
 /** Подключение к хосту, которое копит пришедшие сообщения чата: игроков — в lines, сервера — в notices. */
@@ -53,4 +54,64 @@ test('сервер пишет в чат о поражении игрока од�
   // Поражения хост проверяет раз в несколько тиков; advance за раз делает их немного.
   for (let i = 0; i < 20; i++) host.advance(sim.time.step)
   expect(one.notices.filter((line) => line.text === 'терпит поражение')).toEqual([{ player: two.peer.player, name: 'Второй', text: 'терпит поражение', system: true }])
+})
+
+test('команды: ответ только автору, админские скрыты без /admin, пароль в чат не уходит', async () => {
+  const sim = createSim({ generator: DEFAULT_CONFIG, size: 256 })
+  const host = createHost(sim, undefined, undefined, { admin: 'секрет' })
+  const lists: { commands: string[]; admin: boolean }[] = []
+  const one = connect(host, 'Первый')
+  const two = connect(host, 'Второй')
+  const spy = host.join((data) => {
+    const message = decodeServer(data)
+    if (message.type === 'commands') lists.push({ commands: message.commands.map((command) => command.name), admin: message.admin })
+  }, undefined, 'Третий')
+  expect(lists[0].commands).not.toContain('kick')
+  const tell = (text: string) => spy.receive(JSON.stringify({ type: 'chat', text }))
+  tell('/kick Первый')
+  await Bun.sleep(550)
+  tell('/admin неверно')
+  expect(one.notices.some((line) => line.text.includes('неверно'))).toBe(false)
+  await Bun.sleep(550)
+  // После неверного пароля несколько секунд не пускает и с верным.
+  tell('/admin секрет')
+  expect(lists.at(-1)!.admin).toBe(false)
+  await Bun.sleep(3000)
+  tell('/admin секрет')
+  expect(lists.at(-1)).toMatchObject({ admin: true })
+  expect(lists.at(-1)!.commands).toContain('kick')
+  await Bun.sleep(550)
+  tell('/credits Второй +500')
+  await Bun.sleep(550)
+  tell('/say всем привет')
+  expect(two.notices.at(-1)).toMatchObject({ name: '[Сервер]', text: 'всем привет' })
+}, 10_000)
+
+test('консоль: /msg уходит только адресату, /kick отключает игрока', () => {
+  const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: 256 }))
+  const one = connect(host, 'Первый')
+  const two = connect(host, 'Игрок 2')
+  const three = connect(host, 'Третий')
+  one.say('/msg "Игрок 2" тайна, "в кавычках"')
+  expect(two.lines.at(-1)).toMatchObject({ name: 'Первый', text: 'тайна, "в кавычках"', whisper: 'Игрок 2' })
+  expect(three.lines).toEqual([])
+  const out: string[] = []
+  let closed = 0
+  const four = host.join(() => {}, undefined, 'Четвёртый', () => closed++)
+  host.command('kick Четвёртый', { admin: true, reply: (text) => out.push(text) })
+  expect(closed).toBe(1)
+  host.command('nope', { admin: true, reply: (text) => out.push(text) })
+  expect(out.at(-1)).toContain('Нет команды')
+  void four
+})
+
+test('дополнение: команды по началу, ники в кавычках, если в них пробел', () => {
+  const commands = [
+    { name: 'msg', args: ['<игрок>', '<текст>'], help: '' },
+    { name: 'me', args: ['<действие>'], help: '' },
+  ]
+  expect(complete('/m', commands, []).map((item) => item.text)).toEqual(['/msg ', '/me '])
+  expect(complete('/msg иг', commands, ['Игрок 2', 'Вася']).map((item) => item.text)).toEqual(['/msg "Игрок 2" '])
+  expect(complete('/msg ', commands, ['Вася']).map((item) => item.text)).toEqual(['/msg Вася '])
+  expect(complete('привет', commands, ['Вася'])).toEqual([])
 })

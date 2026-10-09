@@ -1,3 +1,4 @@
+import { complete } from '../net/chatCommands'
 import type { ComponentChildren } from 'preact'
 import type { HudState, Stack } from '../game/hud'
 import { MINIMAP_SIZE, type Minimap } from '../game/minimap'
@@ -150,17 +151,36 @@ const CHAT_RECENT = 8
  * Чат, как в Minecraft: Enter открывает строку ввода, Enter отправляет, Escape закрывает. Закрытый чат показывает
  * свежие сообщения, и через CHAT_SHOWN секунд они гаснут; открытый — всю историю.
  */
-function Chat({ lines, picking, say }: { lines: NonNullable<HudState['chat']>; picking: boolean; say: (text: string) => void }) {
+/** Сколько подсказок дополнения видно над строкой чата. */
+const CHAT_SUGGESTIONS = 6
+
+interface ChatProps {
+  lines: NonNullable<HudState['chat']>
+  picking: boolean
+  commands: HudState['commands']
+  admin: boolean
+  names: string[]
+  say: (text: string) => void
+}
+
+function Chat({ lines, picking, commands, admin, names, say }: ChatProps) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState('')
+  /** Строка чата спрашивает пароль администратора: набранное скрыто и уходит как /admin <пароль>. */
+  const [password, setPassword] = useState(false)
+  /** Какая подсказка дополнения выбрана стрелками. */
+  const [chosen, setChosen] = useState(0)
   const input = useRef<HTMLInputElement>(null)
   const pickingRef = useRef(picking)
   pickingRef.current = picking
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLInputElement || event.repeat || pickingRef.current) return
-      if (event.code !== 'Enter' && event.code !== 'NumpadEnter') return
+      // «/» открывает чат сразу с началом команды; на русской раскладке та же клавиша — точка.
+      const slash = event.key === '/' || event.code === 'Slash' || event.code === 'NumpadDivide'
+      if (event.code !== 'Enter' && event.code !== 'NumpadEnter' && !slash) return
       event.preventDefault()
+      if (slash) setDraft('/')
       setOpen(true)
     }
     window.addEventListener('keydown', onKey)
@@ -172,7 +192,15 @@ function Chat({ lines, picking, say }: { lines: NonNullable<HudState['chat']>; p
   const close = () => {
     setOpen(false)
     setDraft('')
+    setPassword(false)
+    setChosen(0)
     input.current?.blur()
+  }
+  const suggestions = password ? [] : complete(draft, commands, names).slice(0, CHAT_SUGGESTIONS)
+  const pick = Math.min(chosen, suggestions.length - 1)
+  const edit = (text: string) => {
+    setDraft(text)
+    setChosen(0)
   }
   const now = performance.now()
   const shown = open ? lines : lines.slice(-CHAT_RECENT).filter((line) => now - line.at < CHAT_SHOWN * 1000)
@@ -184,25 +212,74 @@ function Chat({ lines, picking, say }: { lines: NonNullable<HudState['chat']>; p
           const left = CHAT_SHOWN - (now - line.at) / 1000
           return (
             <div key={i} class={`chat__line${line.system ? ' is-system' : ''}`} style={open ? undefined : { opacity: Math.min(1, left / CHAT_FADE) }}>
-              {line.system ? `${line.name} ${line.text}` : <><b class={line.own ? 'is-own' : undefined}>&lt;{line.name}&gt;</b> {line.text}</>}
+              {line.system ? (
+                line.name ? `${line.name} ${line.text}` : line.text
+              ) : line.whisper ? (
+                <i class="chat__whisper">
+                  &lt;{line.name} → {line.whisper}&gt; {line.text}
+                </i>
+              ) : (
+                <>
+                  <b class={line.own ? 'is-own' : undefined}>&lt;{line.name}&gt;</b> {line.text}
+                </>
+              )}
             </div>
           )
         })}
       </div>
+      {open && suggestions.length > 0 && (
+        <div class="chat__suggestions">
+          {suggestions.map((item, i) => (
+            <div
+              key={item.text + item.label}
+              class={`chat__suggestion${i === pick ? ' is-chosen' : ''}`}
+              // До blur строки: иначе чат закроется раньше, чем подсказка подставится.
+              onMouseDown={(event) => {
+                event.preventDefault()
+                edit(item.text)
+              }}
+            >
+              <b>{item.label}</b> <span>{item.help}</span>
+            </div>
+          ))}
+        </div>
+      )}
       {open && (
         <input
           ref={input}
-          class="chat__input"
+          class={`chat__input${admin ? ' is-admin' : ''}`}
+          // Типы Preact не дают выбрать type выражением: "text" и "password" у них в разных перегрузках.
+          type={(password ? 'password' : 'text') as 'password'}
+          placeholder={password ? 'Пароль администратора' : admin ? 'режим администратора' : undefined}
           value={draft}
           maxLength={200}
-          onInput={(event) => setDraft(event.currentTarget.value)}
+          onInput={(event) => edit(event.currentTarget.value)}
           onBlur={close}
           onKeyDown={(event) => {
             // Клавиши чата не доходят ни до игры, ни до сетки команд.
             event.stopPropagation()
             if (event.code === 'Escape') close()
+            if (event.code === 'Tab') {
+              event.preventDefault()
+              if (suggestions[pick]) edit(suggestions[pick].text)
+            }
+            if ((event.code === 'ArrowUp' || event.code === 'ArrowDown') && suggestions.length) {
+              event.preventDefault()
+              const step = event.code === 'ArrowUp' ? -1 : 1
+              setChosen((pick + step + suggestions.length) % suggestions.length)
+            }
             if (event.code === 'Enter' || event.code === 'NumpadEnter') {
-              if (draft.trim()) say(draft)
+              // Голый /admin спрашивает пароль отдельно, скрытым полем: в строке чата его видно.
+              // Команда с паролем — /admin — спрашивает его скрытым полем; набранное после неё в строке не уходит.
+              const secret = commands.find((command) => command.secret && draft.trim().toLowerCase().split(' ')[0] === `/${command.name}`)
+              if (!password && secret) {
+                setPassword(true)
+                setDraft('')
+                return
+              }
+              if (password) {
+                if (draft) say(`/admin ${draft}`)
+              } else if (draft.trim()) say(draft)
               close()
             }
           }}
@@ -629,7 +706,14 @@ export function Hud({ state, send, place, pave, route, serve, patrol, minimap, l
       </header>
 
       <Tip />
-      {state.chat && <Chat lines={state.chat} picking={state.picking} say={say} />}
+      {state.chat && <Chat
+          lines={state.chat}
+          picking={state.picking}
+          commands={state.commands}
+          admin={state.admin}
+          names={state.players.map((player) => player.name)}
+          say={say}
+        />}
       {state.hover && (
         <div class="hud tip" style={{ left: `${state.hover.x + 16}px`, top: `${state.hover.y + 16}px` }}>
           <Res resource={state.hover.kind} /> Месторождение: {RESOURCE_NAMES[state.hover.kind].toLowerCase()}

@@ -1,3 +1,4 @@
+import type { CommandInfo } from './chatCommands'
 import { World, type Component, type Entity, type Time } from '../ecs'
 import { applyEdits, areaOf, createLand, loadLand, saveLand } from '../map/terrain'
 import { inflate } from '../save/file'
@@ -40,6 +41,9 @@ export interface Replica extends Sim {
   readonly players: readonly PlayerInfo[]
   /** Чат: последние сообщения по порядку, at — когда клиент его получил, в мс по performance.now. */
   readonly chat: readonly (ChatLine & { at: number })[]
+  /** Команды чата, которые хост разрешает этому игроку, и администратор ли он, см. chatCommands.ts. */
+  readonly commands: readonly CommandInfo[]
+  readonly admin: boolean
   /** Написать в чат. */
   say(text: string): void
 }
@@ -186,6 +190,8 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
     generation: 0,
     players: [] as PlayerInfo[],
     chat: [] as (ChatLine & { at: number })[],
+    commands: [] as CommandInfo[],
+    admin: false,
     world,
     occupancy,
     paving,
@@ -285,7 +291,10 @@ export function createReplica(welcome: Extract<ServerMessage, { type: 'welcome' 
       else if (message.type === 'explored') replica.vision.explore(player, message.map)
       else if (message.type === 'traces') replica.traces.receive(message.traces)
       else if (message.type === 'players') replica.players = message.players
-      else if (message.type === 'chat') {
+      else if (message.type === 'commands') {
+        replica.commands = message.commands
+        replica.admin = message.admin
+      } else if (message.type === 'chat') {
         const at = performance.now()
         replica.chat = [...replica.chat, ...message.lines.map((line) => ({ ...line, at }))].slice(-CHAT_KEPT)
       }

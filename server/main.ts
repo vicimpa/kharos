@@ -68,7 +68,10 @@ function store() {
 const saved = await load()
 // Карта и погода у сохранённого мира свои, а правила — из настроек: их можно менять между запусками.
 const { generator, size, fog, weather, rules } = settings
-const host = createHost(saved ? createSim({ ...saved.sim, rules }) : createSim({ generator, size, fog, weather, rules }), undefined, saved)
+const host = createHost(saved ? createSim({ ...saved.sim, rules }) : createSim({ generator, size, fog, weather, rules }), undefined, saved, {
+  admin: settings.admin,
+  log: (text) => console.log(text),
+})
 if (saved) console.log(`мир загружен из ${SAVE_PATH}: тик ${saved.sim.tick}, игроков ${Object.keys(saved.players).length}`)
 else console.log(`новый мир ${size}×${size}, seed ${generator.seed}`)
 
@@ -112,7 +115,7 @@ const listen = (certificate?: Certificate) => Bun.serve<SocketData>({
         console.log(`× ${reason.toLowerCase()}`)
         return
       }
-      socket.data.peer = host.join((text) => socket.send(text), socket.data.id, socket.data.name)
+      socket.data.peer = host.join((text) => socket.send(text), socket.data.id, socket.data.name, () => socket.close(1000, 'kick'))
       console.log(`+ игрок ${socket.data.peer.player} ${socket.data.name ?? ''}`)
     },
     message(socket, text) {
@@ -176,12 +179,32 @@ setInterval(() => {
   busy = 0
 }, host.sim.time.step * 1000)
 
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(signal, async () => {
-    await store()
-    console.log(`мир сохранён в ${SAVE_PATH}`)
-    process.exit(0)
-  })
+/** Сохраняет мир и выходит. */
+async function stop() {
+  await store()
+  console.log(`мир сохранён в ${SAVE_PATH}`)
+  process.exit(0)
 }
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, stop)
+
+host.addCommand({
+  name: 'save',
+  args: [],
+  help: 'сохранить мир сейчас',
+  console: true,
+  run: async (_args, _rest, caller) => {
+    await store()
+    caller.reply(`мир сохранён в ${SAVE_PATH}`)
+  },
+})
+host.addCommand({ name: 'stop', args: [], help: 'сохранить мир и остановить сервер', console: true, run: () => void stop() })
+
+// Консоль сервера: строка stdin — команда, как в чате, но без «/» и всегда от администратора. Под pm2 stdin
+// закрыт, и цикл просто кончается.
+const operator = { admin: true, reply: (text: string) => console.log(text) }
+void (async () => {
+  for await (const line of console) if (line.trim()) host.command(line.trim(), operator)
+})()
 
 console.log(`Kharos слушает ${current ? `wss://${domain ?? 'localhost'}` : 'ws://localhost'}:${port}`)

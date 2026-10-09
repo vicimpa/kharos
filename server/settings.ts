@@ -9,6 +9,8 @@ export interface ServerSettings {
   port: number
   /** Пароль на вход; пустой — заходит кто угодно. */
   password: string
+  /** Пароль режима администратора, /admin в чате; пустой — режима нет. */
+  admin: string
   /** Файл сохранения мира, двоичный, см. src/save/file.ts. */
   save: string
   /** Сторона карты в тайлах. Как и generator, fog и weather, действует только на новый мир. */
@@ -27,6 +29,7 @@ export interface ServerSettings {
 export const defaultSettings = (): ServerSettings => ({
   port: DEFAULT_PORT,
   password: '',
+  admin: '',
   save: 'save.kharos',
   size: 256,
   fog: true,

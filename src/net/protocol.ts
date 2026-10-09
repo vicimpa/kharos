@@ -1,6 +1,7 @@
 import type { Command, SimOptions } from '../sim'
 import type { DepositsSave } from '../sim/deposits'
 import type { Trace } from '../sim/traces'
+import type { CommandInfo } from './chatCommands'
 import { LAND, decodeDelta } from './codec'
 
 /**
@@ -8,7 +9,7 @@ import { LAND, decodeDelta } from './codec'
  * из тех же компонентов и правил, что у сервера. Поднимай её при каждом изменении протокола, компонентов из SAVED
  * или симуляции, которое меняет то, что видит клиент.
  */
-export const PROTOCOL_VERSION = 13
+export const PROTOCOL_VERSION = 14
 
 /** Почему сервер не пустил клиента другой версии: текст для игрока. */
 export function versionMismatch(server: number, client: number) {
@@ -55,14 +56,21 @@ export type ServerMessage =
   | { type: 'deposits'; deposits: DepositsSave }
   /** Новые сообщения чата. Хост их не хранит: вошедший позже прошлых не увидит. */
   | { type: 'chat'; lines: ChatLine[] }
+  /**
+   * Команды чата, которые клиенту можно, — для дополнения, см. chatCommands.ts. Приходит при входе и когда игрок
+   * входит в режим администратора или выходит из него; admin — он сейчас администратор.
+   */
+  | { type: 'commands'; commands: CommandInfo[]; admin: boolean }
 
 /** Сообщение чата: кто написал и что. */
 export interface ChatLine {
   player: number
   name: string
   text: string
-  /** Сообщение самого сервера: кто зашёл, вышел, проиграл. name у него — о ком оно. */
+  /** Сообщение самого сервера: кто зашёл, вышел, проиграл. name у него — о ком оно; пустой name — ответ на команду. */
   system?: true
+  /** Личное сообщение, /msg: ник того, кому оно. Приходит только ему и автору. */
+  whisper?: string
 }
 
 /** Самое длинное сообщение чата; длиннее обрезается. */
