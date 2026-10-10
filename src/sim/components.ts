@@ -160,13 +160,14 @@ export const Inventory = component('Inventory', () => ({ items: {} as Amounts, c
  */
 /**
  * Харвестер: копает руду из месторождения в кузов и возит её на переработку (доставку ведёт Hauler).
- * x, y — левый верхний тайл месторождения, где он копает; -1 — ещё не выбрано: тогда он ищет его сам.
+ * x, y — левый верхний тайл месторождения, где он копает; picked — выбрано ли оно: нет — он ищет его сам.
+ * Выбранность — отдельным полем, а не значением координат: у карты есть и отрицательные тайлы.
  * ordered — месторождение назначил игрок. seek — что искать: вид месторождения, any — любое, пусто — ничего.
  * Ищет он честно: среди разведанных игроком, а не найдя — разведывает сам. Выработается — ищет того же вида.
  * parked — стоит и ждёт команды: новый харвестер, уведённый приказом идти или не нашедший ничего.
  */
-/** scoutX, scoutY — откуда начат поиск: разведка идёт кольцами вокруг этой точки; -1 — поиск не начат. */
-export const Harvester = component('Harvester', { x: -1, y: -1, ordered: false, parked: true, seek: '' as DepositKind | 'any' | '', scoutX: -1, scoutY: -1 })
+/** scoutX, scoutY — откуда начат поиск: разведка идёт кольцами вокруг этой точки; scouting — поиск начат. */
+export const Harvester = component('Harvester', { x: -1, y: -1, picked: false, ordered: false, parked: true, seek: '' as DepositKind | 'any' | '', scoutX: -1, scoutY: -1, scouting: false })
 
 export const Beam = component('Beam', () => ({ radius: 2, rate: 10, give: true, take: true, links: [] as { target: number; pulling: boolean; resource: Good }[] }))
 

@@ -442,7 +442,7 @@ export function clearTasks(sim: Sim, entity: Entity) {
   world.remove(entity, Path)
   world.remove(entity, Builds)
   const harvester = world.get(entity, Harvester)
-  if (harvester) Object.assign(harvester, { x: NONE, y: NONE, ordered: false, parked: true, seek: '' })
+  if (harvester) Object.assign(harvester, { x: NONE, y: NONE, picked: false, ordered: false, parked: true, seek: '' })
   releaseHauler(sim, entity)
   stopAttack(sim, entity)
   clearTactics(sim, entity)

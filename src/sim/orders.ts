@@ -70,7 +70,7 @@ function idle(sim: Sim, entity: Entity) {
   }
   if (world.get(entity, Tactics)?.patrol.length) return false
   const harvester = world.get(entity, Harvester)
-  if (harvester && (harvester.x !== NONE || harvester.seek)) return false
+  if (harvester && (harvester.picked || harvester.seek)) return false
   // Заявки зон грузовик возит и сам, без приказа: их очередь прерывает.
   const hauler = world.get(entity, Hauler)
   if (hauler && (hauler.mine !== NONE || hauler.pickup !== NONE || hauler.supply !== NONE || hauler.route.length || hauler.serve.length)) return false

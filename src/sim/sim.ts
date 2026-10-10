@@ -13,7 +13,7 @@ import { unitSpec } from './units'
 import type { Entity } from '../ecs'
 import { REPAIR_COST, REPAIR_PAUSE, REPAIR_SPEED, construct } from './construction'
 import { convert } from './conversion'
-import { harvest } from './harvesting'
+import { adoptLegacyHarvesters, harvest } from './harvesting'
 import { haul } from './hauling'
 import { pipeFlow } from './pipes'
 import { earn } from './income'
@@ -266,6 +266,7 @@ export function createSim(source: SimOptions | SimSave): Sim {
     refreshStorage(sim)
     remount(sim)
     adoptLegacyDeposits(sim)
+    adoptLegacyHarvesters(sim, source.world)
     for (const [player, map] of Object.entries(source.explored ?? {})) sim.vision.explore(Number(player), map)
   }
   return sim
