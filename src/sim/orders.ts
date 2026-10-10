@@ -77,7 +77,9 @@ function idle(sim: Sim, entity: Entity) {
     const armed = world.get(gunner, Armed)
     if (armed?.ordered && armed.target !== NONE) return false
   }
-  if (world.get(entity, Tactics)?.patrol.length) return false
+  const tactics = world.get(entity, Tactics)
+  // В патруле или не дошёл, куда шёл: отвлёкся на врага по дороге или возвращается после погони.
+  if (tactics?.patrol.length || tactics?.away) return false
   const harvester = world.get(entity, Harvester)
   if (harvester && (harvester.picked || harvester.seek)) return false
   // Заявки зон грузовик возит и сам, без приказа: их очередь прерывает.

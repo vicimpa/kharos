@@ -16,7 +16,7 @@ import { cancelUnit, orderUnit } from './production'
 import { setFilter, setRoute, setServe } from './routes'
 import { surrender } from './defeat'
 import { resolveOrder } from './target'
-import { clearTactics, orderPatrol, setStance, type Stance } from './tactics'
+import { clearTactics, orderPatrol, setStance, startMarch, type Stance } from './tactics'
 import type { Good, Resource } from './resources'
 import type { Sim } from './sim'
 import { buy, closeSale, sell } from './trade'
@@ -190,6 +190,8 @@ function run(sim: Sim, player: number, command: Command): boolean {
         clearTactics(sim, entity)
       }
       orderGroupMove(sim, units, command.x, command.y)
+      // Агрессивные идут походом: по дороге бьют увиденных врагов и продолжают путь.
+      startMarch(sim, units)
       return true
     }
     case 'build': {

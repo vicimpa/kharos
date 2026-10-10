@@ -445,7 +445,10 @@ export function fight(sim: Sim) {
     const moving = world.has(mover, Path)
     const unitCarrier = world.get(carrier, Unit)
     const stance = unitCarrier ? stanceOf(sim, carrier) : 'defensive'
-    const patrolling = !!world.get(carrier, Tactics)?.patrol.length
+    // Агрессивный в походе — идёт, куда послали, или возвращается после погони — высматривает врага, как патрульный:
+    // бьёт всё, что увидел по дороге, и идёт дальше. Приказ атаковать цель — не поход: с ним юнит на других не смотрит.
+    const tactics = world.get(carrier, Tactics)
+    const patrolling = !!tactics?.patrol.length || (stance === 'aggressive' && !!tactics?.away)
     if (!target) {
       armed.target = NONE
       armed.chase = false
@@ -476,7 +479,6 @@ export function fight(sim: Sim) {
     }
 
     // Юнит в обороне, убежавший за врагом дальше поводка от места, где стоял, бросает погоню и вернётся туда.
-    const tactics = world.get(carrier, Tactics)
     if (!armed.ordered && armed.chase && stance === 'defensive' && tactics?.away && Math.hypot(self.x - tactics.homeX - 0.5, self.y - tactics.homeY - 0.5) > LEASH) {
       armed.target = NONE
       armed.chase = false

@@ -8,7 +8,8 @@ import { weaponOf } from './combat'
 
 /**
  * Стойка — как юнит воюет без приказа:
- * - aggressive — высматривает врага на всю дальность обзора и гонится за ним, сколько бы ни пришлось;
+ * - aggressive — высматривает врага на всю дальность обзора и гонится за ним, сколько бы ни пришлось; посланный
+ *   идти — бьёт всё, что увидит по дороге, и идёт дальше (поход, см. startMarch);
  * - defensive — бьёт тех, до кого достаёт с места, на огонь отвечает погоней, но не дальше LEASH от места, где стоял,
  *   и потом возвращается туда;
  * - hold — с места не сходит: бьёт только тех, до кого достаёт, и под огнём тоже;
@@ -23,6 +24,8 @@ export const LEASH = 8
 export const PATROL_LIMIT = 8
 /** Раз во сколько тиков вставший юнит вспоминает о патруле и о месте, куда вернуться. */
 const RESUME_TICKS = 10
+/** Ближе скольких тайлов к своему месту юнит считается пришедшим: само место мог занять сосед. */
+const HOME_REACH = 1.5
 
 /** Стойка юнита: без тактики — оборона. */
 export const stanceOf = (sim: Sim, entity: Entity): Stance => sim.world.get(entity, Tactics)?.stance ?? 'defensive'
@@ -85,13 +88,27 @@ export function orderPatrol(sim: Sim, player: number, units: Entity[], points: n
   return fighters.length > 0
 }
 
-/** Снимает патруль и возвращение на место: юнит слушает приказ игрока. Стойка остаётся. */
+/** Снимает патруль и возвращение на место (оно же — место назначения похода): юнит слушает приказ игрока. Стойка остаётся. */
 export function clearTactics(sim: Sim, entity: Entity) {
   const tactics = sim.world.get(entity, Tactics)
   if (!tactics) return
   tactics.patrol = []
   tactics.leg = 0
   tactics.away = false
+}
+
+/**
+ * Поход: свои вооружённые юниты в агрессивной стойке, посланные идти, запоминают, куда идут (у каждого — конец его
+ * пути). По дороге они бьют всё, что увидят, и гонятся за ним, а потом идут дальше, см. fight и patrol. В других
+ * стойках приказ идти — просто идти.
+ */
+export function startMarch(sim: Sim, units: Entity[]) {
+  for (const entity of units) {
+    const path = sim.world.get(entity, Path)
+    if (!path || stanceOf(sim, entity) !== 'aggressive') continue
+    if (![entity, ...turretsOf(sim, entity)].some((gunner) => sim.world.has(gunner, Armed))) continue
+    Object.assign(tacticsOf(sim, entity), { away: true, homeX: path.goalX, homeY: path.goalY })
+  }
 }
 
 /** Юнит уходит в погоню без приказа: запоминает, откуда, чтобы вернуться. В патруле возвращаться некуда — он продолжит обход. */
@@ -128,8 +145,10 @@ export function patrol(sim: Sim) {
       continue
     }
     if (tactics.away) {
-      tactics.away = false
-      if (Math.floor(position.x) !== tactics.homeX || Math.floor(position.y) !== tactics.homeY) moves.push({ entity, x: tactics.homeX, y: tactics.homeY })
+      // Пришёл — или встал рядом, потому что место заняли. Не пришёл — идёт туда снова: встреченный по дороге враг
+      // места назначения не отменяет.
+      if (Math.hypot(position.x - tactics.homeX - 0.5, position.y - tactics.homeY - 0.5) <= HOME_REACH) tactics.away = false
+      else moves.push({ entity, x: tactics.homeX, y: tactics.homeY })
     }
   }
   for (const { entity, x, y, leg } of moves) {
@@ -138,5 +157,7 @@ export function patrol(sim: Sim) {
     // искал бы путь к ней каждые RESUME_TICKS.
     const tactics = world.get(entity, Tactics)
     if (leg && tactics?.patrol.length && !world.has(entity, Path)) tactics.leg = (tactics.leg + 1) % (tactics.patrol.length / 2)
+    // До места не добраться — остаётся где стоит.
+    if (!leg && tactics && !world.has(entity, Path)) tactics.away = false
   }
 }

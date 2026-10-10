@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Terrain, terrainAt } from '../src/map/terrain'
-import { Armed, Health, Path, Position, Tactics, createSim, type Sim } from '../src/sim'
+import { Armed, Health, Orders, Path, Position, Tactics, createSim, type Sim } from '../src/sim'
 import { spawnUnit, type UnitType } from '../src/sim/units'
 import { placeBuilding } from '../src/sim/buildings'
 import { searchedTiles } from '../src/sim/path'
@@ -154,17 +154,67 @@ test('Shift к патрулю: точка добавляется к идущем
   expect(sim.world.get(ours, Tactics)!.patrol.slice(2)).toEqual([x + 30, y])
 })
 
-test('«агрессивно» на юните с турелью: приказ идти выполняется, хоть враг и в обзоре', () => {
+test('поход: агрессивный, посланный идти, бьёт увиденного по дороге и идёт дальше, куда послали', () => {
+  for (const type of ['buggy', 'infantry'] as const) {
+    const { sim, x, y } = field()
+    const ours = put(sim, type, 1, x + 2, y)
+    // Враг в стороне от пути: в обзоре, но не на выстреле.
+    const foe = put(sim, 'truck', 2, x + 12, y + 3)
+    sim.send(1, { type: 'stance', units: [ours], stance: 'aggressive' })
+    sim.send(1, { type: 'move', units: [ours], x: x + 22, y })
+    for (let i = 0; i < 60 * 20 && sim.world.alive(foe); i++) sim.advance(TICK)
+    expect(sim.world.alive(foe)).toBe(false)
+    // Бой кончился не там, куда шёл: юнит вспоминает о месте назначения и доходит.
+    seconds(sim, 30)
+    expect(Math.hypot(at(sim, ours).x - (x + 22.5), at(sim, ours).y - (y + 0.5))).toBeLessThan(1.6)
+    expect(sim.world.get(ours, Tactics)!.away).toBe(false)
+    expect(sim.world.has(ours, Path)).toBe(false)
+  }
+})
+
+test('поход — только в агрессивной стойке и только по приказу идти: в обороне и с приказом атаки на других не смотрят', () => {
+  {
+    // С приказом атаки агрессивный едет к своей цели мимо прочих.
+    const { sim, x, y } = field()
+    const hunter = put(sim, 'buggy', 1, x + 2, y + 2)
+    const bystander = put(sim, 'truck', 2, x + 12, y - 3)
+    const prey = put(sim, 'truck', 2, x + 22, y + 2)
+    sim.send(1, { type: 'stance', units: [hunter], stance: 'aggressive' })
+    sim.send(1, { type: 'attack', units: [hunter], target: prey })
+    for (let i = 0; i < 60 * 20 && sim.world.alive(prey); i++) sim.advance(TICK)
+    expect(sim.world.alive(prey)).toBe(false)
+    expect(hurt(sim, bystander)).toBe(false)
+  }
+  {
+    // В обороне приказ идти — просто идти: врага в обзоре, но не на выстреле, юнит не трогает.
+    const { sim, x, y } = field()
+    const calm = put(sim, 'infantry', 1, x + 2, y - 3)
+    const bystander = put(sim, 'truck', 2, x + 12, y + 3)
+    sim.send(1, { type: 'move', units: [calm], x: x + 22, y: y - 3 })
+    seconds(sim, 40)
+    expect(Math.floor(at(sim, calm).x)).toBe(x + 22)
+    expect(hurt(sim, bystander)).toBe(false)
+    expect(sim.world.get(calm, Tactics)?.away ?? false).toBe(false)
+  }
+})
+
+test('приказ с Shift ждёт, пока агрессивный не дойдёт, куда шёл: бой по дороге — не конец приказа', () => {
   const { sim, x, y } = field()
-  const ours = put(sim, 'buggy', 1, x + 20, y)
-  // Враг в обзоре, но не на выстреле; велено ехать от него.
-  const foe = put(sim, 'infantry', 2, x + 28, y)
+  const ours = put(sim, 'buggy', 1, x + 2, y)
+  const foe = put(sim, 'truck', 2, x + 12, y + 3)
   sim.send(1, { type: 'stance', units: [ours], stance: 'aggressive' })
-  sim.send(2, { type: 'stance', units: [foe], stance: 'passive' })
-  sim.send(1, { type: 'move', units: [ours], x: x + 2, y })
-  seconds(sim, 6)
-  expect(at(sim, ours).x).toBeLessThan(x + 4)
-  expect(hurt(sim, foe)).toBe(false)
+  sim.send(1, { type: 'move', units: [ours], x: x + 22, y })
+  sim.send(1, { type: 'move', units: [ours], x: x + 22, y: y + 3, queue: true })
+  let reached = false
+  for (let i = 0; i < 90 * 20; i++) {
+    sim.advance(TICK)
+    reached ||= Math.hypot(at(sim, ours).x - (x + 22.5), at(sim, ours).y - (y + 0.5)) < 1.6
+    // Следующий приказ из очереди не берётся, пока не дошёл до первой точки.
+    if (!reached) expect(sim.world.get(ours, Orders)!.list.length).toBe(1)
+  }
+  expect(sim.world.alive(foe)).toBe(false)
+  expect(reached).toBe(true)
+  expect(Math.floor(at(sim, ours).y)).toBe(y + 3)
 })
 
 test('точка патруля на здании засчитывается, когда ближе не подойти: патруль идёт дальше, путь не ищется без конца', () => {
