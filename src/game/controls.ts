@@ -17,7 +17,7 @@ const CLICK_SLOP = 4
 const PICK_MARGIN = 6
 const LEFT = 0
 /** Почём тайл покрытия бывает: дорога по болоту — мост — дороже. Режим держится, пока хватает на самый дешёвый. */
-const PAVE_COSTS = { foundation: [FOUNDATION_COST], road: [ROAD_COST, BRIDGE_COST], pipe: [BUILDINGS.pipe.cost], well: [BUILDINGS.well.cost] } as const
+const PAVE_COSTS = { foundation: [FOUNDATION_COST], road: [ROAD_COST, BRIDGE_COST], pipe: [BUILDINGS.pipe.cost], well: [BUILDINGS.well.cost], wall: [BUILDINGS.wall.cost] } as const
 const RIGHT = 2
 
 /**
@@ -224,7 +224,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
           const queue = event.shiftKey
           if (tool === 'well') {
             if (tiles.length === stroke.tiles.length) scene.sim.send(scene.player, { type: 'wells', tiles, builders, queue })
-          } else scene.sim.send(scene.player, tool === 'remove' ? { type: 'unpave', tiles, builders, queue } : tool === 'pipe' ? { type: 'pipes', tiles, builders, queue } : { type: 'pave', kind: tool, tiles, builders, queue })
+          } else scene.sim.send(scene.player, tool === 'remove' ? { type: 'unpave', tiles, builders, queue } : tool === 'pipe' || tool === 'wall' ? { type: tool === 'pipe' ? 'pipes' : 'walls', tiles, builders, queue } : { type: 'pave', kind: tool, tiles, builders, queue })
         }
       }
     } else if (scene.placing) {

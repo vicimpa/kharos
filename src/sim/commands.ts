@@ -6,7 +6,7 @@ import { BUILDINGS, type BuildingType } from './buildings'
 import { orderAttack, stopAttack } from './combat'
 import { NONE, isOwn } from './common'
 import { Builds, Building, Harvester, Producer, Unit } from './components'
-import { assignBuilders, cancelBuild, demolish, orderBuild, workIn } from './construction'
+import { assignBuilders, cancelBuild, demolish, orderBuild, orderWalls, workIn } from './construction'
 import { DEPLOY_SECONDS, PACK_SECONDS, canDeploy, canPack, cancelDeploy, startConverting } from './conversion'
 import { assignHaulers, assignPickup, assignSupply, releaseHauler } from './hauling'
 import { clearOrders, isBusyBuilder, queueOrder, unitsOf } from './orders'
@@ -92,6 +92,8 @@ export type Command = (
   | { type: 'pave'; kind: PaveKind; tiles: number[]; builders: number[] }
   /** Протянуть наземную трубу по тайлам (x и y подряд, по порядку) и послать к ней своих строителей. */
   | { type: 'pipes'; tiles: number[]; builders: number[] }
+  /** Протянуть стену по тайлам (x и y подряд, по порядку) и послать к ней своих строителей. */
+  | { type: 'walls'; tiles: number[]; builders: number[] }
   /** Заложить колодец (x, y) или пару — концы подземной трубы (x, y первого и второго) — и послать к ним своих строителей. */
   | { type: 'wells'; tiles: number[]; builders: number[] }
   /** Снять своё покрытие с тайлов (x и y подряд) своими строителями: недостроенное — сразу с возвратом, готовое разберут. */
@@ -139,7 +141,7 @@ function accept(sim: Sim, player: number, command: Command): boolean {
     for (const resolved of resolveOrder(sim, player, units, command)) done = accept(sim, player, { ...resolved, queue: !!command.queue }) || done
     return done
   }
-  if (command.type === 'pave' || command.type === 'pipes' || command.type === 'wells' || command.type === 'unpave') return lay(sim, player, command)
+  if (command.type === 'pave' || command.type === 'pipes' || command.type === 'walls' || command.type === 'wells' || command.type === 'unpave') return lay(sim, player, command)
   if (command.queue) return queueOrder(sim, player, command)
   const done = run(sim, player, command)
   // Принятый приказ без Shift забывает очередь; негодный её не трогает. Стойка и фильтр груза — не приказы, а настройки.
@@ -149,7 +151,7 @@ function accept(sim: Sim, player: number, command: Command): boolean {
 }
 
 /**
- * Укладка протяжкой — покрытие, трубы, колодцы и их снятие. Как и стройка из меню, она не отнимает строителя
+ * Укладка протяжкой — покрытие, трубы, колодцы, стены и снятие. Как и стройка из меню, она не отнимает строителя
  * у работы, которую дал ему игрок, и не стирает его очередь: свободные едут сразу, занятым работа встаёт в конец
  * очереди. С Shift в очередь встаёт всем. Закладывается и оплачивается всё сразу.
  */
@@ -162,6 +164,7 @@ function lay(sim: Sim, player: number, command: Extract<Command, { tiles: number
   const done =
     command.type === 'pave' ? orderPave(sim, player, command.kind, tiles, free) > 0
     : command.type === 'pipes' ? orderPipes(sim, player, tiles, free) > 0
+    : command.type === 'walls' ? orderWalls(sim, player, tiles, free) > 0
     : command.type === 'wells' ? orderWells(sim, player, tiles, free)
     : removePave(sim, player, tiles, builders, free)
   if (!done) return false

@@ -121,6 +121,20 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
         place(construction.placing === building ? null : building)
       },
     })
+    /** Стену не ставят по одной, а тянут мышью линией, как трубу: её кнопка включает инструмент протяжки. */
+    const wallSlot = (option: (typeof construction.options)[number]): Slot => {
+      const active = construction.paving?.tool === 'wall'
+      return {
+        ...buildingSlot(option),
+        cost: active && construction.paving!.tiles > 1 ? construction.paving!.cost : option.cost,
+        active,
+        title: option.affordable ? 'Тяни мышью линию; щелчок ставит одну' : 'Не хватает кредитов',
+        run: () => {
+          place(null)
+          pave(active ? null : 'wall')
+        },
+      }
+    }
     if (page === 'root') {
       // Раздел появляется, когда в нём открыто хоть одно здание; покрытие доступно всегда.
       const opened = (page: Page) => construction.options.some(({ building }) => sectionOf(building) === page)
@@ -144,7 +158,7 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
         const active = construction.paving?.tool === tool
         slots[i] = {
           label,
-          ...(tool === 'pipe' || tool === 'well' ? { building: tool } : { pave: tool }),
+          ...(tool === 'pipe' || tool === 'well' || tool === 'wall' ? { building: tool } : { pave: tool }),
           cost: active && construction.paving!.tiles > 1 ? construction.paving!.cost : cost,
           active,
           disabled: tool !== 'remove' && cost !== undefined && credits < cost,
@@ -170,11 +184,12 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
       }
     } else {
       const wanted = construction.options.filter(({ building }) => sectionOf(building) === page)
-      wanted.slice(0, BACK).forEach((option, i) => (slots[i] = buildingSlot(option)))
+      wanted.slice(0, BACK).forEach((option, i) => (slots[i] = option.building === 'wall' ? wallSlot(option) : buildingSlot(option)))
       slots[BACK] = {
         label: 'Назад',
         title: 'К разделам; Esc отменяет выбор места',
         run: () => {
+          pave(null)
           place(null)
           open('root')
         },

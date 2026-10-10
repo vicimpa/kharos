@@ -1,5 +1,5 @@
 import { tileKey } from '../map/terrain'
-import { BUILDINGS, DEPOSIT_SIZE, Owner, Pave, PAVE_LIMIT, canBuild, canPlace, canPave, creditsOf, depositNear, paveCost, buildingWithin, pipeAt, pipeStroke, isWellPair, wellsKept, UNDERGROUND_REACH, type BuildingSpec, type BuildingType } from '../sim'
+import { BUILDINGS, DEPOSIT_SIZE, Owner, Pave, PAVE_LIMIT, canBuild, canPlace, canPave, creditsOf, depositNear, paveCost, buildingWithin, pipeAt, pipeStroke, wallStroke, isWellPair, wellsKept, UNDERGROUND_REACH, type BuildingSpec, type BuildingType } from '../sim'
 import type { PaveTool, Scene } from './scene'
 
 /** Где встанет здание, которое игрок сейчас выбирает место: левый верхний тайл основания и годится ли место. */
@@ -81,7 +81,7 @@ export interface PaveStroke {
 
 /**
  * Что покроет протянутая мышью укладка: от тайла, где зажали кнопку, до тайла под указателем. Фундамент и снятие —
- * прямоугольником, дорога и труба — линией с одним изломом: сначала вдоль длинной стороны, потом поперёк. Пока кнопку
+ * прямоугольником, дорога, труба и стена — линией с одним изломом: сначала вдоль длинной стороны, потом поперёк. Пока кнопку
  * не зажали — один тайл под указателем. Больше PAVE_LIMIT тайлов разом не кладут. Вне режима укладки — null.
  */
 export function paveStrokeOf(scene: Scene): PaveStroke | null {
@@ -91,7 +91,7 @@ export function paveStrokeOf(scene: Scene): PaveStroke | null {
   const from = scene.paveFrom ?? tile
   const tiles: number[] = []
   if (tool === 'well') return wellStrokeOf(scene, from, tile)
-  if (tool === 'road' || tool === 'pipe') {
+  if (tool === 'road' || tool === 'pipe' || tool === 'wall') {
     const horizontal = Math.abs(tile.x - from.x) >= Math.abs(tile.y - from.y)
     const corner = horizontal ? { x: tile.x, y: from.y } : { x: from.x, y: tile.y }
     const walk = (a: { x: number; y: number }, b: { x: number; y: number }, skipFirst: boolean) => {
@@ -114,11 +114,11 @@ export function paveStrokeOf(scene: Scene): PaveStroke | null {
   // Кредиты списываются по тайлу в том же порядке: на что не хватит, то и не ляжет.
   const credits = creditsOf(sim, player)
   let cost = 0
-  if (tool === 'pipe') {
-    // Труба тянется цепочкой: на чём кончились кредиты, дальше уже не ляжет, см. orderPipes.
-    const price = BUILDINGS.pipe.cost
+  if (tool === 'pipe' || tool === 'wall') {
+    // Труба и стена тянутся цепочкой: на чём кончились кредиты, дальше уже не лягут, см. orderPipes и orderWalls.
+    const price = BUILDINGS[tool].cost
     let broke = false
-    for (const ok of pipeStroke(sim, player, tiles)) {
+    for (const ok of tool === 'pipe' ? pipeStroke(sim, player, tiles) : wallStroke(sim, player, tiles)) {
       const affordable = ok && !broke && cost + price <= credits
       if (ok && !affordable) broke = true
       allowed.push(affordable)

@@ -9,7 +9,7 @@ import { entriesOf, totalOf } from './resources'
 import { addCredits, creditsOf, pay, reward, spend } from './economy'
 import { overbuiltPlants } from './income'
 import type { Sim } from './sim'
-import { buildSpeed, paveCost } from './paving'
+import { PAVE_LIMIT, buildSpeed, paveCost } from './paving'
 import { clearDrops, dropCargo } from './drops'
 import { inCircles, inForeignZone, zoneOf } from './zones'
 import { carrierOf, turnerOf } from './turrets'
@@ -259,6 +259,43 @@ export function orderBuild(sim: Sim, player: number, type: BuildingType, x: numb
   clearSite(sim, site, true)
   assignBuilders(sim, player, site, builders)
   return site
+}
+
+/**
+ * Какие тайлы протянутой стены можно заложить, по тайлу (тайлы x, y подряд): где её можно построить, см. canBuild.
+ * Кредиты здесь не считаются.
+ */
+export function wallStroke(sim: Sim, player: number, tiles: readonly number[]): boolean[] {
+  const taken = new Set<number>()
+  const allowed: boolean[] = []
+  for (let i = 0; i + 1 < tiles.length; i += 2) {
+    const x = tiles[i]
+    const y = tiles[i + 1]
+    const ok = Number.isInteger(x) && Number.isInteger(y) && !taken.has(tileKey(x, y)) && canBuild(sim, player, 'wall', x, y)
+    if (ok) taken.add(tileKey(x, y))
+    allowed.push(ok)
+  }
+  return allowed
+}
+
+/**
+ * Закладывает протянутую стену (тайлы x, y подряд, по порядку протяжки) и посылает к ней строителей. Платят за каждый
+ * тайл сразу; куда нельзя (см. wallStroke) — не кладут; кончились кредиты — дальше стена не тянется. Возвращает,
+ * сколько заложено.
+ */
+export function orderWalls(sim: Sim, player: number, tiles: readonly number[], builders: Entity[]) {
+  const allowed = wallStroke(sim, player, tiles.slice(0, PAVE_LIMIT * 2))
+  let first: Entity | undefined
+  let count = 0
+  for (let i = 0; i < allowed.length; i++) {
+    if (!allowed[i]) continue
+    const site = orderBuild(sim, player, 'wall', tiles[i * 2], tiles[i * 2 + 1], [])
+    if (site === undefined) break
+    first ??= site
+    count++
+  }
+  if (first !== undefined) assignBuilders(sim, player, first, builders)
+  return count
 }
 
 /**

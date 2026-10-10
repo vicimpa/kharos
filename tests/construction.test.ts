@@ -7,7 +7,8 @@ import {
   canBuild, canPlace, createSim, creditsOf, isWalkable, rewardsOf, siteAt, spawnStartingUnits, type Sim,
 } from '../src/sim'
 import { BUILD_RATE, isUnlocked, placeBuilding } from '../src/sim/buildings'
-import { WORK_RADIUS } from '../src/sim/construction'
+import { WORK_RADIUS, wallStroke } from '../src/sim/construction'
+import { addCredits } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
 import { throughJson } from './throughJson'
 
@@ -317,4 +318,33 @@ test('стройка, которой не хватает лишь погрешн
   sim.world.get(building, Inventory)!.items.metal = BUILDINGS.spaceport.materials!.metal! - 5e-7
   seconds(sim, 120)
   expect(sim.world.has(building, Site)).toBe(false)
+})
+
+test('стена протяжкой: закладывается по тайлам, занятое пропускается, без кредитов дальше не тянется', () => {
+  const stroke = (credits: number) => {
+    const sim = createSim(options)
+    let at: { x: number; y: number } | undefined
+    for (let y = -200; y < 200 && !at; y++) {
+      for (let x = -200; x < 200 && !at; x++) {
+        let ok = true
+        for (let tx = x; tx < x + 10 && ok; tx++) ok = canPlace(sim, 'wall', tx, y)
+        if (ok) at = { x, y }
+      }
+    }
+    const { x, y } = at!
+    placeBuilding(sim.world, 'wall', x + 4, y, 1)
+    addCredits(sim, 1, credits - creditsOf(sim, 1))
+    const tiles: number[] = []
+    for (let tx = x; tx < x + 10; tx++) tiles.push(tx, y)
+    // Повтор тайла в протяжке второй раз не кладётся.
+    tiles.push(x, y)
+    expect(wallStroke(sim, 1, tiles).filter(Boolean).length).toBe(9)
+    sim.send(1, { type: 'walls', tiles, builders: [] })
+    seconds(sim, TICK)
+    let sites = 0
+    for (const [, site] of sim.world.query(Site)) if (site.type === 'wall') sites++
+    return { sites, left: creditsOf(sim, 1) }
+  }
+  expect(stroke(BUILDINGS.wall.cost * 20)).toEqual({ sites: 9, left: BUILDINGS.wall.cost * 11 })
+  expect(stroke(BUILDINGS.wall.cost * 4)).toEqual({ sites: 4, left: 0 })
 })
