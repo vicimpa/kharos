@@ -66,6 +66,18 @@ class Heap {
 let searched = 0
 /** Сколько тайлов осмотрели все поиски пути с начала работы: по приросту видно, во что обошлись поиски за тик. */
 export const searchedTiles = () => searched
+/** До какого значения searched поискам можно осматривать тайлы: норма тика, см. searchQuota. */
+let cap = Infinity
+
+/**
+ * Норма: поиски пути до вызова возвращённой функции вместе осматривают не больше tiles тайлов. Норма — лимит самих
+ * поисков, а не проверка между ними: один долгий поиск её не перешагнёт. Вложенная норма не шире внешней.
+ */
+export function searchQuota(tiles: number) {
+  const previous = cap
+  cap = Math.min(cap, searched + Math.max(0, tiles))
+  return () => void (cap = previous)
+}
 
 /** Соседи тайла: смещение и цена шага. */
 const STEPS = [
@@ -103,6 +115,9 @@ let generation = 0
  * а не самый короткий; fastest — самая низкая цена шага, какая бывает у этого юнита (дорога).
  */
 export function findPath(walkable: Walkable, fromX: number, fromY: number, toX: number, toY: number, near = 0, limit = SEARCH_LIMIT, slowness = EVEN, fastest = 1): number[] {
+  // Норма тика кончилась — искать нечем: пути нет.
+  limit = Math.min(limit, cap - searched)
+  if (limit <= 0) return []
   if (!beyondWindow(fromX, fromY, toX, toY)) {
     const path = findNearPath(walkable, fromX, fromY, toX, toY, near, limit, slowness, fastest)
     if (path) return path
@@ -112,6 +127,8 @@ export function findPath(walkable: Walkable, fromX: number, fromY: number, toX: 
     const path = findNearPath(walkable, fromX, fromY, toX, toY, near, limit, slowness, fastest, true)
     if (path?.length) return path
   }
+  limit = Math.min(limit, cap - searched)
+  if (limit <= 0) return []
   return findFarPath(walkable, fromX, fromY, toX, toY, near, limit, slowness, fastest)
 }
 

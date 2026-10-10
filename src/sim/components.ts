@@ -93,8 +93,9 @@ export const Site = component('Site', { type: 'generator' as BuildingType, progr
 /**
  * Ремонтник едет к работе site — стройке, разбору или тому, что надо починить, — чтобы она оказалась в его радиусе.
  * ordered — работу дал игрок, а не взял сам свободный строитель рядом: новую стройку из меню такой ставит в очередь.
+ * misses — сколько раз подряд он не нашёл, как подъехать к работе: каждый промах вдвое реже следующая попытка.
  */
-export const Builds = component('Builds', { site: 0, ordered: true })
+export const Builds = component('Builds', { site: 0, ordered: true, misses: 0 })
 
 /**
  * Месторождение, из которого уже добывали: mined — сколько из него забрано. Место — левый верхний тайл месторождения.

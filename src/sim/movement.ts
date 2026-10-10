@@ -2,7 +2,7 @@ import type { Entity, Time } from '../ecs'
 import { tileKey } from '../map/terrain'
 import { onTurn, ownerOf, turnToward, wrap } from './common'
 import { Path, Position, Unit } from './components'
-import { searchedTiles } from './path'
+import { SEARCH_LIMIT, searchQuota, searchedTiles } from './path'
 import type { Sim } from './sim'
 import { UNITS, canStand, fastestOf, flies, onFoot, orderMove, roadInSight, stepAside, terrainSpeed } from './units'
 
@@ -319,6 +319,9 @@ export function moveUnits(sim: Sim, time: Time) {
 
   for (const entity of stopped) world.remove(entity, Path)
   const searchedBefore = searchedTiles()
+  // Новые поиски начинаются, пока не вышла норма; а все вместе они не осмотрят больше одного обычного поиска сверх неё:
+  // первый в тике получает полный поиск, а долгий повторный (см. orderMove) норму не перешагнёт.
+  const release = searchQuota(LOST_TILES + SEARCH_LIMIT)
   for (const { entity, x, y, near } of further) {
     // Поиски сверх нормы тика отложены: юнит постоит и поищет в следующий тик.
     const path = world.get(entity, Path)!
@@ -347,6 +350,7 @@ export function moveUnits(sim: Sim, time: Time) {
     if (searchedTiles() - searchedBefore >= LOST_TILES) break
     orderMove(sim, entity, x, y, undefined, tries, near)
   }
+  release()
   // Дорогу уступают только своим: чужой юнит стоит, где стоял.
   for (const { entity, by, x, y, heading, room } of asked) {
     if (ownerOf(sim, entity) === ownerOf(sim, by)) stepAside(sim, entity, x, y, heading, room)
@@ -365,10 +369,12 @@ export function planPaths(sim: Sim) {
   const waiting: Entity[] = []
   for (const [entity, path] of world.query(Path)) if (path.direct && path.stuck) waiting.push(entity)
   const searchedBefore = searchedTiles()
+  const release = searchQuota(PLAN_TILES)
   for (const entity of waiting) {
     const path = world.get(entity, Path)
     if (!path?.stuck) continue
     orderMove(sim, entity, path.goalX, path.goalY, undefined, 0, path.near)
     if (searchedTiles() - searchedBefore >= PLAN_TILES) break
   }
+  release()
 }

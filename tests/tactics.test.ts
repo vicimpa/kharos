@@ -4,6 +4,8 @@ import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Terrain, terrainAt } from '../src/map/terrain'
 import { Armed, Health, Path, Position, Tactics, createSim, type Sim } from '../src/sim'
 import { spawnUnit, type UnitType } from '../src/sim/units'
+import { placeBuilding } from '../src/sim/buildings'
+import { searchedTiles } from '../src/sim/path'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
 const TICK = 1 / 20
@@ -163,4 +165,22 @@ test('«агрессивно» на юните с турелью: приказ �
   seconds(sim, 6)
   expect(at(sim, ours).x).toBeLessThan(x + 4)
   expect(hurt(sim, foe)).toBe(false)
+})
+
+test('точка патруля на здании засчитывается, когда ближе не подойти: патруль идёт дальше, путь не ищется без конца', () => {
+  const { sim, x, y } = field()
+  const generator = placeBuilding(sim.world, 'generator', x + 20, y - 1, 1)
+  const units = [0, 1, 2, 3, 4].map((i) => put(sim, 'infantry', 1, x + i, y))
+  sim.send(1, { type: 'patrol', units, points: [x + 21, y] })
+  seconds(sim, 10)
+  const before = searchedTiles()
+  const legs = new Set<number>()
+  for (let i = 0; i < 30 * 20; i++) {
+    sim.advance(1 / 20)
+    legs.add(sim.world.get(units[0], Tactics)!.leg)
+  }
+  expect(sim.world.alive(generator)).toBe(true)
+  // Ходит туда и обратно.
+  expect(legs.size).toBe(2)
+  expect((searchedTiles() - before) / (30 * 20)).toBeLessThan(1000)
 })

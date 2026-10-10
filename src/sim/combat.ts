@@ -7,7 +7,7 @@ import { NONE, isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './
 import { Armed, Blast, Building, Converting, Doomed, Health, Inventory, Off, Owner, Path, Pave, Position, Shot, Site, Tactics, Turret, Unit } from './components'
 import { releaseHauler } from './hauling'
 import { amountOf, take } from './inventory'
-import { searchedTiles } from './path'
+import { searchQuota, searchedTiles } from './path'
 import type { Sim } from './sim'
 import { TURRETS, carrierOf, turnerOf, turretsOf } from './turrets'
 import { UNITS, flies, orderMove, unitSpec, type UnitSpec } from './units'
@@ -499,7 +499,9 @@ export function fight(sim: Sim) {
         // Идти надо не в саму цель, а на выстрел от неё: цель занята, а к зданию или в гущу врагов и не подойти.
         const near = Math.max(0, weapon.range - CHASE_MARGIN) + Math.max(target.width, target.height) / 2
         chasing.add(mover)
+        const release = searchQuota(CHASE_TILES - (searchedTiles() - searchedBefore))
         orderMove(sim, mover, goalX, goalY, undefined, 0, near)
+        release()
         armed.stuck = world.has(mover, Path) ? 0 : armed.stuck + 1
       }
       continue
