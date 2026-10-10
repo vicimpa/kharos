@@ -1,5 +1,5 @@
 import { tileKey } from '../map/terrain'
-import { BUILDINGS, DEPOSIT_SIZE, Owner, Pave, PAVE_LIMIT, canBuild, canPlace, canPave, creditsOf, depositNear, paveCost, buildingWithin, pipeAt, pipeStroke, isWellPair, UNDERGROUND_REACH, type BuildingSpec, type BuildingType } from '../sim'
+import { BUILDINGS, DEPOSIT_SIZE, Owner, Pave, PAVE_LIMIT, canBuild, canPlace, canPave, creditsOf, depositNear, paveCost, buildingWithin, pipeAt, pipeStroke, isWellPair, wellsKept, UNDERGROUND_REACH, type BuildingSpec, type BuildingType } from '../sim'
 import type { PaveTool, Scene } from './scene'
 
 /** Где встанет здание, которое игрок сейчас выбирает место: левый верхний тайл основания и годится ли место. */
@@ -38,7 +38,8 @@ export function placementOf(scene: Scene): Placement | null {
 
 /**
  * Колодцы: от тайла, где зажали кнопку, по прямой вдоль длинной стороны протяжки, не дальше UNDERGROUND_REACH, —
- * пара. Без протяжки — один колодец под указателем: он свяжется с уже стоящим по прямой.
+ * пара. Без протяжки — один колодец под указателем: он свяжется с уже стоящим по прямой. Протяжка от своего
+ * колодца закладывает только второй, а на своей наземной трубе колодец ложится вместо неё.
  */
 function wellStrokeOf(scene: Scene, from: { x: number; y: number }, tile: { x: number; y: number }): PaveStroke {
   const horizontal = Math.abs(tile.x - from.x) >= Math.abs(tile.y - from.y)
@@ -48,11 +49,14 @@ function wellStrokeOf(scene: Scene, from: { x: number; y: number }, tile: { x: n
   const tiles = length ? [from.x, from.y, end.x, end.y] : [from.x, from.y]
   const { sim, player } = scene
   const cost = BUILDINGS.well.cost * 2
-  const fits = pipeStroke(sim, player, tiles)
+  // Конец, где свой колодец уже стоит, не закладывают: от него тянут второй. Своя труба в тайле заменится колодцем.
+  const kept = wellsKept(sim, player, tiles)
+  const fresh = kept.filter((item) => !item).length
+  const fits = pipeStroke(sim, player, tiles, 'well').map((ok, i) => ok || kept[i])
   // Без протяжки — один колодец; протянули, но ближе двух тайлов — пару не положить.
   const single = tiles.length === 2
-  const valid = single || isWellPair(tiles)
-  const price = single ? cost / 2 : cost
+  const valid = (single || isWellPair(tiles)) && fresh > 0
+  const price = (cost / 2) * fresh
   const affordable = creditsOf(sim, player) >= price
   return {
     tool: 'well',

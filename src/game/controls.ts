@@ -220,9 +220,11 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
         if (tiles.length) {
           const builders = [...scene.selection]
           const { tool } = stroke
+          // С Shift укладка встаёт строителям в очередь, как стройка из меню.
+          const queue = event.shiftKey
           if (tool === 'well') {
-            if (tiles.length === stroke.tiles.length) scene.sim.send(scene.player, { type: 'wells', tiles, builders })
-          } else scene.sim.send(scene.player, tool === 'remove' ? { type: 'unpave', tiles, builders } : tool === 'pipe' ? { type: 'pipes', tiles, builders } : { type: 'pave', kind: tool, tiles, builders })
+            if (tiles.length === stroke.tiles.length) scene.sim.send(scene.player, { type: 'wells', tiles, builders, queue })
+          } else scene.sim.send(scene.player, tool === 'remove' ? { type: 'unpave', tiles, builders, queue } : tool === 'pipe' ? { type: 'pipes', tiles, builders, queue } : { type: 'pave', kind: tool, tiles, builders, queue })
         }
       }
     } else if (scene.placing) {

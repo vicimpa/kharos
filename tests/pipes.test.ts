@@ -1,13 +1,13 @@
 import { expect, test } from 'bun:test'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Terrain, terrainAt } from '../src/map/terrain'
-import { Assembly, BUILDINGS, Batch, Inventory, Site, createSim, type Sim } from '../src/sim'
+import { Assembly, BUILDINGS, Batch, Building, Builds, Inventory, Orders, Site, createSim, refundOf, type Sim } from '../src/sim'
 import { placeBuilding, siteAt } from '../src/sim/buildings'
 import { amountOf, put } from '../src/sim/inventory'
 import { powerSupply } from '../src/sim/income'
 import { BATCH } from '../src/sim/pipes'
 import { networkOf, zonesOf } from '../src/sim/zones'
-import { pipeStroke, unlinked, wellPartners } from '../src/sim/piping'
+import { pipeStroke, pipeSwap, unlinked, wellPartners } from '../src/sim/piping'
 import { addCredits, creditsOf } from '../src/sim/economy'
 import { spawnUnit } from '../src/sim/units'
 import { throughJson } from './throughJson'
@@ -302,4 +302,109 @@ test('протяжка через стоящую трубу пропускает
   }
   expect(stroke(1000)).toBe(14)
   expect(stroke(BUILDINGS.pipe.cost * 6)).toBe(6)
+})
+
+/** Что лежит в тайле: вид готового здания или заложенной стройки. */
+const kindAt = (sim: Sim, x: number, y: number) => {
+  const built = sim.occupancy.at(x, y)
+  if (built !== undefined && sim.world.alive(built)) return sim.world.get(built, Building)!.type
+  const site = siteAt(sim, x, y)
+  return site === undefined ? undefined : `${sim.world.get(site, Site)!.type}?`
+}
+
+test('колодец кладут вместо своей трубы и трубу вместо колодца: старое убирается с возвратом, новое закладывается', () => {
+  const sim = createSim(options)
+  const { x, y } = rock(sim, 16, 4)
+  addCredits(sim, 1, 1000)
+  lay(sim, x, y, 3)
+  placeBuilding(sim.world, 'well', x + 8, y, 1)
+  let credits = creditsOf(sim, 1)
+  sim.send(1, { type: 'wells', tiles: [x + 1, y], builders: [] })
+  sim.send(2, { type: 'wells', tiles: [x, y], builders: [] })
+  run(sim, 1)
+  expect([kindAt(sim, x, y), kindAt(sim, x + 1, y), kindAt(sim, x + 2, y)]).toEqual(['pipe', 'well?', 'pipe'])
+  expect(credits - creditsOf(sim, 1)).toBe(BUILDINGS.well.cost - refundOf('pipe'))
+  // Обратно: труба поверх заложенного колодца (возврат целиком) и поверх готового (как за разбор).
+  credits = creditsOf(sim, 1)
+  sim.send(1, { type: 'pipes', tiles: [x + 1, y, x + 8, y], builders: [] })
+  run(sim, 1)
+  expect([kindAt(sim, x + 1, y), kindAt(sim, x + 8, y)]).toEqual(['pipe?', 'pipe?'])
+  expect(credits - creditsOf(sim, 1)).toBe(2 * BUILDINGS.pipe.cost - BUILDINGS.well.cost - refundOf('well'))
+  // Колодец на своём колодце и труба на своей трубе — не кладутся.
+  placeBuilding(sim.world, 'well', x + 12, y, 1)
+  credits = creditsOf(sim, 1)
+  sim.send(1, { type: 'wells', tiles: [x + 12, y], builders: [] })
+  sim.send(1, { type: 'pipes', tiles: [x, y], builders: [] })
+  run(sim, 1)
+  expect(creditsOf(sim, 1)).toBe(credits)
+  // Чужую трубу не заменить.
+  placeBuilding(sim.world, 'pipe', x + 5, y + 3, 2)
+  run(sim, 1)
+  expect(pipeSwap(sim, 1, 'well', x + 5, y + 3)).toBeUndefined()
+  expect(pipeStroke(sim, 1, [x + 5, y + 3], 'well')).toEqual([false])
+})
+
+test('протяжка колодца от своего колодца закладывает только второй, а от своей трубы — заменяет её и кладёт оба', () => {
+  const sim = createSim(options)
+  const { x, y } = rock(sim, 16, 4)
+  addCredits(sim, 1, 1000)
+  const well = placeBuilding(sim.world, 'well', x, y, 1)
+  lay(sim, x, y + 2, 2)
+  let credits = creditsOf(sim, 1)
+  // От стоящего колодца дальше 10 тайлов и не по прямой — никак; по прямой — один новый.
+  sim.send(1, { type: 'wells', tiles: [x, y, x + 11, y], builders: [] })
+  sim.send(1, { type: 'wells', tiles: [x, y, x + 6, y + 1], builders: [] })
+  run(sim, 1)
+  expect(creditsOf(sim, 1)).toBe(credits)
+  sim.send(1, { type: 'wells', tiles: [x, y, x + 6, y], builders: [] })
+  run(sim, 1)
+  expect(sim.world.alive(well)).toBe(true)
+  expect([kindAt(sim, x, y), kindAt(sim, x + 6, y)]).toEqual(['well', 'well?'])
+  expect(credits - creditsOf(sim, 1)).toBe(BUILDINGS.well.cost)
+  expect(wellPartners(sim, 1, x + 6, y)).toEqual([{ x, y, ready: true }])
+  // Оба конца уже колодцы — класть нечего.
+  credits = creditsOf(sim, 1)
+  sim.send(1, { type: 'wells', tiles: [x, y, x + 6, y], builders: [] })
+  run(sim, 1)
+  expect(creditsOf(sim, 1)).toBe(credits)
+  // От трубы: труба уходит, колодцев два.
+  sim.send(1, { type: 'wells', tiles: [x + 1, y + 2, x + 9, y + 2], builders: [] })
+  run(sim, 1)
+  expect([kindAt(sim, x, y + 2), kindAt(sim, x + 1, y + 2), kindAt(sim, x + 9, y + 2)]).toEqual(['pipe', 'well?', 'well?'])
+  expect(credits - creditsOf(sim, 1)).toBe(2 * BUILDINGS.well.cost - refundOf('pipe'))
+})
+
+test('укладка труб не стирает очередь строителя и не срывает его с работы; с Shift встаёт в очередь всем', () => {
+  const sim = createSim(options)
+  const { x, y } = rock(sim, 20, 8)
+  addCredits(sim, 1, 5000)
+  const busy = spawnUnit(sim, 'builder', 1, x + 1, y + 6)
+  const free = spawnUnit(sim, 'builder', 1, x + 3, y + 6)
+  // Занятый строит колодец по приказу, и в очереди у него ещё один.
+  sim.send(1, { type: 'wells', tiles: [x + 14, y + 6], builders: [busy] })
+  run(sim, 1)
+  const first = siteAt(sim, x + 14, y + 6)!
+  sim.send(1, { type: 'wells', tiles: [x + 17, y + 6], builders: [busy], queue: true })
+  run(sim, 1)
+  const second = siteAt(sim, x + 17, y + 6)!
+  const queued = () => sim.world.get(busy, Orders)?.list.map((item) => (item.command as { site?: number }).site) ?? []
+  expect(sim.world.get(busy, Builds)).toMatchObject({ site: first, ordered: true })
+  expect(queued()).toEqual([second])
+
+  sim.send(1, { type: 'pipes', tiles: [x, y, x + 1, y, x + 2, y], builders: [busy, free] })
+  run(sim, 1)
+  const pipe = siteAt(sim, x, y)!
+  // Занятый доделывает своё, труба встала ему в конец очереди; свободный поехал сразу.
+  expect(sim.world.get(busy, Builds)).toMatchObject({ site: first })
+  expect(queued()).toEqual([second, pipe])
+  expect(sim.world.get(free, Builds)).toMatchObject({ site: pipe })
+  // С Shift — в очередь и свободному; покрытие и снятие — так же.
+  sim.send(1, { type: 'pave', kind: 'road', tiles: [x + 5, y + 3], builders: [busy, free], queue: true })
+  sim.send(1, { type: 'unpave', tiles: [x + 2, y], builders: [busy], queue: true })
+  run(sim, 1)
+  expect(sim.world.get(free, Builds)).toMatchObject({ site: pipe })
+  expect(sim.world.get(free, Orders)!.list.length).toBe(1)
+  expect(queued().slice(0, 2)).toEqual([second, pipe])
+  expect(queued().length).toBe(3)
+  expect(siteAt(sim, x + 2, y)).toBeUndefined()
 })

@@ -6,7 +6,7 @@ import { BUILDINGS, type BuildingType } from './buildings'
 import { orderAttack, stopAttack } from './combat'
 import { NONE, isOwn } from './common'
 import { Builds, Building, Harvester, Producer, Unit } from './components'
-import { assignBuilders, cancelBuild, demolish, orderBuild } from './construction'
+import { assignBuilders, cancelBuild, demolish, orderBuild, workIn } from './construction'
 import { DEPLOY_SECONDS, PACK_SECONDS, canDeploy, canPack, cancelDeploy, startConverting } from './conversion'
 import { assignHaulers, assignPickup, assignSupply, releaseHauler } from './hauling'
 import { clearOrders, isBusyBuilder, queueOrder, unitsOf } from './orders'
@@ -139,12 +139,35 @@ function accept(sim: Sim, player: number, command: Command): boolean {
     for (const resolved of resolveOrder(sim, player, units, command)) done = accept(sim, player, { ...resolved, queue: !!command.queue }) || done
     return done
   }
+  if (command.type === 'pave' || command.type === 'pipes' || command.type === 'wells' || command.type === 'unpave') return lay(sim, player, command)
   if (command.queue) return queueOrder(sim, player, command)
   const done = run(sim, player, command)
   // Принятый приказ без Shift забывает очередь; негодный её не трогает. Стойка и фильтр груза — не приказы, а настройки.
   // Стройка из меню очередь не трогает: занятым строителям она сама встаёт в конец.
   if (done && command.type !== 'stance' && command.type !== 'filter' && command.type !== 'build') clearOrders(sim, unitsOf(command).filter((entity) => isOwn(sim, player, entity)))
   return done
+}
+
+/**
+ * Укладка протяжкой — покрытие, трубы, колодцы и их снятие. Как и стройка из меню, она не отнимает строителя
+ * у работы, которую дал ему игрок, и не стирает его очередь: свободные едут сразу, занятым работа встаёт в конец
+ * очереди. С Shift в очередь встаёт всем. Закладывается и оплачивается всё сразу.
+ */
+function lay(sim: Sim, player: number, command: Extract<Command, { tiles: number[]; builders: number[] }>): boolean {
+  const { tiles } = command
+  if (!Array.isArray(tiles) || !Array.isArray(command.builders)) return false
+  const builders = [...new Set(command.builders as Entity[])].filter((entity) => sim.world.has(entity, Unit) && isOwn(sim, player, entity))
+  const busy = command.queue ? builders : builders.filter((entity) => isBusyBuilder(sim, entity))
+  const free = builders.filter((entity) => !busy.includes(entity))
+  const done =
+    command.type === 'pave' ? orderPave(sim, player, command.kind, tiles, free) > 0
+    : command.type === 'pipes' ? orderPipes(sim, player, tiles, free) > 0
+    : command.type === 'wells' ? orderWells(sim, player, tiles, free)
+    : removePave(sim, player, tiles, builders, free)
+  if (!done) return false
+  const work = busy.length ? workIn(sim, player, tiles) : undefined
+  if (work !== undefined) queueOrder(sim, player, { type: 'assist', units: busy, site: work, queue: true })
+  return true
 }
 
 function run(sim: Sim, player: number, command: Command): boolean {
@@ -226,16 +249,6 @@ function run(sim: Sim, player: number, command: Command): boolean {
       return Array.isArray(command.units) && Array.isArray(command.buildings) && setServe(sim, player, command.units as Entity[], command.buildings as Entity[])
     case 'filter':
       return Array.isArray(command.units) && Array.isArray(command.goods) && setFilter(sim, player, command.units as Entity[], command.goods)
-    case 'pave': {
-      if (!Array.isArray(command.tiles) || !Array.isArray(command.builders)) return false
-      return orderPave(sim, player, command.kind, command.tiles, command.builders as Entity[]) > 0
-    }
-    case 'pipes':
-      return Array.isArray(command.tiles) && Array.isArray(command.builders) && orderPipes(sim, player, command.tiles, command.builders as Entity[]) > 0
-    case 'wells':
-      return Array.isArray(command.tiles) && Array.isArray(command.builders) && orderWells(sim, player, command.tiles, command.builders as Entity[])
-    case 'unpave':
-      return Array.isArray(command.tiles) && Array.isArray(command.builders) && removePave(sim, player, command.tiles, command.builders as Entity[])
     case 'demolish': {
       const builders = Array.isArray(command.builders) ? (command.builders as Entity[]) : []
       return demolish(sim, player, command.building as Entity, builders)

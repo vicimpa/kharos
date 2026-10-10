@@ -72,9 +72,10 @@ export function orderPave(sim: Sim, player: number, kind: PaveKind, tiles: reado
  * Разбирает строителями своё на тайлах: покрытие, трубы с колодцами и здания, основание которых целиком попало
  * в тайлы (главное здание не разбирают — его сворачивают). Недостроенное покрытие и не начатые стройки отменяются
  * сразу, с возвратом кредитов целиком; готовое покрытие строители разбирают без возврата, готовые трубы и здания —
- * с возвратом половины цены. Без своих строителей среди units не разбирают ничего.
+ * с возвратом половины цены. Без своих строителей среди units не разбирают ничего. assign — кого из них послать
+ * сразу: занятым работа встаёт в очередь, см. lay в commands.ts.
  */
-export function removePave(sim: Sim, player: number, tiles: readonly number[], units: Entity[]) {
+export function removePave(sim: Sim, player: number, tiles: readonly number[], units: Entity[], assign: Entity[] = units) {
   const builders = units.filter((entity) => isOwn(sim, player, entity) && sim.world.has(entity, Repair) && sim.world.has(entity, Unit))
   if (!builders.length) return false
   let first: Entity | undefined
@@ -106,7 +107,7 @@ export function removePave(sim: Sim, player: number, tiles: readonly number[], u
     if (sim.world.has(entity, Site)) cancelBuild(sim, player, entity)
     else if (demolish(sim, player, entity, [])) first ??= entity
   }
-  if (first !== undefined) assignBuilders(sim, player, first, builders)
+  if (first !== undefined) assignBuilders(sim, player, first, assign)
   return count > 0
 }
 

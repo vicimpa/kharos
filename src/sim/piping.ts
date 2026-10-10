@@ -3,8 +3,8 @@ import { tileKey } from '../map/terrain'
 import { BUILDINGS, CORE, UNDERGROUND_REACH, buildingSpec, isPipe, canPlace, placeBuilding, siteAt, type BuildingType } from './buildings'
 import { Building, Inventory, Owner, Position, Site } from './components'
 import type { Sim } from './sim'
-import { assignBuilders } from './construction'
-import { pay } from './economy'
+import { assignBuilders, cancelBuild, refundOf } from './construction'
+import { addCredits, pay } from './economy'
 import { PAVE_LIMIT } from './paving'
 import { allZones, inForeignZone, linkGap, networkOf, type Zone } from './zones'
 
@@ -184,17 +184,51 @@ export function wellPartners(sim: Sim, player: number, x: number, y: number) {
   return found
 }
 
+/** Вид трубы: наземная или колодец. */
+export type PipeKind = 'pipe' | 'well'
+
+/** Вид своей трубы в тайле, см. pipeAt; undefined — её там нет. */
+function pipeKindAt(sim: Sim, player: number, x: number, y: number): PipeKind | undefined {
+  const entity = pipeAt(sim, player, x, y)
+  if (entity === undefined) return undefined
+  return (sim.world.get(entity, Building)?.type ?? sim.world.get(entity, Site)!.type) as PipeKind
+}
+
 /**
- * Какие тайлы протянутой трубы можно заложить, по тайлу: место годится под трубу и не в чужой зоне. Своя зона
- * трубе не нужна: её тянут куда угодно. Кредиты здесь не считаются.
+ * Своя труба другого вида в тайле: наземная там, куда кладут колодец, и колодец там, куда кладут наземную. Новая
+ * ложится вместо неё, см. replacePipe. undefined — такой нет.
  */
-export function pipeStroke(sim: Sim, player: number, tiles: readonly number[]): boolean[] {
+export function pipeSwap(sim: Sim, player: number, kind: PipeKind, x: number, y: number): Entity | undefined {
+  const other = pipeKindAt(sim, player, x, y)
+  return other !== undefined && other !== kind ? pipeAt(sim, player, x, y) : undefined
+}
+
+/** Стоит ли в тайле свой колодец — готовый, строящийся или заложенный: с ним свяжется новый, см. orderWells. */
+export const wellAt = (sim: Sim, player: number, x: number, y: number) => pipeKindAt(sim, player, x, y) === 'well'
+
+/**
+ * Убирает трубу, вместо которой кладут другую: не начатую и недостроенную — как отмену стройки, с возвратом цены,
+ * готовую — сразу, с возвратом как за разбор.
+ */
+function replacePipe(sim: Sim, player: number, entity: Entity) {
+  if (sim.world.has(entity, Site)) return void cancelBuild(sim, player, entity)
+  addCredits(sim, player, refundOf(sim.world.get(entity, Building)!.type))
+  sim.world.destroy(entity)
+}
+
+/**
+ * Какие тайлы протянутой трубы вида kind можно заложить, по тайлу: место годится под трубу или там своя труба
+ * другого вида (её заменят, см. pipeSwap), и оно не в чужой зоне. Своя зона трубе не нужна: её тянут куда угодно.
+ * Кредиты здесь не считаются.
+ */
+export function pipeStroke(sim: Sim, player: number, tiles: readonly number[], kind: PipeKind = 'pipe'): boolean[] {
   const taken = new Set<number>()
   const allowed: boolean[] = []
   for (let i = 0; i + 1 < tiles.length; i += 2) {
     const x = tiles[i]
     const y = tiles[i + 1]
-    const ok = !taken.has(tileKey(x, y)) && canPlace(sim, 'pipe', x, y) && !inForeignZone(sim, player, x, y, 1, 1)
+    const fits = Number.isInteger(x) && Number.isInteger(y) && (canPlace(sim, 'pipe', x, y) || pipeSwap(sim, player, kind, x, y) !== undefined)
+    const ok = !taken.has(tileKey(x, y)) && fits && !inForeignZone(sim, player, x, y, 1, 1)
     if (ok) taken.add(tileKey(x, y))
     allowed.push(ok)
   }
@@ -204,7 +238,7 @@ export function pipeStroke(sim: Sim, player: number, tiles: readonly number[]): 
 /**
  * Закладывает протянутую наземную трубу (тайлы x, y подряд, по порядку протяжки) и посылает к ней строителей.
  * Платят за каждый тайл сразу; на что не хватило кредитов и куда нельзя (см. pipeStroke) — не кладут; без кредитов
- * цепочка дальше не тянется. Возвращает, сколько заложено.
+ * цепочка дальше не тянется. Свой колодец на её пути заменяется трубой. Возвращает, сколько заложено.
  */
 export function orderPipes(sim: Sim, player: number, tiles: readonly number[], builders: Entity[]) {
   const allowed = pipeStroke(sim, player, tiles.slice(0, PAVE_LIMIT * 2))
@@ -214,6 +248,9 @@ export function orderPipes(sim: Sim, player: number, tiles: readonly number[], b
     // Негодный тайл пропускается, как в предпросмотре; кончились кредиты — цепочка дальше не тянется.
     if (!allowed[i]) continue
     if (!pay(sim, player, BUILDINGS.pipe.cost)) break
+    // Свой колодец на пути трубы заменяется ею.
+    const swap = pipeSwap(sim, player, 'pipe', tiles[i * 2], tiles[i * 2 + 1])
+    if (swap !== undefined) replacePipe(sim, player, swap)
     const site = sim.world.spawn(Position({ x: tiles[i * 2], y: tiles[i * 2 + 1] }), Site({ type: 'pipe' }), Owner({ player }))
     first ??= site
     count++
@@ -236,17 +273,35 @@ export function pipeAt(sim: Sim, player: number, x: number, y: number): Entity |
 }
 
 /**
+ * Каким концам пары колодцев уже стоит свой колодец, по концу: такой конец не закладывают заново. Так второй колодец
+ * тянут от стоящего — протяжка только держит его на прямой и не дальше UNDERGROUND_REACH.
+ */
+export function wellsKept(sim: Sim, player: number, tiles: readonly number[]): boolean[] {
+  const kept: boolean[] = []
+  for (let i = 0; i + 1 < tiles.length; i += 2) kept.push(tiles.length === 4 && wellAt(sim, player, tiles[i], tiles[i + 1]))
+  return kept
+}
+
+/**
  * Закладывает колодцы и посылает к ним строителей: один (tiles — его x, y; свяжется с уже стоящим по прямой, см.
  * wellPartners) или пару — концы подземного отрезка (x, y первого и второго): на одной прямой, от 2
- * до UNDERGROUND_REACH тайлов. Каждый — где можно положить трубу (см. pipeStroke). Пару кладут целиком или никак.
- * Возвращает, заложено ли.
+ * до UNDERGROUND_REACH тайлов. Каждый — где можно положить трубу (см. pipeStroke); своя наземная труба в этом тайле
+ * заменяется колодцем. Конец пары, где свой колодец уже стоит, остаётся как есть: закладывают только другой.
+ * Пару кладут целиком или никак. Возвращает, заложено ли.
  */
 export function orderWells(sim: Sim, player: number, tiles: readonly number[], builders: Entity[]) {
   const single = tiles.length === 2 && tiles.every(Number.isInteger)
-  if ((!single && !isWellPair(tiles)) || !pipeStroke(sim, player, tiles).every(Boolean)) return false
-  if (!pay(sim, player, (BUILDINGS.well.cost * tiles.length) / 2)) return false
+  if (!single && !isWellPair(tiles)) return false
+  const kept = wellsKept(sim, player, tiles)
+  const fits = pipeStroke(sim, player, tiles, 'well')
+  const fresh = kept.filter((item) => !item).length
+  if (!fresh || !fits.every((ok, i) => ok || kept[i])) return false
+  if (!pay(sim, player, BUILDINGS.well.cost * fresh)) return false
   let first: Entity | undefined
   for (let i = 0; i < tiles.length; i += 2) {
+    if (kept[i >> 1]) continue
+    const swap = pipeSwap(sim, player, 'well', tiles[i], tiles[i + 1])
+    if (swap !== undefined) replacePipe(sim, player, swap)
     const site = sim.world.spawn(Position({ x: tiles[i], y: tiles[i + 1] }), Site({ type: 'well' }), Owner({ player }))
     first ??= site
   }

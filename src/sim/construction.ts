@@ -186,6 +186,21 @@ function approach(sim: Sim, builder: Entity, site: Entity, claimed = new Set<num
   return !!points?.length && distanceTo(work, points[points.length - 2], points[points.length - 1]) <= repair.radius
 }
 
+/**
+ * Первая своя работа на тайлах (x и y подряд): стройка, разбор или покрытие, которое кладут или снимают.
+ * undefined — работы там нет. К ней посылают строителей после укладки протяжкой.
+ */
+export function workIn(sim: Sim, player: number, tiles: readonly number[]): Entity | undefined {
+  for (let i = 0; i + 1 < tiles.length; i += 2) {
+    const site = siteAt(sim, tiles[i], tiles[i + 1])
+    if (site !== undefined && isOwn(sim, player, site)) return site
+    const paved = sim.paving.at(tiles[i], tiles[i + 1])
+    const pave = paved === undefined ? undefined : sim.world.get(paved, Pave)
+    if (paved !== undefined && pave && (!pave.done || pave.remove) && isOwn(sim, player, paved)) return paved
+  }
+  return undefined
+}
+
 /** Стоят ли на основании ещё не начатой площадки юниты: пока они там, стройка не начнётся. */
 export function isSiteBlocked(sim: Sim, site: Entity) {
   const { world } = sim
