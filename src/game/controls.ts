@@ -1,7 +1,6 @@
 import type { Entity } from '../ecs'
 import { type BuildingType, Building, Site, Harvester, Producer, Hauler, type UnitType, Owner, Position, isOwn, UNITS, Unit, canFight, isStop, siteAt, BUILDINGS, BRIDGE_COST, FOUNDATION_COST, ROAD_COST, creditsOf } from '../sim'
 import type { CameraMotion } from './cameraMotion'
-import { ordersAt } from './orders'
 import { paveStrokeOf, placementOf } from './placing'
 import type { Scene } from './scene'
 
@@ -272,7 +271,7 @@ export function createControls(canvas: HTMLCanvasElement, scene: Scene, motion: 
       for (const building of scene.selection) scene.sim.send(scene.player, { type: 'rally', building, x: Math.floor(point.x), y: Math.floor(point.y) })
     } else if (button === RIGHT && !dragged && scene.selection.size) {
       // С Shift приказ встаёт в очередь: юниты возьмутся за него, когда закончат нынешнее.
-      for (const command of ordersAt(scene, [...scene.selection], point, event.shiftKey)) scene.sim.send(scene.player, command)
+      scene.sim.send(scene.player, { type: 'order', units: [...scene.selection], x: point.x, y: point.y, queue: event.shiftKey })
     }
   }
   const onPointerCancel = () => {

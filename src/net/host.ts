@@ -1,7 +1,7 @@
 import { applyEdit, type EditOp } from '../sim/editOps'
 import type { Entity } from '../ecs'
 import { Terrain, terrainAt, tileBytes } from '../map/terrain'
-import { UNIT_TYPES, creditsOf, flies, isDefeated, type UnitType, notWalledIn, isWalkable, openSpawn, shownTo, spawnStartingUnits, wipePlayer, type Command, type Sim, type SimSave } from '../sim'
+import { UNIT_TYPES, creditsOf, flies, fromClient, isDefeated, type UnitType, notWalledIn, isWalkable, openSpawn, shownTo, spawnStartingUnits, wipePlayer, type Command, type Sim, type SimSave } from '../sim'
 import { Attached, Building, Owner, Path, Position, Unit } from '../sim/components'
 import { pathOf, seenBy, sharedWireOf, type Wired } from './wire'
 import { LAND, encodeDelta, type Motion } from './codec'
@@ -874,6 +874,8 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
             return
           }
           if (type !== 'command' || typeof command !== 'object' || command === null) return
+          // Цель по номеру сущности клиент не называет: приказ идёт точкой, а цель по ней выбирает симуляция.
+          if (!fromClient(command as Command)) return
           // Что внутри команды, проверит сама симуляция: она не доверяет и локальному клиенту.
           sim.send(joined, command as Command)
         },

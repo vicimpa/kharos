@@ -15,6 +15,7 @@ import { orderPipes, orderWells } from './piping'
 import { cancelUnit, orderUnit } from './production'
 import { setFilter, setRoute, setServe } from './routes'
 import { surrender } from './defeat'
+import { resolveOrder } from './target'
 import { clearTactics, orderPatrol, setStance, type Stance } from './tactics'
 import type { Good, Resource } from './resources'
 import type { Sim } from './sim'
@@ -29,6 +30,11 @@ import { orderGroupMove, type UnitType } from './units'
  * Команды — простые данные, пригодные для JSON. Чтобы добавить команду, допиши вариант сюда и ветку в apply().
  */
 export type Command = (
+  /**
+   * Приказ точкой (x, y) в тайлах, можно дробной: что своим юнитам с ней делать — атаковать, копать, возить, строить,
+   * чинить или просто идти, — решает симуляция, см. resolveOrder. Точка в тумане — всегда движение.
+   */
+  | { type: 'order'; units: number[]; x: number; y: number }
   /** Отправить своих юнитов к тайлу (x, y). */
   | { type: 'move'; units: number[]; x: number; y: number }
   /** Точка сбора своего производящего здания: готовые юниты едут к тайлу (x, y). */
@@ -98,6 +104,15 @@ export type Command = (
 const isTile = (x: unknown, y: unknown) => Number.isInteger(x) && Number.isInteger(y)
 
 /**
+ * Приказы с целью по номеру сущности — только изнутри симуляции: в них превращается приказ точкой, и они же лежат
+ * в очередях юнитов. От клиента хост их не берёт: по номеру можно назвать и то, чего игрок не видит.
+ */
+const INTERNAL = new Set<Command['type']>(['attack', 'assist', 'haul', 'pickup', 'supply'])
+
+/** Можно ли принять эту команду от клиента по сети. */
+export const fromClient = (command: Command) => !INTERNAL.has(command.type)
+
+/**
  * Выполняет команду игрока player. Команда приходит извне, поэтому проверяется заново, даже если клиент
  * уже проверил: негодная молча отбрасывается. Возвращает, выполнена ли она.
  *
@@ -113,6 +128,14 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
 }
 
 function run(sim: Sim, player: number, command: Command): boolean {
+  if (command.type === 'order') {
+    if (!Array.isArray(command.units) || !Number.isFinite(command.x) || !Number.isFinite(command.y)) return false
+    const units = [...new Set(command.units as Entity[])].filter((entity) => sim.world.has(entity, Unit) && isOwn(sim, player, entity))
+    if (!units.length) return false
+    let done = false
+    for (const resolved of resolveOrder(sim, player, units, command)) done = run(sim, player, { ...resolved, queue: !!command.queue }) || done
+    return done
+  }
   if (command.queue) return queueOrder(sim, player, command)
   // Приказ без Shift забывает очередь; стойка и фильтр груза — не приказы, а настройки. Стройка из меню очередь
   // не трогает: занятым строителям она сама встаёт в конец.

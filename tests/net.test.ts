@@ -3,11 +3,12 @@ import { DEFAULT_CONFIG } from '../src/map/terrain'
 import { createHost, type Host, type HostSave } from '../src/net/host'
 import { decodeServer } from '../src/net/protocol'
 import { createReplica, type Replica } from '../src/net/replica'
-import { Armed, Building, Ghost, Owner, Player, Position, Producer, Unit, createSim, isWalkable, shownTo } from '../src/sim'
+import { Armed, Building, Ghost, Owner, Path, Player, Position, Producer, Unit, createSim, isWalkable, shownTo } from '../src/sim'
 import { SAVED } from '../src/sim/components'
 import { wireOf } from '../src/net/wire'
 import type { Entity } from '../src/ecs'
 import { placeBuilding } from '../src/sim/buildings'
+import { spawnUnit } from '../src/sim/units'
 import { throughJson } from './throughJson'
 
 const STEP = 1 / 20
@@ -319,4 +320,38 @@ test('склад, очередь производства и цель стрел
   const armedFor = (player: number) => JSON.parse(wireOf(host.sim.world as never, soldier as never, player, 0).parts.get(Armed.key)!)
   expect(armedFor(1).target).toBe(enemy)
   expect(armedFor(2)).not.toHaveProperty('target')
+})
+
+test('цель приказа выбирает сервер по точке: атаку по номеру сущности не берёт, а точка в тумане — движение', () => {
+  const host = createHost(createSim({ generator: DEFAULT_CONFIG, size: 256 }))
+  const first = join(host)
+  join(host)
+  const { world } = host.sim
+  const at = (entity: number) => world.get(entity as never, Position)!
+  const [own] = unitsOf(host.sim as never, 1)
+  const [far] = unitsOf(host.sim as never, 2)
+  const gunner = spawnUnit(host.sim, 'infantry', 1, at(own).x, at(own).y)
+  const armed = () => world.get(gunner, Armed)!
+  const command = (value: object) => first.peer.receive(JSON.stringify({ type: 'command', command: value }))
+  host.advance(STEP)
+  expect(host.sim.vision.seesEntity(1, far as never)).toBe(false)
+  // По номеру врага, которого игрок не видит, приказать нельзя.
+  command({ type: 'attack', units: [gunner], target: far })
+  host.advance(STEP)
+  host.advance(STEP)
+  expect(armed().ordered).toBe(false)
+  expect(world.has(gunner, Path)).toBe(false)
+  // Точка, где он стоит, в тумане: туда просто идут.
+  command({ type: 'order', units: [gunner], x: at(far).x, y: at(far).y })
+  host.advance(STEP)
+  host.advance(STEP)
+  expect(armed().ordered).toBe(false)
+  expect(world.has(gunner, Path)).toBe(true)
+  // Враг на виду: тот же приказ точкой — атака.
+  const near = spawnUnit(host.sim, 'truck', 2, at(gunner).x + 3, at(gunner).y)
+  host.advance(STEP)
+  command({ type: 'order', units: [gunner], x: at(near).x, y: at(near).y })
+  host.advance(STEP)
+  host.advance(STEP)
+  expect(armed()).toMatchObject({ target: near, ordered: true })
 })
