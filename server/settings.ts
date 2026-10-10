@@ -1,4 +1,5 @@
 import { DEFAULT_CONFIG, type GeneratorConfig } from '../src/map/terrain'
+import { DEFAULT_LIMITS, type ConnectLimits } from '../src/net/limits'
 import { DEFAULT_PORT } from '../src/net/protocol'
 import { DEFAULT_RULES, type Rules } from '../src/sim'
 import { DEFAULT_WEATHER, type WeatherOptions } from '../src/sim/weather'
@@ -23,6 +24,8 @@ export interface ServerSettings {
   rules: Rules
   /** wss: off, auto (Let's Encrypt) или files (свои сертификат и ключ). */
   tls: TlsSettings
+  /** Ограничения на подключения с одного адреса; ноль снимает ограничение. */
+  limits: ConnectLimits
 }
 
 /** Настройки по умолчанию; seed у каждого нового сервера свой. */
@@ -37,6 +40,7 @@ export const defaultSettings = (): ServerSettings => ({
   weather: { ...DEFAULT_WEATHER },
   rules: { ...DEFAULT_RULES },
   tls: { ...DEFAULT_TLS },
+  limits: { ...DEFAULT_LIMITS },
 })
 
 /**

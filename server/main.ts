@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { createHost, type HostSave, type Peer } from '../src/net/host'
+import { clientAddress, createGate } from '../src/net/limits'
 import { PROTOCOL_VERSION, versionMismatch, type ServerMessage } from '../src/net/protocol'
 import { createSim } from '../src/sim'
 import { decodeSave, encodeSave, readJson } from '../src/save/file'
@@ -75,7 +76,11 @@ const host = createHost(saved ? createSim({ ...saved.sim, rules }) : createSim({
 if (saved) console.log(`мир загружен из ${SAVE_PATH}: тик ${saved.sim.tick}, игроков ${Object.keys(saved.players).length}`)
 else console.log(`новый мир ${size}×${size}, seed ${generator.seed}`)
 
-type SocketData = { id?: string; name?: string; password: string; version: number; peer?: Peer }
+type SocketData = { id?: string; name?: string; password: string; version: number; address: string; peer?: Peer }
+
+const gate = createGate(settings.limits)
+/** Длиннее сообщение от клиента сокет не принимает; хост режет по той же мерке, см. MESSAGE_MOST. */
+const PAYLOAD_MOST = 256 * 1024
 
 /** Совпадает ли пароль; сравнение за одно и то же время, чтобы его нельзя было подбирать по задержке ответа. */
 const digest = (text: string) => createHash('sha256').update(text).digest()
@@ -92,14 +97,19 @@ const listen = (certificate?: Certificate) => Bun.serve<SocketData>({
   tls: certificate,
   fetch(request, server) {
     const query = new URL(request.url).searchParams
-    const data = { id: query.get('id') ?? undefined, name: query.get('name') ?? undefined, password: query.get('password') ?? '', version: Number(query.get('version')) || 0 }
+    // Перед сервером может стоять nginx: тогда настоящий адрес — в заголовке, который он дописал.
+    const address = clientAddress(server.requestIP(request)?.address, request.headers.get('x-forwarded-for'))
+    if (!gate.admit(address)) return new Response('Kharos: слишком много подключений с вашего адреса\n', { status: 429 })
+    const data = { id: query.get('id') ?? undefined, name: query.get('name') ?? undefined, password: query.get('password') ?? '', version: Number(query.get('version')) || 0, address }
     if (server.upgrade(request, { data })) return undefined
     return new Response('Kharos: сюда подключаются по WebSocket\n', { status: 426 })
   },
   websocket: {
     // Снимки мира — JSON, который почти не меняется от тика к тику: deflate ужимает его в разы.
     perMessageDeflate: true,
+    maxPayloadLength: PAYLOAD_MOST,
     open(socket) {
+      gate.opened(socket.data.address)
       // Клиент другой версии собрал бы мир не так, как сервер: его не пускают, но говорят почему.
       if (socket.data.version !== PROTOCOL_VERSION) {
         const reason = versionMismatch(PROTOCOL_VERSION, socket.data.version)
@@ -115,6 +125,13 @@ const listen = (certificate?: Certificate) => Bun.serve<SocketData>({
         console.log(`× ${reason.toLowerCase()}`)
         return
       }
+      // Новый игрок занимает место на карте: с одного адреса их заводится немного.
+      if (!host.knows(socket.data.id) && !gate.newcomer(socket.data.address)) {
+        socket.send(JSON.stringify({ type: 'refused', reason: 'С вашего адреса заведено слишком много новых игроков, попробуйте позже' } satisfies ServerMessage))
+        socket.close(1008, 'newcomers')
+        console.log(`× слишком много новых игроков с ${socket.data.address}`)
+        return
+      }
       socket.data.peer = host.join((text) => socket.send(text), socket.data.id, socket.data.name, () => socket.close(1000, 'kick'))
       console.log(`+ игрок ${socket.data.peer.player} ${socket.data.name ?? ''}`)
     },
@@ -122,6 +139,7 @@ const listen = (certificate?: Certificate) => Bun.serve<SocketData>({
       if (typeof text === 'string') socket.data.peer?.receive(text)
     },
     close(socket) {
+      gate.closed(socket.data.address)
       if (!socket.data.peer) return
       socket.data.peer.leave()
       console.log(`- игрок ${socket.data.peer.player}`)

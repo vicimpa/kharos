@@ -10,6 +10,7 @@ import { DEPOSIT_SIZE, fillDeposits, saveDeposits } from '../sim/deposits'
 import { knownEdits, pristineLand, takeLearned } from '../sim/landMemory'
 import type { ServerData } from './protocol'
 import { TRACE_CELL, type Trace } from '../sim/traces'
+import { createBucket } from './limits'
 import { cleanChat, cleanName, type ChatLine, type PlayerInfo, type PlayerView, type ServerMessage, type ViewBox } from './protocol'
 import { PLAYER_ARG, parseCommand, type CommandInfo } from './chatCommands'
 import { erase, putUnit, setCredits, setHealth } from '../sim/editor'
@@ -32,6 +33,14 @@ const SPAWN_RADIUS = 24
 const SWEEP_TICKS = 5
 /** Как часто, в мс, одно подключение может писать в чат. */
 const CHAT_GAP = 500
+/** Длиннее скольких символов сообщение клиента не читается: приказ всем своим юнитам в разы короче. */
+const MESSAGE_MOST = 64 * 1024
+/** Сколько сообщений в секунду подключение шлёт в среднем и сколько разом: что сверх — отбрасывается. */
+const MESSAGE_RATE = 30
+const MESSAGE_BURST = 120
+/** Сколько отброшенных сообщений подключению прощается разом и сколько в секунду: дальше его отключают. */
+const FLOOD_BURST = 300
+const FLOOD_RATE = 1
 /** Больше скольких юнитов /spawn за раз не ставит. */
 const SPAWN_MOST = 50
 /** Сколько мс после неверного пароля администратора подключение не может попробовать снова. */
@@ -102,6 +111,8 @@ export interface Host {
   say(text: string): void
   /** Продвигает игру на seconds реального времени и рассылает мир, если прошёл хотя бы один тик. */
   advance(seconds: number): number
+  /** Знает ли хост игрока с этим id; незнакомому при подключении заводится новый игрок. */
+  knows(id?: string): boolean
   /** Мир вместе с тем, кого хост знает: по id игроки узнаются и после перезапуска сервера. */
   save(): HostSave
 }
@@ -199,6 +210,8 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
   let stateSize = 0
   /** Когда подключение писало в чат последний раз, в мс: чаще CHAT_GAP сообщения отбрасываются. */
   const lastChat = new Map<Send, number>()
+  /** Счёт сообщений подключения: что слишком часто — отбрасывается, а кто не унимается — отключается. */
+  const floods = new Map<Send, { messages: ReturnType<typeof createBucket>; strikes: ReturnType<typeof createBucket> }>()
   /** Рассылает сообщения чата всем подключённым. */
   const broadcast = (lines: ChatLine[]) => {
     const out = JSON.stringify({ type: 'chat', lines } satisfies ServerMessage)
@@ -791,6 +804,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
     get stateSize() {
       return stateSize
     },
+    knows: (id) => player !== undefined || (!!id && players.has(id)),
     command: runCommand,
     addCommand: add,
     say: serverSay,
@@ -812,6 +826,8 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
       // О входе — только когда игрок появился: вторая вкладка того же игрока не в счёт. Локальной игре не нужно.
       if (player === undefined && !online(joined) && !hidden.has(joined)) notice(joined, 'заходит в игру')
       peers.set(send, joined)
+      // У локальной игры клиент свой, и считать его сообщения незачем.
+      if (player === undefined) floods.set(send, { messages: createBucket(MESSAGE_RATE, MESSAGE_BURST), strikes: createBucket(FLOOD_RATE, FLOOD_BURST) })
       shown.set(send, new Set())
       sent.set(send, new Map())
       send(welcome(joined, id))
@@ -824,6 +840,16 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
       return {
         player: joined,
         receive(text) {
+          // Администратора счёт не касается: кисть редактора шлёт правки потоком.
+          const flood = floods.get(send)
+          if (flood && !admins.has(send) && (text.length > MESSAGE_MOST || !flood.messages.take())) {
+            if (flood.strikes.take()) return
+            floods.delete(send)
+            options.log?.(`! ${nameOf(joined)} отключён: слишком много сообщений`)
+            send(JSON.stringify({ type: 'refused', reason: 'Слишком много сообщений' } satisfies ServerMessage))
+            closers.get(send)?.()
+            return
+          }
           let message: unknown
           try {
             message = JSON.parse(text)
@@ -885,6 +911,7 @@ export function createHost(first: Sim, player?: number, saved?: Omit<HostSave, '
           swept.delete(send)
           depositsShown.delete(send)
           lastChat.delete(send)
+          floods.delete(send)
           admins.delete(send)
           editing.delete(send)
           views.delete(send)
