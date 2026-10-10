@@ -3,7 +3,7 @@ import { isOwn, onTurn } from './common'
 import { Armed, Path, Position, Tactics, Unit } from './components'
 import type { Sim } from './sim'
 import { turretsOf } from './turrets'
-import { orderMove } from './units'
+import { inBounds, orderMove } from './units'
 import { weaponOf } from './combat'
 
 /**
@@ -66,7 +66,7 @@ export function setStance(sim: Sim, player: number, units: Entity[], stance: Sta
 export function orderPatrol(sim: Sim, player: number, units: Entity[], points: number[], append = false) {
   const stops: number[] = []
   for (let i = 0; i + 1 < points.length && stops.length < PATROL_LIMIT * 2; i += 2) {
-    if (Number.isInteger(points[i]) && Number.isInteger(points[i + 1])) stops.push(points[i], points[i + 1])
+    if (Number.isInteger(points[i]) && Number.isInteger(points[i + 1]) && inBounds(sim, points[i], points[i + 1])) stops.push(points[i], points[i + 1])
   }
   if (!stops.length) return false
   const fighters = fightersOf(sim, player, units)

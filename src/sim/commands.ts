@@ -19,7 +19,7 @@ import { clearTactics, orderPatrol, setStance, type Stance } from './tactics'
 import type { Good, Resource } from './resources'
 import type { Sim } from './sim'
 import { buy, closeSale, sell } from './trade'
-import { orderGroupMove, type UnitType } from './units'
+import { inBounds, orderGroupMove, type UnitType } from './units'
 
 /**
  * Команда — единственный способ игрока повлиять на мир. Клиент не правит сущности сам, а посылает команду;
@@ -96,6 +96,8 @@ export type Command = (
 }
 
 const isTile = (x: unknown, y: unknown) => Number.isInteger(x) && Number.isInteger(y)
+/** Тайл внутри карты: координаты из команды — целые и в её границах. */
+const isMapTile = (sim: Sim, x: unknown, y: unknown) => isTile(x, y) && inBounds(sim, x as number, y as number)
 
 /**
  * Выполняет команду игрока player. Команда приходит извне, поэтому проверяется заново, даже если клиент
@@ -155,8 +157,9 @@ function run(sim: Sim, player: number, command: Command): boolean {
     case 'supply':
       return Array.isArray(command.units) && assignSupply(sim, player, command.target as Entity, command.units as Entity[])
     case 'harvest': {
-      if (!Array.isArray(command.units)) return false
-      return orderHarvest(sim, player, command.units as Entity[], Math.floor(command.x), Math.floor(command.y))
+      // Слой месторождений заводит клетку на каждый запрошенный тайл: чужие координаты туда не пускаются.
+      if (!Array.isArray(command.units) || !isMapTile(sim, command.x, command.y)) return false
+      return orderHarvest(sim, player, command.units as Entity[], command.x, command.y)
     }
     case 'seek': {
       if (!Array.isArray(command.units)) return false
@@ -205,7 +208,7 @@ function run(sim: Sim, player: number, command: Command): boolean {
     case 'rally': {
       const building = command.building as Entity
       const producer = sim.world.get(building, Producer)
-      if (!isTile(command.x, command.y) || !producer || !sim.world.has(building, Building) || !isOwn(sim, player, building)) return false
+      if (!isMapTile(sim, command.x, command.y) || !producer || !sim.world.has(building, Building) || !isOwn(sim, player, building)) return false
       producer.rally = [command.x, command.y]
       return true
     }

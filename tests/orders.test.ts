@@ -2,7 +2,9 @@ import { expect, test } from 'bun:test'
 import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Terrain, isCliffFoot, terrainAt } from '../src/map/terrain'
-import { Building, Builds, CORE, Orders, Owner, Path, Position, Site, Unit, createSim, siteAt, spawnStartingUnits, type Sim } from '../src/sim'
+import { Building, Builds, CORE, Orders, Owner, Path, Position, Producer, Site, Tactics, Unit, createSim, siteAt, spawnStartingUnits, type Sim } from '../src/sim'
+import { saveDeposits } from '../src/sim/deposits'
+import { ORDERS_LIMIT } from '../src/sim/orders'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024, rules: { techTree: false } }
 const TICK = 1 / 20
@@ -121,4 +123,49 @@ test('стройка из меню: строитель на своей стро�
   seconds(sim, 0.1)
   expect(sim.world.get(builder, Builds)?.site).toBe(second)
   expect(sim.world.get(builder, Orders)!.list.length).toBe(0)
+})
+
+test('негодный приказ очередь не стирает; принятый — стирает', () => {
+  const { sim, site } = start()
+  const units = squad(sim, 2)
+  sim.send(1, { type: 'move', units, x: site.x, y: site.y })
+  sim.send(1, { type: 'move', units, x: site.x + 4, y: site.y, queue: true })
+  seconds(sim, 0.1)
+  // Атаковать некого: цели нет.
+  sim.send(1, { type: 'attack', units, target: 999999 })
+  seconds(sim, 0.1)
+  expect(sim.world.get(units[0], Orders)!.list.length).toBe(1)
+})
+
+test('очередь приказов ограничена, а приказ в ней не хранит список юнитов', () => {
+  const { sim, site } = start()
+  const units = squad(sim, 2)
+  sim.send(1, { type: 'move', units, x: site.x, y: site.y })
+  for (let i = 0; i < ORDERS_LIMIT + 10; i++) sim.send(1, { type: 'move', units, x: site.x + (i % 4), y: site.y, queue: true })
+  seconds(sim, 0.1)
+  const list = sim.world.get(units[0], Orders)!.list
+  expect(list.length).toBe(ORDERS_LIMIT)
+  expect((list[0].command as { units: number[] }).units).toEqual([])
+  // Взятый из очереди приказ получает всю группу.
+  sim.send(1, { type: 'move', units, x: site.x + 1, y: site.y + 1 })
+  sim.send(1, { type: 'move', units, x: site.x + 4, y: site.y + 5, queue: true })
+  seconds(sim, 20)
+  for (const entity of units) expect(Math.hypot(sim.world.get(entity, Position)!.x - site.x - 4, sim.world.get(entity, Position)!.y - site.y - 5)).toBeLessThan(3)
+})
+
+test('координаты команд проверяются на границы карты: месторождения, точка сбора, патруль', () => {
+  const { sim, core } = start()
+  const units = squad(sim, 1)
+  const cells = () => saveDeposits(sim.deposits).cells.length
+  const before = cells()
+  const { right, bottom } = sim.bounds
+  for (const [x, y] of [[NaN, 0], [0.5, 1], [right + 100, 0], [0, bottom + 5000], [1e9, -1e9]]) {
+    sim.send(1, { type: 'harvest', units, x, y })
+    sim.send(1, { type: 'rally', building: core, x, y })
+  }
+  sim.send(1, { type: 'patrol', units, points: [right + 10, 0, 1e9, 1e9] })
+  seconds(sim, 0.1)
+  expect(cells()).toBe(before)
+  expect(sim.world.get(core, Producer)!.rally).not.toEqual([right + 100, 0])
+  expect(sim.world.get(units[0], Tactics)?.patrol ?? []).toEqual([])
 })
