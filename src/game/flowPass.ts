@@ -2,7 +2,7 @@ import type { Entity } from '../ecs'
 import { setBlend } from '../gl'
 import type { Pass } from '../render/renderer'
 import { createLineProgram, createLines } from '../render/lines'
-import { BUILDINGS, Batch, Building, Owner, Position, Site, buildingSpec, isPipe, zonesOf } from '../sim'
+import { BUILDINGS, Batch, Building, Owner, Position, Site, isPipe, zonesOf } from '../sim'
 import { GOOD_COLORS } from './resourceColors'
 import type { Scene } from './scene'
 
@@ -28,14 +28,9 @@ export function createFlowPass(gl: WebGL2RenderingContext, scene: Scene): Pass {
     return { x: position.x + BUILDINGS[type].width / 2, y: position.y + BUILDINGS[type].height / 2, well: type === 'well' }
   }
 
-  const isHub = (entity: Entity) => {
-    const type = scene.sim.world.get(entity, Building)?.type
-    return type !== undefined && !!buildingSpec(type).link
-  }
-
   /**
    * Подземные отрезки своих колодцев: пунктир от колодца до парного, по графу сети (см. zones.ts). У колодца
-   * без пары — красная метка: под землёй он ни с чем не связан. И связи узлов — пунктир до подключённого.
+   * без пары — красная метка: под землёй он ни с чем не связан.
    */
   const drawWells = (camera: { x: number; y: number }) => {
     const { world } = scene.sim
@@ -54,23 +49,6 @@ export function createFlowPass(gl: WebGL2RenderingContext, scene: Scene): Pass {
           const from = step / length
           const to = Math.min(step + 0.5, length - 0.5) / length
           lines.push(one.x + (two.x - one.x) * from - camera.x, one.y + (two.y - one.y) * from - camera.y, one.x + (two.x - one.x) * to - camera.x, one.y + (two.y - one.y) * to - camera.y, 0.12, 0.25, 0.39, 0.56, 0.7)
-        }
-      }
-    }
-    // Связи узлов: тонкий пунктир от узла до каждого, кого он подключает.
-    for (const zone of zonesOf(scene.sim, scene.player)) {
-      for (let i = 0; i < zone.edges.length; i += 3) {
-        const a = zone.edges[i] as Entity
-        const b = zone.edges[i + 1] as Entity
-        const hub = isHub(a) ? a : isHub(b) ? b : undefined
-        if (hub === undefined) continue
-        const one = centerOf(hub)!
-        const two = centerOf(hub === a ? b : a)!
-        const length = Math.hypot(two.x - one.x, two.y - one.y)
-        for (let step = 1; step < length - 0.5; step += 1) {
-          const from = step / length
-          const to = Math.min(step + 0.4, length - 0.5) / length
-          lines.push(one.x + (two.x - one.x) * from - camera.x, one.y + (two.y - one.y) * from - camera.y, one.x + (two.x - one.x) * to - camera.x, one.y + (two.y - one.y) * to - camera.y, 0.08, 0.35, 0.66, 1, 0.45)
         }
       }
     }

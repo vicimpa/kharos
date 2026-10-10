@@ -83,11 +83,6 @@ export interface BuildingSpec {
    * своим колодцем по прямой не дальше UNDERGROUND_REACH, подземным отрезком. См. zones.ts и pipes.ts.
    */
   pipe?: 'surface' | 'well'
-  /**
-   * Узел связи: готовый подключает к своей сети всё своё — здания, трубы и стройки, — что задевает этот радиус
-   * в тайлах от его центра, без трубы. Другие узлы он не подключает: цепочкой узлов труб не заменить. См. zones.ts.
-   */
-  link?: number
   /** Здание не подключается к сети труб: стене нечего брать и отдавать. */
   isolated?: boolean
 }
@@ -209,7 +204,6 @@ export const BUILDINGS = {
   pipe: { width: 1, height: 1, cost: 5, hp: 60, expand: PIPE_REACH, sight: 1, pipe: 'surface' },
   well: { width: 1, height: 1, cost: 40, hp: 250, expand: PIPE_REACH, sight: 1, pipe: 'well' },
   // Узел связи подключает здания вокруг без труб: дороже трубы, просит энергию и уязвим — снесли узел, распалась сеть.
-  hub: { width: 2, height: 2, cost: 200, hp: 300, power: -1, link: 6 },
   // Оборонительные турели используют то же оружие, что техника, и стреляют боеприпасами со своего склада.
   // На песке все оборонительные постройки слабее.
   turret: { width: 1, height: 1, cost: 250, hp: 450, defense: true, ...TURRET_STORE, mounts: [{ turret: 'gunner', along: 0, across: 0 }] },
@@ -230,7 +224,7 @@ export const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[]
 export const BUILDABLE: BuildingType[] = [
   'generator', 'matter', 'mine', 'smelter', 'siliconWorks', 'distillery', 'enricher', 'blockPlant', 'ammoPlant', 'partsPlant',
   'metalYard', 'siliconStore', 'fuelTank', 'khariteVault', 'blockYard', 'ammoBunker', 'partsLocker', 'spaceport', 'barracks', 'factory', 'airfield', 'techCenter',
-  'hub', 'radar', 'wall', 'turret', 'rocketTurret', 'cannonTurret', 'laserTurret',
+  'radar', 'wall', 'turret', 'rocketTurret', 'cannonTurret', 'laserTurret',
 ]
 
 /** Труба ли это или колодец. */
@@ -248,7 +242,6 @@ export const REQUIRES: Partial<Record<BuildingType, readonly BuildingType[]>> = 
   matter: ['generator'],
   mine: ['generator'],
   radar: ['generator'],
-  hub: ['generator'],
   spaceport: ['generator'],
   // Переработке шахта не нужна: руду возят и харвестеры, а их заказывают с самого начала.
   smelter: ['generator'],

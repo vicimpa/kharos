@@ -30,8 +30,6 @@ const SECTIONS: Partial<Record<Page, BuildingType[]>> = {
   industry: ['smelter', 'siliconWorks', 'distillery', 'enricher', 'blockPlant', 'ammoPlant', 'partsPlant'],
   military: ['barracks', 'factory', 'airfield', 'techCenter'],
   defense: ['wall', 'turret', 'rocketTurret', 'cannonTurret', 'laserTurret', 'radar'],
-  // В логистике, кроме инструментов протяжки, — узел связи.
-  logistics: ['hub'],
 }
 /** Описание здания для карточки: что делает и какие здания открывает. */
 function aboutOf(building: BuildingType) {
@@ -137,7 +135,7 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
       const count = (page: Page) => construction.options.filter(({ building }) => sectionOf(building) === page).length
       sections.forEach((section, i) => (slots[i] = opened(section.page) ? { ...section, group: count(section.page) } : null))
       slots[sections.length] = { label: 'Покрытие', pave: 'road', group: PAVE_TOOLS.length, title: 'Фундамент, дороги и мосты', run: () => open('paving') }
-      slots[sections.length + 1] = { label: 'Логистика', building: 'pipe', group: PIPE_TOOLS.length, title: 'Трубы, колодцы и узлы связи: связывают здания в сеть', run: () => open('logistics') }
+      slots[sections.length + 1] = { label: 'Логистика', building: 'pipe', group: PIPE_TOOLS.length, title: 'Трубы и колодцы: связывают здания в сеть', run: () => open('logistics') }
       // Разбор — сразу инструмент, без раздела.
       const active = construction.paving?.tool === 'remove'
       slots[sections.length + 2] = { label: 'Разобрать', pave: 'remove', active, title: REMOVE_TITLE, run: () => pave(active ? null : 'remove') }
@@ -157,7 +155,7 @@ export function commandsOf(state: HudState, page: Page, { send, place, pave, rou
           },
         }
       })
-      // Здания раздела — после инструментов: узел связи, когда он открыт.
+      // Здания раздела, если они у него есть, — после инструментов.
       if (page === 'logistics') {
         construction.options.filter(({ building }) => sectionOf(building) === page).forEach((option, i) => (slots[PIPE_TOOLS.length + i] = buildingSlot(option)))
       }

@@ -8,7 +8,7 @@ export const CONTROL_RADIUS = BUILDINGS.command.zone
 /** На сколько тайлов от своего центра расширяет зону любое другое готовое здание. */
 export const EXPAND_RADIUS = 5
 
-/** Расстояние от точки (cx, cy) до основания (x, y, width, height): так узел связи меряет, задевает ли его радиус. */
+/** Расстояние от точки (cx, cy) до основания (x, y, width, height): так меряют, задевает ли основание круг. */
 export const linkGap = (cx: number, cy: number, x: number, y: number, width: number, height: number) =>
   Math.hypot(Math.max(x - cx, 0, cx - x - width), Math.max(y - cy, 0, cy - y - height))
 
@@ -29,7 +29,7 @@ export interface Zone {
   circles: number[]
   /** Готовые здания и трубы сети, начиная с главного здания, если оно в ней есть. */
   buildings: Entity[]
-  /** Стройки, к основанию которых подведена труба сети или которые в радиусе её узла: им сеть везёт материалы. Зону они не расширяют. */
+  /** Стройки, к основанию которых подведена труба сети: им сеть везёт материалы. Зону они не расширяют. */
   sites: Entity[]
   /** Граф сети: рёбра a, b и длина в тайлах подряд. Узлы — здания, трубы и стройки. */
   edges: number[]
@@ -69,8 +69,8 @@ export const resetZones = (sim: Sim) => {
 /**
  * Сети труб всех игроков, у каждого игрока — сначала сети с главным зданием. Сеть — связная группа готовых зданий
  * и труб: труба связывает соседние по стороне трубы и здания, колодец — ещё и с ближайшим своим колодцем по прямой
- * (подземный отрезок, см. BuildingSpec.pipe), узел связи — со всем своим в радиусе (BuildingSpec.link). Здание без
- * трубы и узла — сеть само по себе. Зону сети составляют круги её
+ * (подземный отрезок, см. BuildingSpec.pipe). Здание без
+ * трубы — сеть само по себе. Зону сети составляют круги её
  * зданий (BuildingSpec.zone, expand или EXPAND_RADIUS) и труб (PIPE_REACH). Стена в сеть не входит.
  */
 export function allZones(sim: Sim): Map<number, Zone[]> {
@@ -143,27 +143,6 @@ function computeZones(sim: Sim): Map<number, Zone[]> {
     }
   }
 
-  // Узел связи — со всем своим, что задевает его радиус, кроме других узлов. Длина ребра — от центра узла до основания.
-  const hubs: { entity: Entity; player: number; x: number; y: number; reach: number }[] = []
-  for (const [entity, player] of members) {
-    const type = world.get(entity, Building)!.type
-    const reach = buildingSpec(type).link
-    if (!reach) continue
-    const position = world.get(entity, Position)!
-    hubs.push({ entity, player, x: position.x + BUILDINGS[type].width / 2, y: position.y + BUILDINGS[type].height / 2, reach })
-  }
-  const gap = (hub: (typeof hubs)[number], x: number, y: number, width: number, height: number) => linkGap(hub.x, hub.y, x, y, width, height)
-  for (const hub of hubs) {
-    for (const [other, player] of members) {
-      if (player !== hub.player || other === hub.entity) continue
-      const type = world.get(other, Building)!.type
-      if (buildingSpec(type).link) continue
-      const position = world.get(other, Position)!
-      const distance = gap(hub, position.x, position.y, BUILDINGS[type].width, BUILDINGS[type].height)
-      if (distance <= hub.reach) link(hub.entity, other, Math.max(1, Math.round(distance)))
-    }
-  }
-
   const byRoot = new Map<Entity, Zone>()
   const result = new Map<number, Zone[]>()
   for (const [entity, player] of members) {
@@ -205,17 +184,6 @@ function computeZones(sim: Sim): Map<number, Zone[]> {
     for (let y = position.y; y < position.y + height; y++) {
       touch(position.x - 1, y)
       touch(position.x + width, y)
-    }
-    // Узел связи подключает стройку в своём радиусе, как и здание.
-    for (const hub of hubs) {
-      if (hub.player !== owner.player || buildingSpec(site.type).link) continue
-      const distance = gap(hub, position.x, position.y, width, height)
-      if (distance > hub.reach) continue
-      const found = byRoot.get(find(hub.entity))!
-      if (zone && zone !== found) continue
-      if (!zone) found.sites.push(entity)
-      zone = found
-      zone.edges.push(entity, hub.entity, Math.max(1, Math.round(distance)))
     }
   }
   // Сети с главным зданием — первыми: по первой сети игрока интерфейс показывает его энергию.

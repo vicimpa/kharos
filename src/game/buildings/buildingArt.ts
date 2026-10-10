@@ -1222,30 +1222,6 @@ const wellArt: BuildingArt = {
   },
 }
 
-/** Узел связи: мачта с кольцом излучателя, огни бегут по кругу. */
-const hub: BuildingArt = {
-  ...BUILDINGS.hub,
-  draw(g, t, light) {
-    slab(g, 0, 2, 32, 30, 3, STEEL)
-    g.rect(3, 5, 26, 21, STEEL[0])
-    g.rect(4, 6, 25, 20, STEEL[1])
-    // Рукава к краям основания: сюда подходят трубы.
-    for (const [x, y, w, h] of [[14, 2, 4, 6], [14, 22, 4, 6], [1, 14, 6, 4], [25, 14, 6, 4]] as const) {
-      g.rect(x, y, w, h, INK)
-      g.rect(x + 1, y + 1, w - 2, h - 2, IRON[2])
-    }
-    tower(g, 16, 16, 6, 8, IRON)
-    g.circle(16, 8, 7, INK)
-    g.ring(16, 8, 6, 2, IRON[3])
-    g.circle(16, 8, 3, TEAM[1])
-    g.circle(16, 8, 1.5, TEAM[3])
-    for (let i = 0; i < 4; i++) {
-      const angle = (i / 4) * TURN + t * TURN
-      bulb(g, light, Math.round(16 + Math.cos(angle) * 6), Math.round(8 + Math.sin(angle) * 6 * 0.65), chase(t, i / 4))
-    }
-  },
-}
-
 /** Основание оборонительной турели; само вращающееся оружие рисуется поверх отдельной сущностью. */
 function emplacement(g: Pixmap, t: number, light: EmitLight, band: number) {
   slab(g, 0, 1, 16, 15, 2, STEEL)
@@ -1318,7 +1294,6 @@ export const BUILDING_ART = {
   wall,
   pipe: pipeArt,
   well: wellArt,
-  hub,
   turret,
   rocketTurret,
   cannonTurret,

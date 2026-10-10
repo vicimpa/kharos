@@ -21,7 +21,7 @@ export interface HudState {
    * чтобы подсказка встала рядом. null — указатель не над месторождением.
    */
   hover: { kind: DepositKind; left: number | null; x: number; y: number } | null
-  /** Своя труба, колодец или узел связи под указателем: сколько зданий в его сети и что у неё в запасе. */
+  /** Своя труба или колодец под указателем: сколько зданий в его сети и что у неё в запасе. */
   pipeHover: { buildings: number; stock: Stack[]; capacity: number; x: number; y: number } | null
   /** Награды, которые игрок уже получил, по порядку. */
   rewards: string[]
@@ -219,7 +219,7 @@ function hoverOf(scene: Scene): HudState['hover'] {
   return { kind: spot.kind, left: left === null ? null : Math.floor(left), x: camera.pointer.x, y: camera.pointer.y }
 }
 
-/** Своя труба, колодец или узел под указателем мыши, см. HudState.pipeHover. */
+/** Своя труба или колодец под указателем мыши, см. HudState.pipeHover. */
 function pipeHoverOf(scene: Scene): HudState['pipeHover'] {
   const { camera, sim } = scene
   const tile = camera.pointerTile
@@ -227,10 +227,10 @@ function pipeHoverOf(scene: Scene): HudState['pipeHover'] {
   const entity = sim.occupancy.at(tile.x, tile.y)
   if (entity === undefined || sim.world.get(entity, Owner)?.player !== scene.player) return null
   const type = sim.world.get(entity, Building)?.type
-  if (type === undefined || (!isPipe(type) && !buildingSpec(type).link)) return null
+  if (type === undefined || !isPipe(type)) return null
   const network = networkOf(sim, entity)
   if (!network) return null
-  const buildings = network.buildings.filter((member) => !isPipe(sim.world.get(member, Building)!.type) && !buildingSpec(sim.world.get(member, Building)!.type).link).length
+  const buildings = network.buildings.filter((member) => !isPipe(sim.world.get(member, Building)!.type)).length
   const { items, capacity } = stockOfZone(sim, network)
   return { buildings, stock: stacksOf(items), capacity, x: camera.pointer.x, y: camera.pointer.y }
 }

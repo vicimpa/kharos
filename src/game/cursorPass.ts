@@ -2,7 +2,7 @@ import { setBlend } from '../gl'
 import type { Pass } from '../render/renderer'
 import { createSpriteProgram, createSprites, createWhiteTexture } from '../render/sprites'
 import type { Entity } from '../ecs'
-import { BUILDINGS, Building, CONTROL_RADIUS, Hauler, Position, Tactics, allZones, buildingSpec, hubTargets, hubsReaching, wellPartners, type BuildingType } from '../sim'
+import { BUILDINGS, Building, CONTROL_RADIUS, Hauler, Position, Tactics, allZones, wellPartners, type BuildingType } from '../sim'
 import { paveStrokeOf, placementOf } from './placing'
 import type { Scene } from './scene'
 
@@ -174,8 +174,7 @@ export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass
           else for (const zone of zones) outline(zone.circles, FORBIDDEN)
         }
         /**
-         * С чем свяжется ставящееся: колодец — пунктир до парных колодцев, без пары — красная метка; узел связи — радиус
-         * и пунктир до всего, что подключит; здание в радиусе узла — пунктир до него.
+         * С чем свяжется ставящееся: колодец — пунктир до парных колодцев, без пары — красная метка.
          */
         const connections = (type: BuildingType, x: number, y: number) => {
           const dot = ROUTE_DOT / camera.zoom
@@ -198,30 +197,6 @@ export function createCursorPass(gl: WebGL2RenderingContext, scene: Scene): Pass
             if (!partners.length) cross(x + 0.5, y + 0.5)
             return
           }
-          /** Пунктир от точки до точки: связь без трубы. */
-          const dashed = (ax: number, ay: number, bx: number, by: number, alpha: number) => {
-            const length = Math.hypot(bx - ax, by - ay)
-            for (let along = 0.5; along < length; along += ROUTE_STEP) {
-              const t = along / length
-              rect(ax + (bx - ax) * t - camera.x - dot / 2, ay + (by - ay) * t - camera.y - dot / 2, dot, dot, LINK, alpha)
-            }
-          }
-          const spec = buildingSpec(type)
-          const cx = x + spec.width / 2
-          const cy = y + spec.height / 2
-          // Узел связи: его радиус и всё, что он подключит.
-          if (spec.link) {
-            outline([cx, cy, spec.link], LINK)
-            for (const target of hubTargets(scene.sim, scene.player, cx, cy, spec.link)) {
-              frame(target.x, target.y, target.width, target.height, LINK)
-              dashed(cx, cy, target.x + target.width / 2, target.y + target.height / 2, target.ready ? BORDER_ALPHA : FILL_ALPHA * 2)
-            }
-            return
-          }
-          if (spec.pipe || spec.isolated) return
-          // В радиусе своего узла связи: здание подключит он.
-          const hubs = hubsReaching(scene.sim, scene.player, x, y, spec.width, spec.height)
-          for (const hub of hubs) dashed(hub.x, hub.y, cx, cy, BORDER_ALPHA)
         }
         if (placement) {
           const { width, height } = BUILDINGS[placement.type]
