@@ -206,6 +206,8 @@ export function harvest(sim: Sim) {
     // Уведённый приказом идти стоит, пока игрок не даст новую команду.
     if (harvester.parked) continue
     let spot = harvester.picked ? depositAt(sim, harvester.x, harvester.y) : null
+    /** Месторождение найдено в этот тик: прежний путь снят, хоть его снятие и отложено до конца обхода. */
+    let found = false
     // Выработано или на нём поставили шахту — искать другое того же вида.
     const spent = spot && (reserveLeft(sim, spot.x, spot.y) <= 0 || hasMine(sim, spot)) ? spot : null
     if (spent) spot = null
@@ -236,17 +238,19 @@ export function harvest(sim: Sim) {
         else Object.assign(harvester, { ordered: false, parked: true })
         continue
       }
-      // Нашёл, пока ехал на разведку: разворачивается к месторождению.
+      // Нашёл, пока ехал на разведку: разворачивается к месторождению сразу.
       world.remove(entity, Path)
       Object.assign(harvester, { x: spot.x, y: spot.y, picked: true, ordered: false, scouting: false })
+      found = true
     }
+    const moving = world.has(entity, Path) && !found
     const center = centerOf(spot)
     if (Math.hypot(center.x - position.x, center.y - position.y) > HARVEST_REACH) {
       // Едет — пусть едет; не доехал — через RETRY_TICKS путь прокладывается заново.
-      if (!world.has(entity, Path) && retry) moves.push({ entity, ...center, near: APPROACH })
+      if (!moving && retry) moves.push({ entity, ...center, near: APPROACH })
       continue
     }
-    if (world.has(entity, Path)) continue
+    if (moving) continue
     const ore = ORE_OF[spot.kind]
     const rate = unitSpec(unit.type).harvest ?? 0
     // Кузов харвестера держит одну руду: сменилось месторождение — старое сначала уедет на переработку.
