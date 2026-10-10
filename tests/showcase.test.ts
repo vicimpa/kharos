@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
+import { BUILDABLE, REQUIRES } from '../src/sim/buildings'
+import { PLAN } from '../src/sim/showcase'
 import { Building, Owner, SCENES, stanceOf, Site, TRAINING_PLAYER, Unit, createSim, type Sim, type SceneName } from '../src/sim'
 
 const STEP = 1 / 20
@@ -65,4 +67,15 @@ test('в сценках боя все бойцы агрессивны: под о
     expect(stanceOf(sim, entity)).toBe('aggressive')
   }
   expect(units).toBeGreaterThan(0)
+})
+
+test('стройка: план идёт по дереву технологий, и бригада ставит его целиком', () => {
+  PLAN.forEach((type, i) => {
+    expect(BUILDABLE).toContain(type)
+    for (const need of REQUIRES[type] ?? []) expect(need === 'command' || PLAN.slice(0, i).includes(need)).toBe(true)
+  })
+  const staged = stage('construction')
+  const before = count(staged.sim, Building, PLAYER)
+  play(staged, 400)
+  expect(count(staged.sim, Building, PLAYER) - before).toBeGreaterThanOrEqual(PLAN.length)
 })

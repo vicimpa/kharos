@@ -68,8 +68,11 @@ const mining: Scene = {
   },
 }
 
-/** Что строят строители, по очереди, вокруг главного здания. */
-const PLAN: BuildingType[] = ['generator', 'barracks', 'generator', 'radar', 'metalYard', 'windtrap', 'matter', 'turret', 'rocketTurret', 'generator', 'siliconStore', 'cannonTurret']
+/**
+ * Что строят строители, по очереди, вокруг главного здания. Порядок — по дереву технологий (REQUIRES): каждое здание
+ * открывают уже стоящие перед ним, иначе его не заложить.
+ */
+export const PLAN: BuildingType[] = ['generator', 'radar', 'generator', 'barracks', 'smelter', 'metalYard', 'matter', 'turret', 'rocketTurret', 'siliconWorks', 'siliconStore', 'cannonTurret']
 /** Через сколько секунд после конца стройки сценка начинается заново. */
 const BUILT_PAUSE = 12
 
