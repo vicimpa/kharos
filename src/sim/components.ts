@@ -199,7 +199,7 @@ export const Armed = component('Armed', { target: -1, chase: false, cooldown: 0,
  * в (toX, toY); пуля и ракета следят за целью target, ядро падает туда, где цель была при выстреле. Лазер и разряд
  * бьют сразу, и сущность — только след от них: линия из from в to. age — сколько тиков выстрел живёт, life — сколько
  * ему отпущено. player и source — чей выстрел и кто стрелял. blocked — выстрел остановила стена: бьёт он по ней,
- * а всё, что за стеной, укрыто.
+ * а всё, что за стеной, укрыто. air — выпущен по летающему: и долетев после его гибели, он не рвётся на земле.
  */
 export const Shot = component('Shot', {
   weapon: 'rifle' as WeaponType,
@@ -215,6 +215,7 @@ export const Shot = component('Shot', {
   age: 0,
   life: 0,
   blocked: false,
+  air: false,
 })
 
 /** Взрыв: только картинка, урон уже нанесён. size — радиус в тайлах; age и life — как у выстрела. */

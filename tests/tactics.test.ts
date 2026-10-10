@@ -151,3 +151,16 @@ test('Shift к патрулю: точка добавляется к идущем
   sim.advance(TICK)
   expect(sim.world.get(ours, Tactics)!.patrol.slice(2)).toEqual([x + 30, y])
 })
+
+test('«агрессивно» на юните с турелью: приказ идти выполняется, хоть враг и в обзоре', () => {
+  const { sim, x, y } = field()
+  const ours = put(sim, 'buggy', 1, x + 20, y)
+  // Враг в обзоре, но не на выстреле; велено ехать от него.
+  const foe = put(sim, 'infantry', 2, x + 28, y)
+  sim.send(1, { type: 'stance', units: [ours], stance: 'aggressive' })
+  sim.send(2, { type: 'stance', units: [foe], stance: 'passive' })
+  sim.send(1, { type: 'move', units: [ours], x: x + 2, y })
+  seconds(sim, 6)
+  expect(at(sim, ours).x).toBeLessThan(x + 4)
+  expect(hurt(sim, foe)).toBe(false)
+})

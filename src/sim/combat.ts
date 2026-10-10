@@ -364,7 +364,7 @@ export function fight(sim: Sim) {
   for (const [entity, blast] of world.query(Blast)) if (++blast.age >= blast.life) gone.push(entity)
 
   // Снаряды летят. Попадания — после обхода.
-  const landed: { entity: Entity; weapon: WeaponSpec; player: number; source: Entity; target: Entity; x: number; y: number; blocked: boolean }[] = []
+  const landed: { entity: Entity; weapon: WeaponSpec; player: number; source: Entity; target: Entity; x: number; y: number; blocked: boolean; air: boolean }[] = []
   for (const [entity, shot, position] of world.query(Shot, Position)) {
     const weapon: WeaponSpec = WEAPONS[shot.weapon]
     shot.age++
@@ -392,17 +392,17 @@ export function fight(sim: Sim) {
         position.y = shot.toY
       }
       if (reached || weapon.splash) {
-        landed.push({ entity, weapon, player: shot.player, source: shot.source as Entity, target: shot.target as Entity, x: position.x, y: position.y, blocked: shot.blocked })
+        landed.push({ entity, weapon, player: shot.player, source: shot.source as Entity, target: shot.target as Entity, x: position.x, y: position.y, blocked: shot.blocked, air: shot.air })
       } else gone.push(entity)
       continue
     }
     position.x += (dx / distance) * move
     position.y += (dy / distance) * move
   }
-  for (const { entity, weapon, player, source, target, x, y, blocked } of landed) {
+  for (const { entity, weapon, player, source, target, x, y, blocked, air } of landed) {
     impact(weapon, player, source, target, x, y, blocked)
-    // Попадание в летающего земли не касается.
-    blasts.push({ x, y, size: weapon.splash ?? 0.2, ground: !marks.get(target)?.air })
+    // Попадание в летающего земли не касается, даже если его сбили, пока снаряд летел.
+    blasts.push({ x, y, size: weapon.splash ?? 0.2, ground: !air })
     gone.push(entity)
   }
   for (const entity of gone) world.destroy(entity)
@@ -410,6 +410,12 @@ export function fight(sim: Sim) {
   // Стрелки. Список собирается заранее: дальше мир и обходится заново, и меняется.
   const shooters: { entity: Entity; armed: { target: number; chase: boolean; cooldown: number; stuck: number; ordered: boolean } }[] = []
   for (const [entity, armed] of world.query(Armed)) shooters.push({ entity, armed })
+
+  /** Гонится ли носитель или одна из его турелей за целью: тогда его путь проложил бой, а не игрок. */
+  const inChase = (carrier: Entity) => [carrier, ...turretsOf(sim, carrier)].some((gunner) => {
+    const armed = world.get(gunner, Armed)
+    return !!armed && armed.chase && armed.target !== NONE
+  })
 
   let searches = 0
   /** Носители, которым в этот тик уже проложен путь к цели. */
@@ -447,8 +453,10 @@ export function fight(sim: Sim) {
       // Свободный юнит высматривает врага в пределах выстрела: сперва юнитов, потом здания. Идущий по приказу не
       // высматривает, патрульный — высматривает. Кому велено не стрелять — не высматривает вовсе.
       if (stance === 'passive' || (moving && !mounted && !patrolling) || !onTurn(time, entity, SCAN_TICKS)) continue
-      // Агрессивный высматривает на всю дальность обзора и гонится за найденным.
-      const lookout = stance === 'aggressive' && unitCarrier ? Math.max(range, unitSight(unitCarrier.type)) : range
+      // Агрессивный высматривает на всю дальность обзора и гонится за найденным. Турель носителя, едущего по приказу
+      // игрока, — только на выстрел: стреляет на ходу, но носитель за врагом не уводит.
+      const ordered = moving && !patrolling && !inChase(carrier)
+      const lookout = stance === 'aggressive' && unitCarrier && !ordered ? Math.max(range, unitSight(unitCarrier.type)) : range
       let best = Infinity
       for (const mark of near(self.x, self.y, lookout)) {
         if (!canHit(weapon, self.player, mark)) continue
@@ -518,8 +526,10 @@ export function fight(sim: Sim) {
     const fromX = self.x + Math.cos(aimer.facing) * turner.radius
     const fromY = self.y + Math.sin(aimer.facing) * turner.radius
     const shot = { weapon: weaponType, player: self.player, source: carrier, fromX, fromY, prevX: fromX, prevY: fromY }
-    // Стена на линии огня принимает выстрел на себя: за ней укрытие. Турели зданий стоят выше стены и бьют поверх.
-    const wall = !world.has(carrier, Building) && STOPS_AT_WALL[weapon.shot] && !weapon.lob ? wallOnPath(sim, self.player, self.x, self.y, target.x, target.y) : undefined
+    // Стена на линии огня принимает выстрел на себя: за ней укрытие. Турели зданий стоят выше стены и бьют поверх;
+    // летающего стена не укрывает, и летающий стреляет поверх неё.
+    const overWall = world.has(carrier, Building) || body.air || target.air || !STOPS_AT_WALL[weapon.shot] || !!weapon.lob
+    const wall = overWall ? undefined : wallOnPath(sim, self.player, self.x, self.y, target.x, target.y)
     const hitX = wall ? wall.x : target.x
     const hitY = wall ? wall.y : target.y
     if (weapon.speed) {
@@ -527,7 +537,7 @@ export function fight(sim: Sim) {
       const reach = weapon.shot === 'shell' ? Math.hypot(hitX - fromX, hitY - fromY) : range * OVERFLY
       const life = Math.max(1, Math.ceil(reach / weapon.speed / time.step))
       const targetEntity = wall ? wall.wall : target.entity
-      world.spawn(Position({ x: fromX, y: fromY }), Shot({ ...shot, target: targetEntity, toX: hitX, toY: hitY, blocked: wall !== undefined, life }))
+      world.spawn(Position({ x: fromX, y: fromY }), Shot({ ...shot, target: targetEntity, toX: hitX, toY: hitY, blocked: wall !== undefined, air: !wall && target.air, life }))
       continue
     }
     // Луч стены не обходит: лазер бьёт в неё, а не в цель за ней. Разряду стена не помеха — он бьёт через неё.
