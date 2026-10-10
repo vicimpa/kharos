@@ -181,3 +181,18 @@ test('мусор в полях команды не роняет тик: кома
   }
   expect(() => seconds(sim, 2)).not.toThrow()
 })
+
+test('приказ точкой строителю: по своей стройке — строить, мимо неё — идти', () => {
+  const { sim, builders: [first, second], site } = start()
+  sim.send(1, { type: 'build', building: 'generator', x: site.x, y: site.y, builders: [first] })
+  sim.advance(TICK)
+  const placed = siteAt(sim, site.x, site.y)!
+  expect(placed).toBeDefined()
+  sim.send(1, { type: 'order', units: [second], x: site.x + 0.5, y: site.y + 0.5 })
+  sim.advance(TICK)
+  expect(sim.world.get(second, Builds)).toMatchObject({ site: placed, ordered: true })
+  sim.send(1, { type: 'order', units: [second], x: site.x + 6.5, y: site.y + 6.5 })
+  sim.advance(TICK)
+  expect(sim.world.has(second, Builds)).toBe(false)
+  expect(sim.world.get(second, Path)).toMatchObject({ goalX: site.x + 6, goalY: site.y + 6 })
+})
