@@ -148,3 +148,15 @@ test('назначение: чужие и без склада здания вы�
   sim.advance(TICK)
   expect(hauler.serve).toEqual([])
 })
+
+test('маршрут снимает прежние приказы: назначение, обеспечение и дроп', () => {
+  const { sim, buildings: [from, to], truck } = base(['metalYard', 'metalYard'])
+  const hauler = sim.world.get(truck, Hauler)!
+  sim.send(1, { type: 'serve', units: [truck], buildings: [to] })
+  sim.advance(TICK)
+  expect(hauler.serve).toEqual([to])
+  Object.assign(hauler, { supply: to, pickup: from })
+  sim.send(1, { type: 'route', units: [truck], stops: [from, to] })
+  sim.advance(TICK)
+  expect(hauler).toMatchObject({ route: [from, to], serve: [], supply: -1, pickup: -1 })
+})

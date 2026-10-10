@@ -40,8 +40,8 @@ function pickFor(sim: Sim, player: number, filter: readonly Good[], from: Entity
 
 /**
  * Даёт грузовикам игрока маршрут: здания-остановки по кругу. Остановки — свои готовые здания со складом, подряд
- * одинаковые склеиваются; меньше двух — маршрут снимается. Грузовик бросает прежнюю работу и шахту; груз в кузове
- * повезёт по маршруту. Не грузовики, харвестеры и чужие из списка выбрасываются.
+ * одинаковые склеиваются; меньше двух — маршрут снимается. Грузовик бросает прежнюю работу, шахту, дроп, назначение
+ * и обеспечение; груз в кузове повезёт по маршруту. Не грузовики, харвестеры и чужие из списка выбрасываются.
  */
 export function setRoute(sim: Sim, player: number, units: Entity[], stops: Entity[]) {
   const { world } = sim
@@ -54,7 +54,9 @@ export function setRoute(sim: Sim, player: number, units: Entity[], stops: Entit
   const trucks = [...new Set(units)].filter((entity) => world.has(entity, Hauler) && world.has(entity, Unit) && !world.has(entity, Harvester) && isOwn(sim, player, entity))
   for (const truck of trucks) {
     const hauler = world.get(truck, Hauler)!
-    hauler.mine = hauler.from = hauler.to = NONE
+    // Прежние приказы снимаются, как в releaseHauler: иначе, когда маршрут кончится, грузовик вернётся к ним.
+    hauler.mine = hauler.pickup = hauler.supply = hauler.from = hauler.to = NONE
+    hauler.serve = []
     hauler.amount = 0
     hauler.full = hauler.loading = hauler.waiting = false
     hauler.route = route.length > 1 ? [...route] : []
