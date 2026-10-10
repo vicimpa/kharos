@@ -93,8 +93,9 @@ export const Site = component('Site', { type: 'generator' as BuildingType, progr
 /**
  * Ремонтник едет к работе site — стройке, разбору или тому, что надо починить, — чтобы она оказалась в его радиусе.
  * ordered — работу дал игрок, а не взял сам свободный строитель рядом: новую стройку из меню такой ставит в очередь.
+ * misses — сколько раз подряд он не нашёл, как подъехать к работе: каждый промах вдвое реже следующая попытка.
  */
-export const Builds = component('Builds', { site: 0, ordered: true })
+export const Builds = component('Builds', { site: 0, ordered: true, misses: 0 })
 
 /**
  * Месторождение, из которого уже добывали: mined — сколько из него забрано. Место — левый верхний тайл месторождения.
@@ -160,13 +161,14 @@ export const Inventory = component('Inventory', () => ({ items: {} as Amounts, c
  */
 /**
  * Харвестер: копает руду из месторождения в кузов и возит её на переработку (доставку ведёт Hauler).
- * x, y — левый верхний тайл месторождения, где он копает; -1 — ещё не выбрано: тогда он ищет его сам.
+ * x, y — левый верхний тайл месторождения, где он копает; picked — выбрано ли оно: нет — он ищет его сам.
+ * Выбранность — отдельным полем, а не значением координат: у карты есть и отрицательные тайлы.
  * ordered — месторождение назначил игрок. seek — что искать: вид месторождения, any — любое, пусто — ничего.
  * Ищет он честно: среди разведанных игроком, а не найдя — разведывает сам. Выработается — ищет того же вида.
  * parked — стоит и ждёт команды: новый харвестер, уведённый приказом идти или не нашедший ничего.
  */
-/** scoutX, scoutY — откуда начат поиск: разведка идёт кольцами вокруг этой точки; -1 — поиск не начат. */
-export const Harvester = component('Harvester', { x: -1, y: -1, ordered: false, parked: true, seek: '' as DepositKind | 'any' | '', scoutX: -1, scoutY: -1 })
+/** scoutX, scoutY — откуда начат поиск: разведка идёт кольцами вокруг этой точки; scouting — поиск начат. */
+export const Harvester = component('Harvester', { x: -1, y: -1, picked: false, ordered: false, parked: true, seek: '' as DepositKind | 'any' | '', scoutX: -1, scoutY: -1, scouting: false })
 
 export const Beam = component('Beam', () => ({ radius: 2, rate: 10, give: true, take: true, links: [] as { target: number; pulling: boolean; resource: Good }[] }))
 
@@ -198,7 +200,7 @@ export const Armed = component('Armed', { target: -1, chase: false, cooldown: 0,
  * в (toX, toY); пуля и ракета следят за целью target, ядро падает туда, где цель была при выстреле. Лазер и разряд
  * бьют сразу, и сущность — только след от них: линия из from в to. age — сколько тиков выстрел живёт, life — сколько
  * ему отпущено. player и source — чей выстрел и кто стрелял. blocked — выстрел остановила стена: бьёт он по ней,
- * а всё, что за стеной, укрыто.
+ * а всё, что за стеной, укрыто. air — выпущен по летающему: и долетев после его гибели, он не рвётся на земле.
  */
 export const Shot = component('Shot', {
   weapon: 'rifle' as WeaponType,
@@ -214,6 +216,7 @@ export const Shot = component('Shot', {
   age: 0,
   life: 0,
   blocked: false,
+  air: false,
 })
 
 /** Взрыв: только картинка, урон уже нанесён. size — радиус в тайлах; age и life — как у выстрела. */

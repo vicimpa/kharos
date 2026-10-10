@@ -9,7 +9,7 @@ import { isBuildable, terrainAt } from '../src/map/terrain'
 import { Path } from '../src/sim/components'
 import { placeBuilding } from '../src/sim/buildings'
 import { addCredits } from '../src/sim/economy'
-import { spawnUnit } from '../src/sim/units'
+import { notWalledIn, spawnUnit } from '../src/sim/units'
 import { throughJson } from './throughJson'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024, rules: { techTree: false } }
@@ -550,4 +550,21 @@ test('ищущий руду харвестер разведывает скалу
   }
   expect(goals.length).toBeGreaterThan(0)
   for (const goal of goals) expect(isBuildable(terrainAt(sim.land, goal.x, goal.y))).toBe(true)
+})
+
+test('харвестер в западной половине карты разведывает вокруг одного центра, а не сбрасывает его', () => {
+  const { sim } = start()
+  // Скала с отрицательной x: там координаты разведки меньше нуля.
+  let at: { x: number; y: number } | undefined
+  for (let y = -40; y < 40 && !at; y += 4) for (let x = -200; x < -100 && !at; x += 4) if (notWalledIn(sim, x, y) && isBuildable(terrainAt(sim.land, x, y))) at = { x, y }
+  const harvester = spawnUnit(sim, 'harvester', 1, at!.x, at!.y)
+  sim.send(1, { type: 'seek', units: [harvester], kind: DEPOSIT_TYPES[DEPOSIT_TYPES.length - 1] })
+  const centers = new Set<string>()
+  for (let i = 0; i < 60 * 20; i++) {
+    sim.advance(TICK)
+    const { scoutX, scoutY, picked } = sim.world.get(harvester, Harvester)!
+    if (!picked && (scoutX !== -1 || scoutY !== -1)) centers.add(`${scoutX},${scoutY}`)
+  }
+  expect(centers.size).toBeGreaterThan(0)
+  expect(centers.size).toBeLessThanOrEqual(2)
 })

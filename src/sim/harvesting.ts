@@ -1,4 +1,4 @@
-import type { Entity } from '../ecs'
+import type { Entity, WorldSnapshot } from '../ecs'
 import { isBuildable, terrainAt, tileKey } from '../map/terrain'
 import { buildingSpec, isReady, siteAt } from './buildings'
 import { NONE, isOwn, onTurn } from './common'
@@ -140,6 +140,19 @@ function rockAround(sim: Sim, x: number, y: number) {
   return tiles
 }
 
+/**
+ * В сохранениях до полей picked и scouting выбранность значилась координатой: x = -1 — месторождение не выбрано,
+ * scoutX < 0 — поиск не начат. Харвестерам из такого снимка поля ставятся по старым координатам.
+ */
+export function adoptLegacyHarvesters(sim: Sim, snapshot: WorldSnapshot) {
+  for (const [id, data] of snapshot.entities) {
+    const old = data[Harvester.key] as { x: number; scoutX?: number; picked?: boolean } | undefined
+    const harvester = sim.world.get(id as Entity, Harvester)
+    if (!old || old.picked !== undefined || !harvester) continue
+    Object.assign(harvester, { picked: old.x !== NONE, scouting: (old.scoutX ?? NONE) >= 0 })
+  }
+}
+
 /** Велит своим харвестерам искать месторождение вида kind или любое: они найдут известное или разведают. */
 export function orderSeek(sim: Sim, player: number, units: Entity[], kind: DepositKind | 'any') {
   if (kind !== 'any' && !DEPOSIT_TYPES.includes(kind)) return false
@@ -147,7 +160,7 @@ export function orderSeek(sim: Sim, player: number, units: Entity[], kind: Depos
   for (const entity of new Set(units)) {
     const harvester = sim.world.get(entity, Harvester)
     if (!harvester || !isOwn(sim, player, entity)) continue
-    Object.assign(harvester, { x: NONE, y: NONE, ordered: false, parked: false, seek: kind, scoutX: NONE, scoutY: NONE })
+    Object.assign(harvester, { x: NONE, y: NONE, picked: false, ordered: false, parked: false, seek: kind, scouting: false })
     sim.world.remove(entity, Path)
     ordered = true
   }
@@ -166,7 +179,7 @@ export function orderHarvest(sim: Sim, player: number, units: Entity[], x: numbe
     const harvester = world.get(entity, Harvester)
     if (!harvester || !isOwn(sim, player, entity)) continue
     // Выработает — будет искать того же вида.
-    Object.assign(harvester, { x: spot.x, y: spot.y, ordered: true, parked: false, seek: spot.kind })
+    Object.assign(harvester, { x: spot.x, y: spot.y, picked: true, ordered: true, parked: false, seek: spot.kind })
     world.remove(entity, Path)
     ordered = true
   }
@@ -192,7 +205,9 @@ export function harvest(sim: Sim) {
     const retry = onTurn(time, entity, RETRY_TICKS)
     // Уведённый приказом идти стоит, пока игрок не даст новую команду.
     if (harvester.parked) continue
-    let spot = harvester.x === NONE ? null : depositAt(sim, harvester.x, harvester.y)
+    let spot = harvester.picked ? depositAt(sim, harvester.x, harvester.y) : null
+    /** Месторождение найдено в этот тик: прежний путь снят, хоть его снятие и отложено до конца обхода. */
+    let found = false
     // Выработано или на нём поставили шахту — искать другое того же вида.
     const spent = spot && (reserveLeft(sim, spot.x, spot.y) <= 0 || hasMine(sim, spot)) ? spot : null
     if (spent) spot = null
@@ -204,18 +219,17 @@ export function harvest(sim: Sim) {
       }
       if (!retry) continue
       if (!harvester.seek) {
-        Object.assign(harvester, { x: NONE, y: NONE, ordered: false, parked: true })
+        Object.assign(harvester, { x: NONE, y: NONE, picked: false, ordered: false, parked: true })
         continue
       }
       if (!refined.has(owner.player)) refined.set(owner.player, refinedBy(sim, owner.player))
       const kind = harvester.seek === 'any' ? undefined : harvester.seek
       spot = nearestDeposit(sim, owner.player, position.x, position.y, refined.get(owner.player)!, kind) ?? null
       if (!spot) {
-        harvester.x = harvester.y = NONE
+        Object.assign(harvester, { x: NONE, y: NONE, picked: false })
         // Разведка — вокруг места, где начат поиск, а не вокруг себя: иначе ближайшее неразведанное всё время
         // впереди, и харвестер уезжает по прямой на край карты.
-        // Проверка «не ≥ 0» — и для старых сохранений, где поля нет.
-        if (!(harvester.scoutX >= 0)) Object.assign(harvester, { scoutX: position.x, scoutY: position.y })
+        if (!harvester.scouting) Object.assign(harvester, { scoutX: position.x, scoutY: position.y, scouting: true })
         // Известного нет — разведывает; едущего не дёргают, пока не доедет.
         if (world.has(entity, Path)) continue
         const target = scoutTarget(sim, owner.player, entity, harvester.scoutX, harvester.scoutY)
@@ -224,17 +238,19 @@ export function harvest(sim: Sim) {
         else Object.assign(harvester, { ordered: false, parked: true })
         continue
       }
-      // Нашёл, пока ехал на разведку: разворачивается к месторождению.
+      // Нашёл, пока ехал на разведку: разворачивается к месторождению сразу.
       world.remove(entity, Path)
-      Object.assign(harvester, { x: spot.x, y: spot.y, ordered: false, scoutX: NONE, scoutY: NONE })
+      Object.assign(harvester, { x: spot.x, y: spot.y, picked: true, ordered: false, scouting: false })
+      found = true
     }
+    const moving = world.has(entity, Path) && !found
     const center = centerOf(spot)
     if (Math.hypot(center.x - position.x, center.y - position.y) > HARVEST_REACH) {
       // Едет — пусть едет; не доехал — через RETRY_TICKS путь прокладывается заново.
-      if (!world.has(entity, Path) && retry) moves.push({ entity, ...center, near: APPROACH })
+      if (!moving && retry) moves.push({ entity, ...center, near: APPROACH })
       continue
     }
-    if (world.has(entity, Path)) continue
+    if (moving) continue
     const ore = ORE_OF[spot.kind]
     const rate = unitSpec(unit.type).harvest ?? 0
     // Кузов харвестера держит одну руду: сменилось месторождение — старое сначала уедет на переработку.

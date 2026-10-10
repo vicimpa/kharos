@@ -609,3 +609,15 @@ test('бесплатная починка идёт и без кредитов', 
   expect(sim.world.get(tank, Health)!.value).toBeGreaterThan(0.5)
   expect(activeRepairs(sim).map((link) => link.from)).toEqual([builder])
 })
+
+test('снаряд, долетевший до уже сбитого летающего, не рвётся на земле', () => {
+  const { sim, x, y } = field()
+  const drone = spawnUnit(sim, 'drone', 2, x, y)
+  sim.send(2, { type: 'stance', units: [drone], stance: 'passive' })
+  spawnUnit(sim, 'rocketeer', 1, x + 4, y)
+  untilShot(sim)
+  sim.world.destroy(drone)
+  seconds(sim, 2)
+  expect(sim.world.count(Shot)).toBe(0)
+  expect(sim.traces.all().filter((trace) => trace.kind === 'scar')).toEqual([])
+})

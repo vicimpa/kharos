@@ -14,6 +14,7 @@ import type { Good } from './resources'
 import type { Sim } from './sim'
 import { followCarriers } from './turrets'
 import { UNITS, flies, isWalkable, spawnUnit, type UnitType } from './units'
+import { resetZones } from './zones'
 
 /**
  * Редактор сохранений — режим бога. Симуляция в нём стоит: тиков нет, мир правится напрямую, и в сохранение ложится
@@ -230,6 +231,8 @@ export function setOwner(sim: Sim, entity: Entity, player: number) {
   for (const target of [entity, ...((world.get(entity, Carrier)?.turrets ?? []) as Entity[])]) {
     if (world.has(target, Owner)) world.set(target, Owner, { player })
   }
+  // Кэш сетей следит только за появлением и исчезновением зданий: здание сменило хозяина — сети пересчитываются.
+  if (world.has(entity, Building)) resetZones(sim)
 }
 
 /** Прочность — доля от полной, от 1% до 100%. */
@@ -382,6 +385,8 @@ export function moveGroup(sim: Sim, entities: Iterable<Entity>, dx: number, dy: 
   const moving = deposits.map((spot) => ({ ...spot, left: reserveLeft(sim, spot.x, spot.y) }))
   for (const spot of moving) removeDeposit(sim, spot)
   for (const spot of moving) putDeposit(sim, spot.x + dx, spot.y + dy, spot.kind, spot.left, deposits)
+  // Здания переехали, а кэш сетей следит только за их появлением и исчезновением.
+  if (buildings.length) resetZones(sim)
   settle(sim)
   return moving.map((spot) => depositAt(sim, spot.x + dx, spot.y + dy)!)
 }
@@ -442,7 +447,7 @@ export function clearTasks(sim: Sim, entity: Entity) {
   world.remove(entity, Path)
   world.remove(entity, Builds)
   const harvester = world.get(entity, Harvester)
-  if (harvester) Object.assign(harvester, { x: NONE, y: NONE, ordered: false, parked: true, seek: '' })
+  if (harvester) Object.assign(harvester, { x: NONE, y: NONE, picked: false, ordered: false, parked: true, seek: '' })
   releaseHauler(sim, entity)
   stopAttack(sim, entity)
   clearTactics(sim, entity)

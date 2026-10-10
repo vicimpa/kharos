@@ -620,7 +620,7 @@ function tasksOf(sim: Sim, entity: Entity): string[] {
   const armed = world.get(entity, Armed)
   if (armed && armed.target >= 0 && world.alive(armed.target as Entity)) tasks.push(`Атакует: ${nameOf(armed.target)}`)
   const harvester = world.get(entity, Harvester)
-  if (harvester && harvester.x >= 0) tasks.push(`Копает месторождение ${harvester.x}, ${harvester.y}`)
+  if (harvester?.picked) tasks.push(`Копает месторождение ${harvester.x}, ${harvester.y}`)
   else if (harvester?.seek) tasks.push(`Ищет месторождение: ${harvester.seek === 'any' ? 'любое' : RESOURCE_NAMES[harvester.seek]}`)
   const hauler = world.get(entity, Hauler)
   if (hauler && !harvester) {

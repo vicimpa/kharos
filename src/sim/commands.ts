@@ -20,7 +20,7 @@ import { clearTactics, orderPatrol, setStance, type Stance } from './tactics'
 import type { Good, Resource } from './resources'
 import type { Sim } from './sim'
 import { buy, closeSale, sell } from './trade'
-import { orderGroupMove, type UnitType } from './units'
+import { inBounds, orderGroupMove, type UnitType } from './units'
 
 /**
  * Команда — единственный способ игрока повлиять на мир. Клиент не правит сущности сам, а посылает команду;
@@ -102,6 +102,8 @@ export type Command = (
 }
 
 const isTile = (x: unknown, y: unknown) => Number.isInteger(x) && Number.isInteger(y)
+/** Тайл внутри карты: координаты из команды — целые и в её границах. */
+const isMapTile = (sim: Sim, x: unknown, y: unknown) => isTile(x, y) && inBounds(sim, x as number, y as number)
 
 /**
  * Приказы с целью по номеру сущности — только изнутри симуляции: в них превращается приказ точкой, и они же лежат
@@ -121,25 +123,31 @@ export const fromClient = (command: Command) => !INTERNAL.has(command.type)
  */
 export function apply(sim: Sim, player: number, command: Command): boolean {
   try {
-    return run(sim, player, command)
+    return accept(sim, player, command)
   } catch {
     return false
   }
 }
 
-function run(sim: Sim, player: number, command: Command): boolean {
+/** Приказ точкой превращает в приказы с целью, приказ с Shift ставит в очередь, остальное выполняет сразу. */
+function accept(sim: Sim, player: number, command: Command): boolean {
   if (command.type === 'order') {
     if (!Array.isArray(command.units) || !Number.isFinite(command.x) || !Number.isFinite(command.y)) return false
     const units = [...new Set(command.units as Entity[])].filter((entity) => sim.world.has(entity, Unit) && isOwn(sim, player, entity))
     if (!units.length) return false
     let done = false
-    for (const resolved of resolveOrder(sim, player, units, command)) done = run(sim, player, { ...resolved, queue: !!command.queue }) || done
+    for (const resolved of resolveOrder(sim, player, units, command)) done = accept(sim, player, { ...resolved, queue: !!command.queue }) || done
     return done
   }
   if (command.queue) return queueOrder(sim, player, command)
-  // Приказ без Shift забывает очередь; стойка и фильтр груза — не приказы, а настройки. Стройка из меню очередь
-  // не трогает: занятым строителям она сама встаёт в конец.
-  if (command.type !== 'stance' && command.type !== 'filter' && command.type !== 'build') clearOrders(sim, unitsOf(command).filter((entity) => isOwn(sim, player, entity)))
+  const done = run(sim, player, command)
+  // Принятый приказ без Shift забывает очередь; негодный её не трогает. Стойка и фильтр груза — не приказы, а настройки.
+  // Стройка из меню очередь не трогает: занятым строителям она сама встаёт в конец.
+  if (done && command.type !== 'stance' && command.type !== 'filter' && command.type !== 'build') clearOrders(sim, unitsOf(command).filter((entity) => isOwn(sim, player, entity)))
+  return done
+}
+
+function run(sim: Sim, player: number, command: Command): boolean {
   switch (command.type) {
     case 'move': {
       if (!isTile(command.x, command.y) || !Array.isArray(command.units)) return false
@@ -153,7 +161,7 @@ function run(sim: Sim, player: number, command: Command): boolean {
       for (const entity of units) {
         sim.world.remove(entity, Builds)
         const harvester = sim.world.get(entity, Harvester)
-        if (harvester) Object.assign(harvester, { x: NONE, y: NONE, ordered: false, parked: true, seek: '' })
+        if (harvester) Object.assign(harvester, { x: NONE, y: NONE, picked: false, ordered: false, parked: true, seek: '' })
         releaseHauler(sim, entity)
         stopAttack(sim, entity)
         clearTactics(sim, entity)
@@ -184,8 +192,9 @@ function run(sim: Sim, player: number, command: Command): boolean {
     case 'supply':
       return Array.isArray(command.units) && assignSupply(sim, player, command.target as Entity, command.units as Entity[])
     case 'harvest': {
-      if (!Array.isArray(command.units) || typeof command.x !== 'number' || typeof command.y !== 'number') return false
-      return orderHarvest(sim, player, command.units as Entity[], Math.floor(command.x), Math.floor(command.y))
+      // Слой месторождений заводит клетку на каждый запрошенный тайл: чужие координаты туда не пускаются.
+      if (!Array.isArray(command.units) || !isMapTile(sim, command.x, command.y)) return false
+      return orderHarvest(sim, player, command.units as Entity[], command.x, command.y)
     }
     case 'seek': {
       if (!Array.isArray(command.units)) return false
@@ -234,7 +243,7 @@ function run(sim: Sim, player: number, command: Command): boolean {
     case 'rally': {
       const building = command.building as Entity
       const producer = sim.world.get(building, Producer)
-      if (!isTile(command.x, command.y) || !producer || !sim.world.has(building, Building) || !isOwn(sim, player, building)) return false
+      if (!isMapTile(sim, command.x, command.y) || !producer || !sim.world.has(building, Building) || !isOwn(sim, player, building)) return false
       producer.rally = [command.x, command.y]
       return true
     }

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Terrain, terrainAt } from '../src/map/terrain'
-import { Assembly, Batch, Inventory, Site, createSim, type Sim } from '../src/sim'
+import { Assembly, BUILDINGS, Batch, Inventory, Site, createSim, type Sim } from '../src/sim'
 import { placeBuilding, siteAt } from '../src/sim/buildings'
 import { amountOf, put } from '../src/sim/inventory'
 import { powerSupply } from '../src/sim/income'
@@ -280,4 +280,26 @@ test('здание со складом без трубы — не подключ
   expect(unlinked(sim, 2, yard)).toBe(false)
   lay(sim, x, y + 2, 10)
   expect(unlinked(sim, 1, yard)).toBe(false)
+})
+
+test('протяжка через стоящую трубу пропускает её тайл и тянется дальше; кончились кредиты — обрывается', () => {
+  const pipeSites = (sim: Sim) => {
+    let count = 0
+    for (const [, site] of sim.world.query(Site)) if (site.type === 'pipe') count++
+    return count
+  }
+  const stroke = (credits: number) => {
+    const sim = createSim(options)
+    const { x, y } = rock(sim, 20, 2)
+    placeBuilding(sim.world, 'pipe', x + 4, y, 1)
+    addCredits(sim, 1, credits)
+    const tiles: number[] = []
+    for (let tx = x; tx < x + 15; tx++) tiles.push(tx, y)
+    expect(pipeStroke(sim, 1, tiles).filter(Boolean).length).toBe(14)
+    sim.send(1, { type: 'pipes', tiles, builders: [] })
+    run(sim, 1)
+    return pipeSites(sim)
+  }
+  expect(stroke(1000)).toBe(14)
+  expect(stroke(BUILDINGS.pipe.cost * 6)).toBe(6)
 })

@@ -3,7 +3,7 @@ import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { isBuildable, terrainAt } from '../src/map/terrain'
 import { Owner, Path, Position, UNITS, Unit, canPlace, createSim, isWalkable, spawnStartingUnits, type Sim, type UnitType } from '../src/sim'
-import { findPath, isClear, smoothPath } from '../src/sim/path'
+import { SEARCH_LIMIT, findPath, isClear, searchedTiles, smoothPath } from '../src/sim/path'
 import { orderMove, spawnUnit } from '../src/sim/units'
 import { placeBuilding } from '../src/sim/buildings'
 import { throughJson } from './throughJson'
@@ -358,4 +358,40 @@ test('юниты, едущие через одну точку навстречу
     for (let tick = 0; tick < 20 * 100 && units.some((unit) => sim.world.has(unit, Path)); tick++) sim.advance(1 / 20)
     expect(units.filter((unit) => sim.world.has(unit, Path))).toEqual([])
   }
+})
+
+/** Ровная скала size×size: левый верхний тайл. */
+function plateau(sim: Sim, size: number) {
+  for (let y = -200; y < 200; y++) {
+    for (let x = -200; x < 200; x++) {
+      let ok = true
+      for (let ty = y; ty < y + size && ok; ty++) for (let tx = x; tx < x + size && ok; tx++) ok = isWalkable(sim, tx, ty) && isBuildable(terrainAt(sim.land, tx, ty))
+      if (ok) return { x, y }
+    }
+  }
+  throw new Error('Нет скалы')
+}
+
+test('к цели на здании юнит идёт на ближайший к ней тайл, а не ищет путь в неё', () => {
+  const sim = createSim(options)
+  const { x, y } = plateau(sim, 20)
+  placeBuilding(sim.world, 'generator', x + 12, y + 8, 1)
+  const unit = spawnUnit(sim, 'infantry', 1, x + 1, y + 9)
+  const before = searchedTiles()
+  orderMove(sim, unit, x + 13, y + 9)
+  expect(searchedTiles() - before).toBeLessThan(500)
+  const path = sim.world.get(unit, Path)!
+  expect(isWalkable(sim, path.goalX, path.goalY, true)).toBe(true)
+  expect(Math.max(Math.abs(path.goalX - x - 13), Math.abs(path.goalY - y - 9))).toBe(1)
+})
+
+test('цель в замкнутом кармане не ищется долгим поиском', () => {
+  const sim = createSim(options)
+  const { x, y } = plateau(sim, 20)
+  // Кольцо стен вокруг тайла (x + 15, y + 10).
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (dx || dy) placeBuilding(sim.world, 'wall', x + 15 + dx, y + 10 + dy, 2)
+  const unit = spawnUnit(sim, 'infantry', 1, x + 1, y + 10)
+  const before = searchedTiles()
+  orderMove(sim, unit, x + 15, y + 10)
+  expect(searchedTiles() - before).toBeLessThan(SEARCH_LIMIT * 2)
 })

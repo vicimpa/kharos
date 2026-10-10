@@ -211,7 +211,9 @@ export function orderPipes(sim: Sim, player: number, tiles: readonly number[], b
   let first: Entity | undefined
   let count = 0
   for (let i = 0; i < allowed.length; i++) {
-    if (!allowed[i] || !pay(sim, player, BUILDINGS.pipe.cost)) break
+    // Негодный тайл пропускается, как в предпросмотре; кончились кредиты — цепочка дальше не тянется.
+    if (!allowed[i]) continue
+    if (!pay(sim, player, BUILDINGS.pipe.cost)) break
     const site = sim.world.spawn(Position({ x: tiles[i * 2], y: tiles[i * 2 + 1] }), Site({ type: 'pipe' }), Owner({ player }))
     first ??= site
     count++

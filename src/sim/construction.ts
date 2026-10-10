@@ -19,6 +19,8 @@ import { UNITS, clearGround, isWalkable, orderMove, standingUnits, unitsIn } fro
 export const WORK_RADIUS = 10
 /** Раз во сколько тиков юнит, не дошедший до здания, пробует подъехать снова. */
 export const RETRY_TICKS = 20
+/** Самая долгая отсрочка подъезда строителя после промахов — в RETRY_TICKS: 2^5, около полуминуты. */
+const MAX_BACKOFF = 5
 
 /** Сколько тиков работы одного строителя нужно на то, что стоит cost кредитов. */
 const workTicks = (cost: number, step: number) => Math.round(cost / BUILD_RATE / step)
@@ -148,13 +150,15 @@ const APPROACH_MARGIN = 0.5
  * Подводит ремонтника к работе ровно настолько, чтобы она попала в его радиус: на ближайший к нему свободный тайл,
  * откуда он до неё дотягивается. Вплотную ему не нужно. Если уже дотягивается — остаётся где стоит.
  * claimed — тайлы, уже розданные другим этим же приказом: иначе все поехали бы в один и толкались бы там.
+ * Возвращает, доведёт ли его путь до работы: false — к ней не подъехать.
  */
 function approach(sim: Sim, builder: Entity, site: Entity, claimed = new Set<number>()) {
   const { world } = sim
   const position = world.get(builder, Position)!
   const repair = world.get(builder, Repair)
   const work = workAt(sim, site)
-  if (!work || !repair || distanceTo(work, position.x, position.y) <= repair.radius) return
+  if (!work || !repair) return false
+  if (distanceTo(work, position.x, position.y) <= repair.radius) return true
   const reach = Math.max(0, repair.radius - APPROACH_MARGIN)
   const taken = standingUnits(sim, new Set([builder]), UNITS[world.get(builder, Unit)!.type].radius)
   const span = Math.ceil(reach + work.radius)
@@ -175,9 +179,11 @@ function approach(sim: Sim, builder: Entity, site: Entity, claimed = new Set<num
       bestDistance = distance
     }
   }
-  if (!best) return
+  if (!best) return false
   claimed.add(tileKey(best.x, best.y))
   orderMove(sim, builder, best.x, best.y)
+  const points = world.get(builder, Path)?.points
+  return !!points?.length && distanceTo(work, points[points.length - 2], points[points.length - 1]) <= repair.radius
 }
 
 /** Стоят ли на основании ещё не начатой площадки юниты: пока они там, стройка не начнётся. */
@@ -216,7 +222,7 @@ export function assignBuilders(sim: Sim, player: number, site: Entity, units: En
   })
   const claimed = new Set<number>()
   for (const builder of builders) {
-    world.add(builder, Builds({ site, ordered }))
+    world.add(builder, Builds({ site, ordered, misses: 0 }))
     approach(sim, builder, site, claimed)
   }
   return builders.length > 0
@@ -554,13 +560,17 @@ export function construct(sim: Sim) {
     if (world.has(entity, Path)) continue
     const distance = distanceTo(work, position.x, position.y)
     if (distance > repair.radius) {
-      // Не доехал или его оттеснили. Пробует снова не каждый тик: поиск пути недёшев.
-      if (onTurn(time, entity, RETRY_TICKS)) late.push({ builder: entity, site })
+      // Не доехал или его оттеснили. Пробует снова не каждый тик: поиск пути недёшев; к работе, к которой не подъехать,
+      // — всё реже, как грузовик к недоступному зданию (см. seekDue).
+      if (onTurn(time, entity, RETRY_TICKS << Math.min(builds.misses, MAX_BACKOFF))) late.push({ builder: entity, site })
     }
   }
 
   for (const entity of free) world.remove(entity, Builds)
-  for (const { builder, site } of late) approach(sim, builder, site)
+  for (const { builder, site } of late) {
+    const builds = world.get(builder, Builds)!
+    builds.misses = approach(sim, builder, site) ? 0 : builds.misses + 1
+  }
   volunteer(sim)
 
   const workers = workDone(sim)

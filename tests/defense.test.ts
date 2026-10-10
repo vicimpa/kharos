@@ -293,3 +293,23 @@ test('турель здания стоит выше стены и бьёт по�
   expect(sim.world.get(behind, Health)!.value).toBe(1)
   expect(sim.world.get(wall, Health)!.value).toBeLessThan(1)
 })
+
+test('чужая стена летающих не укрывает: зенитка бьёт дрон за ней, дрон — пехоту за ней', () => {
+  const sim = createSim(options)
+  const flak = spawnUnit(sim, 'flak', 1, 0, 0)
+  const wall = placeBuilding(sim.world, 'wall', 3, 0, 2)
+  const drone = spawnUnit(sim, 'drone', 2, 6, 0)
+  sim.send(2, { type: 'stance', units: [drone], stance: 'hold' })
+  seconds(sim, 2)
+  expect(sim.world.alive(drone) ? sim.world.get(drone, Health)!.value : 0).toBeLessThan(1)
+  expect(sim.world.get(wall, Health)!.value).toBe(1)
+
+  const other = createSim(options)
+  const gun = spawnUnit(other, 'drone', 1, 0, 0)
+  const otherWall = placeBuilding(other.world, 'wall', 2, 0, 2)
+  const foe = spawnUnit(other, 'builder', 2, 4, 0)
+  other.send(1, { type: 'attack', units: [gun], target: foe })
+  seconds(other, 2)
+  expect(other.world.get(foe, Health)!.value).toBeLessThan(1)
+  expect(other.world.get(otherWall, Health)!.value).toBe(1)
+})

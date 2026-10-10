@@ -11,6 +11,9 @@ const QUEUED = new Set<Command['type']>(['move', 'attack', 'assist', 'build', 'h
 
 export const canQueue = (command: Command) => QUEUED.has(command.type)
 
+/** Сколько приказов может ждать в очереди юнита: дальше новые не встают. */
+export const ORDERS_LIMIT = 32
+
 /** Юниты, которым адресован приказ: units, а у стройки — builders. */
 export function unitsOf(command: Command): Entity[] {
   const units = 'units' in command ? command.units : 'builders' in command ? command.builders : null
@@ -40,7 +43,10 @@ const nextGroup = (sim: Sim) => {
 export function queueOrder(sim: Sim, player: number, command: Command) {
   if (!canQueue(command)) return false
   const { world } = sim
-  const units = [...new Set(unitsOf(command))].filter((entity) => world.has(entity, Unit) && isOwn(sim, player, entity))
+  const full = (entity: Entity) => (world.get(entity, Orders)?.list.length ?? 0) >= ORDERS_LIMIT
+  const units = [...new Set(unitsOf(command))].filter((entity) => world.has(entity, Unit) && isOwn(sim, player, entity) && !full(entity))
+  // Стройку закладывать некому: очереди всех строителей полны.
+  if (command.type === 'build' && !units.length && unitsOf(command).length) return false
   if (command.type === 'build') {
     const site = orderBuild(sim, player, command.building, command.x, command.y, [])
     if (site === undefined) return false
@@ -48,9 +54,12 @@ export function queueOrder(sim: Sim, player: number, command: Command) {
   }
   if (!units.length) return command.type === 'assist'
   const group = nextGroup(sim)
+  // Кому приказ, решает номер группы: юнитов followOrders собирает сам. Список юнитов в каждом приказе каждого юнита
+  // раздувал бы мир квадратом от их числа.
+  const queued = { ...command, units: [], queue: false } as Command
   for (const entity of units) {
     if (!world.has(entity, Orders)) world.add(entity, Orders())
-    world.get(entity, Orders)!.list.push({ group, command: { ...command, units, queue: false } as Command })
+    world.get(entity, Orders)!.list.push({ group, command: { ...queued } })
   }
   return true
 }
@@ -70,7 +79,7 @@ function idle(sim: Sim, entity: Entity) {
   }
   if (world.get(entity, Tactics)?.patrol.length) return false
   const harvester = world.get(entity, Harvester)
-  if (harvester && (harvester.x !== NONE || harvester.seek)) return false
+  if (harvester && (harvester.picked || harvester.seek)) return false
   // Заявки зон грузовик возит и сам, без приказа: их очередь прерывает.
   const hauler = world.get(entity, Hauler)
   if (hauler && (hauler.mine !== NONE || hauler.pickup !== NONE || hauler.supply !== NONE || hauler.route.length || hauler.serve.length)) return false

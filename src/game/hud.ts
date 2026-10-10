@@ -333,7 +333,7 @@ export function readHud(scene: Scene): HudState {
       const first: boolean = !harvest
       harvest ??= { units: [], kind: null, seek: digging.seek || null, parked: true }
       harvest.units.push(entity)
-      if (digging.x >= 0) harvest.kind = depositAt(sim, digging.x, digging.y)?.kind ?? harvest.kind
+      if (digging.picked) harvest.kind = depositAt(sim, digging.x, digging.y)?.kind ?? harvest.kind
       if (!first && harvest.seek !== (digging.seek || null)) harvest.seek = null
       harvest.parked &&= digging.parked
     }

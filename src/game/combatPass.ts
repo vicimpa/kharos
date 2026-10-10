@@ -502,8 +502,7 @@ export function createCombatPasses(gl: WebGL2RenderingContext, scene: Scene): { 
     for (const [entity, harvester, hauler, cargo, position, unit] of world.query(Harvester, Hauler, Inventory, Position, Unit)) {
       const load = loadOf(cargo)
       const state = diggers.get(entity) ?? { load, until: 0 }
-      // Координаты на карте бывают и отрицательными: есть ли месторождение, решает depositAt, а не знак.
-      const spot = hauler.full ? undefined : depositAt(scene.sim, harvester.x, harvester.y)
+      const spot = hauler.full || !harvester.picked ? undefined : depositAt(scene.sim, harvester.x, harvester.y)
       if (load > state.load + 1e-9 && spot) state.until = digClock + DIG_HOLD
       state.load = load
       diggers.set(entity, state)

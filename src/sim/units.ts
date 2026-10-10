@@ -174,9 +174,9 @@ export function isWalkable(sim: Sim, x: number, y: number, foot = false) {
 
 /**
  * Куда техника доедет из тайла (x, y): тайлы заливкой по isWalkable, не больше limit штук; ключи — tileKey.
- * Сам тайл (x, y) в наборе, даже если стоять в нём нельзя (например, под ним здание).
+ * Сам тайл (x, y) в наборе, даже если стоять в нём нельзя (например, под ним здание). foot — куда дойдёт пехота.
  */
-export function vehicleReach(sim: Sim, x: number, y: number, limit: number): Set<number> {
+export function vehicleReach(sim: Sim, x: number, y: number, limit: number, foot = false): Set<number> {
   const reached = new Set([tileKey(x, y)])
   const queue = [x, y]
   for (let at = 0; at < queue.length && reached.size < limit; at += 2) {
@@ -186,7 +186,7 @@ export function vehicleReach(sim: Sim, x: number, y: number, limit: number): Set
       const tileX = fromX + dx
       const tileY = fromY + dy
       const key = tileKey(tileX, tileY)
-      if (reached.has(key) || !isWalkable(sim, tileX, tileY)) continue
+      if (reached.has(key) || !isWalkable(sim, tileX, tileY, foot)) continue
       reached.add(key)
       queue.push(tileX, tileY)
     }
@@ -388,6 +388,38 @@ export function spawnStartingUnits(sim: Sim, player: number, x: number, y: numbe
 
 /** Во сколько раз дольше ищется путь, если обычный поиск не дошёл до цели: см. orderMove. */
 const LONG_SEARCH = 4
+/**
+ * Сколько тайлов заливает проверка кармана перед долгим поиском: цель в замкнутом месте меньше этого, куда юниту
+ * не попасть, долго не ищется — поиск осмотрел бы всё, до чего дотянется, и не дошёл бы.
+ */
+const LONG_POCKET = 1000
+/** На сколько колец от цели, в которую не встать (здание, гора), ищется тайл, куда встать можно. */
+const STAND_RADIUS = 8
+
+/**
+ * Ближайший к (x, y) тайл, где наземный юнит может стоять и где нет стоящих (taken), не дальше STAND_RADIUS колец;
+ * среди равноудалённых — ближний к (fromX, fromY). undefined — такого нет.
+ */
+function nearestStand(sim: Sim, x: number, y: number, fromX: number, fromY: number, foot: boolean, taken: TileSet) {
+  for (let ring = 1; ring <= STAND_RADIUS; ring++) {
+    let best: { x: number; y: number } | undefined
+    let bestOrder = Infinity
+    for (let dy = -ring; dy <= ring; dy++) {
+      for (let dx = -ring; dx <= ring; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue
+        const tileX = x + dx
+        const tileY = y + dy
+        if (!isWalkable(sim, tileX, tileY, foot) || taken.has(tileKey(tileX, tileY))) continue
+        const order = (dx * dx + dy * dy) * 1e6 + (tileX - fromX) ** 2 + (tileY - fromY) ** 2
+        if (order >= bestOrder) continue
+        best = { x: tileX, y: tileY }
+        bestOrder = order
+      }
+    }
+    if (best) return best
+  }
+  return undefined
+}
 
 /**
  * Отправляет юнит в тайл (x, y): прокладывает путь и кладёт его в компонент Path.
@@ -414,12 +446,21 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
   if (air) {
     // Летающему преград нет: он летит к цели по прямой.
     if (!inBounds(sim, x, y)) return void world.remove(entity, Path)
-    world.add(entity, Path({ points: [x + 0.5, y + 0.5], goalX: x, goalY: y, tries, near, direct: false, stuck: false }))
+    world.add(entity, Path({ points: [x + 0.5, y + 0.5], goalX: x, goalY: y, wait: 0, tries, near, direct: false, stuck: false }))
     return
   }
   const fromX = Math.floor(position.x)
   const fromY = Math.floor(position.y)
   const foot = onFoot(type)
+  // В цель не встать — на здании, в горе: юнит идёт на ближайший к ней тайл, куда встать можно. Иначе поиск осмотрел
+  // бы всё, до чего дотянется, так и не дойдя, — и так при каждой перепрокладке.
+  if (!near && !(x === fromX && y === fromY) && !isWalkable(sim, x, y, foot)) {
+    const stand = nearestStand(sim, x, y, fromX, fromY, foot, taken)
+    if (stand) {
+      x = stand.x
+      y = stand.y
+    }
+  }
   // Свой тайл проходим всегда: иначе юнит, вставший вплотную к соседу, не смог бы тронуться.
   const walkable = (tileX: number, tileY: number) => {
     if (tileX === fromX && tileY === fromY) return true
@@ -440,7 +481,12 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
     const dy = path[path.length - 1] - y
     return dx * dx + dy * dy <= near * near
   }
-  if (!near && !reaches(tiles) && !beyondWindow(fromX, fromY, x, y)) {
+  // Долгий поиск — только если цель не в замкнутом кармане, куда отсюда не попасть: туда не дойдёт и он.
+  const open = () => {
+    const pocket = vehicleReach(sim, x, y, LONG_POCKET, foot)
+    return pocket.size >= LONG_POCKET || pocket.has(tileKey(fromX, fromY))
+  }
+  if (!near && !reaches(tiles) && !beyondWindow(fromX, fromY, x, y) && open()) {
     const longer = findPath(walkable, fromX, fromY, x, y, near, (limit ?? SEARCH_LIMIT) * LONG_SEARCH, slowness, fastest)
     if (reaches(longer)) tiles = longer
   }
@@ -454,7 +500,7 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
     tiles.map((value) => value + 0.5),
     slowness,
   )
-  if (points.length) world.add(entity, Path({ points, goalX: x, goalY: y, tries, near, roads: fastest < 1, direct: false, stuck: false }))
+  if (points.length) world.add(entity, Path({ points, goalX: x, goalY: y, wait: 0, tries, near, roads: fastest < 1, direct: false, stuck: false }))
   else world.remove(entity, Path)
 }
 

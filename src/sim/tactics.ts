@@ -3,7 +3,7 @@ import { isOwn, onTurn } from './common'
 import { Armed, Path, Position, Tactics, Unit } from './components'
 import type { Sim } from './sim'
 import { turretsOf } from './turrets'
-import { orderMove } from './units'
+import { inBounds, orderMove } from './units'
 import { weaponOf } from './combat'
 
 /**
@@ -66,7 +66,7 @@ export function setStance(sim: Sim, player: number, units: Entity[], stance: Sta
 export function orderPatrol(sim: Sim, player: number, units: Entity[], points: number[], append = false) {
   const stops: number[] = []
   for (let i = 0; i + 1 < points.length && stops.length < PATROL_LIMIT * 2; i += 2) {
-    if (Number.isInteger(points[i]) && Number.isInteger(points[i + 1])) stops.push(points[i], points[i + 1])
+    if (Number.isInteger(points[i]) && Number.isInteger(points[i + 1]) && inBounds(sim, points[i], points[i + 1])) stops.push(points[i], points[i + 1])
   }
   if (!stops.length) return false
   const fighters = fightersOf(sim, player, units)
@@ -115,7 +115,7 @@ function fighting(sim: Sim, entity: Entity) {
  */
 export function patrol(sim: Sim) {
   const { world, time } = sim
-  const moves: { entity: Entity; x: number; y: number }[] = []
+  const moves: { entity: Entity; x: number; y: number; leg?: boolean }[] = []
   for (const [entity, tactics, position] of world.query(Tactics, Position)) {
     if (world.has(entity, Path) || !onTurn(time, entity, RESUME_TICKS) || fighting(sim, entity)) continue
     if (tactics.patrol.length) {
@@ -124,7 +124,7 @@ export function patrol(sim: Sim) {
       const goalY = tactics.patrol[tactics.leg * 2 + 1]
       // Дошёл до точки — к следующей; встал, не дойдя (после боя), — снова к ней.
       if (Math.floor(position.x) === goalX && Math.floor(position.y) === goalY) tactics.leg = (tactics.leg + 1) % count
-      moves.push({ entity, x: tactics.patrol[tactics.leg * 2], y: tactics.patrol[tactics.leg * 2 + 1] })
+      moves.push({ entity, x: tactics.patrol[tactics.leg * 2], y: tactics.patrol[tactics.leg * 2 + 1], leg: true })
       continue
     }
     if (tactics.away) {
@@ -132,5 +132,11 @@ export function patrol(sim: Sim) {
       if (Math.floor(position.x) !== tactics.homeX || Math.floor(position.y) !== tactics.homeY) moves.push({ entity, x: tactics.homeX, y: tactics.homeY })
     }
   }
-  for (const { entity, x, y } of moves) orderMove(sim, entity, x, y)
+  for (const { entity, x, y, leg } of moves) {
+    orderMove(sim, entity, x, y)
+    // Ближе к точке патруля не подойти (она на здании, за обрывом): точка засчитана, юнит идёт к следующей. Иначе он
+    // искал бы путь к ней каждые RESUME_TICKS.
+    const tactics = world.get(entity, Tactics)
+    if (leg && tactics?.patrol.length && !world.has(entity, Path)) tactics.leg = (tactics.leg + 1) % (tactics.patrol.length / 2)
+  }
 }

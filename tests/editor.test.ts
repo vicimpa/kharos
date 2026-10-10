@@ -4,6 +4,7 @@ import { Attached, Building, Ghost, Path, canFight, Health, Inventory, Owner, Po
 import { addPlayer, brushTiles, playerCamera, setPlayerCamera, clearTasks, depositsInBox, orderNow, setFacing, setTurretFacing, turretFacings, depositUnder, entitiesIn, entityAt, erase, moveDeposit, moveGhost, moveGroup, moveUnit, paint, playersOf, putBuilding, putDeposit, putUnit, removeDeposit, setCredits, setDeposit, setHealth, setOwner, setStock } from '../src/sim/editor'
 import { depositAt, depositIn, depositNear, depositsIn, reserveLeft } from '../src/sim/deposits'
 import { editTile } from '../src/sim/landMemory'
+import { allZones, networkOf } from '../src/sim/zones'
 
 const world = () => {
   const sim = createSim({ generator: DEFAULT_CONFIG, size: 256 })
@@ -247,4 +248,19 @@ test('камера игрока задаётся, переживает сохр�
   expect(playerCamera(reload(sim), player)).toEqual({ x: 12, y: -7, zoom: 24 })
   setPlayerCamera(sim, player, undefined)
   expect(playerCamera(sim, player)).toBeUndefined()
+})
+
+test('сети пересчитываются после смены владельца и переноса здания в редакторе', () => {
+  const sim = world()
+  const first = addPlayer(sim)
+  const second = addPlayer(sim)
+  const generator = putBuilding(sim, 'generator', 0, 0, first)!
+  expect(allZones(sim).get(first)!.some((zone) => zone.buildings.includes(generator))).toBe(true)
+  setOwner(sim, generator, second)
+  expect(allZones(sim).get(first)?.some((zone) => zone.buildings.includes(generator)) ?? false).toBe(false)
+  expect(allZones(sim).get(second)!.some((zone) => zone.buildings.includes(generator))).toBe(true)
+  const before = networkOf(sim, generator)!.circles.slice()
+  expect(moveGroup(sim, [generator], 5, 0)).not.toBeNull()
+  const after = networkOf(sim, generator)!.circles
+  expect(after[0]).toBe(before[0] + 5)
 })

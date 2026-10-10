@@ -4,6 +4,8 @@ import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { Terrain, terrainAt } from '../src/map/terrain'
 import { Armed, Health, Path, Position, Tactics, createSim, type Sim } from '../src/sim'
 import { spawnUnit, type UnitType } from '../src/sim/units'
+import { placeBuilding } from '../src/sim/buildings'
+import { searchedTiles } from '../src/sim/path'
 
 const options = { generator: DEFAULT_SETTINGS.generator, size: 1024 }
 const TICK = 1 / 20
@@ -150,4 +152,35 @@ test('Shift к патрулю: точка добавляется к идущем
   sim.send(1, { type: 'patrol', units: [ours], points: [x + 30, y] })
   sim.advance(TICK)
   expect(sim.world.get(ours, Tactics)!.patrol.slice(2)).toEqual([x + 30, y])
+})
+
+test('«агрессивно» на юните с турелью: приказ идти выполняется, хоть враг и в обзоре', () => {
+  const { sim, x, y } = field()
+  const ours = put(sim, 'buggy', 1, x + 20, y)
+  // Враг в обзоре, но не на выстреле; велено ехать от него.
+  const foe = put(sim, 'infantry', 2, x + 28, y)
+  sim.send(1, { type: 'stance', units: [ours], stance: 'aggressive' })
+  sim.send(2, { type: 'stance', units: [foe], stance: 'passive' })
+  sim.send(1, { type: 'move', units: [ours], x: x + 2, y })
+  seconds(sim, 6)
+  expect(at(sim, ours).x).toBeLessThan(x + 4)
+  expect(hurt(sim, foe)).toBe(false)
+})
+
+test('точка патруля на здании засчитывается, когда ближе не подойти: патруль идёт дальше, путь не ищется без конца', () => {
+  const { sim, x, y } = field()
+  const generator = placeBuilding(sim.world, 'generator', x + 20, y - 1, 1)
+  const units = [0, 1, 2, 3, 4].map((i) => put(sim, 'infantry', 1, x + i, y))
+  sim.send(1, { type: 'patrol', units, points: [x + 21, y] })
+  seconds(sim, 10)
+  const before = searchedTiles()
+  const legs = new Set<number>()
+  for (let i = 0; i < 30 * 20; i++) {
+    sim.advance(1 / 20)
+    legs.add(sim.world.get(units[0], Tactics)!.leg)
+  }
+  expect(sim.world.alive(generator)).toBe(true)
+  // Ходит туда и обратно.
+  expect(legs.size).toBe(2)
+  expect((searchedTiles() - before) / (30 * 20)).toBeLessThan(1000)
 })
