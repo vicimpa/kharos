@@ -103,9 +103,14 @@ const isTile = (x: unknown, y: unknown) => Number.isInteger(x) && Number.isInteg
  */
 export function apply(sim: Sim, player: number, command: Command): boolean {
   if (command.queue) return queueOrder(sim, player, command)
-  // Приказ без Shift забывает очередь; стойка и фильтр груза — не приказы, а настройки. Стройка из меню очередь
-  // не трогает: занятым строителям она сама встаёт в конец.
-  if (command.type !== 'stance' && command.type !== 'filter' && command.type !== 'build') clearOrders(sim, unitsOf(command).filter((entity) => isOwn(sim, player, entity)))
+  const done = run(sim, player, command)
+  // Принятый приказ без Shift забывает очередь; негодный её не трогает. Стойка и фильтр груза — не приказы, а настройки.
+  // Стройка из меню очередь не трогает: занятым строителям она сама встаёт в конец.
+  if (done && command.type !== 'stance' && command.type !== 'filter' && command.type !== 'build') clearOrders(sim, unitsOf(command).filter((entity) => isOwn(sim, player, entity)))
+  return done
+}
+
+function run(sim: Sim, player: number, command: Command): boolean {
   switch (command.type) {
     case 'move': {
       if (!isTile(command.x, command.y) || !Array.isArray(command.units)) return false
@@ -119,7 +124,7 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
       for (const entity of units) {
         sim.world.remove(entity, Builds)
         const harvester = sim.world.get(entity, Harvester)
-        if (harvester) Object.assign(harvester, { x: NONE, y: NONE, ordered: false, parked: true, seek: '' })
+        if (harvester) Object.assign(harvester, { x: NONE, y: NONE, picked: false, ordered: false, parked: true, seek: '' })
         releaseHauler(sim, entity)
         stopAttack(sim, entity)
         clearTactics(sim, entity)
