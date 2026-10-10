@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
-import { BUILDINGS, Health, Producer, UNIT_TYPES, WEAPONS, canPlace, createSim, missingRequirements, unitSpec } from '../src/sim'
+import type { Entity } from '../src/ecs'
+import { BUILDINGS, Health, Path, Position, Producer, UNIT_TYPES, WEAPONS, canPlace, createSim, isWalkable, missingRequirements, unitSpec } from '../src/sim'
 import { TOWER_RANGE, orderAttack } from '../src/sim/combat'
 import { spawnUnit } from '../src/sim/units'
 import { placeBuilding } from '../src/sim/buildings'
@@ -103,4 +104,24 @@ test('огнемётчик выжигает пехоту, и огонь пере
   seconds(sim, 1)
   expect(sim.world.get(first, Health)!.value).toBeLessThan(1)
   expect(sim.world.get(second, Health)!.value).toBeLessThan(1)
+})
+
+test('армия доходит по пересечённой местности вся: никто не бросает цель оттого, что по дороге мешали', () => {
+  const sim = createSim({ generator: DEFAULT_SETTINGS.generator, size: 2048, fog: false })
+  // Место, где до правки вставала четверть армии: у выхода с плато техника упиралась в соседей и в скалу.
+  const start = { x: 300, y: -200 }
+  const goal = { x: 500, y: -200 }
+  for (let y = 0; y < 5; y++) for (let x = 0; x < 8; x++) expect(isWalkable(sim, start.x + x, start.y + y)).toBe(true)
+  const kinds = ['tank', 'tank', 'tank', 'buggy', 'lancer', 'flak', 'artillery', 'infantry', 'rocketeer', 'tank'] as const
+  const units: Entity[] = []
+  for (let i = 0; i < 40; i++) units.push(spawnUnit(sim, kinds[i % kinds.length], 1, start.x + (i % 8), start.y + Math.floor(i / 8)))
+  sim.advance(1 / 20)
+  sim.send(1, { type: 'move', units, x: goal.x, y: goal.y })
+  for (let tick = 0; tick < 20 * 180; tick++) sim.advance(1 / 20)
+  const far = units.filter((unit) => {
+    const position = sim.world.get(unit, Position)!
+    return Math.hypot(position.x - goal.x, position.y - goal.y) > 16
+  })
+  expect(far).toEqual([])
+  expect(units.filter((unit) => sim.world.has(unit, Path))).toEqual([])
 })

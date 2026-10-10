@@ -2,16 +2,21 @@ import type { Entity, Time } from '../ecs'
 import { tileKey } from '../map/terrain'
 import { onTurn, ownerOf, turnToward, wrap } from './common'
 import { Path, Position, Unit } from './components'
-import { SEARCH_LIMIT, searchedTiles, withSearchQuota } from './path'
+import { SEARCH_LIMIT, isClear, searchedTiles, withSearchQuota } from './path'
 import type { Sim } from './sim'
-import { UNITS, canStand, fastestOf, flies, onFoot, orderMove, roadInSight, stepAside, terrainSpeed } from './units'
+import { JAM_TRIES, UNITS, canStand, fastestOf, flies, onFoot, orderMove, roadInSight, stepAside, terrainSpeed } from './units'
 
 /** Сколько тиков юнит ждёт, не в силах сдвинуться, прежде чем проложить путь заново. */
 const WAIT_TICKS = 20
 /** Через сколько тиков ожидания юнит просит своего стоящего соседа уступить дорогу. */
 const YIELD_TICKS = 4
 /** Сколько раз путь к одной точке прокладывается заново, прежде чем юнит сдастся и встанет. */
-const MAX_TRIES = 3
+const MAX_TRIES = JAM_TRIES
+/**
+ * Ближе скольких тайлов к цели юнит, исчерпав попытки, сдаётся и встаёт: у цели тесно, и это значит «приехал».
+ * Дальше он цель не бросает — приказ не отменяется оттого, что по дороге мешали, — а пробует снова раз в WAIT_TICKS.
+ */
+const GIVE_UP_REACH = 4
 /** На сколько тайлов вперёд юнит смотрит, нет ли на пути другого юнита. */
 const LOOK_AHEAD = 0.6
 /** На столько тайлов юнитам можно заходить друг в друга: без допуска они цеплялись бы, проходя вплотную. */
@@ -182,15 +187,19 @@ export function moveUnits(sim: Sim, time: Time) {
   const roadward: { entity: Entity; x: number; y: number; near: number }[] = []
   /** Юнит не может идти дальше: прокладывает путь заново или, если уже пробовал, встаёт. */
   const giveUp = (entity: Entity, path: { goalX: number; goalY: number; tries: number; near: number; wait: number; direct: boolean; stuck: boolean }, walled = true) => {
+    const position = world.get(entity, Position)!
+    const close = Math.hypot(position.x - path.goalX - 0.5, position.y - path.goalY - 0.5) <= path.near + GIVE_UP_REACH
     // Ехал напрямую: упёрся в местность или здание — путь ему проложит planPaths, по очереди с другими упёршимися.
-    // Мешают только юниты — толпа разъедется сама, искать путь незачем.
+    // Мешают только юниты — толпа обычно разъезжается сама, искать путь незачем. Не разъехалась за MAX_TRIES
+    // ожиданий — это затор: передние упёрлись в местность, а задние за ними её не видят и давят дальше. Тогда путь
+    // нужен и ему.
     if (path.direct) {
       path.wait = 0
-      if (walled) path.stuck = true
+      if (walled || ++path.tries >= MAX_TRIES) path.stuck = true
     }
-    else if (path.tries >= MAX_TRIES) stopped.push(entity)
+    else if (path.tries >= MAX_TRIES && close) stopped.push(entity)
     // Сверх нормы — юнит просто ждёт дальше и попробует в следующий тик.
-    else if (lost.length < LOST_SEARCHES) lost.push({ entity, x: path.goalX, y: path.goalY, tries: path.tries + 1, near: path.near })
+    else if (lost.length < LOST_SEARCHES) lost.push({ entity, x: path.goalX, y: path.goalY, tries: Math.min(path.tries + 1, MAX_TRIES), near: path.near })
   }
 
   for (const [entity, position, unit, path] of world.query(Position, Unit, Path)) {
@@ -235,9 +244,13 @@ export function moveUnits(sim: Sim, time: Time) {
     }
     // Промежуточную точку занял тот, кто мешает проехать прямо, а юнит уже рядом: точка пропускается — он едет
     // к следующей. Иначе крутился бы у занятой точки, которую не засчитать, пока на неё не встанешь.
+    // Пропускается, только если следующая видна отсюда по прямой: путь спрямлён от точки к точке, и напрямик мимо
+    // пропущенной может оказаться скала — юнит упёрся бы в неё и, перепрокладывая тот же путь, бросил бы цель.
     if (ahead && points.length > 2 && distance < radius + ahead.radius + SETTLE && Math.hypot(ahead.position.x - points[0], ahead.position.y - points[1]) < radius + ahead.radius) {
-      points.splice(0, 2)
-      continue
+      if (air || isClear((x, y) => canStand(sim, air, x, y, foot), position.x, position.y, points[2], points[3])) {
+        points.splice(0, 2)
+        continue
+      }
     }
     // Последнюю точку занял тот, кто мешает проехать прямо, или он едет к ней же: ближе не подъехать — юнит встаёт,
     // где стоит. Иначе кружил бы вокруг точки, объезжая соседа, хороводом.
@@ -247,7 +260,10 @@ export function moveUnits(sim: Sim, time: Time) {
       const taken = (ahead.moving && ahead.entity < entity) || Math.hypot(ahead.position.x - points[0], ahead.position.y - points[1]) < reach
       // Почти доехал, а прямо мешает сосед: юнит встаёт. Точка внутри круга разворота, и, объезжая, он вертелся бы на месте.
       if ((taken && distance < reach + SETTLE) || distance < radius + NEARLY) {
-        stopped.push(entity)
+        // Путь к далёкой цели кончается раньше неё: тогда это не приезд, и юнит ищет путь дальше отсюда.
+        const arrived = path.near ? (points[0] - path.goalX - 0.5) ** 2 + (points[1] - path.goalY - 0.5) ** 2 <= (path.near + 1) ** 2 : Math.floor(points[0]) === path.goalX && Math.floor(points[1]) === path.goalY
+        if (arrived || air) stopped.push(entity)
+        else further.push({ entity, x: path.goalX, y: path.goalY, tries: 0, near: path.near })
         continue
       }
     }
@@ -284,8 +300,8 @@ export function moveUnits(sim: Sim, time: Time) {
         position.y = nextY
         path.wait = 0
       } else if (!open && aligned && direct) {
-        // Пока юнит шёл, на пути что-то построили: ждать нечего.
-        giveUp(entity, path)
+        // Пока юнит шёл, на пути что-то построили: ждать нечего. Но исчерпавший попытки перепрокладывает не каждый тик.
+        if (path.tries < MAX_TRIES || ++path.wait >= WAIT_TICKS) giveUp(entity, path)
         continue
       } else if (++path.wait >= WAIT_TICKS) {
         giveUp(entity, path, !blocker)

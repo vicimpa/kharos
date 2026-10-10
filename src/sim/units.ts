@@ -297,13 +297,16 @@ export interface TileSet {
  * к тому времени, как до них дойдут, они уйдут; с ними юнит расходится на ходу, см. movement.ts.
  * ignore — кого не считать: сам идущий и те, кто трогается вместе с ним. radius — радиус идущего:
  * тайл занят, если, встав в его центр, идущий задел бы стоящего. Так крупная машина не лезет в щель между соседями.
- * air — считать летающих, а не наземных: друг другу они не мешают.
+ * air — считать летающих, а не наземных: друг другу они не мешают. jammed — считать и застрявших в заторе.
  */
-export function standingUnits(sim: Sim, ignore: ReadonlySet<Entity>, radius: number, air = false): TileSet {
+export function standingUnits(sim: Sim, ignore: ReadonlySet<Entity>, radius: number, air = false, jammed = false): TileSet {
   const { world } = sim
   const tiles = new Set<number>()
   for (const [entity, position, unit] of world.query(Position, Unit)) {
-    if (ignore.has(entity) || world.has(entity, Path) || flies(unit.type) !== air) continue
+    if (ignore.has(entity) || flies(unit.type) !== air) continue
+    // Идущий не помеха. Но застрявший в заторе (jammed) никуда не уйдёт: для того, кто сам из него выбирается, он стоит.
+    const path = world.get(entity, Path)
+    if (path && !(jammed && path.tries >= JAM_TRIES)) continue
     const reach = UNITS[unit.type].radius + radius
     const right = Math.floor(position.x + reach)
     const bottom = Math.floor(position.y + reach)
@@ -317,6 +320,12 @@ export function standingUnits(sim: Sim, ignore: ReadonlySet<Entity>, radius: num
   }
   return tiles
 }
+
+/**
+ * После скольких перепрокладок пути подряд юнит считается застрявшим в заторе: сам он дальше ищет путь в обход
+ * таких же застрявших, а не сквозь них, см. orderMove и movement.ts.
+ */
+export const JAM_TRIES = 3
 
 /** Сколько тайлов осматривает поиск пути, когда к цели надо только подойти на расстояние. */
 const APPROACH_LIMIT = 3000
@@ -436,7 +445,9 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
   if (!position || world.has(entity, Converting)) return
   const { type } = world.get(entity, Unit)!
   const air = flies(type)
-  const taken = standingUnits(sim, ignore ?? new Set([entity]), UNITS[type].radius, air)
+  // Застрявший в заторе объезжает таких же застрявших: сквозь них путь уже не вышел.
+  const jam = tries >= JAM_TRIES
+  const taken = standingUnits(sim, ignore ?? new Set([entity]), UNITS[type].radius, air, jam)
   if (!near && taken.has(tileKey(x, y))) {
     const [freeX, freeY] = freeTilesNear(sim, x, y, 1, 1, taken, air)
     if (freeX === undefined) return void world.remove(entity, Path)
@@ -503,7 +514,8 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
     slowness,
   )
   if (points.length) world.add(entity, Path({ points, goalX: x, goalY: y, wait: 0, tries, near, roads: fastest < 1, direct: false, stuck: false }))
-  else world.remove(entity, Path)
+  // Из затора пока не выбраться: приказ остаётся, юнит попробует снова.
+  else if (!jam) world.remove(entity, Path)
 }
 
 /**
