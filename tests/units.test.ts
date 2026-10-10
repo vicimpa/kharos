@@ -3,7 +3,7 @@ import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { isBuildable, terrainAt } from '../src/map/terrain'
 import { Owner, Path, Position, UNITS, Unit, canPlace, createSim, isWalkable, spawnStartingUnits, type Sim, type UnitType } from '../src/sim'
-import { SEARCH_LIMIT, findPath, isClear, searchedTiles, smoothPath } from '../src/sim/path'
+import { SEARCH_LIMIT, findPath, isClear, quotaSpent, searchedTiles, smoothPath, withSearchQuota } from '../src/sim/path'
 import { orderMove, spawnUnit } from '../src/sim/units'
 import { placeBuilding } from '../src/sim/buildings'
 import { throughJson } from './throughJson'
@@ -394,4 +394,24 @@ test('цель в замкнутом кармане не ищется долги
   const before = searchedTiles()
   orderMove(sim, unit, x + 15, y + 10)
   expect(searchedTiles() - before).toBeLessThan(SEARCH_LIMIT * 2)
+})
+
+test('норма поиска снимается и после исключения, а оборванный ею поиск не отнимает у юнита прежний путь', () => {
+  const open = () => true
+  expect(() => withSearchQuota(0, () => {
+    expect(findPath(open, 0, 0, 5, 0)).toEqual([])
+    throw new Error('сбой')
+  })).toThrow('сбой')
+  expect(quotaSpent()).toBe(false)
+  expect(findPath(open, 0, 0, 5, 0).length).toBeGreaterThan(0)
+
+  const sim = createSim(options)
+  const [unit] = spawnStartingUnits(sim, 1, 0, 0)
+  const from = sim.world.get(unit, Position)!
+  orderMove(sim, unit, Math.floor(from.x) + 3, Math.floor(from.y))
+  const before = [...sim.world.get(unit, Path)!.points]
+  expect(before.length).toBeGreaterThan(0)
+  // Нормы не осталось: новый приказ не выполнен, но и прежний путь цел — юнит попробует в следующий тик.
+  withSearchQuota(0, () => orderMove(sim, unit, Math.floor(from.x), Math.floor(from.y) + 3))
+  expect(sim.world.get(unit, Path)!.points).toEqual(before)
 })
