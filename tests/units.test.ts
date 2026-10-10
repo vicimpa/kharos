@@ -3,7 +3,7 @@ import type { Entity } from '../src/ecs'
 import { DEFAULT_SETTINGS } from '../src/map/settings'
 import { isBuildable, terrainAt } from '../src/map/terrain'
 import { Owner, Path, Position, UNITS, Unit, canPlace, createSim, isWalkable, spawnStartingUnits, type Sim, type UnitType } from '../src/sim'
-import { SEARCH_LIMIT, findPath, isClear, quotaSpent, searchedTiles, smoothPath, withSearchQuota } from '../src/sim/path'
+import { SEARCH_LIMIT, findPath, isClear, searchCut, searchedTiles, smoothPath, withSearchQuota } from '../src/sim/path'
 import { orderMove, spawnUnit } from '../src/sim/units'
 import { placeBuilding } from '../src/sim/buildings'
 import { throughJson } from './throughJson'
@@ -402,8 +402,18 @@ test('норма поиска снимается и после исключен�
     expect(findPath(open, 0, 0, 5, 0)).toEqual([])
     throw new Error('сбой')
   })).toThrow('сбой')
-  expect(quotaSpent()).toBe(false)
   expect(findPath(open, 0, 0, 5, 0).length).toBeGreaterThan(0)
+  expect(searchCut()).toBe(false)
+  // Цель за стеной: поиск упирается в собственный лимит. Это не обрыв нормой, даже когда норма ему равна, —
+  // неполный путь годится, иначе юнит у препятствия вставал бы навсегда.
+  const walled = (x: number, y: number) => Math.max(Math.abs(x - 40), Math.abs(y)) !== 3
+  withSearchQuota(SEARCH_LIMIT, () => {
+    expect(findPath(walled, 0, 0, 40, 0).length).toBeGreaterThan(0)
+    expect(searchCut()).toBe(false)
+    // А следующему поиску в том же тике нормы уже не хватает: он оборван.
+    findPath(walled, 0, 0, 40, 0)
+    expect(searchCut()).toBe(true)
+  })
 
   const sim = createSim(options)
   const [unit] = spawnStartingUnits(sim, 1, 0, 0)

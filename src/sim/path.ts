@@ -77,6 +77,7 @@ let cap = Infinity
 export function withSearchQuota(tiles: number, run: () => void) {
   const previous = cap
   cap = Math.min(cap, searched + Math.max(0, tiles))
+  cut = false
   try {
     run()
   } finally {
@@ -84,11 +85,15 @@ export function withSearchQuota(tiles: number, run: () => void) {
   }
 }
 
+/** Оборвала ли норма последний поиск, см. searchCut. */
+let cut = false
+
 /**
- * Вышла ли норма. Поиск, который она оборвала, — не ответ «пути нет»: тому, кто искал, надо подождать следующего
- * тика, а не бросать цель.
+ * Оборвала ли норма последний findPath: ему досталось меньше тайлов, чем он просил, и он истратил их все. Такой
+ * поиск — не ответ «пути нет»: тому, кто искал, надо подождать следующего тика, а не бросать цель. Поиск, упёршийся
+ * в собственный лимит, оборванным не считается: его неполный путь годится, юнит продолжит с его конца.
  */
-export const quotaSpent = () => searched >= cap
+export const searchCut = () => cut
 
 /** Соседи тайла: смещение и цена шага. */
 const STEPS = [
@@ -127,8 +132,21 @@ let generation = 0
  */
 export function findPath(walkable: Walkable, fromX: number, fromY: number, toX: number, toY: number, near = 0, limit = SEARCH_LIMIT, slowness = EVEN, fastest = 1): number[] {
   // Норма тика кончилась — искать нечем: пути нет.
+  const narrowed = cap - searched < limit
+  cut = false
   limit = Math.min(limit, cap - searched)
-  if (limit <= 0) return []
+  if (limit <= 0) {
+    cut = true
+    return []
+  }
+  try {
+    return search(walkable, fromX, fromY, toX, toY, near, limit, slowness, fastest)
+  } finally {
+    cut = narrowed && searched >= cap
+  }
+}
+
+function search(walkable: Walkable, fromX: number, fromY: number, toX: number, toY: number, near: number, limit: number, slowness: Slowness, fastest: number): number[] {
   if (!beyondWindow(fromX, fromY, toX, toY)) {
     const path = findNearPath(walkable, fromX, fromY, toX, toY, near, limit, slowness, fastest)
     if (path) return path

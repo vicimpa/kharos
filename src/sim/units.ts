@@ -7,7 +7,7 @@ import { unitSight } from './vision'
 import { STARTING_CREDITS, addCredits } from './economy'
 import { equipStorage, type BeamSpec } from './inventory'
 import type { Amounts } from './resources'
-import { SEARCH_LIMIT, beyondWindow, findPath, quotaSpent, smoothPath } from './path'
+import { SEARCH_LIMIT, beyondWindow, findPath, searchCut, smoothPath } from './path'
 import type { Sim } from './sim'
 import { mountTurrets, turretSpec, type MountSpec } from './turrets'
 import type { UnitClass, WeaponType } from './weapons'
@@ -482,7 +482,7 @@ export function orderMove(sim: Sim, entity: Entity, x: number, y: number, ignore
     return dx * dx + dy * dy <= near * near
   }
   // Поиск оборвала норма тика, а не преграда: прежний путь остаётся как был, юнит попробует в следующий тик.
-  if (quotaSpent() && !reaches(tiles)) return
+  if (searchCut() && !reaches(tiles)) return
   // Долгий поиск — только если цель не в замкнутом кармане, куда отсюда не попасть: туда не дойдёт и он.
   const open = () => {
     const pocket = vehicleReach(sim, x, y, LONG_POCKET, foot)

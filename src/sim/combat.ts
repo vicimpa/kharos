@@ -7,7 +7,7 @@ import { NONE, isOwn, onTurn, ownerOf, rectDistance, turnToward, wrap } from './
 import { Armed, Blast, Building, Converting, Doomed, Health, Inventory, Off, Owner, Path, Pave, Position, Shot, Site, Tactics, Turret, Unit } from './components'
 import { releaseHauler } from './hauling'
 import { amountOf, take } from './inventory'
-import { quotaSpent, searchedTiles, withSearchQuota } from './path'
+import { searchCut, searchedTiles, withSearchQuota } from './path'
 import type { Sim } from './sim'
 import { TURRETS, carrierOf, turnerOf, turretsOf } from './turrets'
 import { UNITS, flies, orderMove, unitSpec, type UnitSpec } from './units'
@@ -503,7 +503,7 @@ export function fight(sim: Sim) {
           orderMove(sim, mover, goalX, goalY, undefined, 0, near)
           // Не нашедший пути ищет всё реже; тот, чей поиск оборвала норма, — не в счёт: путь у него, может, и есть.
           if (world.has(mover, Path)) armed.stuck = 0
-          else if (!quotaSpent()) armed.stuck++
+          else if (!searchCut()) armed.stuck++
         })
       }
       continue
