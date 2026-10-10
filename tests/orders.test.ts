@@ -122,3 +122,15 @@ test('стройка из меню: строитель на своей стро�
   expect(sim.world.get(builder, Builds)?.site).toBe(second)
   expect(sim.world.get(builder, Orders)!.list.length).toBe(0)
 })
+
+test('мусор в полях команды не роняет тик: команда отбрасывается, и сразу, и из очереди', () => {
+  const { sim, builders } = start()
+  // Объект без рабочих toString и valueOf бросает при приведении к числу — так упал живой сервер.
+  const junk = JSON.parse('{"toString":0,"valueOf":0}')
+  for (const type of ['harvest', 'move', 'build', 'rally', 'sell', 'patrol', 'pave']) {
+    for (const queue of [false, true]) {
+      sim.send(1, { type, queue, units: builders, builders, x: junk, y: junk, points: [junk, junk], tiles: [junk, junk], building: junk, port: junk, amount: junk, resource: junk, kind: junk } as never)
+    }
+  }
+  expect(() => seconds(sim, 2)).not.toThrow()
+})

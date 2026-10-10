@@ -100,8 +100,19 @@ const isTile = (x: unknown, y: unknown) => Number.isInteger(x) && Number.isInteg
 /**
  * Выполняет команду игрока player. Команда приходит извне, поэтому проверяется заново, даже если клиент
  * уже проверил: негодная молча отбрасывается. Возвращает, выполнена ли она.
+ *
+ * Мусор в полях команды может уронить и саму проверку (объект вместо числа бросает при приведении): такая
+ * команда отбрасывается, как любая негодная, а не роняет тик — иначе один игрок валит сервер одним сообщением.
  */
 export function apply(sim: Sim, player: number, command: Command): boolean {
+  try {
+    return run(sim, player, command)
+  } catch {
+    return false
+  }
+}
+
+function run(sim: Sim, player: number, command: Command): boolean {
   if (command.queue) return queueOrder(sim, player, command)
   // Приказ без Shift забывает очередь; стойка и фильтр груза — не приказы, а настройки. Стройка из меню очередь
   // не трогает: занятым строителям она сама встаёт в конец.
@@ -150,7 +161,7 @@ export function apply(sim: Sim, player: number, command: Command): boolean {
     case 'supply':
       return Array.isArray(command.units) && assignSupply(sim, player, command.target as Entity, command.units as Entity[])
     case 'harvest': {
-      if (!Array.isArray(command.units)) return false
+      if (!Array.isArray(command.units) || typeof command.x !== 'number' || typeof command.y !== 'number') return false
       return orderHarvest(sim, player, command.units as Entity[], Math.floor(command.x), Math.floor(command.y))
     }
     case 'seek': {
