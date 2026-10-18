@@ -50,6 +50,10 @@ trunk build --release --public-url ./   # страница в target/web — е�
 модов, `KHAROS_CONFIG` — папка настроек и сохранений (по умолчанию `~/.config/kharos`), `KHAROS_SHOT` — снять кадр и
 выйти (подробнее — в начале `apps/client/src/shell.rs`). В браузере партию задаёт `?game=`.
 
+Сценарии без человека — `kharos --scenario файл.luau`: тесты интерфейса и механик (`tests/scenarios`, их гоняет
+`cargo test`) и ролики со звуком любого размера (`--record файл.mp4 --sound --size 540x960 --scale 2`). Справочник —
+[docs/scenarios.md](docs/scenarios.md).
+
 ### Устройство репозитория
 
 - `apps/client` — клиент: окно (winit, glutin, glow) и браузер (wasm32, web-sys), рендер, свой интерфейс, звук,
