@@ -179,14 +179,20 @@ function buildings.entity(kind, protos)
 		Position = {},
 		Owner = {},
 		Building = { width = data.width, height = data.height },
-		Footprint = { width = data.width, height = data.height },
+		-- Стена и закрытые ворота останавливают выстрелы (isWall).
+		Footprint = { width = data.width, height = data.height, wall = kind.name == "wall" or kind.name == "gate" },
 		Sight = { radius = buildings.sight(kind, protos) },
+		-- Прочность без своей — от цены (buildingHp).
+		Health = { hp = data.hp or data.cost * buildings.HP_PER_COST },
 	}
 	if data.produces then
 		entity.Producer = {}
 	end
 	return entity
 end
+
+-- Сколько прочности здания на кредит цены, если своей у него нет (BUILDING_HP).
+buildings.HP_PER_COST = 2
 
 -- Биты соседей стены, ворот, трубы и колодца: четыре направления дают 16 вариантов (WALL_CONNECTION).
 buildings.NORTH, buildings.EAST, buildings.SOUTH, buildings.WEST = 1, 2, 4, 8

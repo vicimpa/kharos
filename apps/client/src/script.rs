@@ -66,6 +66,9 @@ pub struct LookInfo {
   pub uv: [f32; 4],
   pub size: [f32; 2],
   pub picture: bool,
+  /// Кадры облика по фазам и направлениям (`Look::cell`) и сколько направлений.
+  pub cells: Vec<[f32; 4]>,
+  pub directions: usize,
 }
 
 /// Схема карты новой игры (preview.ts): сторона, что считается, сколько рядов готово, доли видов местности.
@@ -135,8 +138,11 @@ pub struct ClientState {
   pub sounds: Vec<SoundOrder>,
   pub particles: Vec<Particle>,
   pub decals: std::collections::VecDeque<Decal>,
-  /// Слой поверх мира — в тайлах.
+  /// Слой поверх мира — в тайлах; glow — его светящаяся часть, складывается с картинкой.
   pub draw: crate::ui::Batch,
+  pub glow: crate::ui::Batch,
+  /// Огни кадра (`c:light`): x, y, радиус пятна и ореола в пикселях местности, яркость.
+  pub lights: Vec<[f32; 5]>,
   pub gui: crate::gui::Gui,
   pub looks: HashMap<u32, LookInfo>,
   /// Синтезатор, если звуку есть куда выйти.
@@ -456,7 +462,11 @@ impl UserData for Ctx {
       let tick = state.world.borrow().tick as f64;
       Ok((tick + state.alpha) * crate::game::STEP)
     });
-    fields.add_field_method_get("draw", |_, c| Ok(Draw(c.state.clone())));
+    fields.add_field_method_get("draw", |_, c| Ok(Draw(c.state.clone(), false)));
+    // То же, что draw, только светится: цвета складываются с картинкой (вспышки, лучи, пламя).
+    fields.add_field_method_get("glow", |_, c| Ok(Draw(c.state.clone(), true)));
+    // Доля тика, прошедшая с последнего, — для сглаживания между тиками.
+    fields.add_field_method_get("alpha", |_, c| Ok(c.state.borrow().alpha));
     fields.add_field_method_get("app", |_, c| Ok(AppApi(c.app.clone())));
     fields.add_field_method_get("ui", |_, c| Ok(UiApi(c.state.clone())));
     fields.add_field_method_get("audio", |_, c| Ok(c.state.borrow().audio.clone().map(AudioApi)));
@@ -504,6 +514,15 @@ impl UserData for Ctx {
     // Слышимость точки мира (0..1) и её сторона (−1..1): для своих голосов — моторов, гулов.
     methods.add_method("nearness", |_, c, (x, y, reach): (f32, f32, Option<f32>)| Ok(c.state.borrow().nearness(x, y, reach.unwrap_or(0.6))));
     methods.add_method("side", |_, c, x: f32| Ok(c.state.borrow().side(x)));
+    // Огонь в кадре (lights.add в renderer.ts): точка в тайлах, радиусы пятна на земле и ореола — в пикселях
+    // местности (0 — без него), яркость 0..1. Пятно видно, когда темнее полудня, ореол — всегда.
+    methods.add_method("light", |_, c, (x, y, cut, bloom, level): (f32, f32, f32, f32, f32)| {
+      let mut state = c.state.borrow_mut();
+      if state.lights.len() < 4096 && level > 0.0 {
+        state.lights.push([x, y, cut, bloom, level]);
+      }
+      Ok(())
+    });
     // c:particle({ x, y, vx, vy, life, color, size, drift }).
     methods.add_method("particle", |_, c, spec: Table| {
       let get = |key: &str, default: f32| spec.get::<Option<f32>>(key).map(|value| value.unwrap_or(default));
@@ -625,39 +644,61 @@ impl UserData for Ctx {
   }
 }
 
-/// `c.draw` — поверх мира, в тайлах; толщины — в пикселях экрана.
-pub struct Draw(Rc<RefCell<ClientState>>);
+/// `c.draw` — поверх мира, в тайлах; толщины — в пикселях экрана. `c.glow` — то же в светящийся слой.
+pub struct Draw(Rc<RefCell<ClientState>>, bool);
+
+impl Draw {
+  fn batch<R>(&self, paint: impl FnOnce(&mut crate::ui::Batch, f32) -> R) -> R {
+    let mut state = self.0.borrow_mut();
+    let zoom = state.view.zoom;
+    paint(if self.1 { &mut state.glow } else { &mut state.draw }, zoom)
+  }
+}
 
 impl UserData for Draw {
   fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
     methods.add_method("line", |_, draw, (x1, y1, x2, y2, value, width, alpha): (f32, f32, f32, f32, u32, Option<f32>, Option<f32>)| {
-      let mut state = draw.0.borrow_mut();
-      let zoom = state.view.zoom;
-      state.draw.line([x1, y1], [x2, y2], width.unwrap_or(1.0) / zoom, color(value, alpha));
+      draw.batch(|batch, zoom| batch.line([x1, y1], [x2, y2], width.unwrap_or(1.0) / zoom, color(value, alpha)));
       Ok(())
     });
     // Круг: width — толщина кольца в пикселях, без неё — заливка.
     methods.add_method("circle", |_, draw, (x, y, radius, value, width, alpha): (f32, f32, f32, u32, Option<f32>, Option<f32>)| {
-      let mut state = draw.0.borrow_mut();
-      let zoom = state.view.zoom;
-      let segments = ((radius * zoom).sqrt() * 4.0).clamp(12.0, 64.0) as usize;
-      state.draw.circle([x, y], radius, width.map(|width| width / zoom), color(value, alpha), segments);
+      draw.batch(|batch, zoom| {
+        let segments = ((radius * zoom).sqrt() * 4.0).clamp(12.0, 64.0) as usize;
+        batch.circle([x, y], radius, width.map(|width| width / zoom), color(value, alpha), segments)
+      });
       Ok(())
     });
     methods.add_method("rect", |_, draw, (x1, y1, x2, y2, value, width, alpha): (f32, f32, f32, f32, u32, Option<f32>, Option<f32>)| {
-      let mut state = draw.0.borrow_mut();
-      let zoom = state.view.zoom;
       let rgba = color(value, alpha);
       let (left, right, top, bottom) = (x1.min(x2), x1.max(x2), y1.min(y2), y1.max(y2));
-      match width {
-        None => state.draw.rect([left, top], [right, bottom], rgba),
+      draw.batch(|batch, zoom| match width {
+        None => batch.rect([left, top], [right, bottom], rgba),
         Some(width) => {
           let w = width / zoom;
           for (a, b) in [([left, top], [right, top]), ([right, top], [right, bottom]), ([right, bottom], [left, bottom]), ([left, bottom], [left, top])] {
-            state.draw.line(a, b, w, rgba);
+            batch.line(a, b, w, rgba);
           }
         }
-      }
+      });
+      Ok(())
+    });
+    // Кадр облика вида kind (фаза phase, направление по углу angle) квадратом side тайлов с серединой в (x, y);
+    // цвет — множитель 0xRRGGBB, alpha — непрозрачность. Без цвета стороны: для взрывов, дыма и прочих картинок.
+    methods.add_method("sprite", |_, draw, (kind, phase, x, y, side, value, alpha, angle): (Table, usize, f32, f32, f32, Option<u32>, Option<f32>, Option<f64>)| {
+      let id: u32 = kind.get("id")?;
+      let uv = {
+        let state = draw.0.borrow();
+        let Some(info) = state.looks.get(&id) else { return Ok(()) };
+        let directions = info.directions.max(1);
+        let direction = (angle.unwrap_or(0.0) / crate::atlas::TURN * directions as f64).round().rem_euclid(directions as f64) as usize;
+        let phases = (info.cells.len() / directions).max(1);
+        let Some(&uv) = info.cells.get((phase % phases) * directions + direction) else { return Ok(()) };
+        uv
+      };
+      let half = side / 2.0;
+      let rgba = color(value.unwrap_or(0xffffff), alpha);
+      draw.batch(|batch, _| batch.quad([x - half, y - half], [x + half, y + half], uv, rgba, crate::ui::Paint::Picture));
       Ok(())
     });
   }
@@ -928,7 +969,7 @@ pub fn fill_input(lua: &Lua, table: &Table, input: &Input, view: &View, over_ui:
 /// Значок облика для `c.ui:image` (после упаковки атласа): портрет, если он есть, иначе кадр значка.
 pub fn look_info(look: &Look) -> LookInfo {
   match look.portrait_uv {
-    Some(uv) => LookInfo { uv, size: look.portrait_size, picture: look.picture },
-    None => LookInfo { uv: look.cells[look.cell(look.icon as f64 / look.directions.max(1) as f64 * crate::atlas::TURN, 0)], size: [look.size[0] as f32, look.size[1] as f32], picture: look.picture },
+    Some(uv) => LookInfo { uv, size: look.portrait_size, picture: look.picture, cells: look.cells.clone(), directions: look.directions },
+    None => LookInfo { uv: look.cells[look.cell(look.icon as f64 / look.directions.max(1) as f64 * crate::atlas::TURN, 0)], size: [look.size[0] as f32, look.size[1] as f32], picture: look.picture, cells: look.cells.clone(), directions: look.directions },
   }
 }

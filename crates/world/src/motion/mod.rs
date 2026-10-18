@@ -568,6 +568,13 @@ impl Scene<'_> {
     ground.terrain_speed(Class::parse(class), x, y)
   }
 
+  /// Можно ли пройти по тайлу: наземному — внутри карты, по проходимой местности и не сквозь здание.
+  pub fn walkable(&mut self, x: i32, y: i32, foot: bool) -> bool {
+    let cols = Cols::of(self.world);
+    let (mut ground, _) = self.ground(&cols);
+    ground.is_walkable(x, y, foot)
+  }
+
   /// Здание на тайле.
   pub fn occupant(&mut self, x: i32, y: i32) -> Option<Entity> {
     self.motion.occupancy.refresh(self.world);

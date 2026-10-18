@@ -165,7 +165,7 @@ impl Game {
     }
     let atlas = atlas::pack(&mut looks);
 
-    let state = Rc::new(RefCell::new(ClientState { world: host.state.clone(), prev: HashMap::new(), alpha: 0.0, view: View { x: 0.0, y: 0.0, zoom: 32.0, screen: [1280.0, 800.0], scale: 1.0 }, input: Input::default(), time: 0.0, dt: 0.0, player, outbox: Vec::new(), sounds: Vec::new(), particles: Vec::new(), decals: Default::default(), draw: Default::default(), gui: Gui::new(fonts), looks: looks.iter().map(|look| (look.proto, look_info(look))).collect(), audio: None, land: None, preview: crate::script::Preview::new(), protos: client.list.iter().map(|proto| client.by_id(proto.id).expect("вид")).collect() }));
+    let state = Rc::new(RefCell::new(ClientState { world: host.state.clone(), prev: HashMap::new(), alpha: 0.0, view: View { x: 0.0, y: 0.0, zoom: 32.0, screen: [1280.0, 800.0], scale: 1.0 }, input: Input::default(), time: 0.0, dt: 0.0, player, outbox: Vec::new(), sounds: Vec::new(), particles: Vec::new(), decals: Default::default(), draw: Default::default(), glow: Default::default(), lights: Vec::new(), gui: Gui::new(fonts), looks: looks.iter().map(|look| (look.proto, look_info(look))).collect(), audio: None, land: None, preview: crate::script::Preview::new(), protos: client.list.iter().map(|proto| client.by_id(proto.id).expect("вид")).collect() }));
     let table = || lua.create_table().map_err(error("таблица"));
     let ctx = Ctx { state: state.clone(), input: table()?, camera: table()?, shared: table()?, atmosphere: table()?, music: table()?, protos: client.protos.clone(), game: game_table.clone(), app };
     ctx.camera.set("x", 0.0).map_err(error("камера"))?;
@@ -310,6 +310,8 @@ impl Game {
       state.view.screen = input.screen;
       state.view.scale = input.scale;
       state.draw.clear();
+      state.glow.clear();
+      state.lights.clear();
       state.gui.begin(input);
     }
     let lua = self.client.lua.clone();
@@ -585,6 +587,15 @@ impl Game {
     sorted.sort_by(|a, b| a.0.cmp(&b.0).then(if a.0 == buildings { a.1.total_cmp(&b.1) } else { std::cmp::Ordering::Equal }));
     for (layer, _, sprite) in sorted {
       frame.layers[layer.min(LAYERS - 1)].extend_from_slice(&sprite);
+    }
+    // Огни скриптов (c:light): вспышки выстрелов, взрывы.
+    for &[x, y, cut, bloom, level] in &state.lights {
+      if cut > 0.0 {
+        frame.spots.extend_from_slice(&[x, y, cut, level]);
+      }
+      if bloom > 0.0 {
+        frame.blooms.extend_from_slice(&[x, y, bloom, level]);
+      }
     }
     drop(world);
     drop(state);

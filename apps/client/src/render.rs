@@ -795,6 +795,15 @@ impl Renderer {
 
   /// Батч поверх: world — в тайлах через камеру, иначе — в логических пикселях экрана.
   pub fn draw_batch(&mut self, batch: &Batch, font: &FontAtlas, view: &View, world: bool, palette: &[f32]) {
+    self.paint_batch(batch, font, view, world, palette, false);
+  }
+
+  /// Светящийся слой поверх мира: цвета складываются с картинкой (setBlend 'add').
+  pub fn draw_glow(&mut self, batch: &Batch, font: &FontAtlas, view: &View, palette: &[f32]) {
+    self.paint_batch(batch, font, view, true, palette, true);
+  }
+
+  fn paint_batch(&mut self, batch: &Batch, font: &FontAtlas, view: &View, world: bool, palette: &[f32], add: bool) {
     if batch.indices.is_empty() {
       return;
     }
@@ -803,7 +812,11 @@ impl Renderer {
       gl.bind_framebuffer(glow::FRAMEBUFFER, None);
       gl.viewport(0, 0, self.size[0], self.size[1]);
       gl.enable(glow::BLEND);
-      gl.blend_func_separate(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA, glow::ONE, glow::ONE_MINUS_SRC_ALPHA);
+      if add {
+        gl.blend_func_separate(glow::SRC_ALPHA, glow::ONE, glow::ZERO, glow::ONE);
+      } else {
+        gl.blend_func_separate(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA, glow::ONE, glow::ONE_MINUS_SRC_ALPHA);
+      }
       gl.active_texture(glow::TEXTURE0);
       gl.bind_texture(glow::TEXTURE_2D, Some(self.font));
       if self.font_generation != font.generation {

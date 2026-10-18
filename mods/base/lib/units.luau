@@ -7,6 +7,9 @@
 local units = {}
 
 -- Сторона кадра в пикселях: два тайла.
+-- Какую долю прочности в секунду пехотинец восстанавливает сам (INFANTRY_REGEN).
+units.INFANTRY_REGEN = 0.02
+
 units.FRAME = 32
 -- Кадров поворота: соседние отличаются меньше чем на пиксель-два, поворот выглядит непрерывным.
 units.DIRECTIONS = 64
@@ -747,19 +750,32 @@ end
 -- Сущность юнита по данным вида: ход (Mover) — скорость, поворот, радиус, род; обзор.
 function units.entity(kind, protos)
 	local data = kind.data
-	return {
+	local infantry = data.kind == "infantry"
+	local entity = {
 		Position = {},
 		Facing = {},
 		Owner = {},
 		Unit = {},
 		Mover = { speed = data.speed, turn = data.turn, radius = data.radius, class = data.kind },
 		Sight = { radius = units.sight(kind, protos) },
+		-- Пехоту не чинят, зато она понемногу поправляется сама (INFANTRY_REGEN).
+		Health = { hp = data.hp, repairable = not infantry, regen = if infantry then units.INFANTRY_REGEN else 0 },
 	}
+	-- Своё оружие — у корпуса; выстрел вылетает с края юнита.
+	if data.weapon then
+		entity.Armed = { weapon = data.weapon, turn = data.turn, radius = data.radius }
+	end
+	return entity
 end
 
 -- Сущность турели: место и поворот на носителе — Attached (ставит mechanics/mounts).
-function units.turretEntity()
-	return { Position = {}, Facing = {}, Owner = {}, Turret = {}, Attached = {} }
+function units.turretEntity(kind)
+	local data = kind.data
+	local entity = { Position = {}, Facing = {}, Owner = {}, Turret = {}, Attached = {} }
+	if data.weapon then
+		entity.Armed = { weapon = data.weapon, turn = data.turn, radius = data.radius }
+	end
+	return entity
 end
 
 -- Облик турели: тень — вдвое ближе, чем у носителя.

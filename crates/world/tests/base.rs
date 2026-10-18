@@ -154,3 +154,44 @@ fn snapshot_restores_the_same_game_and_it_goes_on_the_same() {
   assert_eq!(copy.snapshot().unwrap(), host.snapshot().unwrap());
   assert_eq!(all(&copy, "Mover").len(), 4);
 }
+
+/// Витрина: партия меню со сценкой.
+fn showcase(scene: &str, seed: u64) -> Host {
+  let mods = discover(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods")).unwrap();
+  let mut host = Host::new(mods, Some("menu"), seed, &json!({ "scene": scene, "seed": seed })).unwrap();
+  host.start().unwrap();
+  host.join(1).unwrap();
+  host
+}
+
+/// Игроки, у которых остались юниты.
+fn sides(host: &Host) -> Vec<f64> {
+  let mut players: Vec<f64> = all(host, "Owner").into_iter().filter(|(entity, _)| all(host, "Mover").iter().any(|(unit, _)| unit == entity)).map(|(_, owner)| owner["player"].as_f64().unwrap()).collect();
+  players.sort_by(f64::total_cmp);
+  players.dedup();
+  players
+}
+
+#[test]
+fn battle_scenes_fight_until_one_side_is_gone() {
+  for scene in ["battle", "armor", "infantry", "air"] {
+    for seed in [3, 11] {
+      let mut host = showcase(scene, seed);
+      assert_eq!(sides(&host), [1.0, 9999.0], "{scene} {seed}");
+      let start = all(&host, "Mover").len();
+      let (mut shots, mut over) = (0, None);
+      for tick in 0..20 * 180 {
+        host.tick(0.05).unwrap();
+        shots = shots.max(all(&host, "Shot").len());
+        if host.signals().iter().any(|signal| signal.name == "scene_over") {
+          over = Some(tick);
+          break;
+        }
+      }
+      let left = all(&host, "Mover").len();
+      eprintln!("{scene} {seed}: {start} юнитов, осталось {left}, выстрелов разом до {shots}, конец на тике {over:?}, стороны {:?}", sides(&host));
+      assert!(shots > 0, "{scene} {seed}: никто не стрелял");
+      assert!(over.is_some(), "{scene} {seed}: бой не кончился за 3 минуты");
+    }
+  }
+}

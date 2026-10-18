@@ -60,7 +60,7 @@ enum Op {
 pub struct State {
   pub world: World,
   ops: Vec<Op>,
-  events: Vec<(String, Json)>,
+  pub(crate) events: Vec<(String, Json)>,
   pub signals: Vec<Signal>,
   pub tick: u64,
   pub dt: f64,
@@ -74,6 +74,8 @@ pub struct State {
   /// Ход: поиски пути, занятость, правила местности партии (data.rules).
   pub motion: crate::motion::Motion,
   pub rules: crate::motion::Rules,
+  /// Виды оружия — раздел `weapons/` контента.
+  pub weapons: crate::combat::Weapons,
 }
 
 impl State {
@@ -159,7 +161,7 @@ impl Host {
     }
     content.apply_options(game, options)?;
     let schema = Rc::new(schema_of(&content)?);
-    let state = Rc::new(RefCell::new(State { world: World::new(schema.clone()), ops: Vec::new(), events: Vec::new(), signals: Vec::new(), tick: 0, dt: 0.05, rng: seed.max(1), grid: None, vision: None, land: None, motion: Default::default(), rules: Default::default() }));
+    let state = Rc::new(RefCell::new(State { world: World::new(schema.clone()), ops: Vec::new(), events: Vec::new(), signals: Vec::new(), tick: 0, dt: 0.05, rng: seed.max(1), grid: None, vision: None, land: None, motion: Default::default(), rules: Default::default(), weapons: Default::default() }));
     let lua = &content.lua;
     let storage = lua.create_table().map_err(lua_error("storage"))?;
     let game_table = content.get("games", game).expect("партия");
@@ -197,6 +199,15 @@ impl Host {
     if let Some(rules) = content.get("games", game).and_then(|table| table.get::<Option<Table>>("data").ok().flatten()).and_then(|data| data.get::<Option<Table>>("rules").ok().flatten()) {
       if let Json::Object(map) = content.lua.from_value::<Json>(Value::Table(rules)).map_err(lua_error("data.rules"))? {
         state.borrow_mut().rules = crate::motion::Rules(map);
+      }
+    }
+    // Виды оружия для боя: data каждого вида из weapons/.
+    for proto in content.list.iter().filter(|proto| proto.section == "weapons") {
+      let data = content.by_id(proto.id).and_then(|table| table.get::<Option<Table>>("data").ok().flatten());
+      if let Some(data) = data {
+        if let Json::Object(map) = content.lua.from_value::<Json>(Value::Table(data)).map_err(lua_error(format!("weapons/{}.data", proto.name)))? {
+          state.borrow_mut().weapons.0.insert(proto.name.clone(), crate::combat::Weapon::parse(&map));
+        }
       }
     }
     // Обзор — по карте партии: data.size тайлов от центра, data.fog — есть ли туман (по умолчанию есть).
@@ -1033,6 +1044,16 @@ impl UserData for Ctx {
         crate::motion::Moved::Removed => "removed",
         crate::motion::Moved::Kept => "kept",
       })
+    });
+    // Бой (combat). Приказ атаковать (orderAttack): свои юниты игрока player и их турели берут цель и идут к ней.
+    methods.add_method("attack", |_, this, (player, units, target): (f64, Vec<f64>, f64)| {
+      let units = units.into_iter().map(entity_of).collect::<mlua::Result<Vec<_>>>()?;
+      Ok(crate::combat::order_attack(&mut this.state.borrow_mut(), player, &units, entity_of(target)?))
+    });
+    // Стойка своим вооружённым юнитам (setStance): aggressive, defensive, hold, passive.
+    methods.add_method("stance", |_, this, (player, units, stance): (f64, Vec<f64>, String)| {
+      let units = units.into_iter().map(entity_of).collect::<mlua::Result<Vec<_>>>()?;
+      Ok(crate::combat::set_stance(&mut this.state.borrow_mut(), player, &units, &stance))
     });
     // Встать: путь снимается.
     methods.add_method("stop", |_, this, entity: f64| {

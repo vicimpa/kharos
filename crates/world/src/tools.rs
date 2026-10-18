@@ -14,6 +14,9 @@ pub fn find(name: &str) -> Option<fn(&mut State)> {
       let step = state.dt;
       state.scene().move_units(step)
     }),
+    // Бой (combat): снаряды, стрелки, гибель.
+    "fight" => Some(crate::combat::fight),
+    "rest_turrets" => Some(crate::combat::rest_turrets),
     _ => None,
   }
 }

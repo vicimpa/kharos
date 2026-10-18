@@ -153,6 +153,7 @@ impl App {
     {
       let state = self.game.state.borrow();
       self.renderer.draw_batch(&state.draw, &state.gui.fonts.atlas, &view, true, self.game.palette());
+      self.renderer.draw_glow(&state.glow, &state.gui.fonts.atlas, &view, self.game.palette());
       self.renderer.draw_batch(&state.gui.batch, &state.gui.fonts.atlas, &view, false, self.game.palette());
     }
     // Схема карты новой игры досчитала ряды — в текстуру.
