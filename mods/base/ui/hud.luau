@@ -21,6 +21,7 @@ local missiles = require("lib/missiles")
 local stepsLib = require("lib/steps")
 local depositsLib = require("lib/deposits")
 local levels = require("lib/levels")
+local paving = require("lib/paving")
 
 local clockOf = widgets.clock
 local COLORS, shadow = widgets.COLORS, widgets.shadow
@@ -47,7 +48,13 @@ local CONVERT, CANCEL, DEMOLISH, BACK = 9, 10, 11, 12
 local UPGRADE = 8
 local SWITCH = BACK
 -- Названия инструментов протяжки: стена и ворота — как здание (toolName).
-local TOOL_NAMES = { pipe = "Труба", well = "Колодцы" }
+local TOOL_NAMES = { pipe = "Труба", well = "Колодцы", foundation = paving.TITLES.foundation, road = paving.TITLES.road, remove = paving.TITLES.remove }
+-- Инструменты раздела «Покрытие» и их подсказки (PAVE_TOOLS, grid.toolTips в commands.ts).
+local PAVE_TOOLS = { "foundation", "road" }
+local PAVE_TIPS = {
+	foundation = "Здания на нём строятся вдвое быстрее, на песке он разрешает стройку. Кладётся и под свои здания, и вместо своей дороги. Взрывы его разбивают. Тяни мышью прямоугольник",
+	road = "Наземные едут быстрее; по болоту — мост за " .. paving.BRIDGE_COST .. " за тайл. На дороге не строят; кладётся и вместо своего фундамента. Тяни мышью линию",
+}
 -- С какой доли выработки полная нагрузка сети уже тесна: число энергии на полосе желтеет (GRID_TIGHT).
 local GRID_TIGHT = 0.8
 -- Разделы строителя: в какой странице какое здание; остальное — хозяйство (SECTIONS в commands.ts). Раздел — с
@@ -310,13 +317,22 @@ local function constructionSlots(c, list, selection)
 	end
 	local mode = c.shared.mode
 	local placing = if mode ~= nil and mode.kind == "placing" then mode.building else nil
-	local paving = if mode ~= nil and mode.kind == "paving" then mode.tool else nil
+	local stroking = if mode ~= nil and mode.kind == "paving" then mode.tool else nil
 	-- Трубы и колодцы открывают исследования: раздел «Логистика» — с первым открытым инструментом.
 	local tools = {}
 	for _, tool in { "pipe", "well" } do
 		local kind = c.protos.buildings[tool]
 		if kind and construction.researched(c, c.player, kind.data.research) then
 			table.insert(tools, kind)
+		end
+	end
+	-- Покрытие открывают исследования: раздел — с первым открытым инструментом.
+	local surfaces = {}
+	if paving.enabled(c) then
+		for _, tool in PAVE_TOOLS do
+			if construction.researched(c, c.player, paving.RESEARCH[tool]) then
+				table.insert(surfaces, tool)
+			end
 		end
 	end
 	local free = construction.freeCredits(c, c.player)
@@ -350,6 +366,30 @@ local function constructionSlots(c, list, selection)
 				}
 			end
 		end
+		if #surfaces > 0 then
+			list[#SECTIONS + 1] = {
+				label = "Покрытие",
+				picture = c.protos.icons.roads,
+				title = "Фундамент, дороги и мосты",
+				count = #surfaces,
+				run = function()
+					page.name = "paving"
+				end,
+			}
+		end
+		-- Разбор рамкой — сразу инструмент, без раздела, на месте «Разобрать» здания.
+		if paving.enabled(c) then
+			local active = stroking == "remove"
+			list[DEMOLISH] = {
+				label = paving.TITLES.remove,
+				picture = c.protos.icons.remove,
+				active = active,
+				title = "Строители разберут своё в рамке: покрытие, трубы с колодцами и здания, целиком попавшие в неё (за трубы и здания вернут половину цены); недостроенное отменится с возвратом кредитов. Тяни мышью прямоугольник",
+				run = function()
+					c.shared.mode = if active then nil else { kind = "paving", tool = "remove" }
+				end,
+			}
+		end
 		if #tools > 0 then
 			list[#SECTIONS + 2] = {
 				label = "Логистика",
@@ -363,13 +403,45 @@ local function constructionSlots(c, list, selection)
 		end
 		return
 	end
+	if page.name == "paving" then
+		for i, tool in PAVE_TOOLS do
+			-- Неисследованный инструмент — пустая ячейка: остальные не сдвигаются.
+			if not table.find(surfaces, tool) then
+				continue
+			end
+			local active = stroking == tool
+			local shown = c.shared.paving
+			local cost = if tool == "foundation" then paving.FOUNDATION_COST else paving.ROAD_COST
+			list[i] = {
+				label = paving.TITLES[tool],
+				picture = c.protos.icons[paving.ICONS[tool]],
+				cost = if active and shown and shown.tiles > 1 then shown.cost else cost,
+				title = PAVE_TIPS[tool],
+				active = active,
+				run = function()
+					c.shared.mode = if active then nil else { kind = "paving", tool = tool }
+				end,
+			}
+		end
+		list[BACK] = {
+			label = "Назад",
+			title = "К разделам; Esc отменяет выбор места",
+			run = function()
+				if stroking then
+					c.shared.mode = nil
+				end
+				page.name = "root"
+			end,
+		}
+		return
+	end
 	if page.name == "logistics" then
 		local tips = {
 			pipe = "Связывает в сеть здания, стоящие поодаль (одинаковые здания вплотную связаны и без трубы): по трубам идут груз и энергия, они расширяют зону. Перекрывает проезд — под проездом веди колодцами. Своя зона не нужна. Тяни мышью линию",
 			well = "Колодцы — концы подземной трубы: щелчок ставит один (свяжется с колодцем по прямой), протяжка — пару, до 10 тайлов. Над ней ездят и строят, уязвимы только колодцы. Своя зона не нужна",
 		}
 		for i, kind in tools do
-			local active = paving == kind.name
+			local active = stroking == kind.name
 			local shown = c.shared.paving
 			list[i] = {
 				label = TOOL_NAMES[kind.name] or kind.data.title,
@@ -388,7 +460,7 @@ local function constructionSlots(c, list, selection)
 			label = "Назад",
 			title = "К разделам; Esc отменяет выбор места",
 			run = function()
-				if paving then
+				if stroking then
 					c.shared.mode = nil
 				end
 				page.name = "root"
@@ -429,7 +501,7 @@ local function constructionSlots(c, list, selection)
 		-- Стену и ворота не ставят по одной, а тянут мышью линией, как трубу: их кнопка включает протяжку (wallSlot).
 		if kind.name == "wall" or kind.name == "gate" then
 			local slot = list[index]
-			local active = paving == kind.name
+			local active = stroking == kind.name
 			local shown = c.shared.paving
 			slot.active = active
 			slot.cost = if active and shown and shown.tiles > 1 then shown.cost else kind.data.cost
@@ -443,7 +515,7 @@ local function constructionSlots(c, list, selection)
 		label = "Назад",
 		title = "К разделам; Esc отменяет выбор места",
 		run = function()
-			if placing or paving then
+			if placing or stroking then
 				c.shared.mode = nil
 			end
 			page.name = "root"
@@ -1863,9 +1935,14 @@ local function modeBar(c)
 			if mode.kind == "paving" then
 				local tool = c.protos.buildings[mode.tool]
 				name = TOOL_NAMES[mode.tool] or (tool and tool.data.title) or mode.tool
-				local paving = c.shared.paving
-				if paving and paving.tiles > 0 then
-					tip = "Тяни по карте: " .. paving.tiles .. " тайл., " .. paving.cost .. " кредитов"
+				local shown = c.shared.paving
+				if shown and shown.tiles > 0 then
+					tip = "Тяни по карте: " .. shown.tiles .. " тайл., " .. shown.cost .. " кредитов"
+					if (shown.short or 0) > 0 then
+						tip ..= "; на " .. shown.short .. " тайл. не хватает кредитов — они жёлтые"
+					end
+				elseif mode.tool == "remove" then
+					tip = "Тяни рамку по тому, что разобрать"
 				end
 			end
 			ui:text((string.gsub(spec.name, "{name}", name)), { color = COLORS.team })
@@ -1928,6 +2005,9 @@ local function rewards(c)
 			end
 			for _, other in units do
 				table.insert(opens, other.data.title)
+			end
+			for _, kind in paving.opens(toast.topic) do
+				table.insert(opens, paving.TITLES[kind])
 			end
 			local id = "learned:" .. i
 			if ui:button(id, { skin = "panel", direction = "column", align = "center", gap = 2, padding = { 10, 16 }, alpha = if left > 0.2 then 1 else math.round((0.3 + (left / 0.2) * 0.7) * 8) / 8 }, function()

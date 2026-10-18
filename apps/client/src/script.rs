@@ -766,6 +766,23 @@ impl UserData for Ctx {
       let world = state.world.borrow();
       Ok(world.vision.as_ref().is_none_or(|vision| vision.explored(state.player, x, y)))
     });
+    // Слои карты — как ctx:layer и ctx:layer_in: значение канала тайла и непустые тайлы прямоугольника (x, y,
+    // значение подряд).
+    methods.add_method("layer", |_, c, (name, x, y, channel): (String, f64, f64, Option<usize>)| {
+      let state = c.state.borrow();
+      let world = state.world.borrow();
+      let id = kharos_world::tiles::id(&world.layers, &name)?;
+      let channel = kharos_world::tiles::channel(&world.layers, id, channel)?;
+      Ok(world.layers.get(id, kharos_engine::layers::Owner::World, x.floor() as i32, y.floor() as i32, channel))
+    });
+    methods.add_method("layer_in", |_, c, (name, x, y, width, height, channel): (String, f64, f64, f64, f64, Option<usize>)| {
+      let state = c.state.borrow();
+      let world = state.world.borrow();
+      let id = kharos_world::tiles::id(&world.layers, &name)?;
+      let channel = kharos_world::tiles::channel(&world.layers, id, channel)?;
+      let (left, top) = (x.floor() as i32, y.floor() as i32);
+      Ok(kharos_world::tiles::within(&world.layers, id, channel, left, top, left + width.ceil() as i32, top + height.ceil() as i32))
+    });
     // Случайное число 0..1 от координат и сида — тот же hash, что у генератора местности и погоды в TS.
     methods.add_function("hash", |_, (x, y, seed): (f64, f64, f64)| Ok(kharos_engine::terrain::hash(x, y, seed)));
     // Сущности с Position в прямоугольнике мира и со всеми компонентами списка.

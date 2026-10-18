@@ -46,8 +46,9 @@ impl View {
   }
 }
 
-/// Слоёв спрайтов: на земле, наземные, их турели, здания, турели зданий, летающие, их турели.
-pub const LAYERS: usize = 7;
+/// Слоёв спрайтов: на земле, наземные, их турели, здания, турели зданий, летающие, их турели и покрытие — оно
+/// рисуется первым, под следами.
+pub const LAYERS: usize = 8;
 /// Чисел на спрайт: левый верхний угол и размер в тайлах (от камеры), uv кадра, сторона, сдвиг и сила тени, серость,
 /// оттенок r, g, b, a с предумноженной альфой — на него умножается картинка (sprites.ts): (1, 1, 1, 1) — как есть.
 pub const SPRITE: usize = 16;
@@ -742,6 +743,13 @@ impl Renderer {
       gl.active_texture(glow::TEXTURE0);
       gl.disable(glow::BLEND);
       self.terrain(view, frame, size);
+      // Покрытие лежит на земле: под следами, без теней.
+      let pave = crate::atlas::Layer::Pave as usize;
+      if !frame.layers[pave].is_empty() {
+        gl.enable(glow::BLEND);
+        gl.blend_func(glow::ONE, glow::ONE_MINUS_SRC_ALPHA);
+        self.sprites(view, frame, pave..pave + 1, 0);
+      }
       // Следы — над землёй и под юнитами, до освещения: ночью темнеют вместе с землёй.
       if !frame.decals.is_empty() {
         gl.enable(glow::BLEND);
@@ -760,7 +768,7 @@ impl Renderer {
       // 'alpha' в TS): так чертёж и призраки просвечивают, как в buildingsPass.ts.
       gl.enable(glow::BLEND);
       gl.blend_func(glow::ONE, glow::ONE_MINUS_SRC_ALPHA);
-      for layer in 0..LAYERS {
+      for layer in 0..pave {
         if layer > 0 {
           self.sprites(view, frame, layer..layer + 1, 1);
         }

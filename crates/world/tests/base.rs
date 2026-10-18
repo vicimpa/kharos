@@ -712,7 +712,7 @@ fn earned_over(host: &mut Host, count: usize) -> f64 {
 fn power_plant_feeds_matter_income_follows_power_and_accumulator_covers_the_gap() {
   // Без дерева технологий: накопитель открыт и без исследования; остальные правила — как в игре.
   let mods = discover(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods")).unwrap();
-  let rules = json!({ "techTree": false, "repairSpeed": 2, "repairCost": 0.5, "repairPause": 3, "vehicleSand": 0.1, "vehicleSwamp": 0.8, "heavySand": 0, "heavySwamp": 0.5, "infantrySand": 0, "infantrySwamp": 0.5, "infantryCliff": 0.7, "frozenSwamp": 0.25, "toxicSwamp": 0.01 });
+  let rules = json!({ "techTree": false, "repairSpeed": 2, "repairCost": 0.5, "repairPause": 3, "vehicleSand": 0.1, "vehicleSwamp": 0.8, "heavySand": 0, "heavySwamp": 0.5, "infantrySand": 0, "infantrySwamp": 0.5, "infantryCliff": 0.7, "frozenSwamp": 0.25, "toxicSwamp": 0.01, "surface": "paving", "surfaceSpeeds": [1.2, 1.5] });
   let mut host = Host::new(mods, None, 7, &json!({ "rules": rules })).unwrap();
   host.start().unwrap();
   host.join(1).unwrap();
@@ -800,7 +800,7 @@ fn power_plant_feeds_matter_income_follows_power_and_accumulator_covers_the_gap(
 /// Хост без дерева технологий: шахта и плавильня открыты без исследований.
 fn host_without_tech() -> Host {
   let mods = discover(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods")).unwrap();
-  let rules = json!({ "techTree": false, "repairSpeed": 2, "repairCost": 0.5, "repairPause": 3, "vehicleSand": 0.1, "vehicleSwamp": 0.8, "heavySand": 0, "heavySwamp": 0.5, "infantrySand": 0, "infantrySwamp": 0.5, "infantryCliff": 0.7, "frozenSwamp": 0.25, "toxicSwamp": 0.01 });
+  let rules = json!({ "techTree": false, "repairSpeed": 2, "repairCost": 0.5, "repairPause": 3, "vehicleSand": 0.1, "vehicleSwamp": 0.8, "heavySand": 0, "heavySwamp": 0.5, "infantrySand": 0, "infantrySwamp": 0.5, "infantryCliff": 0.7, "frozenSwamp": 0.25, "toxicSwamp": 0.01, "surface": "paving", "surfaceSpeeds": [1.2, 1.5] });
   let mut host = Host::new(mods, None, 7, &json!({ "rules": rules })).unwrap();
   host.start().unwrap();
   host.join(1).unwrap();
@@ -1629,4 +1629,86 @@ fn builders_raise_building_levels_for_credits_and_blocks_from_the_grid() {
   finish(&mut host, yard);
   assert_eq!(level(&host, yard), 2.0);
   assert_eq!(get(&host, yard, "Inventory").unwrap()["capacity"], json!(300.0));
+}
+
+/// Канал тайла слоя карты.
+fn layer(host: &Host, name: &str, x: i32, y: i32, channel: usize) -> f64 {
+  let state = host.state.borrow();
+  let id = state.layers.id(name).unwrap();
+  state.layers.get(id, kharos_engine::layers::Owner::World, x, y, channel)
+}
+
+/// Тикает, пока работы над покрытием не кончатся.
+fn paved_out(host: &mut Host) {
+  for _ in 0..20 * 120 {
+    host.tick(0.05).unwrap();
+    if all(host, "Pave").is_empty() {
+      return;
+    }
+  }
+  panic!("покрытие не доделано: {:?}", all(host, "Pave"));
+}
+
+#[test]
+fn builders_lay_road_and_foundation_that_speed_units_and_take_them_up_again() {
+  let mut host = host_without_tech();
+  let (_, site, builder) = base_with_builder(&mut host);
+  let player = all(&host, "Player")[0].0;
+  set(&host, player, "Player", json!({ "credits": 5000 }));
+  let (x, y) = free_spot(&host, site, 5);
+  // Дорога линией в пять тайлов: платят сразу по 5 за тайл, повтор тайла в протяжке не кладут дважды.
+  ticks(&mut host, 2);
+  let before = credits(&host);
+  let road: Vec<i32> = (0..5).flat_map(|i| [x + i, y]).chain([x, y]).collect();
+  host.send(1, "pave", json!({ "kind": "road", "tiles": road, "builders": [builder] }));
+  host.tick(0.05).unwrap();
+  assert_eq!(all(&host, "Pave").len(), 5, "{:?} {:?}", all(&host, "Pave"), (x, y));
+  assert!((before - credits(&host) - 25.0).abs() < 1e-9, "списано {}", before - credits(&host));
+  paved_out(&mut host);
+  assert!((0..5).all(|i| layer(&host, "paving", x + i, y, 0) == 2.0 && layer(&host, "paving", x + i, y, 1) == 1.0), "дорога в слое");
+  // По дороге колёсные быстрее в полтора раза, а широкому полосы в тайл мало; гусеничным всё равно.
+  {
+    let mut state = host.state.borrow_mut();
+    let mut scene = state.scene();
+    assert_eq!(scene.terrain_speed("vehicle", 0.4, x + 2, y), 1.5);
+    assert_eq!(scene.terrain_speed("vehicle", 0.7, x + 2, y), 1.0);
+    assert_eq!(scene.terrain_speed("heavy", 0.4, x + 2, y), 1.0);
+  }
+  // На дороге не строят.
+  let sites = all(&host, "Site").len();
+  host.send(1, "build", json!({ "building": "wall", "x": x + 1, "y": y, "builders": [builder] }));
+  host.tick(0.05).unwrap();
+  assert_eq!(all(&host, "Site").len(), sites, "стена на дороге");
+  // Фундамент прямоугольником 2 × 2: вместо своей дороги тоже кладут, прежняя действует, пока новое не готово.
+  let slab = vec![x, y, x + 1, y, x, y + 1, x + 1, y + 1];
+  host.send(1, "pave", json!({ "kind": "foundation", "tiles": slab, "builders": [builder] }));
+  host.tick(0.05).unwrap();
+  assert_eq!(all(&host, "Pave").len(), 4);
+  assert_eq!(layer(&host, "paving", x, y, 0), 2.0, "дорога, пока кладут фундамент");
+  paved_out(&mut host);
+  assert!([(x, y), (x + 1, y), (x, y + 1), (x + 1, y + 1)].iter().all(|&(tx, ty)| layer(&host, "paving", tx, ty, 0) == 1.0));
+  assert_eq!(layer(&host, "paving", x + 2, y, 0), 2.0);
+  // Сохранение уносит слой.
+  let snapshot = host.snapshot().unwrap();
+  let mut copy = host_without_tech();
+  copy.restore(&snapshot).unwrap();
+  assert_eq!(layer(&copy, "paving", x + 3, y, 0), 2.0);
+  assert_eq!(layer(&copy, "paving", x + 1, y + 1, 0), 1.0);
+  // Наземный взрыв разбивает плиты в своём радиусе, дорогу — нет.
+  host.emit("blast", json!({ "x": x as f64 + 0.5, "y": y as f64 + 0.5, "size": 1.0 })).unwrap();
+  assert_eq!(layer(&host, "paving", x, y, 0), 0.0, "плита разбита");
+  assert_eq!(layer(&host, "paving", x + 1, y + 1, 0), 1.0, "дальняя цела");
+  // «Снять» рамкой: строители разбирают готовое покрытие без возврата; недостроенное отменяется с возвратом.
+  host.send(1, "pave", json!({ "kind": "road", "tiles": [x, y + 3], "builders": [] }));
+  host.tick(0.05).unwrap();
+  let before = credits(&host);
+  let frame: Vec<i32> = (0..4).flat_map(|ty| (0..5).flat_map(move |tx| [x + tx, y + ty])).collect();
+  host.send(1, "remove", json!({ "tiles": frame, "builders": [builder] }));
+  host.tick(0.05).unwrap();
+  assert!((credits(&host) - before - 5.0).abs() < 1e-9, "недостроенная дорога вернула цену");
+  assert!(all(&host, "Pave").iter().all(|(_, pave)| pave["remove"] == json!(true)));
+  assert_eq!(layer(&host, "paving", x + 4, y, 0), 2.0, "покрытие действует, пока его разбирают");
+  paved_out(&mut host);
+  assert!((0..5).all(|i| layer(&host, "paving", x + i, y, 0) == 0.0 && layer(&host, "paving", x + i, y + 1, 0) == 0.0), "разобрано");
+  assert!((credits(&host) - before - 5.0).abs() < 1e-9, "за готовое покрытие не возвращают");
 }

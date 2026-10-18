@@ -10,6 +10,7 @@ local conversion = require("lib/conversion")
 local depositsLib = require("lib/deposits")
 local trade = require("lib/trade")
 local levels = require("lib/levels")
+local surface = require("lib/surface")
 
 local construction = {}
 
@@ -426,14 +427,15 @@ function construction.repairCostOf(cost: number, health: number, share: number, 
 	return math.ceil(cost * share * ((max or 1) - health))
 end
 
--- Предел прочности здания на этом месте: оборона на песке без фундамента — SAND_DURABILITY (durabilityOf).
+-- Предел прочности здания на этом месте: оборона на песке без фундамента — SAND_DURABILITY (durabilityOf); для
+-- многотайловой обороны достаточно одного песчаного тайла под основанием.
 function construction.durabilityOf(w, kind, x: number, y: number): number
 	if not kind.data.defense then
 		return 1
 	end
 	for tileY = y, y + kind.data.height - 1 do
 		for tileX = x, x + kind.data.width - 1 do
-			if w:terrain(tileX, tileY) == SAND then
+			if w:terrain(tileX, tileY) == SAND and not surface.isPaved(w, "foundation", tileX, tileY) then
 				return construction.SAND_DURABILITY
 			end
 		end

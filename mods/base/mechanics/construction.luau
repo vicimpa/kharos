@@ -15,7 +15,11 @@
 -- Улучшение здания (Upgrade, mechanics/upgrades) — тоже работа строителей: оплачено сразу и ничего не ждёт;
 -- повреждённое сначала чинят, станция его не делает.
 --
--- Пока нет: покрытия и землеройных работ.
+-- Покрытие (lib/paving) — тоже работа строителей: тайл фундамента или дороги оплачен сразу и ничего не ждёт; готовое
+-- уходит в слой карты, разбор снимает его оттуда. Фундамент под основанием ускоряет стройку (buildSpeed). Инструмент
+-- «Снять» разбирает рамкой покрытие, трубы и здания.
+--
+-- Пока нет: землеройных работ.
 
 local construction = require("lib/construction")
 local placement = require("lib/placement")
@@ -29,6 +33,7 @@ local economy = require("lib/economy")
 local logistics = require("lib/logistics")
 local drops = require("lib/drops")
 local levels = require("lib/levels")
+local paving = require("lib/paving")
 
 local readf64, writef64 = buffer.readf64, buffer.writef64
 
@@ -61,6 +66,9 @@ mechanic.components = {
 	-- Строит, разбирает и чинит в радиусе radius со скоростью rate; target — над чем работает сейчас (-1 — ни над
 	-- чем), working — работа идёт: смотрит на цель, и она не стоит (луч у клиента).
 	Repair = { radius = 5, rate = 1, target = -1, working = false },
+	-- Работа над покрытием тайла (lib/paving): kind — foundation или road; work — тиков работы одного строителя:
+	-- у укладки — сделано, у разбора — осталось; done — покрытие готово (у разбора), remove — его разбирают.
+	Pave = { kind = "road", work = 0, done = false, remove = false },
 }
 
 local TURN = math.pi * 2
@@ -118,6 +126,15 @@ end
 local function workAt(ctx, e: number): Work?
 	if not ctx:alive(e) then
 		return nil
+	end
+	-- Покрытие: тайл, который кладут или разбирают.
+	local pave = ctx:get(e, "Pave")
+	if pave then
+		if pave.done and not pave.remove then
+			return nil
+		end
+		local x, y = paving.tileOf(ctx, e)
+		return { x = x, y = y, width = 1, height = 1, radius = 0, cost = paving.cost(ctx, pave.kind, x, y) }
 	end
 	local kind = kinds.of(ctx, e)
 	if not kind or not ctx:has(e, "Position") then
@@ -277,9 +294,9 @@ end
 local isBusy = queue.busyBuilder
 
 -- Стоит ли работа, хотя ремонтник до неё дотянулся: стройка вне зоны или с юнитами на ещё пустой площадке, починка —
--- без кредитов (isStalled). Улучшение оплачено сразу и ничего не ждёт.
+-- без кредитов (isStalled). Покрытие и улучшение оплачены сразу и ничего не ждут.
 local function isStalled(ctx, e: number, rules, purse, all): boolean
-	if upgradeAt(ctx, e) then
+	if ctx:has(e, "Pave") or upgradeAt(ctx, e) then
 		return false
 	end
 	local site = ctx:get(e, "Site")
@@ -355,6 +372,12 @@ local function repairLinks(ctx, rules, purse, all): { Link }
 			table.insert(targets, { entity = e, work = work, player = ownerOf(ctx, e), demolish = ctx:get(e, "Site").demolish })
 		end
 	end
+	for _, e in ctx:each({ "Pave", "Position", "Owner" }) do
+		local work = workAt(ctx, e)
+		if work then
+			table.insert(targets, { entity = e, work = work, player = ownerOf(ctx, e), demolish = ctx:get(e, "Pave").remove })
+		end
+	end
 	for _, e in ctx:each({ "Upgrade", "Position", "Owner" }) do
 		local work = upgradeAt(ctx, e) and workAt(ctx, e)
 		if work then
@@ -388,8 +411,8 @@ local function repairLinks(ctx, rules, purse, all): { Link }
 			if target.player ~= repairer.player or target.entity == repairer.carrier then
 				continue
 			end
-			-- Станция только чинит: стройки, разбор и улучшение — работа строителя.
-			if repairer.station and (target.upgrade or ctx:has(target.entity, "Site")) then
+			-- Станция только чинит: стройки, покрытие, разбор и улучшение — работа строителя.
+			if repairer.station and (target.upgrade or ctx:has(target.entity, "Site") or ctx:has(target.entity, "Pave")) then
 				continue
 			end
 			if target.ordered and repairer.site ~= target.entity then
@@ -427,12 +450,15 @@ local function repairLinks(ctx, rules, purse, all): { Link }
 	return links
 end
 
--- Новые площадки по приказу игрока: с основания уходят свои, к ней едут строители, которых дали.
+-- Новые площадки по приказу игрока: с основания уходят свои, к ней едут строители, которых дали. Покрытие тайлов
+-- не занимает, и уходить с него незачем.
 local function laid(ctx, player: number, site: number, builders: { number })
 	if not ctx:alive(site) then
 		return
 	end
-	clearSite(ctx, site, true)
+	if ctx:has(site, "Site") then
+		clearSite(ctx, site, true)
+	end
 	assignBuilders(ctx, player, site, builders, true)
 end
 
@@ -469,6 +495,13 @@ local function volunteer(ctx, rules, all)
 		if work then
 			local site = ctx:get(e, "Site")
 			table.insert(sites, { entity = e, work = work, player = ownerOf(ctx, e), kind = if site.demolish then nil else kinds.of(ctx, e) })
+		end
+	end
+	-- Покрытие зоны не ждёт: строители переходят с тайла на соседний сами.
+	for _, e in ctx:each({ "Pave", "Position", "Owner" }) do
+		local work = workAt(ctx, e)
+		if work then
+			table.insert(sites, { entity = e, work = work, player = ownerOf(ctx, e) })
 		end
 	end
 	for _, e in ctx:each({ "Upgrade", "Position", "Owner" }) do
@@ -659,7 +692,178 @@ local function strokeTiles(list): { number }?
 	return if #tiles >= 2 then tiles else nil
 end
 
+-- Строители протяжки: свои юниты из списка; без Shift занятые делом игрока (busy) получат работу в очередь, а
+-- свободные (free) поедут сразу; с Shift (queued) в очередь встаёт всем (lay в commands.ts).
+local function split(ctx, player: number, list, queued: boolean): ({ number }, { number })
+	local free, busy = {}, {}
+	for _, e in (if type(list) == "table" then list else {}) do
+		if type(e) == "number" and ctx:alive(e) and ctx:has(e, "Unit") and isOwn(ctx, player, e) and not table.find(free, e) and not table.find(busy, e) then
+			table.insert(if queued or isBusy(ctx, e) then busy else free, e)
+		end
+	end
+	return free, busy
+end
+
+-- Работа заложена: свободные едут к первой, занятым она встаёт в очередь.
+local function dispatch(ctx, player: number, first: number, free: { number }, busy: { number })
+	if #busy > 0 then
+		queue.push(ctx, player, "assist", { site = first }, busy)
+	end
+	ctx:emit("laid", { site = first, player = player, builders = free })
+end
+
+-- Отменяет стройку (cancelBuild). Не начатая исчезает сразу; начатая разбирается, и уплаченное за неё возвращается по
+-- ходу разбора; отмена разбора оставляет здание целым. Разбор отменённой стройки не отменить. Возвращает, стала ли
+-- стройка работой — разбором начатого.
+local function cancelSite(ctx, site: number): boolean
+	local state = ctx:get(site, "Site")
+	if not state or state.undo then
+		return false
+	end
+	if state.demolish then
+		ctx:remove(site, "Site")
+		-- Разбор отменён: здание снова в сети.
+		local link = buildings.link(kinds.of(ctx, site))
+		if link then
+			ctx:add(site, "Link", link)
+		end
+		return false
+	elseif ctx:has(site, "Footprint") then
+		ctx:set(site, "Site", { demolish = true, undo = true })
+		-- Разбираемое материалов уже не ждёт.
+		if ctx:has(site, "Link") then
+			ctx:remove(site, "Link")
+		end
+		return true
+	end
+	-- Привезённые материалы остаются на земле.
+	drops.cargo(ctx, site)
+	ctx:destroy(site)
+	return false
+end
+
+-- Начинает разбор своего готового здания (demolish): разбирают строители, быстрее, чем строят; половина цены
+-- вернётся, когда разберут. С этого момента здание не работает и зону не расширяет.
+local function demolishBuilding(ctx, player: number, building: number): boolean
+	if not ctx:alive(building) or not construction.canDemolish(ctx, player, building) then
+		return false
+	end
+	-- Недоделанное улучшение разбор отменяет: его цена возвращается целиком.
+	levels.cancel(ctx, player, building)
+	local total = construction.siteTicks(kinds.of(ctx, building), ctx.dt)
+	ctx:add(building, "Site", { progress = total, total = total, demolish = true })
+	ctx:remove(building, "Link")
+	return true
+end
+
 mechanic.commands = {
+	-- { kind, tiles, builders, queue } — заложить покрытие (foundation, road) в тайлы x, y подряд и послать к нему
+	-- строителей (orderPave). Платят за каждый тайл сразу; на что не хватило кредитов и куда нельзя — не кладут.
+	-- Дальше по соседним тайлам строители пойдут сами.
+	pave = function(ctx, player, args)
+		local tiles = strokeTiles(args.tiles)
+		local kind = args.kind
+		if not tiles or type(kind) ~= "string" or not paving.CODE[kind] then
+			return
+		end
+		local free, busy = split(ctx, player, args.builders, args.queue == true)
+		local purse = wallet.purse(ctx)
+		local all = zones.all(ctx)
+		local first, taken = nil, {}
+		for i = 1, #tiles - 1, 2 do
+			local x, y = tiles[i], tiles[i + 1]
+			local key = x .. ":" .. y
+			if taken[key] or not paving.canPave(ctx, player, kind, x, y, all) or not wallet.spend(purse, player, paving.cost(ctx, kind, x, y)) then
+				continue
+			end
+			taken[key] = true
+			local e = paving.open(ctx, player, x, y, { kind = kind })
+			first = first or e
+		end
+		wallet.flush(purse)
+		if first then
+			dispatch(ctx, player, first, free, busy)
+		end
+	end,
+
+	-- { tiles, builders, queue } — снять своё на тайлах (removePave): покрытие, трубы с колодцами и здания, основание
+	-- которых целиком попало в тайлы (главное здание не разбирают — его сворачивают). Недостроенное покрытие и не
+	-- начатые стройки отменяются сразу, с возвратом кредитов целиком; готовое покрытие строители разбирают без
+	-- возврата, готовые трубы и здания — с возвратом половины цены. Без своих строителей не снимают ничего.
+	remove = function(ctx, player, args)
+		local tiles = strokeTiles(args.tiles)
+		if not tiles then
+			return
+		end
+		local free, busy = split(ctx, player, args.builders, args.queue == true)
+		local any = false
+		for _, e in table.move(busy, 1, #busy, #free + 1, table.clone(free)) do
+			any = any or ctx:has(e, "Repair")
+		end
+		if not any then
+			return
+		end
+		local covered = {}
+		for i = 1, #tiles - 1, 2 do
+			covered[tiles[i] .. ":" .. tiles[i + 1]] = true
+		end
+		local core = conversion.building(ctx)
+		local purse = wallet.purse(ctx)
+		local first = nil
+		local taken, seen = {}, {}
+		for i = 1, #tiles - 1, 2 do
+			local x, y = tiles[i], tiles[i + 1]
+			-- Трубу снимают, даже если рамка задела её одним тайлом: она сама в тайл.
+			local pipe = construction.pipeAt(ctx, player, x, y)
+			if pipe and not seen[pipe] then
+				seen[pipe] = true
+				table.insert(taken, pipe)
+			end
+			local building = paving.buildingWithin(ctx, player, x, y, covered, core)
+			if building and not seen[building] then
+				seen[building] = true
+				table.insert(taken, building)
+			end
+			local e = paving.at(ctx, x, y)
+			if e then
+				if not isOwn(ctx, player, e) then
+					continue
+				end
+				local pave = ctx:get(e, "Pave")
+				if not pave.done then
+					wallet.add(purse, player, paving.cost(ctx, pave.kind, x, y))
+					paving.forget(ctx, e)
+					continue
+				end
+				ctx:set(e, "Pave", { remove = true })
+				first = first or e
+				continue
+			end
+			-- Готовое покрытие разбирают строители: на тайле заводится работа разбора, а покрытие действует, пока она идёт.
+			local kind, owner = paving.laid(ctx, x, y)
+			if not kind or owner ~= player then
+				continue
+			end
+			local work = construction.workTicks(paving.cost(ctx, kind, x, y), ctx.dt)
+			local e = paving.open(ctx, player, x, y, { kind = kind, work = work, done = true, remove = true })
+			first = first or e
+		end
+		wallet.flush(purse)
+		for _, e in taken do
+			-- Стройку отменяют: площадка исчезает сразу, недостроенное строители разбирают, как и готовое.
+			if ctx:has(e, "Site") then
+				if cancelSite(ctx, e) then
+					first = first or e
+				end
+			elseif demolishBuilding(ctx, player, e) then
+				first = first or e
+			end
+		end
+		if first then
+			dispatch(ctx, player, first, free, busy)
+		end
+	end,
+
 	-- { tiles, builders } — протянутая наземная труба (x, y подряд, по порядку протяжки). Свой колодец на пути заменяется
 	-- трубой; куда нельзя — не кладут. Платят по ходу стройки.
 	pipes = function(ctx, player, args)
@@ -746,30 +950,8 @@ mechanic.commands = {
 	-- возвращается по ходу разбора; отмена разбора оставляет здание целым. Разбор отменённой стройки не отменить.
 	cancelBuild = function(ctx, player, args)
 		local site = args.site
-		if type(site) ~= "number" or not isOwn(ctx, player, site) then
-			return
-		end
-		local state = ctx:get(site, "Site")
-		if not state or state.undo then
-			return
-		end
-		if state.demolish then
-			ctx:remove(site, "Site")
-			-- Разбор отменён: здание снова в сети.
-			local link = buildings.link(kinds.of(ctx, site))
-			if link then
-				ctx:add(site, "Link", link)
-			end
-		elseif ctx:has(site, "Footprint") then
-			ctx:set(site, "Site", { demolish = true, undo = true })
-			-- Разбираемое материалов уже не ждёт.
-			if ctx:has(site, "Link") then
-				ctx:remove(site, "Link")
-			end
-		else
-			-- Привезённые материалы остаются на земле.
-			drops.cargo(ctx, site)
-			ctx:destroy(site)
+		if type(site) == "number" and isOwn(ctx, player, site) then
+			cancelSite(ctx, site)
 		end
 	end,
 
@@ -777,15 +959,9 @@ mechanic.commands = {
 	-- половина цены вернётся, когда разберут. С этого момента здание не работает и зону не расширяет.
 	demolish = function(ctx, player, args)
 		local building = args.building
-		if type(building) ~= "number" or not ctx:alive(building) or not construction.canDemolish(ctx, player, building) then
-			return
+		if type(building) == "number" and demolishBuilding(ctx, player, building) then
+			ctx:emit("laid", { site = building, player = player, builders = if type(args.builders) == "table" then args.builders else {} })
 		end
-		-- Недоделанное улучшение разбор отменяет: его цена возвращается целиком.
-		levels.cancel(ctx, player, building)
-		local total = construction.siteTicks(kinds.of(ctx, building), ctx.dt)
-		ctx:add(building, "Site", { progress = total, total = total, demolish = true })
-		ctx:remove(building, "Link")
-		ctx:emit("laid", { site = building, player = player, builders = if type(args.builders) == "table" then args.builders else {} })
 	end,
 }
 
@@ -798,6 +974,10 @@ mechanic.on = {
 		if assignBuilders(ctx, event.player, event.site, event.units, true) then
 			conversion.forget(ctx, event.units)
 		end
+	end,
+	-- Наземный взрыв боя разбивает плиты фундамента.
+	blast = function(ctx, event)
+		paving.breakSlabs(ctx, event.x, event.y, event.size)
 	end,
 }
 
@@ -887,6 +1067,30 @@ mechanic.systems = {
 			table.sort(worked)
 			for _, e in worked do
 				local count = done[e]
+				local pave = ctx:get(e, "Pave")
+				if pave then
+					local x, y = paving.tileOf(ctx, e)
+					if pave.remove then
+						-- Разбирают: покрытие действует, пока работа не кончится, потом уходит с тайла вместе с ней.
+						local work = pave.work - count * construction.DEMOLISH_SPEED
+						if work > 0 then
+							ctx:set(e, "Pave", { work = work })
+						else
+							paving.lift(ctx, x, y)
+							paving.forget(ctx, e)
+						end
+						continue
+					end
+					local work = pave.work + count
+					if work < construction.workTicks(paving.cost(ctx, pave.kind, x, y), dt) then
+						ctx:set(e, "Pave", { work = work })
+					else
+						-- Уложили: тайл становится готовым покрытием хозяина работы (settlePave).
+						paving.lay(ctx, x, y, pave.kind, ownerOf(ctx, e))
+						paving.forget(ctx, e)
+					end
+					continue
+				end
 				local kind = kinds.of(ctx, e)
 				local site = ctx:get(e, "Site")
 				local player = ownerOf(ctx, e)
@@ -956,9 +1160,9 @@ mechanic.systems = {
 				end
 				-- Прочность недостроенного — доля построенного: урон откатывает стройку, и разбитое строят и оплачивают
 				-- заново. Платят по ходу: за каждую построенную долю — та же доля цены; кончились кредиты — стоит.
-				-- Дальше привезённых материалов стройка не идёт.
+				-- Дальше привезённых материалов стройка не идёт. Фундамент под основанием меняет скорость стройки.
 				local progress = math.min(site.progress, total * health.value / health.max)
-				local reached = math.min(progress + count, total, total * construction.materialShare(ctx, e))
+				local reached = math.min(progress + count * paving.buildSpeed(ctx, kind, x, y), total, total * construction.materialShare(ctx, e))
 				if reached > progress and wallet.spend(purse, player, (reached - progress) / total * kind.data.cost) then
 					progress = reached
 				end

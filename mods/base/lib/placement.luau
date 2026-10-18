@@ -1,7 +1,10 @@
 --!strict
 -- Место под здание — перенос canPlace из buildings.ts: внутри карты, на скале (оборону и трубы — и на песке), не у
 -- подножия обрыва, тайлы и полоса gap вокруг не заняты зданиями. Годится и хосту (ctx), и клиенту (c): обоим нужны
--- только :terrain, :occupant, :each и game.data.size. Фундамента и дорог пока нет — они придут с покрытием.
+-- только :terrain, :occupant, :each, :layer и game.data.size. Готовый фундамент делает песок пригодным для любого
+-- здания; на дороге — и на той, что кладут, — не строят ничего (lib/surface).
+
+local surface = require("lib/surface")
 
 local placement = {}
 
@@ -24,7 +27,11 @@ function placement.canPlace(w, kind, x: number, y: number, gap: number?): boolea
 		for tileX = x, x + width - 1 do
 			local terrain, _, foot = w:terrain(tileX, tileY)
 			-- У подножия обрыва стоит его стенка: здание на ней смотрелось бы как танк на стене.
-			if terrain and (foot or not (terrain == ROCK or (sandy and terrain == SAND))) then
+			if terrain and (foot or not (terrain == ROCK or (sandy and terrain == SAND) or (terrain == SAND and surface.isPaved(w, "foundation", tileX, tileY)))) then
+				return false
+			end
+			-- Дорога — для транспорта: на ней и на той, что кладут, не строят ничего, даже трубу.
+			if surface.isRoadway(w, tileX, tileY) then
 				return false
 			end
 		end

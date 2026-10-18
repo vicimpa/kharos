@@ -938,8 +938,8 @@ fn collect_domes(cols: &Cols, world: &World, tick: u64) -> Vec<Dome> {
 pub fn fight(state: &mut State) {
   let (tick, step) = (state.tick, state.dt);
   let bounds = state.vision.as_ref().map(|vision| vision.bounds);
-  let State { world, land, motion, rules, weapons, signals, events, .. } = state;
-  let mut scene = Scene { world, land: land.as_mut(), motion, bounds, rules };
+  let State { world, land, motion, rules, weapons, signals, events, layers, .. } = state;
+  let mut scene = Scene { world, land: land.as_mut(), motion, bounds, rules, layers, tick };
   let cols = Cols::of(scene.world);
   let (marks, index) = collect_marks(&cols, scene.world);
   let grid = Grid::new(&marks);
@@ -1443,12 +1443,13 @@ fn finish(scene: &mut Scene, fight: &mut Fight, step: f64, events: &mut Vec<(Str
     scene.world.destroy(entity);
   }
 
-  // Болото красных пустошей жжёт стоящих в нём наземных юнитов.
+  // Болото красных пустошей жжёт стоящих в нём наземных юнитов; мост над ним — покрытие — не жжёт.
   let burn = scene.rules.get("toxicSwamp") * step;
   if burn > 0.0 {
+    let paved: Vec<bool> = fight.marks.iter().map(|mark| scene.paved(mark.x.floor() as i32, mark.y.floor() as i32) != 0).collect();
     if let Some(land) = scene.land.as_deref_mut() {
-      for mark in fight.marks.iter_mut() {
-        if mark.air || mark.radius == 0.0 || fight.dead_set.contains(&mark.entity) {
+      for (at, mark) in fight.marks.iter_mut().enumerate() {
+        if mark.air || mark.radius == 0.0 || fight.dead_set.contains(&mark.entity) || paved[at] {
           continue;
         }
         let [terrain, biome, ..] = land.tile(mark.x.floor() as i32, mark.y.floor() as i32);
@@ -1504,6 +1505,8 @@ fn finish(scene: &mut Scene, fight: &mut Fight, step: f64, events: &mut Vec<(Str
     spawn(scene.world, vec![(position, json!({ "x": item.x, "y": item.y })), (blast, json!({ "size": item.size, "life": blast_life(item.size, step) }))]);
     if item.ground {
       fight.signal("scar", json!({ "x": item.x, "y": item.y, "size": item.size }));
+      // Механикам: наземный взрыв разбивает то, что лежит на земле (плиты фундамента).
+      events.push(("blast".to_owned(), json!({ "x": item.x, "y": item.y, "size": item.size })));
     }
   }
 }

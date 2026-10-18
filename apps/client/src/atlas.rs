@@ -137,13 +137,14 @@ impl UserData for Canvas {
 }
 
 /// Слой рисования: что лежит на земле (руда), наземные юниты под зданиями, летающие — над всеми. Турель — слоем выше
-/// своего носителя.
+/// своего носителя. Покрытие (дороги, фундамент) — под следами на земле: рисуется раньше них.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Layer {
   Floor = 0,
   Ground = 1,
   Building = 3,
   Air = 5,
+  Pave = 7,
 }
 
 /// Огни юнита: фары (вдоль, поперёк, радиус — в пикселях спрайта) и луч.
@@ -266,6 +267,7 @@ pub fn build(lua: &Lua, proto: u32, look: Table) -> mlua::Result<Look> {
   }
   let layer = match look.get::<Option<String>>("layer")?.as_deref() {
     Some("floor") => Layer::Floor,
+    Some("pave") => Layer::Pave,
     Some("building") => Layer::Building,
     Some("air") => Layer::Air,
     _ => Layer::Ground,

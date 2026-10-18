@@ -7,6 +7,7 @@
 
 local widgets = require("lib/widgets")
 local research = require("lib/research")
+local paving = require("lib/paving")
 local COLORS, shadow = widgets.COLORS, widgets.shadow
 
 local tech = {}
@@ -156,6 +157,12 @@ local function card(c, view, byTopic, children)
 			ui:box({ direction = "row", align = "center", gap = 4 }, function()
 				ui:image(kind, SMALL, SMALL)
 				ui:text(kind.data.title)
+			end)
+		end
+		for _, kind in paving.opens(view.topic) do
+			ui:box({ direction = "row", align = "center", gap = 4 }, function()
+				ui:image(c.protos.icons[paving.ICONS[kind]], SMALL, SMALL)
+				ui:text(paving.TITLES[kind])
 			end)
 		end
 		if view.trigger then

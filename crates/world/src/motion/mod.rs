@@ -3,6 +3,10 @@
 //! поворот, радиус, род), куда идёт — `Path`; здания занимают тайлы `Footprint`. Как быстро род идёт по местности —
 //! правила партии (`data.rules`: vehicleSand, vehicleSwamp, heavySwamp, infantryCliff, frozenSwamp…).
 //!
+//! Покрытие (дороги, фундамент) — слой карты, который назвали правила (`data.rules.surface`): в канале 0 — вид покрытия,
+//! 1, 2, …, а `data.rules.surfaceSpeeds` — во сколько раз по нему быстрее, чем по голой скале. Покрытие убирает
+//! замедление местности; быстрее по нему едут колёсные и пехота, если оно не уже их самих.
+//!
 //! Системы `plan_paths` и `move_units` вид ставит в тик сам (`engine = "move_units"`), приказы дают механики:
 //! `ctx:move_group`, `ctx:move`, `ctx:stop`, свободные тайлы — `ctx:free_tiles`.
 
@@ -11,14 +15,13 @@ pub mod path;
 use crate::schema::ComponentId;
 use crate::vision::Bounds;
 use crate::world::{Entity, World};
+use kharos_engine::layers::{LayerId, Layers, Owner as LayerOwner};
 use kharos_engine::math::{js_atan2, js_cos, js_hypot, js_sin, turn_toward, wrap};
 use kharos_engine::terrain::{Land, FOOT_BIT, MOUNTAIN, SAND, SWAMP};
 use path::{beyond_window, is_clear, smooth_path, Grid, Search, SEARCH_LIMIT};
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 
-/// Во сколько раз быстрее, чем по голой скале, идут по дороге.
-pub const ROAD_SPEED: f64 = 1.5;
 /// Медленнее этой доли скорости местность не замедляет.
 const SLOWEST: f64 = 0.05;
 /// После скольких перепрокладок подряд юнит считается застрявшим в заторе.
@@ -62,6 +65,8 @@ const DRIFT: f64 = 1.0;
 const LARGE: f64 = 0.9;
 /// Сколько тайлов за тик осматривают поиски пути упёршихся юнитов, ехавших напрямую.
 const PLAN_TILES: f64 = 20000.0;
+/// Раз во сколько тиков едущий без дорог смотрит, не видно ли дороги (`ROAD_LOOK_TICKS`).
+const ROAD_LOOK_TICKS: u64 = 20;
 
 type Tiles = HashSet<(i32, i32)>;
 
@@ -78,6 +83,40 @@ impl Rules {
   fn speeds(&self) -> Speeds {
     let by = |what: &str| Class::ALL.map(|class| self.get(&format!("{}{what}", class.name())));
     Speeds { sand: by("Sand"), swamp: by("Swamp"), cliff: self.get("infantryCliff"), frozen: self.get("frozenSwamp") }
+  }
+
+  /// Покрытие: слой `surface` и скорости по видам `surfaceSpeeds`; None — покрытия в партии нет.
+  fn surface<'a>(&self, layers: &'a Layers) -> Option<Surface<'a>> {
+    let id = layers.id(self.0.get("surface")?.as_str()?)?;
+    let speeds: Vec<f64> = self.0.get("surfaceSpeeds").and_then(Value::as_array).map(|list| list.iter().map(|speed| speed.as_f64().unwrap_or(1.0)).collect()).unwrap_or_default();
+    let top = speeds.iter().copied().fold(1.0, f64::max);
+    Some(Surface { layers, id, speeds, top })
+  }
+}
+
+/// Покрытие карты: слой и скорость по каждому виду.
+#[derive(Clone)]
+struct Surface<'a> {
+  layers: &'a Layers,
+  id: LayerId,
+  speeds: Vec<f64>,
+  /// Самая высокая из скоростей — у самого быстрого покрытия.
+  top: f64,
+}
+
+impl Surface<'_> {
+  /// Вид покрытия на тайле; 0 — нет.
+  fn at(&self, x: i32, y: i32) -> usize {
+    self.layers.get(self.id, LayerOwner::World, x, y, 0) as usize
+  }
+
+  fn speed(&self, code: usize) -> f64 {
+    self.speeds.get(code.wrapping_sub(1)).copied().unwrap_or(1.0)
+  }
+
+  /// Лежит ли что-нибудь на карте.
+  fn any(&self) -> bool {
+    !self.layers.cells(self.id, LayerOwner::World).is_empty()
   }
 }
 
@@ -216,13 +255,14 @@ struct Cols {
   best: usize,
   direct: usize,
   stuck: usize,
+  roads: usize,
 }
 
 impl Cols {
   fn of(world: &World) -> Self {
     let id = |name: &str| world.schema.id(name).expect("компонент движка");
     let (mover, path, footprint) = (id("Mover"), id("Path"), id("Footprint"));
-    Self { position: id("Position"), facing: id("Facing"), owner: id("Owner"), mover, path, footprint, player: id("Player"), speed: slot(world, mover, "speed"), turn: slot(world, mover, "turn"), radius: slot(world, mover, "radius"), class: slot(world, mover, "class"), rooted: slot(world, mover, "rooted"), points: slot(world, path, "points"), passable: slot(world, footprint, "passable"), goal_x: slot(world, path, "goalX"), goal_y: slot(world, path, "goalY"), wait: slot(world, path, "wait"), tries: slot(world, path, "tries"), near: slot(world, path, "near"), best: slot(world, path, "best"), direct: slot(world, path, "direct"), stuck: slot(world, path, "stuck") }
+    Self { position: id("Position"), facing: id("Facing"), owner: id("Owner"), mover, path, footprint, player: id("Player"), speed: slot(world, mover, "speed"), turn: slot(world, mover, "turn"), radius: slot(world, mover, "radius"), class: slot(world, mover, "class"), rooted: slot(world, mover, "rooted"), points: slot(world, path, "points"), passable: slot(world, footprint, "passable"), goal_x: slot(world, path, "goalX"), goal_y: slot(world, path, "goalY"), wait: slot(world, path, "wait"), tries: slot(world, path, "tries"), near: slot(world, path, "near"), best: slot(world, path, "best"), direct: slot(world, path, "direct"), stuck: slot(world, path, "stuck"), roads: slot(world, path, "roads") }
   }
 
   fn num(&self, world: &World, component: ComponentId, slot: usize, entity: Entity) -> Option<f64> {
@@ -266,11 +306,11 @@ impl Spec {
     self.class == Class::Infantry
   }
 
-  /// Самая высокая доля скорости, какая бывает у юнита (`fastestOf`).
-  fn fastest(&self) -> f64 {
-    match self.class {
-      Class::Heavy | Class::Air => 1.0,
-      _ => ROAD_SPEED,
+  /// Самая высокая доля скорости, какая бывает у юнита (`fastestOf`): гусеничным и летающим покрытие не ускоряет.
+  fn fastest(&self, surface: Option<&Surface>) -> f64 {
+    match (self.class, surface) {
+      (Class::Heavy | Class::Air, _) | (_, None) => 1.0,
+      (_, Some(surface)) => surface.top,
     }
   }
 }
@@ -282,6 +322,9 @@ pub struct Scene<'a> {
   pub motion: &'a mut Motion,
   pub bounds: Option<Bounds>,
   pub rules: &'a Rules,
+  /// Слои карты: из них — покрытие.
+  pub layers: &'a Layers,
+  pub tick: u64,
 }
 
 /// Земля под ногами: местность, здания и правила — можно ли стоять и как быстро идти (`Ground` в walk.rs).
@@ -292,6 +335,7 @@ struct Ground<'a> {
   occupancy: &'a Occupancy,
   bounds: Option<Bounds>,
   speeds: Speeds,
+  surface: Option<Surface<'a>>,
 }
 
 impl Ground<'_> {
@@ -331,10 +375,40 @@ impl Ground<'_> {
     }
   }
 
-  /// Доля полной скорости юнита на тайле (`terrainSpeed`). Покрытия (дороги, фундамент) пока нет.
-  fn terrain_speed(&mut self, class: Class, x: i32, y: i32) -> f64 {
+  /// Хватает ли юниту ширины покрытия в тайле (`pavedFor`): тайл лежит в квадрате покрытия ширины юнита — юниту
+  /// шире тайла нужна полоса в два.
+  fn paved_for(surface: &Surface, radius: f64, x: i32, y: i32) -> bool {
+    let width = if radius > 0.5 { 2 } else { 1 };
+    for top in y - width + 1..=y {
+      'search: for left in x - width + 1..=x {
+        for tile_y in top..top + width {
+          for tile_x in left..left + width {
+            if surface.at(tile_x, tile_y) == 0 {
+              continue 'search;
+            }
+          }
+        }
+        return true;
+      }
+    }
+    false
+  }
+
+  /// Доля полной скорости юнита рода class радиусом radius на тайле (`terrainSpeed`).
+  fn terrain_speed(&mut self, class: Class, radius: f64, x: i32, y: i32) -> f64 {
     if class == Class::Air {
       return 1.0;
+    }
+    // Покрытие убирает замедление местности: болото под мостом не вязнет. Быстрее скалы по нему едут колёсные и
+    // пехота, и то, если покрытие не уже их самих; гусеничным всё равно, по чему ехать.
+    if let Some(surface) = &self.surface {
+      let code = surface.at(x, y);
+      if code != 0 {
+        if class == Class::Heavy || !Self::paved_for(surface, radius, x, y) {
+          return 1.0;
+        }
+        return surface.speed(code);
+      }
     }
     let [terrain, biome, _, relief] = self.tile(x, y);
     let speeds = self.speeds;
@@ -351,9 +425,31 @@ impl Ground<'_> {
     1.0
   }
 
-  /// Видит ли юнит готовую дорогу (`roadInSight`): дорог пока нет.
-  fn road_in_sight(&self, _entity: Entity) -> bool {
+  /// Видит ли юнит самое быстрое покрытие — дорогу — в радиусе обзора (`roadInSight`). Дороги, которой юнит не видит,
+  /// поиск пути не ищет: оценка с запасом на дорогу дороже, и в поле она только тратила бы поиск.
+  fn road_in_sight(&self, entity: Entity) -> bool {
+    let Some(surface) = self.surface.as_ref().filter(|surface| surface.any() && surface.top > 1.0) else { return false };
+    let Some((x, y)) = self.cols.position(self.world, entity) else { return false };
+    let sight = self.world.schema.id("Sight").and_then(|id| self.world.num(entity, id, "radius")).unwrap_or(0.0);
+    let (center_x, center_y) = (x.floor() as i32, y.floor() as i32);
+    let reach = sight.ceil() as i32;
+    for dy in -reach..=reach {
+      for dx in -reach..=reach {
+        if ((dx * dx + dy * dy) as f64) > sight * sight {
+          continue;
+        }
+        let code = surface.at(center_x + dx, center_y + dy);
+        if code != 0 && surface.speed(code) >= surface.top {
+          return true;
+        }
+      }
+    }
     false
+  }
+
+  /// Самая высокая доля скорости юнита (`fastestOf`).
+  fn fastest(&self, spec: &Spec) -> f64 {
+    spec.fastest(self.surface.as_ref())
   }
 
   /// Куда техника доедет из тайла заливкой (`vehicleReach`).
@@ -481,6 +577,7 @@ struct Walker<'g, 'a> {
   from: (i32, i32),
   foot: bool,
   class: Class,
+  radius: f64,
   taken: &'g Tiles,
 }
 
@@ -490,7 +587,7 @@ impl Grid for Walker<'_, '_> {
   }
 
   fn slowness(&mut self, x: i32, y: i32) -> f64 {
-    1.0 / self.ground.terrain_speed(self.class, x, y)
+    1.0 / self.ground.terrain_speed(self.class, self.radius, x, y)
   }
 }
 
@@ -530,6 +627,8 @@ struct Route {
   direct: bool,
   stuck: bool,
   best: f64,
+  /// Путь проложен с расчётом на дороги.
+  roads: bool,
   /// Точки менялись — список пишется обратно.
   dirty: bool,
 }
@@ -540,7 +639,7 @@ impl Route {
     let row = store.row(entity)?;
     let field = |slot: usize| store.nums[slot][row];
     let points = store.anys[cols.points][row].as_array().map(|list| list.iter().filter_map(Value::as_f64).collect()).unwrap_or_default();
-    Some(Route { points, goal_x: field(cols.goal_x), goal_y: field(cols.goal_y), wait: field(cols.wait), tries: field(cols.tries), near: field(cols.near), direct: field(cols.direct) != 0.0, stuck: field(cols.stuck) != 0.0, best: field(cols.best), dirty: false })
+    Some(Route { points, goal_x: field(cols.goal_x), goal_y: field(cols.goal_y), wait: field(cols.wait), tries: field(cols.tries), near: field(cols.near), direct: field(cols.direct) != 0.0, stuck: field(cols.stuck) != 0.0, best: field(cols.best), roads: field(cols.roads) != 0.0, dirty: false })
   }
 
   /// Пишет обратно то, что ход меняет на месте: точки, ожидание, попытки, лучшее расстояние, застрял ли.
@@ -566,7 +665,7 @@ fn put_path(world: &mut World, cols: &Cols, entity: Entity, fields: Value) {
 impl Scene<'_> {
   fn ground<'s>(&'s mut self, cols: &'s Cols) -> (Ground<'s>, &'s mut Search) {
     self.motion.occupancy.refresh(self.world);
-    let ground = Ground { land: self.land.as_deref_mut(), world: self.world, cols, occupancy: &self.motion.occupancy, bounds: self.bounds, speeds: self.rules.speeds() };
+    let ground = Ground { land: self.land.as_deref_mut(), world: self.world, cols, occupancy: &self.motion.occupancy, bounds: self.bounds, speeds: self.rules.speeds(), surface: self.rules.surface(self.layers) };
     (ground, &mut self.motion.search)
   }
 
@@ -578,11 +677,16 @@ impl Scene<'_> {
     ground.can_stand(class == Class::Air, x, y, class == Class::Infantry)
   }
 
-  /// Сколько от полной скорости рода class на тайле.
-  pub fn terrain_speed(&mut self, class: &str, x: i32, y: i32) -> f64 {
+  /// Сколько от полной скорости рода class радиусом radius на тайле.
+  pub fn terrain_speed(&mut self, class: &str, radius: f64, x: i32, y: i32) -> f64 {
     let cols = Cols::of(self.world);
     let (mut ground, _) = self.ground(&cols);
-    ground.terrain_speed(Class::parse(class), x, y)
+    ground.terrain_speed(Class::parse(class), radius, x, y)
+  }
+
+  /// Вид покрытия на тайле (канал 0 слоя `data.rules.surface`); 0 — покрытия нет или его нет в партии.
+  pub fn paved(&self, x: i32, y: i32) -> usize {
+    self.rules.surface(self.layers).map_or(0, |surface| surface.at(x, y))
   }
 
   /// Можно ли пройти по тайлу: наземному — внутри карты, по проходимой местности и не сквозь здание.
@@ -692,8 +796,9 @@ impl Scene<'_> {
           (x, y) = stand;
         }
       }
-      let fastest = if spec.fastest() > 1.0 && ground.road_in_sight(entity) { 1.0 / spec.fastest() } else { 1.0 };
-      let mut walker = Walker { ground: &mut ground, from: (from_x, from_y), foot, class: spec.class, taken: &taken };
+      let top = ground.fastest(&spec);
+      let fastest = if top > 1.0 && ground.road_in_sight(entity) { 1.0 / top } else { 1.0 };
+      let mut walker = Walker { ground: &mut ground, from: (from_x, from_y), foot, class: spec.class, radius: spec.radius, taken: &taken };
       let mut tiles = search.find_path(&mut walker, from_x, from_y, x, y, near, if near != 0.0 { APPROACH_LIMIT } else { limit.unwrap_or(SEARCH_LIMIT) }, fastest);
       let reaches = |path: &[i32]| {
         if path.is_empty() {
@@ -855,8 +960,11 @@ impl Scene<'_> {
     };
 
     self.motion.occupancy.refresh(world);
-    let mut ground = Ground { land: self.land.as_deref_mut(), world, cols: &cols, occupancy: &self.motion.occupancy, bounds: self.bounds, speeds: self.rules.speeds() };
+    let mut ground = Ground { land: self.land.as_deref_mut(), world, cols: &cols, occupancy: &self.motion.occupancy, bounds: self.bounds, speeds: self.rules.speeds(), surface: self.rules.surface(self.layers) };
     let mut movers: Vec<Mover> = Vec::new();
+    // Едущие без расчёта на дороги, которые увидели дорогу: путь им прокладывается заново.
+    let mut roadward: Vec<(Entity, i32, i32, f64)> = Vec::new();
+    let tick = self.tick;
     for &entity in &world.stores[cols.path].entities {
       let Some(&me) = index.get(&entity) else { continue };
       let Some(route) = Route::read(world, &cols, entity) else { continue };
@@ -864,6 +972,9 @@ impl Scene<'_> {
         continue;
       }
       let spec = specs[me];
+      if !route.roads && ground.fastest(&spec) > 1.0 && (tick + entity as u64).is_multiple_of(ROAD_LOOK_TICKS) && ground.road_in_sight(entity) {
+        roadward.push((entity, route.goal_x as i32, route.goal_y as i32, route.near));
+      }
       let (speed, turn, radius) = (spec.speed, spec.turn, spec.radius);
       let (body_air, body_foot) = (crowd.bodies[me].air, crowd.bodies[me].foot);
       let (x, y) = (crowd.bodies[me].x, crowd.bodies[me].y);
@@ -886,7 +997,7 @@ impl Scene<'_> {
       let facing = turn_toward(facing, heading, turn * step);
       facing_now[me] = facing;
       let askew = wrap(heading - facing).abs();
-      let mut moved = speed * ground.terrain_speed(spec.class, x.floor() as i32, y.floor() as i32) * step * 0f64.max(js_cos(askew));
+      let mut moved = speed * ground.terrain_speed(spec.class, radius, x.floor() as i32, y.floor() as i32) * step * 0f64.max(js_cos(askew));
       let off = wrap(wanted - facing).abs();
       let avoiding = wrap(heading - wanted).abs() > AIMED;
       if !avoiding && distance < ((2.0 * speed) / turn) * js_sin(off.min(std::f64::consts::PI / 2.0)) * ORBIT_MARGIN {
@@ -1119,6 +1230,14 @@ impl Scene<'_> {
         if end == from || Some(end) == blocked {
           self.world.remove(entity, cols.path);
         }
+      }
+    }
+    for (entity, x, y, near) in roadward {
+      if over(self) {
+        break;
+      }
+      if self.world.has(entity, cols.path) {
+        self.order_move(entity, x, y, None, 0.0, near, None);
       }
     }
     for Lost { entity, index: me, x, y, tries, near } in lost {

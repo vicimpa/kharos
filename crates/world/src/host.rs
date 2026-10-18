@@ -78,13 +78,15 @@ pub struct State {
   pub weapons: crate::combat::Weapons,
   /// Сети и энергосети связанных (`Link`).
   pub networks: crate::networks::Networks,
+  /// Слои карты — раздел `layers/` модов (tiles.rs).
+  pub layers: kharos_engine::layers::Layers,
 }
 
 impl State {
   /// Мир и всё, что нужно ходу (motion).
   pub fn scene(&mut self) -> crate::motion::Scene<'_> {
     let bounds = self.vision.as_ref().map(|vision| vision.bounds);
-    crate::motion::Scene { world: &mut self.world, land: self.land.as_mut(), motion: &mut self.motion, bounds, rules: &self.rules }
+    crate::motion::Scene { world: &mut self.world, land: self.land.as_mut(), motion: &mut self.motion, bounds, rules: &self.rules, layers: &self.layers, tick: self.tick }
   }
 }
 
@@ -163,7 +165,7 @@ impl Host {
     }
     content.apply_options(game, options)?;
     let schema = Rc::new(schema_of(&content)?);
-    let state = Rc::new(RefCell::new(State { world: World::new(schema.clone()), ops: Vec::new(), events: Vec::new(), signals: Vec::new(), tick: 0, dt: 0.05, rng: seed.max(1), grid: None, vision: None, land: None, motion: Default::default(), rules: Default::default(), weapons: Default::default(), networks: Default::default() }));
+    let state = Rc::new(RefCell::new(State { world: World::new(schema.clone()), ops: Vec::new(), events: Vec::new(), signals: Vec::new(), tick: 0, dt: 0.05, rng: seed.max(1), grid: None, vision: None, land: None, motion: Default::default(), rules: Default::default(), weapons: Default::default(), networks: Default::default(), layers: crate::tiles::of(&content)? }));
     let lua = &content.lua;
     let storage = lua.create_table();
     let game_table = content.get("games", game).expect("партия");
@@ -410,6 +412,7 @@ impl Host {
       "entities": entities,
       "vision": vision,
       "motion": state.motion.save(),
+      "layers": crate::tiles::save(&state.layers),
       "storage": saved(&Value::Table(self.storage.clone()))?,
     }))
   }
@@ -452,6 +455,10 @@ impl Host {
       state.world = world;
       if let Some(saved) = snapshot.get("motion") {
         state.motion.load(saved);
+      }
+      state.layers = crate::tiles::of(&self.content)?;
+      if let Some(saved) = snapshot.get("layers") {
+        crate::tiles::load(&mut state.layers, saved);
       }
       if let (Some(vision), Some(Json::Object(saved))) = (state.vision.as_mut(), snapshot.get("vision")) {
         for (player, cells) in saved {
@@ -1106,8 +1113,30 @@ impl UserData for Ctx {
     methods.add_method("sees", |_, this, (player, x, y): (f64, f64, f64)| Ok(this.state.borrow().vision.as_ref().is_none_or(|vision| vision.sees(player as u32, x, y))));
     // Бывал ли тайл в виду игрока; без тумана — всё.
     methods.add_method("explored", |_, this, (player, x, y): (f64, f64, f64)| Ok(this.state.borrow().vision.as_ref().is_none_or(|vision| vision.explored(player as u32, x, y))));
-    // Доля полной скорости рода class на тайле.
-    methods.add_method("terrain_speed", |_, this, (class, x, y): (String, f64, f64)| Ok(this.state.borrow_mut().scene().terrain_speed(&class, x.floor() as i32, y.floor() as i32)));
+    // Доля полной скорости рода class радиусом radius на тайле.
+    methods.add_method("terrain_speed", |_, this, (class, x, y, radius): (String, f64, f64, Option<f64>)| Ok(this.state.borrow_mut().scene().terrain_speed(&class, radius.unwrap_or(0.0), x.floor() as i32, y.floor() as i32)));
+    // Слои карты (tiles.rs): значение канала тайла (0 — пусто), запись и непустые тайлы прямоугольника —
+    // x, y, значение подряд.
+    methods.add_method("layer", |_, this, (name, x, y, channel): (String, f64, f64, Option<usize>)| {
+      let state = this.state.borrow();
+      let id = crate::tiles::id(&state.layers, &name)?;
+      let channel = crate::tiles::channel(&state.layers, id, channel)?;
+      Ok(state.layers.get(id, kharos_engine::layers::Owner::World, x.floor() as i32, y.floor() as i32, channel))
+    });
+    methods.add_method("set_layer", |_, this, (name, x, y, value, channel): (String, f64, f64, f64, Option<usize>)| {
+      let mut state = this.state.borrow_mut();
+      let id = crate::tiles::id(&state.layers, &name)?;
+      let channel = crate::tiles::channel(&state.layers, id, channel)?;
+      state.layers.set(id, kharos_engine::layers::Owner::World, x.floor() as i32, y.floor() as i32, channel, value);
+      Ok(())
+    });
+    methods.add_method("layer_in", |_, this, (name, x, y, width, height, channel): (String, f64, f64, f64, f64, Option<usize>)| {
+      let state = this.state.borrow();
+      let id = crate::tiles::id(&state.layers, &name)?;
+      let channel = crate::tiles::channel(&state.layers, id, channel)?;
+      let (left, top) = (x.floor() as i32, y.floor() as i32);
+      Ok(crate::tiles::within(&state.layers, id, channel, left, top, left + width.ceil() as i32, top + height.ceil() as i32))
+    });
     // Здание на тайле (Footprint) или nil.
     methods.add_method("occupant", |_, this, (x, y): (f64, f64)| Ok(this.state.borrow_mut().scene().occupant(x.floor() as i32, y.floor() as i32)));
     // Сид местности партии.

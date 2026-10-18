@@ -6,6 +6,7 @@ pub mod host;
 pub mod motion;
 pub mod networks;
 pub mod schema;
+pub mod tiles;
 pub mod tools;
 pub mod vision;
 pub mod world;
