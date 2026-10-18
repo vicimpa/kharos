@@ -201,6 +201,120 @@ impl Recall {
   }
 }
 
+/// Память правок земли (landMemory.ts): карта у всех одна, но её правки (снесли гору, сгладили обрыв) игрок узнаёт,
+/// только увидев. Общее — каким был тайл до первой правки (original); правки ничьи. Тайл — хранимые байты (`stored`).
+#[derive(Default)]
+pub struct LandRecall {
+  /// Каким был изменённый тайл до первой правки.
+  pub original: BTreeMap<Tile, [u8; 4]>,
+  /// Что знает игрок иначе, чем общее.
+  pub known: BTreeMap<u32, BTreeMap<Tile, [u8; 4]>>,
+  stale: BTreeMap<u32, BTreeMap<Tile, BTreeSet<Tile>>>,
+  changed: BTreeSet<Tile>,
+  /// Растёт, когда игрок узнал правку: клиенту — переложить землю.
+  pub version: BTreeMap<u32, u64>,
+  /// Растёт с каждой правкой: без тумана клиент кладёт правки сразу.
+  pub edits: u64,
+}
+
+impl LandRecall {
+  /// Правит тайл земли: помнит, каким он был до первой правки, и отмечает его к сверке.
+  pub fn edit(&mut self, land: &mut kharos_engine::terrain::Land, x: i32, y: i32, bytes: [u8; 4]) {
+    let old = land.stored(x, y);
+    if old == bytes {
+      return;
+    }
+    self.original.entry((x, y)).or_insert(old);
+    land.write_tile(x, y, bytes);
+    self.changed.insert((x, y));
+    self.edits += 1;
+  }
+
+  /// Каким тайл видит игрок: для каждого изменённого тайла — что он о нём знает (fog) или каков он сейчас.
+  pub fn known_of(&self, land: &mut kharos_engine::terrain::Land, player: u32, fog: bool) -> Vec<(Tile, [u8; 4])> {
+    let known = self.known.get(&player);
+    self.original.iter().map(|(&tile, &original)| (tile, if fog { known.and_then(|known| known.get(&tile)).copied().unwrap_or(original) } else { land.stored(tile.0, tile.1) })).collect()
+  }
+
+  fn update(&mut self, land: &mut kharos_engine::terrain::Land, vision: &Vision) {
+    let changed = std::mem::take(&mut self.changed);
+    for stale in self.stale.values_mut() {
+      for &tile in &changed {
+        add_stale(stale, tile);
+      }
+    }
+    for &player in vision.cells.keys() {
+      if !self.stale.contains_key(&player) {
+        let mut stale = BTreeMap::new();
+        for &tile in self.known.entry(player).or_default().keys().chain(self.original.keys()) {
+          add_stale(&mut stale, tile);
+        }
+        self.stale.insert(player, stale);
+      }
+    }
+    for (&player, stale) in &mut self.stale {
+      let Some(visible) = vision.visible.get(&player) else { continue };
+      let keys: Vec<Tile> = stale.iter().filter(|(cell, _)| visible.contains(cell)).flat_map(|(_, tiles)| tiles.iter().copied()).collect();
+      let known = self.known.entry(player).or_default();
+      for (x, y) in keys {
+        let now = land.stored(x, y);
+        let common = self.original.get(&(x, y)).copied().unwrap_or(now);
+        let was = known.get(&(x, y)).copied().unwrap_or(common);
+        if now != was {
+          if !vision.sees(player, x as f64 + 0.5, y as f64 + 0.5) {
+            continue;
+          }
+          if now == common {
+            known.remove(&(x, y));
+          } else {
+            known.insert((x, y), now);
+          }
+          *self.version.entry(player).or_default() += 1;
+        }
+        settle(stale, (x, y));
+      }
+    }
+  }
+
+  /// В сохранение: изменённые тайлы — x, y, исходные и нынешние байты подряд; знание игроков — x, y и байты подряд.
+  pub fn save(&self, land: &mut kharos_engine::terrain::Land) -> Json {
+    let tiles: Vec<Json> = self.original.iter().flat_map(|(&(x, y), original)| {
+      let now = land.stored(x, y);
+      [x, y].into_iter().map(Json::from).chain(original.iter().chain(now.iter()).map(|&byte| Json::from(byte))).collect::<Vec<_>>()
+    }).collect();
+    let mut known = Map::new();
+    for (player, tiles) in &self.known {
+      let flat: Vec<Json> = tiles.iter().flat_map(|(&(x, y), bytes)| [x, y].into_iter().map(Json::from).chain(bytes.iter().map(|&byte| Json::from(byte))).collect::<Vec<_>>()).collect();
+      if !flat.is_empty() {
+        known.insert(player.to_string(), Json::Array(flat));
+      }
+    }
+    serde_json::json!({ "tiles": tiles, "known": known })
+  }
+
+  /// Из сохранения (`save`): нынешние байты ложатся на землю одним пакетом.
+  pub fn load(&mut self, land: &mut kharos_engine::terrain::Land, saved: &Json) {
+    let bytes = |values: &[Json]| -> [u8; 4] { std::array::from_fn(|i| values.get(i).and_then(Json::as_u64).unwrap_or(0) as u8) };
+    land.begin_batch();
+    for tile in saved.get("tiles").and_then(Json::as_array).map_or(&[][..], Vec::as_slice).chunks(10).filter(|tile| tile.len() == 10) {
+      let (Some(x), Some(y)) = (tile[0].as_i64(), tile[1].as_i64()) else { continue };
+      self.original.insert((x as i32, y as i32), bytes(&tile[2..6]));
+      land.write_tile(x as i32, y as i32, bytes(&tile[6..10]));
+    }
+    land.end_batch();
+    for (player, flat) in saved.get("known").and_then(Json::as_object).into_iter().flatten() {
+      let (Ok(player), Some(flat)) = (player.parse::<u32>(), flat.as_array()) else { continue };
+      let known = self.known.entry(player).or_default();
+      for tile in flat.chunks(6).filter(|tile| tile.len() == 6) {
+        let (Some(x), Some(y)) = (tile[0].as_i64(), tile[1].as_i64()) else { continue };
+        known.insert((x as i32, y as i32), bytes(&tile[2..6]));
+      }
+      *self.version.entry(player).or_default() += 1;
+    }
+    self.edits += 1;
+  }
+}
+
 #[derive(Default)]
 pub struct Memory {
   /// Что помнит игрок: сущность → какой она была, когда ушла из его обзора.
@@ -209,6 +323,8 @@ pub struct Memory {
   pub watched: BTreeMap<u32, BTreeSet<Entity>>,
   /// Запоминаемые слои.
   pub layers: Vec<Recall>,
+  /// Правки земли.
+  pub land: LandRecall,
 }
 
 impl Memory {
@@ -248,15 +364,22 @@ impl Memory {
       recall.known.remove(&player);
       recall.stale.remove(&player);
     }
+    self.land.known.remove(&player);
+    self.land.stale.remove(&player);
+    *self.land.version.entry(player).or_default() += 1;
   }
 
   /// Сверка после обзора (`updateBuildMemory`, `updateRecall`): look — обзор пересчитан в этот тик.
-  pub fn update(&mut self, world: &World, vision: &Vision, layers: &Layers, look: bool) {
+  pub fn update(&mut self, world: &World, vision: &Vision, layers: &Layers, land: Option<&mut kharos_engine::terrain::Land>, look: bool) {
     if !vision.fog {
       for recall in &mut self.layers {
         recall.changed.clear();
       }
+      self.land.changed.clear();
       return;
+    }
+    if let (true, Some(land)) = (look, land) {
+      self.land.update(land, vision);
     }
     let friends = friends(world);
     for recall in &mut self.layers {
@@ -484,21 +607,21 @@ mod tests {
     let layers = Layers::new(Vec::new());
     let mut memory = Memory::new(&layers);
     vision.update(&world);
-    memory.update(&world, &vision, &layers, true);
+    memory.update(&world, &vision, &layers, None, true);
     assert!(memory.sees(1, house) && memory.remembered(1, house).is_none());
     // Глаз ушёл: дом — призраком.
     world.set(eye, position, &object(json!({ "x": -10.5 }))).unwrap();
     vision.update(&world);
-    memory.update(&world, &vision, &layers, true);
+    memory.update(&world, &vision, &layers, None, true);
     assert!(!memory.sees(1, house) && memory.remembered(1, house).is_some_and(|record| record.x == 3.0));
     // Снесли в тумане — помнит, пока не увидит место.
     world.destroy(house);
     vision.update(&world);
-    memory.update(&world, &vision, &layers, true);
+    memory.update(&world, &vision, &layers, None, true);
     assert!(memory.remembered(1, house).is_some());
     world.set(eye, position, &object(json!({ "x": 0.5 }))).unwrap();
     vision.update(&world);
-    memory.update(&world, &vision, &layers, true);
+    memory.update(&world, &vision, &layers, None, true);
     assert!(memory.remembered(1, house).is_none());
   }
 
@@ -523,14 +646,14 @@ mod tests {
       layers.set(paving, Owner::World, x, 0, 1, player);
       memory.touch(paving, x, 0);
     }
-    memory.update(&world, &vision, &layers, true);
+    memory.update(&world, &vision, &layers, None, true);
     let recall = memory.recall(paving).unwrap();
     assert_eq!(recall.known(1, 40, 0), None);
     assert_eq!(recall.known(1, 41, 0), Some(&[2.0, 1.0][..]));
     // Подошёл — узнал чужую.
     world.set(eye, position, &object(json!({ "x": 40.5 }))).unwrap();
     vision.update(&world);
-    memory.update(&world, &vision, &layers, true);
+    memory.update(&world, &vision, &layers, None, true);
     assert_eq!(memory.recall(paving).unwrap().known(1, 40, 0), Some(&[2.0, 2.0][..]));
     // Ушёл, её сняли — помнит.
     world.set(eye, position, &object(json!({ "x": 0.5 }))).unwrap();
@@ -538,7 +661,7 @@ mod tests {
     layers.set(paving, Owner::World, 40, 0, 0, 0.0);
     layers.set(paving, Owner::World, 40, 0, 1, 0.0);
     memory.touch(paving, 40, 0);
-    memory.update(&world, &vision, &layers, true);
+    memory.update(&world, &vision, &layers, None, true);
     assert_eq!(memory.recall(paving).unwrap().known(1, 40, 0), Some(&[2.0, 2.0][..]));
     // Сохранение.
     let saved = memory.save(&layers, |_| {});

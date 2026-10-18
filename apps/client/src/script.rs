@@ -567,6 +567,23 @@ impl UserData for Ctx {
       let foot = tile[0] != kharos_engine::terrain::MOUNTAIN && tile[3] & kharos_engine::terrain::FOOT_BIT != 0;
       Ok((Some(tile[0] & 3), Some(tile[1] >> 6), Some(foot)))
     });
+    // Хранимые байты тайла и вершина горы под ним — как ctx:tile и ctx:peak, по земле, какой её знает свой игрок.
+    methods.add_method("tile", |_, c, (x, y): (f64, f64)| {
+      let state = c.state.borrow();
+      let Some(land) = &state.land else { return Ok((None, None, None, None)) };
+      let [a, b, d, e] = land.borrow_mut().stored(x.floor() as i32, y.floor() as i32);
+      let tile = (Some(a), Some(b), Some(d), Some(e));
+      Ok(tile)
+    });
+    methods.add_method("peak", |_, c, (x, y): (f64, f64)| {
+      let state = c.state.borrow();
+      let Some(land) = &state.land else { return Ok((None, None, None)) };
+      let peak = land.borrow_mut().peak_of(x.floor() as i32, y.floor() as i32);
+      Ok(match peak {
+        Some((px, py, radius)) => (Some(px), Some(py), Some(radius)),
+        None => (None, None, None),
+      })
+    });
     // Здание на тайле (Footprint) или nil — как ctx:occupant.
     methods.add_method("occupant", |_, c, (x, y): (f64, f64)| {
       let state = c.state.borrow();

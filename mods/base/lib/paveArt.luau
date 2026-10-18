@@ -118,9 +118,49 @@ local ICONS = {
 	remove = { { { "foundation", 6 }, { "foundation", 12 } }, { { "foundation", 3 }, { "foundation", 9 } } },
 	road = { { { "road", 2 }, { "road", 8 } } },
 	bridge = { { { "bridge", 2 }, { "bridge", 8 } } },
+	peak = {},
+	cliff = {},
 }
 
--- Значок 32×32 (paveCanvas): foundation, road, bridge или remove — плиты с красным крестом.
+local OUTLINE = 0x1a1410
+
+-- Гора с киркой: треугольник скалы со снежной шапкой и кирка поперёк (drawPeakIcon).
+local function peakIcon(g)
+	for row = 0, 19 do
+		local half = math.floor(row * 0.7 + 0.5) + 1
+		local y = 6 + row
+		g:rect(16 - half - 1, y, half * 2 + 2, 1, OUTLINE)
+		g:rect(16 - half, y, half, 1, 0x9a8a74)
+		g:rect(16, y, half, 1, 0x6e604f)
+		if row < 5 then
+			g:rect(16 - half, y, half * 2, 1, 0xdcd4c6)
+		end
+	end
+	g:rect(2, 26, 28, 2, OUTLINE)
+	g:line(9, 27, 23, 11, 4, OUTLINE)
+	g:line(9, 27, 23, 11, 2, 0x8a5426)
+	g:line(17, 7, 28, 15, 5, OUTLINE)
+	g:line(17, 7, 28, 15, 3, 0xc8ccd0)
+end
+
+-- Обрыв со спуском: уступ плато слева, земля справа, между ними — пологий пандус (drawCliffIcon).
+local function cliffIcon(g)
+	g:rect(2, 9, 15, 19, OUTLINE)
+	g:rect(3, 10, 13, 17, 0x9a8a74)
+	g:rect(3, 10, 13, 3, 0xb4a48c)
+	g:rect(2, 22, 28, 6, OUTLINE)
+	g:rect(3, 23, 26, 4, 0x7e705e)
+	for step = 0, 11 do
+		g:rect(16 + step, 11 + step, 2, 12 - step, if step % 2 == 1 then 0xc0ae92 else 0xb4a48c)
+	end
+	g:line(16, 10, 29, 23, 2, OUTLINE)
+	g:line(18, 9, 25, 16, 2, 0xe0902c)
+	g:line(25, 16, 25, 11, 2, 0xe0902c)
+	g:line(25, 16, 20, 16, 2, 0xe0902c)
+end
+
+-- Значок 32×32 (paveCanvas): foundation, road, bridge, remove — плиты с красным крестом, peak — гора с киркой, cliff —
+-- обрыв со спуском.
 function paveArt.icon(g, icon: string)
 	local rows = ICONS[icon]
 	local top = (32 - #rows * TILE) / 2
@@ -131,6 +171,11 @@ function paveArt.icon(g, icon: string)
 			DRAW[tile[1]](g, tile[2])
 			g:translate(-dx, -dy)
 		end
+	end
+	if icon == "peak" then
+		peakIcon(g)
+	elseif icon == "cliff" then
+		cliffIcon(g)
 	end
 	if icon == "remove" then
 		g:line(7, 7, 25, 25, 4, 0x1a0806)

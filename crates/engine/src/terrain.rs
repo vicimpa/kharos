@@ -31,7 +31,7 @@ const PEAK_CELL: i32 = 16;
 const SATELLITE_MIN_RADIUS: f64 = 0.7;
 const SATELLITE_MAX_RADIUS: f64 = 1.4;
 const PEAK_MIN_SPACING: f64 = 1.5;
-const PEAK_RADIUS_SCALE: f64 = 4.0;
+pub const PEAK_RADIUS_SCALE: f64 = 4.0;
 const TILE_REACH: f64 = std::f64::consts::FRAC_1_SQRT_2;
 const SAND_REACH: f64 = 8.0;
 const DERIVE_MARGIN: i32 = 8;
@@ -356,11 +356,17 @@ pub struct Land {
   owned: Vec<Option<Vec<u8>>>,
   /// Кэш чанков края мира, вне карты.
   outside: HashMap<(i32, i32), Vec<u8>>,
+  /// Растёт с каждой правкой тайла.
+  pub revision: u64,
+  /// Номер правки, с которой чанк пересчитан (`chunkRevision`): окно на видеокарте сравнивает его с загруженным.
+  revisions: HashMap<(i32, i32), u64>,
+  /// Чанки, чьё выводимое пересчитать в конце пакета правок (`batchLand`); None — пакета нет.
+  pending: Option<std::collections::BTreeSet<(i32, i32)>>,
 }
 
 impl Land {
   pub fn new(config: GeneratorConfig, area: LandArea) -> Self {
-    Self { owned: vec![None; (area.width * area.height) as usize], config, area, outside: HashMap::new() }
+    Self { owned: vec![None; (area.width * area.height) as usize], config, area, outside: HashMap::new(), revision: 0, revisions: HashMap::new(), pending: None }
   }
 
   /// Чанк по координатам, собранный при первом обращении (`getChunk`). Вне карты — из генератора, без кэша.
@@ -414,6 +420,69 @@ impl Land {
       [terrain, biome, peak, relief]
     } else {
       [terrain, biome, 0, relief & !DERIVED_BITS]
+    }
+  }
+
+  /// Номер правки чанка (`chunkRevision`): 0 — чанк не правили.
+  pub fn chunk_revision(&self, chunk_x: i32, chunk_y: i32) -> u64 {
+    self.revisions.get(&(chunk_x, chunk_y)).copied().unwrap_or(0)
+  }
+
+  /// Вершина горы, частью которой стоит тайл (`peakOf`): центр и радиус в тайлах; None — тайл не гора.
+  pub fn peak_of(&mut self, x: i32, y: i32) -> Option<(f64, f64, f64)> {
+    let [terrain, _, radius, offset] = self.tile(x, y);
+    if terrain != MOUNTAIN {
+      return None;
+    }
+    Some((x as f64 + 0.5 + ((offset >> 4) as f64 - 8.0) / 2.0, y as f64 + 0.5 + ((offset & 15) as f64 - 8.0) / 2.0, radius as f64 / 255.0 * PEAK_RADIUS_SCALE))
+  }
+
+  /// Записывает хранимые байты тайла (`writeTile`, см. `stored`). Вне карты ничего не делает: край мира — из генератора.
+  /// Пересчитывает выводимое соседних чанков — сразу или в конце пакета (`begin_batch`).
+  pub fn write_tile(&mut self, x: i32, y: i32, bytes: [u8; 4]) {
+    let (chunk_x, chunk_y) = (x.div_euclid(CHUNK_SIZE), y.div_euclid(CHUNK_SIZE));
+    let Some(at) = self.area.index(chunk_x, chunk_y) else { return };
+    // Соседи, которые выводят что-то из этого тайла, собираются до правки: несобранный посчитал бы его по генератору.
+    let reach = (DERIVE_MARGIN + CHUNK_SIZE - 1) / CHUNK_SIZE;
+    let mut touched = Vec::new();
+    for cy in (y - DERIVE_MARGIN).div_euclid(CHUNK_SIZE)..=(y + DERIVE_MARGIN).div_euclid(CHUNK_SIZE) {
+      for cx in (x - DERIVE_MARGIN).div_euclid(CHUNK_SIZE)..=(x + DERIVE_MARGIN).div_euclid(CHUNK_SIZE) {
+        if (cx - chunk_x).abs() > reach || (cy - chunk_y).abs() > reach || self.area.index(cx, cy).is_none() {
+          continue;
+        }
+        self.chunk(cx, cy);
+        touched.push((cx, cy));
+      }
+    }
+    let index = (y.rem_euclid(CHUNK_SIZE) * CHUNK_SIZE + x.rem_euclid(CHUNK_SIZE)) as usize * TILE_BYTES;
+    self.owned[at].as_mut().expect("собран")[index..index + TILE_BYTES].copy_from_slice(&bytes);
+    self.revision += 1;
+    match &mut self.pending {
+      Some(pending) => pending.extend(touched),
+      None => self.rederive(touched),
+    }
+  }
+
+  /// Начинает пакет правок (`batchLand`): выводимое соседних чанков пересчитается один раз, в `end_batch`.
+  pub fn begin_batch(&mut self) {
+    self.pending.get_or_insert_with(Default::default);
+  }
+
+  /// Кончает пакет правок: пересчитывает выводимое у тронутых чанков.
+  pub fn end_batch(&mut self) {
+    if let Some(pending) = self.pending.take() {
+      self.rederive(pending);
+    }
+  }
+
+  /// Пересчитывает выводимое у чанков карты и отмечает их правку.
+  fn rederive(&mut self, chunks: impl IntoIterator<Item = (i32, i32)>) {
+    for (cx, cy) in chunks {
+      let Some(at) = self.area.index(cx, cy) else { continue };
+      let Some(mut chunk) = self.owned[at].take() else { continue };
+      self.derive(&mut chunk, cx, cy);
+      self.owned[at] = Some(chunk);
+      self.revisions.insert((cx, cy), self.revision);
     }
   }
 
@@ -532,6 +601,23 @@ impl Land {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn written_tile_rederives_its_neighbours() {
+    let config: GeneratorConfig = serde_json::from_str("{ \"seed\": 1, \"zoneScale\": 1, \"zoneWarp\": 1, \"swampLevel\": 1, \"rockLevel\": 1, \"biomeScale\": 1, \"peakChance\": 1, \"peakMinRadius\": 1, \"peakMaxRadius\": 1, \"doubleChance\": 1, \"tripleChance\": 1, \"saltSwampShift\": 1, \"saltRockShift\": 1, \"saltPeakFactor\": 1, \"redSwampShift\": 1, \"redRockShift\": 1, \"redPeakFactor\": 1, \"marshSwampShift\": 1, \"marshRockShift\": 1, \"marshPeakFactor\": 1, \"tierStep\": 1, \"cliffScale\": 1, \"cliffShare\": 1, \"blank\": true }").unwrap();
+    let mut land = Land::new(config, LandArea::of(-64, -64, 64, 64));
+    assert_eq!(land.tile(3, 3)[0], SAND);
+    // Скала посреди песков: глубина песков у соседа падает, чанк отмечен правкой.
+    let before = land.tile(4, 3)[2];
+    land.write_tile(3, 3, [ROCK, 0, 0, 1 | CLIFF_BIT]);
+    assert_eq!(land.stored(3, 3), [ROCK, 0, 0, 1 | CLIFF_BIT]);
+    assert!(land.tile(4, 3)[2] < before);
+    assert!(land.tile(4, 3)[3] & FOOT_BIT != 0, "подножие у обрывистой скалы выше");
+    assert!(land.chunk_revision(0, 0) > 0);
+    // Вне карты — ничего.
+    land.write_tile(500, 500, [ROCK, 0, 0, 0]);
+    assert_eq!(land.tile(500, 500)[0], SAND);
+  }
 
   #[test]
   fn hash_follows_js_imul() {

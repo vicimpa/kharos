@@ -32,12 +32,12 @@ paving.FOUNDATION_SAND = 0.8
 -- Сколько тайлов можно заложить одной командой (PAVE_LIMIT).
 paving.LIMIT = 400
 -- Темы, которые открывают покрытие: фундамент, дороги и дорогу по болоту — мосты (PAVE_RESEARCH).
-paving.RESEARCH = { foundation = "foundation", road = "roads", bridge = "bridges" }
+paving.RESEARCH = { foundation = "foundation", road = "roads", bridge = "bridges", peak = "earthworks", cliff = "earthworks" }
 
 -- Что открывают темы покрытия — названия (grid.tools) и значки по порядку PAVE_RESEARCH.
-paving.OPENS = { "foundation", "road", "bridge" }
-paving.TITLES = { foundation = "Фундамент", road = "Дорога", bridge = "Мост", remove = "Разобрать" }
-paving.ICONS = { foundation = "foundation", road = "roads", bridge = "bridges", remove = "remove" }
+paving.OPENS = { "foundation", "road", "bridge", "peak", "cliff" }
+paving.TITLES = { foundation = "Фундамент", road = "Дорога", bridge = "Мост", remove = "Разобрать", peak = "Срыть гору", cliff = "Сгладить обрыв" }
+paving.ICONS = { foundation = "foundation", road = "roads", bridge = "bridges", remove = "remove", peak = "peak", cliff = "cliff" }
 
 -- Что из покрытия открывает тема: foundation, road, bridge (paves у вида темы в hud.ts).
 function paving.opens(topic: string): { string }

@@ -86,6 +86,10 @@ pub struct Frame {
   /// поменялся (альфа на тайл, размер). None — тумана нет.
   pub fog: Option<[f32; 2]>,
   pub fog_update: Option<(Vec<u8>, [i32; 2])>,
+  /// Правки земли, которые узнал свой игрок: тайл и хранимые байты; окно перезальёт тронутые чанки.
+  pub land_edits: Vec<(i32, i32, [u8; 4])>,
+  /// Пиксели мини-карты, сменившие цвет с правками земли: место на картинке и цвет.
+  pub minimap_edits: Vec<(i32, i32, [u8; 4])>,
 }
 
 const COMMON: &str = r#"
@@ -434,7 +438,8 @@ struct Programs {
 struct LandWindow {
   land: Land,
   texture: glow::Texture,
-  slots: Vec<Option<(i32, i32)>>,
+  /// Что лежит в слоте окна: чанк и номер его правки.
+  slots: Vec<Option<(i32, i32, u64)>>,
 }
 
 pub struct Renderer {
@@ -553,7 +558,8 @@ impl Renderer {
       for chunk_x in from_x..=to_x {
         let (slot_x, slot_y) = (chunk_x.rem_euclid(WINDOW_CHUNKS), chunk_y.rem_euclid(WINDOW_CHUNKS));
         let slot = (slot_y * WINDOW_CHUNKS + slot_x) as usize;
-        if window.slots[slot] == Some((chunk_x, chunk_y)) {
+        let revision = window.land.chunk_revision(chunk_x, chunk_y);
+        if window.slots[slot] == Some((chunk_x, chunk_y, revision)) {
           continue;
         }
         let bytes = window.land.chunk(chunk_x, chunk_y);
@@ -562,7 +568,7 @@ impl Renderer {
           gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
           gl.tex_sub_image_2d(glow::TEXTURE_2D, 0, slot_x * CHUNK_SIZE, slot_y * CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(Some(bytes)));
         }
-        window.slots[slot] = Some((chunk_x, chunk_y));
+        window.slots[slot] = Some((chunk_x, chunk_y, revision));
       }
     }
   }
@@ -734,6 +740,22 @@ impl Renderer {
     let night = frame.light < 1.0;
     if night {
       self.targets(size);
+    }
+    if let Some(window) = self.land.as_mut().filter(|_| !frame.land_edits.is_empty()) {
+      window.land.begin_batch();
+      for &(x, y, bytes) in &frame.land_edits {
+        window.land.write_tile(x, y, bytes);
+      }
+      window.land.end_batch();
+    }
+    if let Some(minimap) = self.minimap.filter(|_| !frame.minimap_edits.is_empty()) {
+      unsafe {
+        self.gl.gl.bind_texture(glow::TEXTURE_2D, Some(minimap));
+        self.gl.gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
+        for (x, y, color) in &frame.minimap_edits {
+          self.gl.gl.tex_sub_image_2d(glow::TEXTURE_2D, 0, *x, *y, 1, 1, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(Some(color)));
+        }
+      }
     }
     self.update_land(view);
     let gl = &self.gl.gl;

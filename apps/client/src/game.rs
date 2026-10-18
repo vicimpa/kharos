@@ -65,6 +65,10 @@ pub struct Game {
   fog_seen: Option<u64>,
   /// Как была показана чужая запоминаемая сущность, когда её видели последний раз: так рисуется её призрак.
   ghost_dress: HashMap<Entity, crate::script::Dress>,
+  /// С какой правкой знания своего игрока о земле она нарисована (memory.rs, LandRecall).
+  land_seen: Option<(u64, u64)>,
+  /// Палитра мини-карты (minimap вида lands/) и data.size — перекрашивать пиксели правок земли.
+  land_colors: (Vec<Vec<Vec<u8>>>, i32),
 }
 
 /// Путь сущности: где её нарисовали в прошлый раз, сколько прошла и когда видели.
@@ -86,11 +90,11 @@ fn error(what: impl std::fmt::Display) -> impl FnOnce(mlua::Error) -> String {
 /// Земля партии и её мини-карта: генератор из вида `lands/` (data.land), карта — data.size тайлов от центра. Своя
 /// копия генератора уходит в состояние клиента — для скриптов (c:terrain).
 #[allow(clippy::type_complexity)]
-fn land_of(client: &Content, game_table: &Table, state: &Rc<RefCell<ClientState>>) -> Result<(Option<Land>, Option<(Vec<u8>, [usize; 2])>), String> {
+fn land_of(client: &Content, game_table: &Table, state: &Rc<RefCell<ClientState>>) -> Result<(Option<Land>, Option<(Vec<u8>, [usize; 2])>, (Vec<Vec<Vec<u8>>>, i32)), String> {
   let data = game_table.get::<Option<Table>>("data").map_err(error("data партии"))?;
   let Some(name) = data.as_ref().and_then(|data| data.get::<Option<String>>("land").ok().flatten()) else {
     state.borrow_mut().land = None;
-    return Ok((None, None));
+    return Ok((None, None, (Vec::new(), 0)));
   };
   let kind = named(client, "lands", &name)?;
   let config: GeneratorConfig = kharos_world::land_config(client, data.as_ref().expect("data"))?.expect("местность");
@@ -109,7 +113,7 @@ fn land_of(client: &Content, game_table: &Table, state: &Rc<RefCell<ClientState>
     }
   }
   state.borrow_mut().land = Some(RefCell::new(Land::new(land.config.clone(), land.area)));
-  Ok((Some(land), Some((pixels, [side, side]))))
+  Ok((Some(land), Some((pixels, [side, side])), (palette, size)))
 }
 
 /// Вид раздела по имени из настроек партии.
@@ -252,9 +256,9 @@ impl Game {
     let palette: Vec<f32> = teams.iter().flat_map(|team| team.iter().flat_map(|&value| rgb(value))).collect();
     let pending = host.signals();
 
-    let (land, minimap) = land_of(&client, &game_table, &state)?;
+    let (land, minimap, land_colors) = land_of(&client, &game_table, &state)?;
 
-    Ok(Self { host, client, state, ctx, ctx_data, camera, panels, controls, atmosphere, effects, sounds, music, signals, looks, look_of, atlas: Some(atlas), land, minimap, audio, walked: HashMap::new(), drift: [0.0; 2], fog_seen: None, ghost_dress: HashMap::new(), bar: 0, next_bar: 0.0, accumulator: 0.0, last: None, pending, palette })
+    Ok(Self { host, client, state, ctx, ctx_data, camera, panels, controls, atmosphere, effects, sounds, music, signals, looks, look_of, atlas: Some(atlas), land, minimap, audio, walked: HashMap::new(), drift: [0.0; 2], fog_seen: None, ghost_dress: HashMap::new(), land_seen: None, land_colors, bar: 0, next_bar: 0.0, accumulator: 0.0, last: None, pending, palette })
   }
 
   /// Новый мир той же партии с новыми настройками (`c.app:reset`): хост — заново, а клиентская машина, её панели и
@@ -277,9 +281,11 @@ impl Game {
       state.particles.clear();
     }
     let game_table = named(&self.client, "games", &game)?;
-    let (land, minimap) = land_of(&self.client, &game_table, &self.state)?;
+    let (land, minimap, land_colors) = land_of(&self.client, &game_table, &self.state)?;
     self.land = land;
     self.minimap = minimap;
+    self.land_colors = land_colors;
+    self.land_seen = None;
     self.walked.clear();
     self.fog_seen = None;
     // Сигналы старта (сценка не встала и т. п.) — до первого тика: он их стирает.
@@ -482,6 +488,7 @@ impl Game {
     }
     frame.drift = self.drift;
     self.decals(&mut frame, view, dt);
+    self.land_edits(&mut frame);
     let state = self.state.borrow();
     let world = state.world.borrow();
     // Туман войны: тайл — 0,94 неразведанный, 0,5 разведанный, 0 видимый (fogPass.ts); рамка в тайл — неразведанная.
@@ -699,6 +706,38 @@ impl Game {
     drop(state);
     self.walked.retain(|_, walk| time - walk.seen < 2.0);
     Ok(frame)
+  }
+
+  /// Правки земли, как их знает свой игрок (memory.rs, LandRecall): чего его копия земли ещё не знает — в неё, в окно
+  /// рендера и в пиксели мини-карты. Без тумана — все правки сразу.
+  fn land_edits(&mut self, frame: &mut Frame) {
+    let state = self.state.borrow();
+    let mut host = state.world.borrow_mut();
+    let fog = host.vision.as_ref().is_some_and(|vision| vision.fog);
+    let key = (host.memory.land.version.get(&state.player).copied().unwrap_or(0), if fog { 0 } else { host.memory.land.edits });
+    if self.land_seen == Some(key) {
+      return;
+    }
+    self.land_seen = Some(key);
+    let kharos_world::host::State { land, memory, .. } = &mut *host;
+    let (Some(land), Some(mine)) = (land.as_mut(), state.land.as_ref()) else { return };
+    let tiles = memory.land.known_of(land, state.player, fog);
+    let mut mine = mine.borrow_mut();
+    mine.begin_batch();
+    for ((x, y), bytes) in tiles {
+      if mine.stored(x, y) != bytes {
+        mine.write_tile(x, y, bytes);
+        frame.land_edits.push((x, y, bytes));
+      }
+    }
+    mine.end_batch();
+    let (palette, size) = &self.land_colors;
+    for &(x, y, _) in &frame.land_edits {
+      let tile = mine.tile(x, y);
+      let (terrain, biome) = (tile[0] as usize & 3, (tile[1] >> 6) as usize);
+      let color = palette.get(biome).and_then(|row| row.get(terrain)).cloned().unwrap_or(vec![128, 128, 128]);
+      frame.minimap_edits.push((x + size, y + size, [color[0], color[1], color[2], 255]));
+    }
   }
 
   /// Следы на земле: стареют, с FADE_FROM срока растворяются (доля оставшихся пикселей — плавная ступень), вне

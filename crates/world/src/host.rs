@@ -298,13 +298,13 @@ impl Host {
     }
     {
       let mut state = self.state.borrow_mut();
-      let State { world, vision, layers, memory, .. } = &mut *state;
+      let State { world, vision, layers, memory, land, .. } = &mut *state;
       if let Some(vision) = vision {
         let look = tick % crate::vision::TICKS == 1;
         if look {
           vision.update(world);
         }
-        memory.update(world, vision, layers, look);
+        memory.update(world, vision, layers, land.as_mut(), look);
       }
     }
     Ok(())
@@ -396,6 +396,12 @@ impl Host {
   /// Снимок партии для сохранения: тик, случай, сущности (компоненты по именам, вид — «раздел/имя», чтобы
   /// сохранение пережило правку модов), обзор игроков и память модов (`ctx.storage`).
   pub fn snapshot(&self) -> Result<Json, Error> {
+    // Правки земли: исходные и нынешние байты тайлов, знание игроков.
+    let land = {
+      let mut state = self.state.borrow_mut();
+      let State { land, memory, .. } = &mut *state;
+      land.as_mut().map(|land| memory.land.save(land))
+    };
     let state = self.state.borrow();
     let world = &state.world;
     let proto = world.schema.id("Proto");
@@ -427,6 +433,7 @@ impl Host {
       "motion": state.motion.save(),
       "layers": crate::tiles::save(&state.layers),
       "memory": memory,
+      "land": land,
       "storage": saved(&Value::Table(self.storage.clone()))?,
     }))
   }
@@ -488,6 +495,12 @@ impl Host {
         crate::tiles::load(&mut state.layers, saved);
       }
       state.memory = crate::memory::Memory::new(&state.layers);
+      let State { land, memory, .. } = &mut *state;
+      if let (Some(saved), Some(land)) = (snapshot.get("land").filter(|saved| !saved.is_null()), land.as_mut()) {
+        // Земля партии собирается заново по генератору: правки ложатся поверх.
+        *land = kharos_engine::terrain::Land::new(land.config.clone(), land.area);
+        memory.land.load(land, saved);
+      }
       if let Some(saved) = snapshot.get("memory") {
         let State { memory, layers, .. } = &mut *state;
         memory.load(layers, saved, |parts| match parts.get_mut("Proto") {
@@ -1148,6 +1161,35 @@ impl UserData for Ctx {
     methods.add_method("sees", |_, this, (player, x, y): (f64, f64, f64)| Ok(this.state.borrow().vision.as_ref().is_none_or(|vision| vision.sees(player as u32, x, y))));
     // Бывал ли тайл в виду игрока; без тумана — всё.
     methods.add_method("explored", |_, this, (player, x, y): (f64, f64, f64)| Ok(this.state.borrow().vision.as_ref().is_none_or(|vision| vision.explored(player as u32, x, y))));
+    // Хранимые байты тайла земли (tileBytes): вид, биом, байт вершины, рельеф (ярус, CLIFF_BIT, барханы); nil — земли нет.
+    methods.add_method("tile", |_, this, (x, y): (f64, f64)| {
+      let mut state = this.state.borrow_mut();
+      Ok(match state.land.as_mut().map(|land| land.stored(x.floor() as i32, y.floor() as i32)) {
+        Some([a, b, c, d]) => (Some(a), Some(b), Some(c), Some(d)),
+        None => (None, None, None, None),
+      })
+    });
+    // Вершина горы, частью которой стоит тайл (peakOf): x, y и радиус; не гора — nil.
+    methods.add_method("peak", |_, this, (x, y): (f64, f64)| {
+      let mut state = this.state.borrow_mut();
+      Ok(match state.land.as_mut().and_then(|land| land.peak_of(x.floor() as i32, y.floor() as i32)) {
+        Some((px, py, radius)) => (Some(px), Some(py), Some(radius)),
+        None => (None, None, None),
+      })
+    });
+    // Правит землю пакетом (setTile, editTile в landMemory.ts): x, y и четыре хранимых байта подряд. Правку другие
+    // игроки узнают, только увидев (memory.rs).
+    methods.add_method("edit_tiles", |_, this, flat: Vec<f64>| {
+      let mut state = this.state.borrow_mut();
+      let State { land, memory, .. } = &mut *state;
+      let Some(land) = land.as_mut() else { return Ok(()) };
+      land.begin_batch();
+      for tile in flat.chunks(6).filter(|tile| tile.len() == 6) {
+        memory.land.edit(land, tile[0].floor() as i32, tile[1].floor() as i32, [tile[2] as u8, tile[3] as u8, tile[4] as u8, tile[5] as u8]);
+      }
+      land.end_batch();
+      Ok(())
+    });
     // Помнит ли кто-нибудь ушедшее (memory.rs), чья середина в прямоугольнике [x1, x2) × [y1, y2): там его призрак.
     methods.add_method("remembered_in", |_, this, (x1, y1, x2, y2): (f64, f64, f64, f64)| {
       let state = this.state.borrow();

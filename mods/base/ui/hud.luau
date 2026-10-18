@@ -22,6 +22,7 @@ local stepsLib = require("lib/steps")
 local depositsLib = require("lib/deposits")
 local levels = require("lib/levels")
 local paving = require("lib/paving")
+local earthworks = require("lib/earthworks")
 local truckControls = require("controls/trucks")
 
 local clockOf = widgets.clock
@@ -49,13 +50,17 @@ local CONVERT, CANCEL, DEMOLISH, BACK = 9, 10, 11, 12
 local UPGRADE = 8
 local SWITCH = BACK
 -- Названия инструментов протяжки: стена и ворота — как здание (toolName).
-local TOOL_NAMES = { pipe = "Труба", well = "Колодцы", foundation = paving.TITLES.foundation, road = paving.TITLES.road, remove = paving.TITLES.remove }
+local TOOL_NAMES = { pipe = "Труба", well = "Колодцы", foundation = paving.TITLES.foundation, road = paving.TITLES.road, remove = paving.TITLES.remove, peak = paving.TITLES.peak, cliff = paving.TITLES.cliff }
 -- Инструменты раздела «Покрытие» и их подсказки (PAVE_TOOLS, grid.toolTips в commands.ts).
-local PAVE_TOOLS = { "foundation", "road" }
+local PAVE_TOOLS = { "foundation", "road", "peak", "cliff" }
 local PAVE_TIPS = {
 	foundation = "Здания на нём строятся вдвое быстрее, на песке он разрешает стройку. Кладётся и под свои здания, и вместо своей дороги. Взрывы его разбивают. Тяни мышью прямоугольник",
 	road = "Наземные едут быстрее; по болоту — мост за " .. paving.BRIDGE_COST .. " за тайл. На дороге не строят; кладётся и вместо своего фундамента. Тяни мышью линию",
+	peak = "Строители срывают гору целиком, на её месте — скала. " .. earthworks.PEAK_COST .. " за тайл горы. Тяни мышью рамку по горе",
+	cliff = "Строители сглаживают кромку обрыва: подножие под ней становится проездом для техники. " .. earthworks.CLIFF_COST .. " за тайл кромки. Тяни мышью рамку по обрыву",
 }
+-- Цена тайла инструмента «Покрытия».
+local PAVE_COSTS = { foundation = paving.FOUNDATION_COST, road = paving.ROAD_COST, peak = earthworks.PEAK_COST, cliff = earthworks.CLIFF_COST }
 -- С какой доли выработки полная нагрузка сети уже тесна: число энергии на полосе желтеет (GRID_TIGHT).
 local GRID_TIGHT = 0.8
 -- Разделы строителя: в какой странице какое здание; остальное — хозяйство (SECTIONS в commands.ts). Раздел — с
@@ -412,7 +417,7 @@ local function constructionSlots(c, list, selection)
 			end
 			local active = stroking == tool
 			local shown = c.shared.paving
-			local cost = if tool == "foundation" then paving.FOUNDATION_COST else paving.ROAD_COST
+			local cost = PAVE_COSTS[tool]
 			list[i] = {
 				label = paving.TITLES[tool],
 				picture = c.protos.icons[paving.ICONS[tool]],

@@ -2,7 +2,7 @@
 -- Протяжка (scene.paving в controls.ts, paveStrokeOf в placing.ts, pavingPass.ts, cursorPass.ts): кнопка трубы,
 -- колодцев, стены, ворот, покрытия или «Снять» включает режим c.shared.mode = { kind = "paving", tool }. Труба, стена,
 -- ворота и дорога тянутся мышью линией с одним изломом — сначала вдоль длинной стороны, потом поперёк; фундамент и
--- «Снять» — прямоугольником; колодцы — щелчком по одному (свяжется с колодцем по прямой) или протяжкой парой до 10
+-- «Снять» — прямоугольником, землеройные работы — рамкой по горе или обрыву (подсвечено, что сроют или сгладят); колодцы — щелчком по одному (свяжется с колодцем по прямой) или протяжкой парой до 10
 -- тайлов. Под указателем — призраки по тайлам: годные — светлые, негодные — красные; у покрытия — рамки тайлов:
 -- зелёные, жёлтые там, где не хватит кредитов (покрытие оплачивают сразу), оранжевые — что снимут. Сколько это стоит,
 -- видно на полосе режима. Отпустили — закладывается то, что годится; режим остаётся. Правая кнопка и Esc — отмена; без
@@ -10,6 +10,7 @@
 
 local construction = require("lib/construction")
 local paving = require("lib/paving")
+local earthworks = require("lib/earthworks")
 local zones = require("lib/zones")
 local conversion = require("lib/conversion")
 
@@ -23,7 +24,9 @@ local UNDERGROUND_REACH = 10
 local ALLOWED, REMOVE, SHORT, FORBIDDEN = 0x59ff73, 0xffa633, 0xffd926, 0xff4d40
 local FILL_ALPHA, BORDER_ALPHA = 0.18, 0.85
 -- Инструменты покрытия: они не здания.
-local SURFACE = { foundation = true, road = true, remove = true }
+local SURFACE = { foundation = true, road = true, remove = true, peak = true, cliff = true }
+-- Землеройные инструменты: рамка, а заказ хост соберёт из неё (digsIn).
+local DIG = { peak = true, cliff = true }
 
 -- Есть ли такой инструмент: здание протяжки или покрытие.
 function stroke.known(c, tool: string): boolean
@@ -47,7 +50,7 @@ end
 -- Протянутое покрытие или снятие (paveStrokeOf): фундамент и снятие — прямоугольником, дорога — линией; покрытие
 -- оплачивают сразу — кредиты считаются по тайлу в том же порядке, на что не хватит, то и не ляжет. Третье — каким
 -- тайлам не хватило кредитов.
-local function surfaceOf(c, tool: string, start, tile): ({ number }, { boolean }, number, { boolean })
+local function surfaceOf(c, tool: string, start, tile): ({ number }, { boolean }, number, { boolean }, { number }?)
 	local tiles = {}
 	if tool == "road" then
 		local horizontal = math.abs(tile.x - start.x) >= math.abs(tile.y - start.y)
@@ -75,6 +78,26 @@ local function surfaceOf(c, tool: string, start, tile): ({ number }, { boolean }
 	end
 	local allowed, short = {}, {}
 	local cost = 0
+	if DIG[tool] then
+		-- Землеройные работы в рамке (digStrokeOf): подсвечены тайлы каждой работы; на что не хватит кредитов — жёлтым.
+		local credits = construction.credits(c, c.player)
+		local shown = {}
+		for _, job in earthworks.digsIn(c, c.player, tool, tiles) do
+			local affordable = cost + job.cost <= credits
+			if affordable then
+				cost += job.cost
+			end
+			local peak = tool == "peak" and earthworks.peakOf(c, job.x, job.y)
+			local covered = if peak then earthworks.peakTiles(c, peak) else { job.x, job.y }
+			for i = 1, #covered - 1, 2 do
+				table.insert(shown, covered[i])
+				table.insert(shown, covered[i + 1])
+				table.insert(allowed, affordable)
+				table.insert(short, not affordable)
+			end
+		end
+		return shown, allowed, cost, short, tiles
+	end
 	if tool == "remove" then
 		local covered = {}
 		for i = 1, #tiles - 1, 2 do
@@ -106,7 +129,7 @@ local function surfaceOf(c, tool: string, start, tile): ({ number }, { boolean }
 end
 
 -- Протянутое: тайлы x, y подряд, какие годятся и цена годных (paveStrokeOf); четвёртое — каким не хватило кредитов.
-function stroke.of(c, tool: string): ({ number }, { boolean }, number, { boolean }?)
+function stroke.of(c, tool: string): ({ number }, { boolean }, number, { boolean }?, { number }?)
 	local tile = { x = math.floor(c.input.wx), y = math.floor(c.input.wy) }
 	local start = from or tile
 	if SURFACE[tool] then
@@ -194,7 +217,7 @@ function stroke.update(c)
 	if input.pressed.left and input.inside and not input.over_ui then
 		from = { x = math.floor(input.wx), y = math.floor(input.wy) }
 	end
-	local tiles, allowed, cost, short = stroke.of(c, mode.tool)
+	local tiles, allowed, cost, short, frame = stroke.of(c, mode.tool)
 	local lacking = 0
 	for _, item in short or {} do
 		if item then
@@ -225,7 +248,9 @@ function stroke.update(c)
 			c:sound("deny", { volume = 0.35 })
 			return
 		end
-		if mode.tool == "foundation" or mode.tool == "road" then
+		if DIG[mode.tool] then
+			c:send("dig", { kind = mode.tool, tiles = frame, builders = units, queue = c.input.keys.shift })
+		elseif mode.tool == "foundation" or mode.tool == "road" then
 			c:send("pave", { kind = mode.tool, tiles = tiles, builders = units, queue = c.input.keys.shift })
 		elseif mode.tool == "remove" then
 			c:send("remove", { tiles = tiles, builders = units, queue = c.input.keys.shift })

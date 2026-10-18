@@ -1,13 +1,17 @@
 --!strict
 -- Покрытие (pavingPass.ts): фундамент, дороги и мосты — тайлы на экране, а не обход мира. Дорога по болоту рисуется
 -- мостом; соседние тайлы одного вида сливаются (sprites/paving). Что кладут или разбирают — бледнее, заменяемое
--- рисуется новым. Чужое покрытие видно там, где игрок бывал (памяти о покрытии в тумане пока нет — Б6).
+-- рисуется новым. Чужое покрытие — каким его знает свой игрок (c:layer по памяти движка). Землеройные работы — плитой
+-- фундамента в оранжевом поверх своих тайлов: гора целиком, обрыв — по тайлу кромки.
 
 local surface = require("lib/surface")
+local earthworks = require("lib/earthworks")
 local paveArt = require("lib/paveArt")
 
 -- Недостроенное и разбираемое покрытие просвечивает: видно, что над ним работают (UNFINISHED_ALPHA).
 local UNFINISHED = 0.45
+-- Тайлы землеройной работы: плита фундамента в оранжевом, полупрозрачная (DIG_TINT, множители уже на альфе).
+local DIG_TINT = { 0.5, 0.28, 0.08, 0.5 }
 local SWAMP = 0
 local FOUNDATION = 1
 local CODES = { foundation = 1, road = 2 }
@@ -66,6 +70,23 @@ local function update(c)
 		local look = if code == FOUNDATION then 0 elseif c:terrain(x, y) == SWAMP then 2 else 1
 		local alpha = if working[key] then UNFINISHED else 1
 		c:show(kind, x + 0.5, y + 0.5, { phase = look * 16 + mask, tint = { alpha, alpha, alpha, alpha } })
+	end
+	for _, e in c:each({ "Dig", "Position" }) do
+		local dig, at = c:get(e, "Dig"), c:get(e, "Position")
+		if not c:mine(e) and not c:sees(at.x + 0.5, at.y + 0.5) then
+			continue
+		end
+		local tiles = { at.x, at.y }
+		local peak = dig.kind == "peak" and earthworks.peakOf(c, at.x, at.y)
+		if peak then
+			tiles = earthworks.peakTiles(c, peak)
+		end
+		for i = 1, #tiles - 1, 2 do
+			local x, y = tiles[i], tiles[i + 1]
+			if x >= left and x <= right and y >= top and y <= bottom then
+				c:show(kind, x + 0.5, y + 0.5, { phase = 15, tint = DIG_TINT })
+			end
+		end
 	end
 end
 

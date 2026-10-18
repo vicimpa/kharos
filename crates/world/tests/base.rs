@@ -1886,3 +1886,49 @@ fn trucks_carry_by_hand_ride_routes_and_fill_request_stations() {
   host.tick(0.05).unwrap();
   assert_eq!(get(&host, truck, "Hauler").unwrap()["supply"].as_f64(), Some(accumulator as f64));
 }
+
+#[test]
+fn builders_raze_a_mountain_into_rock_and_the_land_keeps_it() {
+  let mut host = host_without_tech();
+  let (_, site, builder) = base_with_builder(&mut host);
+  let player = all(&host, "Player")[0].0;
+  set(&host, player, "Player", json!({ "credits": 20000 }));
+  // Ближайшая к базе гора.
+  let peak = {
+    let mut state = host.state.borrow_mut();
+    let land = state.land.as_mut().unwrap();
+    let mut found = None;
+    'search: for ring in 0..60 {
+      for dy in -ring..=ring {
+        for dx in -ring..=ring {
+          if dx.max(-dx).max(dy).max(-dy) == ring && land.peak_of(site.0 + dx, site.1 + dy).is_some() {
+            found = Some((site.0 + dx, site.1 + dy));
+            break 'search;
+          }
+        }
+      }
+    }
+    found.expect("гора рядом")
+  };
+  let before = credits(&host);
+  host.send(1, "dig", json!({ "kind": "peak", "tiles": [peak.0, peak.1], "builders": [builder] }));
+  host.tick(0.05).unwrap();
+  let digs = all(&host, "Dig");
+  assert_eq!(digs.len(), 1, "работа не заказана");
+  let cost = digs[0].1["cost"].as_f64().unwrap();
+  assert!(cost >= 40.0 && (before - credits(&host) - cost).abs() < 1e-6, "плата сразу: {cost}");
+  assert!(until(&mut host, 300.0, |host| all(host, "Dig").is_empty()), "гору не сорвали");
+  {
+    let mut state = host.state.borrow_mut();
+    let land = state.land.as_mut().unwrap();
+    assert!(land.peak_of(peak.0, peak.1).is_none(), "гора осталась");
+    assert_eq!(land.stored(peak.0, peak.1)[0], kharos_engine::terrain::ROCK);
+  }
+  // Сохранение уносит правку земли.
+  let snapshot = host.snapshot().unwrap();
+  let mut copy = host_without_tech();
+  copy.restore(&snapshot).unwrap();
+  let mut state = copy.state.borrow_mut();
+  assert_eq!(state.land.as_mut().unwrap().stored(peak.0, peak.1)[0], kharos_engine::terrain::ROCK);
+  assert!(!state.memory.land.original.is_empty());
+}

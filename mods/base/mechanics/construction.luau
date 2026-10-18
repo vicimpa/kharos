@@ -34,6 +34,7 @@ local logistics = require("lib/logistics")
 local drops = require("lib/drops")
 local levels = require("lib/levels")
 local paving = require("lib/paving")
+local earthworks = require("lib/earthworks")
 
 local readf64, writef64 = buffer.readf64, buffer.writef64
 
@@ -69,6 +70,9 @@ mechanic.components = {
 	-- Работа над покрытием тайла (lib/paving): kind — foundation или road; work — тиков работы одного строителя:
 	-- у укладки — сделано, у разбора — осталось; done — покрытие готово (у разбора), remove — его разбирают.
 	Pave = { kind = "road", work = 0, done = false, remove = false },
+	-- Землеройная работа (lib/earthworks): kind — peak (срыть гору с вершиной peakX, peakY) или cliff (сгладить кромку
+	-- в своём тайле); cost — уплаченное, work — тиков работы одного строителя сделано.
+	Dig = { kind = "peak", cost = 0, work = 0, peakX = 0, peakY = 0 },
 }
 
 local TURN = math.pi * 2
@@ -135,6 +139,12 @@ local function workAt(ctx, e: number): Work?
 		end
 		local x, y = paving.tileOf(ctx, e)
 		return { x = x, y = y, width = 1, height = 1, radius = 0, cost = paving.cost(ctx, pave.kind, x, y) }
+	end
+	-- Землеройная работа: гора или тайл кромки; сорвали — работы нет.
+	local dig = ctx:get(e, "Dig")
+	if dig then
+		local area = earthworks.area(ctx, e)
+		return if area then { x = area.x, y = area.y, width = area.width, height = area.height, radius = 0, cost = dig.cost } else nil
 	end
 	local kind = kinds.of(ctx, e)
 	if not kind or not ctx:has(e, "Position") then
@@ -296,7 +306,7 @@ local isBusy = queue.busyBuilder
 -- Стоит ли работа, хотя ремонтник до неё дотянулся: стройка вне зоны или с юнитами на ещё пустой площадке, починка —
 -- без кредитов (isStalled). Покрытие и улучшение оплачены сразу и ничего не ждут.
 local function isStalled(ctx, e: number, rules, purse, all): boolean
-	if ctx:has(e, "Pave") or upgradeAt(ctx, e) then
+	if ctx:has(e, "Pave") or ctx:has(e, "Dig") or upgradeAt(ctx, e) then
 		return false
 	end
 	local site = ctx:get(e, "Site")
@@ -378,6 +388,12 @@ local function repairLinks(ctx, rules, purse, all): { Link }
 			table.insert(targets, { entity = e, work = work, player = ownerOf(ctx, e), demolish = ctx:get(e, "Pave").remove })
 		end
 	end
+	for _, e in ctx:each({ "Dig", "Position", "Owner" }) do
+		local work = workAt(ctx, e)
+		if work then
+			table.insert(targets, { entity = e, work = work, player = ownerOf(ctx, e), demolish = false })
+		end
+	end
 	for _, e in ctx:each({ "Upgrade", "Position", "Owner" }) do
 		local work = upgradeAt(ctx, e) and workAt(ctx, e)
 		if work then
@@ -412,7 +428,7 @@ local function repairLinks(ctx, rules, purse, all): { Link }
 				continue
 			end
 			-- Станция только чинит: стройки, покрытие, разбор и улучшение — работа строителя.
-			if repairer.station and (target.upgrade or ctx:has(target.entity, "Site") or ctx:has(target.entity, "Pave")) then
+			if repairer.station and (target.upgrade or ctx:has(target.entity, "Site") or ctx:has(target.entity, "Pave") or ctx:has(target.entity, "Dig")) then
 				continue
 			end
 			if target.ordered and repairer.site ~= target.entity then
@@ -497,8 +513,14 @@ local function volunteer(ctx, rules, all)
 			table.insert(sites, { entity = e, work = work, player = ownerOf(ctx, e), kind = if site.demolish then nil else kinds.of(ctx, e) })
 		end
 	end
-	-- Покрытие зоны не ждёт: строители переходят с тайла на соседний сами.
+	-- Покрытие зоны не ждёт: строители переходят с тайла на соседний сами. Землеройные работы — тоже.
 	for _, e in ctx:each({ "Pave", "Position", "Owner" }) do
+		local work = workAt(ctx, e)
+		if work then
+			table.insert(sites, { entity = e, work = work, player = ownerOf(ctx, e) })
+		end
+	end
+	for _, e in ctx:each({ "Dig", "Position", "Owner" }) do
 		local work = workAt(ctx, e)
 		if work then
 			table.insert(sites, { entity = e, work = work, player = ownerOf(ctx, e) })
@@ -786,6 +808,30 @@ mechanic.commands = {
 		end
 	end,
 
+	-- { kind, tiles, builders, queue } — землеройные работы в рамке тайлов x, y подряд (orderDigs): kind — peak (срыть
+	-- горы, по работе на гору) или cliff (сгладить кромки обрыва, по работе на тайл). Платят за каждую сразу; на что
+	-- не хватило кредитов — не заказывают. К первой посылают строителей.
+	dig = function(ctx, player, args)
+		local tiles = strokeTiles(args.tiles)
+		local kind = args.kind
+		if not tiles or type(kind) ~= "string" or not table.find(earthworks.KINDS, kind) then
+			return
+		end
+		local free, busy = split(ctx, player, args.builders, args.queue == true)
+		local purse = wallet.purse(ctx)
+		local first = nil
+		for _, job in earthworks.digsIn(ctx, player, kind, tiles) do
+			if wallet.spend(purse, player, job.cost) then
+				local e = ctx:spawn(nil, { Position = { x = job.x, y = job.y }, Owner = { player = player }, Dig = { kind = kind, cost = job.cost, peakX = job.peakX, peakY = job.peakY } })
+				first = first or e
+			end
+		end
+		wallet.flush(purse)
+		if first then
+			dispatch(ctx, player, first, free, busy)
+		end
+	end,
+
 	-- { tiles, builders, queue } — снять своё на тайлах (removePave): покрытие, трубы с колодцами и здания, основание
 	-- которых целиком попало в тайлы (главное здание не разбирают — его сворачивают). Недостроенное покрытие и не
 	-- начатые стройки отменяются сразу, с возвратом кредитов целиком; готовое покрытие строители разбирают без
@@ -823,6 +869,13 @@ mechanic.commands = {
 			if building and not seen[building] then
 				seen[building] = true
 				table.insert(taken, building)
+			end
+			-- Землеройную работу отменяют: кредиты возвращаются целиком, как у не начатой площадки (cancelDig).
+			local dug = earthworks.digAt(ctx, x, y)
+			if dug and not seen[dug] and isOwn(ctx, player, dug) then
+				seen[dug] = true
+				wallet.add(purse, player, ctx:get(dug, "Dig").cost)
+				ctx:destroy(dug)
 			end
 			local e = paving.at(ctx, x, y)
 			if e then
@@ -1067,6 +1120,17 @@ mechanic.systems = {
 			table.sort(worked)
 			for _, e in worked do
 				local count = done[e]
+				-- Землеройная работа: копится, пока не наберётся вся; тогда земля правится.
+				local dig = ctx:get(e, "Dig")
+				if dig then
+					local work = dig.work + count
+					if work < construction.workTicks(dig.cost, dt) then
+						ctx:set(e, "Dig", { work = work })
+					else
+						earthworks.finish(ctx, e)
+					end
+					continue
+				end
 				local pave = ctx:get(e, "Pave")
 				if pave then
 					local x, y = paving.tileOf(ctx, e)

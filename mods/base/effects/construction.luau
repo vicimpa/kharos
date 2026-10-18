@@ -4,6 +4,7 @@
 -- мерцающий луч сварки — зелёный, у разбора красный, — с искрами и светом в темноте.
 
 local noise = require("lib/noise").of
+local earthworks = require("lib/earthworks")
 
 local construction = {}
 
@@ -25,6 +26,9 @@ construction.data = {
 
 local MEND = rgb(0.3, 1, 0.55)
 local WRECK = rgb(1, 0.22, 0.1)
+-- Землеройные работы: срыть гору — алым, сгладить обрыв — землёй (BLAST, GRADE).
+local BLAST = rgb(1, 0.12, 0.08)
+local GRADE = rgb(0.55, 0.3, 0.1)
 local CORE = rgb(1, 1, 1)
 
 -- Конец луча на работе: у юнита — его центр, у здания — ближняя к ремонтнику точка основания.
@@ -32,6 +36,14 @@ local function endOf(c, target: number, x: number, y: number): (number?, number?
 	local at = c:get(target, "Position")
 	if not at then
 		return nil, nil
+	end
+	-- Землеройная работа — ближняя точка её тайлов.
+	if c:has(target, "Dig") then
+		local area = earthworks.area(c, target)
+		if not area then
+			return nil, nil
+		end
+		return math.clamp(x, area.x, area.x + area.width), math.clamp(y, area.y, area.y + area.height)
 	end
 	local size = c:get(target, "Building")
 	if not size or c:has(target, "Unit") then
@@ -87,7 +99,8 @@ function construction.update(c)
 			fromY += (toY - fromY) * reach
 		end
 		local site = c:get(target, "Site")
-		local color = if site and site.demolish then WRECK else MEND
+		local dig = c:get(target, "Dig")
+		local color = if site and site.demolish then WRECK elseif dig and dig.kind == "peak" then BLAST elseif dig then GRADE else MEND
 		local seed = e * 31 + target
 		local flicker = 0.55 + 0.45 * noise(seed, math.floor(time * d.rate * 2))
 		-- Свет сварки мерцает.
