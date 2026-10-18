@@ -74,6 +74,14 @@ mechanic.components = {
 	Dig = { kind = "peak", cost = 0, work = 0, peakX = 0, peakY = 0 },
 }
 
+-- Снаряжение вида: ремонтник (строитель, ремонтная турель, ремонтная станция) строит, разбирает и чинит в радиусе
+-- data.repair.
+function mechanic.equip(kind, entity)
+	if kind.data.repair then
+		entity.Repair = { radius = kind.data.repair }
+	end
+end
+
 local TURN = math.pi * 2
 
 -- Угол в пределах от −π до π (wrap).

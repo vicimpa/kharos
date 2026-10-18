@@ -4,6 +4,7 @@
 -- при t = 1. Огни кадра — canvas:light.
 
 local goods = require("lib/goods")
+local kinds = require("lib/kinds")
 
 local buildings = {}
 
@@ -147,10 +148,8 @@ function buildings.sight(kind, protos): number
 	return math.max(data.sight or half + buildings.BUILDING_SIGHT, if range ~= 0 then range + 1.5 else 0)
 end
 
--- На сколько секунд гаснет пробитый до нуля купол щита.
-buildings.SHIELD_DOWN = 10
-
--- Сущность здания по данным вида: размер, основание (тайлы заняты для хода), обзор, производство.
+-- Сущность здания по данным вида: размер, основание (тайлы заняты для хода), обзор, прочность, связь в сеть, склад; что
+-- нужно механикам (производство, щит, магазин…), добавляют они сами (kinds.equip).
 function buildings.entity(kind, protos)
 	local data = kind.data
 	local entity = {
@@ -164,68 +163,11 @@ function buildings.entity(kind, protos)
 		Sight = { radius = buildings.sight(kind, protos) },
 		-- Прочность без своей — от цены.
 		Health = { hp = data.hp or data.cost * buildings.HP_PER_COST },
+		Link = buildings.link(kind),
+		-- Склад: шахта копит руду, переработка — руду и готовое, хранилище — свой груз.
+		Inventory = goods.stock(data),
 	}
-	entity.Link = buildings.link(kind)
-	-- Станция запроса держит заказанное игроком (Wanted).
-	if data.requester then
-		entity.Wanted = {}
-	end
-	-- Склад: шахта копит руду, переработка — руду и готовое, хранилище — свой груз.
-	entity.Inventory = goods.stock(data)
-	-- Производителю без своего склада — склад под материалы заказов.
-	if data.produces and not entity.Inventory then
-		entity.Inventory = goods.stock({ inventory = buildings.PRODUCER_HOLD })
-	end
-	-- Цех собирает изделие своего вида; новый стоит выключенным, пока игрок его не включит.
-	if data.assembles then
-		entity.Assembly = { recipe = data.assembles }
-	end
-	-- Лаборатория сообщает, как идёт работа (mechanics/research).
-	if data.researches then
-		entity.Research = {}
-	end
-	if data.battery then
-		entity.Accumulator = {}
-	end
-	if data.produces then
-		entity.Producer = {}
-	end
-	-- Турели здания стреляют со склада (data.ammo): магазин движка — тот же запас, его ведёт mechanics/supply.
-	if data.ammo then
-		entity.Magazine = {}
-	end
-	-- Транспортный луч здания: станция поставки грузит им машины снабжения.
-	if data.beam then
-		entity.Beam = { radius = data.beam.radius, rate = data.beam.rate, give = data.beam.give == true, take = data.beam.take == true }
-	end
-	-- Генератор щита держит купол (mechanics/shields): пробитый гаснет на SHIELD_DOWN секунд.
-	if data.shield then
-		entity.Shield = { radius = data.shield.radius, recover = buildings.SHIELD_DOWN }
-	end
-	-- Ракетная шахта собирает боеголовку, перехватчик — ракеты-перехватчики (mechanics/silos).
-	if data.warhead then
-		entity.Silo = {}
-	end
-	if data.intercept then
-		entity.Interceptor = {}
-	end
-	-- Реактор жжёт стержни (mechanics/reactors).
-	if data.burns then
-		entity.Reactor = {}
-	end
-	-- Ворота поднимаются перед чужими (mechanics/gates).
-	if data.gate then
-		entity.Gate = {}
-	end
-	-- Турели здания стреляют, пока ему хватает энергии и оно работает (mechanics/economy).
-	if data.mounts then
-		entity.Throttle = {}
-	end
-	-- Ремонтная станция чинит своё вокруг (mechanics/construction).
-	if data.repair then
-		entity.Repair = { radius = data.repair }
-	end
-	return entity
+	return kinds.equip(kind, entity, protos)
 end
 
 -- На сколько тайлов от своего центра расширяет зону готовое здание без своего радиуса.
@@ -256,9 +198,6 @@ end
 function buildings.siteLink(kind): { [string]: any }
 	return { radius = 0, group = kind.name, leaf = true, width = kind.data.width, height = kind.data.height }
 end
-
--- Сколько груза держит производитель без своего склада.
-buildings.PRODUCER_HOLD = 100
 
 -- Сколько прочности здания на кредит цены, если своей у него нет.
 buildings.HP_PER_COST = 2

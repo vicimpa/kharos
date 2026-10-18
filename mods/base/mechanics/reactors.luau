@@ -16,6 +16,13 @@ mechanic.components = {
 	Reactor = { left = 0 },
 }
 
+-- Снаряжение вида: реактор жжёт стержни.
+function mechanic.equip(kind, entity)
+	if kind.data.burns then
+		entity.Reactor = {}
+	end
+end
+
 mechanic.systems = {
 	-- До энергии: реакторы жгут стержни и берут следующий со склада, как только догорит нынешний.
 	burn = {

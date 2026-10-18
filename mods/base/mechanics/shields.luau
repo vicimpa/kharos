@@ -16,6 +16,18 @@ local readf64 = buffer.readf64
 
 local mechanic = {}
 
+mechanic.data = {
+	-- На сколько секунд гаснет пробитый до нуля купол.
+	down = 10,
+}
+
+-- Снаряжение вида: генератор щита держит купол; пробитый гаснет на down секунд.
+function mechanic.equip(kind, entity)
+	if kind.data.shield then
+		entity.Shield = { radius = kind.data.shield.radius, recover = mechanic.data.down }
+	end
+end
+
 mechanic.systems = {
 	-- После боя: щиты восстанавливаются на долю энергии своей сети; без энергии купол гаснет.
 	shields = {

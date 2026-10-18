@@ -49,6 +49,23 @@ local function leaveHome(ctx, entity: number, own)
 	return { away = true, homeX = math.floor(at.x), homeY = math.floor(at.y) }
 end
 
+-- Снаряжение вида с data.ammo. Юнит — магазин полон с завода, пуст — когда меньше самого дешёвого выстрела; выстрел своего
+-- оружия стоит доли магазина. Турели здания стреляют со склада: магазин движка — тот же запас.
+function mechanic.equip(kind, entity, protos)
+	local data = kind.data
+	if kind.section == "units" then
+		if entity.Armed then
+			local weapon = protos.weapons[data.weapon]
+			entity.Armed.cost = if weapon then supply.shotCost(kind, protos, weapon) else 0
+		end
+		if data.ammo then
+			entity.Magazine = { ammo = data.ammo, least = supply.cheapest(kind, protos) }
+		end
+	elseif data.ammo and kind.section == "buildings" then
+		entity.Magazine = {}
+	end
+end
+
 mechanic.systems = {
 	-- После грузовиков и до боя: станции поставки грузят машины снабжения каждый тик, раз в ticks магазины юнитов
 	-- пополняются, пустые идут за боеприпасами, наполнившие возвращаются (supply).

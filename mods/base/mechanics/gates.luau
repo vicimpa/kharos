@@ -24,6 +24,13 @@ mechanic.components = {
 	Gate = {},
 }
 
+-- Снаряжение вида: ворота поднимаются перед чужими.
+function mechanic.equip(kind, entity)
+	if kind.data.gate then
+		entity.Gate = {}
+	end
+end
+
 local function key(x: number, y: number): number
 	return x * 65536 + y
 end

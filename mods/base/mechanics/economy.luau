@@ -61,6 +61,17 @@ mechanic.components = {
 	Accumulator = { charge = 0, flow = 0 },
 }
 
+-- Снаряжение вида: накопитель копит и отдаёт энергию; турели здания стреляют, пока ему хватает энергии и оно работает.
+function mechanic.equip(kind, entity)
+	local data = kind.data
+	if data.battery then
+		entity.Accumulator = {}
+	end
+	if data.mounts and kind.section == "buildings" then
+		entity.Throttle = {}
+	end
+end
+
 -- Когда каждое здание последний раз видели за работой, в тиках, — по миру (ctx.storage). Не сохраняется: после
 -- загрузки набирается заново.
 local seen = setmetatable({}, { __mode = "k" }) :: { [any]: { [number]: number } }

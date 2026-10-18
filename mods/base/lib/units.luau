@@ -5,7 +5,7 @@
 -- колёса, гусеницы, ноги, корпус тяжёлой машины, пушка главного здания. Массивы цветов — с нуля.
 
 local goods = require("lib/goods")
-local supply = require("lib/supply")
+local kinds = require("lib/kinds")
 
 local units = {}
 
@@ -236,7 +236,8 @@ function units.sight(kind, protos): number
 	return math.max(data.sight or CLASS_SIGHT[data.kind] or 8, if range ~= 0 then range + SIGHT_OVER_RANGE else 0)
 end
 
--- Сущность юнита по данным вида: ход (Mover) — скорость, поворот, радиус, род; обзор.
+-- Сущность юнита по данным вида: ход (Mover) — скорость, поворот, радиус, род; обзор, прочность, своё оружие, склад; что
+-- нужно механикам (магазин, луч, ремонт…), добавляют они сами (kinds.equip).
 function units.entity(kind, protos)
 	local data = kind.data
 	local infantry = data.kind == "infantry"
@@ -249,43 +250,23 @@ function units.entity(kind, protos)
 		Sight = { radius = units.sight(kind, protos) },
 		-- Пехоту не чинят, зато она понемногу поправляется сама.
 		Health = { hp = data.hp, repairable = not infantry, regen = if infantry then units.INFANTRY_REGEN else 0 },
+		Inventory = goods.stock(data),
 	}
-	-- Своё оружие — у корпуса; выстрел вылетает с края юнита и стоит доли магазина.
+	-- Своё оружие — у корпуса: выстрел вылетает с края юнита.
 	if data.weapon then
-		local weapon = protos.weapons[data.weapon]
-		entity.Armed = { weapon = data.weapon, turn = data.turn, radius = data.radius, cost = if weapon then supply.shotCost(kind, protos, weapon) else 0 }
+		entity.Armed = { weapon = data.weapon, turn = data.turn, radius = data.radius }
 	end
-	-- Магазин полон с завода (lib/supply); пуст — когда меньше самого дешёвого выстрела.
-	if data.ammo then
-		entity.Magazine = { ammo = data.ammo, least = supply.cheapest(kind, protos) }
-	end
-	-- Строитель: строит, разбирает и чинит в радиусе data.repair (mechanics/construction).
-	if data.repair then
-		entity.Repair = { radius = data.repair }
-	end
-	-- Склад и транспортный луч, грузовик — ещё и работа (mechanics/hauling).
-	entity.Inventory = goods.stock(data)
-	if data.beam then
-		entity.Beam = { radius = data.beam.radius, rate = data.beam.rate, give = data.beam.give == true, take = data.beam.take == true }
-	end
-	if data.hauls then
-		entity.Hauler = {}
-	end
-	return entity
+	return kinds.equip(kind, entity, protos)
 end
 
 -- Сущность турели: место и поворот на носителе — Attached (ставит mechanics/mounts).
-function units.turretEntity(kind)
+function units.turretEntity(kind, protos)
 	local data = kind.data
 	local entity = { Position = {}, Facing = {}, Owner = {}, Turret = {}, Attached = {} }
 	if data.weapon then
 		entity.Armed = { weapon = data.weapon, turn = data.turn, radius = data.radius }
 	end
-	-- Ремонтная турель чинит своё вокруг носителя, и на ходу тоже.
-	if data.repair then
-		entity.Repair = { radius = data.repair }
-	end
-	return entity
+	return kinds.equip(kind, entity, protos)
 end
 
 -- Облик турели по чертежу (перо и цвета стороны): свой кадр в 32 пикселя, одно положение хода, тень — вдвое ближе,

@@ -40,6 +40,13 @@ mechanic.components = {
 	Research = { speed = 0, lack = "" },
 }
 
+-- Снаряжение вида: лаборатория сообщает, как идёт работа.
+function mechanic.equip(kind, entity)
+	if kind.data.researches then
+		entity.Research = {}
+	end
+end
+
 -- Простой головной темы игрока: head — о какой теме, since — с какого тика без сырья (-1 — сырьё есть), checked — когда
 -- сверяли. По миру (ctx.storage); не сохраняется.
 local stalls = setmetatable({}, { __mode = "k" }) :: { [any]: { [number]: { head: string, since: number, checked: number } } }

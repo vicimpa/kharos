@@ -74,6 +74,21 @@ mechanic.components = {
 	Unreachable = { ["until"] = 0 },
 }
 
+-- Снаряжение вида: станция запроса держит заказанное игроком, у кого data.beam — транспортный луч, грузовик (data.hauls)
+-- работает.
+function mechanic.equip(kind, entity)
+	local data = kind.data
+	if data.requester then
+		entity.Wanted = {}
+	end
+	if data.beam then
+		entity.Beam = { radius = data.beam.radius, rate = data.beam.rate, give = data.beam.give == true, take = data.beam.take == true }
+	end
+	if data.hauls then
+		entity.Hauler = {}
+	end
+end
+
 -- Может ли игрок привязать грузовики к этому зданию: его готовая шахта.
 local function canHaul(w, player: number, mine: number): boolean
 	return world.isReady(w, player, mine) and logistics.dataOf(w, mine).extract == true

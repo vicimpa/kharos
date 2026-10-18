@@ -20,6 +20,8 @@ production.data = {
 	queue = 5,
 	-- Сколько свободных тайлов вокруг смотреть, куда выпустить готового.
 	exits = 24,
+	-- Сколько груза держит производитель без своего склада.
+	hold = 100,
 }
 
 -- Сколько места в лимите армии занято у игрока: его юниты и заказы во всех его очередях.
@@ -77,6 +79,14 @@ production.components = {
 	-- точка сбора — rallyX, rallyY, если rally.
 	Producer = { unit = "", progress = 0, queue = {}, rally = false, rallyX = 0, rallyY = 0 },
 }
+
+-- Снаряжение вида: производитель ведёт заказы, а без своего склада получает склад под их материалы (hold).
+function production.equip(kind, entity)
+	if kind.data.produces then
+		entity.Producer = {}
+		entity.Inventory = entity.Inventory or goods.stock({ inventory = production.data.hold })
+	end
+end
 
 -- Своё здание с Producer, которое умеет делать unit; иначе nil.
 local function producer(ctx, player: number, building: number, unit: string?)

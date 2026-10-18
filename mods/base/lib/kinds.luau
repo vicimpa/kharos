@@ -41,4 +41,32 @@ function kinds.is(w, e: number, kind): boolean
 	return proto ~= nil and kind ~= nil and proto.id == kind.id
 end
 
+-- Механики с equip, по именам: их list на каждую таблицу видов.
+local equippers = setmetatable({}, { __mode = "k" }) :: { [any]: { any } }
+
+-- Снаряжает сущность вида: каждая механика с equip(вид, сущность, все виды) добавляет свои компоненты по данным вида.
+-- Так здание или юнит любого мода получает склад, щит или магазин, а механика другого мода — свои компоненты у видов
+-- base. Возвращает ту же сущность.
+function kinds.equip(kind, entity, protos)
+	local list = equippers[protos]
+	if not list then
+		local names = {}
+		for name, mechanic in protos.mechanics or {} do
+			if type(mechanic) == "table" and type(mechanic.equip) == "function" then
+				table.insert(names, name)
+			end
+		end
+		table.sort(names)
+		list = {}
+		for _, name in names do
+			table.insert(list, protos.mechanics[name].equip)
+		end
+		equippers[protos] = list
+	end
+	for _, equip in list do
+		equip(kind, entity, protos)
+	end
+	return entity
+end
+
 return kinds

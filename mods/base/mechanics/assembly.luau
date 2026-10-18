@@ -23,6 +23,13 @@ mechanic.components = {
 	Assembly = { recipe = "", on = false, progress = 0 },
 }
 
+-- Снаряжение вида: цех собирает изделие своего вида; новый стоит выключенным, пока игрок его не включит.
+function mechanic.equip(kind, entity)
+	if kind.data.assembles then
+		entity.Assembly = { recipe = kind.data.assembles }
+	end
+end
+
 -- Сколько секунд идёт одна сборка изделия.
 function mechanic.cycle(product): number
 	local total = 0

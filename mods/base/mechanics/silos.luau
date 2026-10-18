@@ -54,6 +54,16 @@ mechanic.components = {
 	Mark = { kind = "", ["until"] = 0, player = 0, viewers = {} },
 }
 
+-- Снаряжение вида: ракетная шахта собирает боеголовку, перехватчик — ракеты-перехватчики.
+function mechanic.equip(kind, entity)
+	if kind.data.warhead then
+		entity.Silo = {}
+	end
+	if kind.data.intercept then
+		entity.Interceptor = {}
+	end
+end
+
 -- На какой высоте ракета (lib/missiles).
 mechanic.lift = missilesLib.lift
 
