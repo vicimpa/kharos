@@ -22,6 +22,7 @@ local stepsLib = require("lib/steps")
 local depositsLib = require("lib/deposits")
 local levels = require("lib/levels")
 local paving = require("lib/paving")
+local truckControls = require("controls/trucks")
 
 local clockOf = widgets.clock
 local COLORS, shadow = widgets.COLORS, widgets.shadow
@@ -781,6 +782,299 @@ local function levelState(c, selection)
 	return state
 end
 
+-- Страницы сетки грузовиков, хранилищ и станций запроса (page в hud.ts: filter, reserve, request): key — выделение,
+-- для которого открыта страница; deal — груз, заказ которого набирают.
+local cargo: { key: string, page: string, deal: string? } = { key = "", page = "root", deal = nil }
+
+-- Готовое и руда по порядку грузов (WARES, ORES).
+local function waresOf(c): ({ string }, { string })
+	local wares, ores = {}, {}
+	for _, kind in goods.list(c) do
+		table.insert(if kind.data.kind == "ore" then ores else wares, kind.name)
+	end
+	return wares, ores
+end
+
+-- Чем занят грузовик (jobOf): carry, route, serve, mine, supply, pickup или auto.
+local function jobOf(c, truck: number): string
+	local hauler = c:get(truck, "Hauler")
+	if c:has(truck, "Carry") then
+		return "carry"
+	elseif #hauler.route > 0 then
+		return "route"
+	elseif #hauler.serve > 0 then
+		return "serve"
+	elseif hauler.mine >= 0 then
+		return "mine"
+	elseif hauler.supply >= 0 then
+		return "supply"
+	elseif hauler.pickup >= 0 then
+		return "pickup"
+	end
+	return "auto"
+end
+
+-- Открывает страницу для этого выделения; другое выделение — снова корень.
+local function cargoPage(selection, name: string?)
+	local key = table.concat(selection, ",")
+	if cargo.key ~= key then
+		cargo.key, cargo.page, cargo.deal = key, "root", nil
+	end
+	if name then
+		cargo.page, cargo.deal = name, nil
+	end
+	return cargo.page
+end
+
+local function back(list, run: () -> ())
+	list[BACK] = { label = "Назад", run = run }
+end
+
+-- Сетка выбранных грузовиков (haul в commands.ts): верхний ряд — режим работы, подсвечен тот, в котором грузовик;
+-- ниже — что возить.
+local function truckSlots(c, list, selection, units: { number })
+	local page = cargoPage(selection)
+	local filter = c:get(units[1], "Hauler").filter or {}
+	local job = jobOf(c, units[1])
+	for _, truck in units do
+		if jobOf(c, truck) ~= job then
+			job = "mixed"
+		end
+	end
+	local mode = c.shared.mode
+	local kind = mode and mode.kind
+	if page == "root" then
+		list[1] = {
+			label = "Сам",
+			active = job == "auto",
+			title = "Работает сам: возит то, что заказывают здания, с учётом «Что возить». Снимает приказ, маршрут и обслуживание",
+			run = function()
+				c:send("serve", { units = units, buildings = {} })
+			end,
+		}
+		local carrying = kind == "carrySource" or kind == "carryTarget"
+		list[2] = {
+			label = "Перевезти",
+			active = job == "carry" or carrying,
+			title = "Взять груз здесь и отвезти туда: щёлкни по складу, выбери груз и сколько, потом — по получателю. Быстрее — правым щелчком грузовиками по зданию",
+			run = function()
+				c.shared.truckMenu = nil
+				c.shared.mode = if carrying then nil else { kind = "carrySource" }
+			end,
+		}
+		list[3] = {
+			label = if kind == "routing" then "Маршрут: " .. #mode.stops else "Маршрут",
+			active = job == "route" or kind == "routing",
+			title = "Возить по кругу: щёлкай по своим зданиям со складом по порядку — на каждой остановке грузовик сгружает, что там примут, и берёт для следующей. Правая кнопка или Enter — готово, Esc — отмена",
+			run = function()
+				c.shared.mode = if kind == "routing" then nil else { kind = "routing", stops = {} }
+			end,
+		}
+		list[4] = {
+			label = if kind == "serving" then "Обслуживать: " .. #mode.buildings else "Обслуживать",
+			active = job == "serve" or kind == "serving",
+			title = "Возить только для выбранных зданий: щёлкай по ним — грузовики повезут им, чего не хватает, из любого вашего склада. Правая кнопка или Enter — готово, Esc — отмена",
+			run = function()
+				c.shared.mode = if kind == "serving" then nil else { kind = "serving", buildings = {} }
+			end,
+		}
+		list[5] = {
+			label = if #filter > 0 then "Что возить: " .. #filter else "Что возить",
+			active = #filter > 0,
+			title = "Какие грузы грузовик берёт в режимах «Сам» и «Маршрут»; ничего не отмечено — любые",
+			run = function()
+				cargoPage(selection, "filter")
+			end,
+		}
+		if #filter > 0 then
+			list[6] = { label = "Всё", title = "Снять фильтр: возить любые грузы", run = function()
+				c:send("filter", { units = units, goods = {} })
+			end }
+		end
+	elseif page == "filter" then
+		local wares, ores = waresOf(c)
+		-- Руда в фильтре — вся сразу: по видам её различает месторождение, а не игрок.
+		local function has(names: { string }): boolean
+			for _, name in names do
+				if not table.find(filter, name) then
+					return false
+				end
+			end
+			return true
+		end
+		local function toggle(names: { string })
+			local nextFilter = {}
+			if has(names) then
+				for _, name in filter do
+					if not table.find(names, name) then
+						table.insert(nextFilter, name)
+					end
+				end
+			else
+				nextFilter = table.clone(filter)
+				for _, name in names do
+					if not table.find(nextFilter, name) then
+						table.insert(nextFilter, name)
+					end
+				end
+			end
+			c:send("filter", { units = units, goods = nextFilter })
+		end
+		for i, ware in wares do
+			if i >= BACK - 1 then
+				break
+			end
+			list[i] = { label = c.protos.goods[ware].data.title, picture = c.protos.goods[ware], active = has({ ware }), title = "Возить или нет", run = function()
+				toggle({ ware })
+			end }
+		end
+		if #ores > 0 then
+			list[math.min(#wares + 1, BACK - 1)] = { label = "Руда", picture = c.protos.goods[ores[1]], active = has(ores), title = "Возить руду или нет", run = function()
+				toggle(ores)
+			end }
+		end
+		back(list, function()
+			cargoPage(selection, "root")
+		end)
+	end
+end
+
+-- Резерв выбранных своих готовых хранилищ (reserve в commands.ts): сколько груза не выдавать; первое из них и
+-- наименьшая вместимость.
+local function reserveSlots(c, list, selection)
+	local buildings, amount, capacity = {}, 0, math.huge
+	for _, e in selection do
+		local stock = logistics.isReady(c, c.player, e) and logistics.isStore(c, e) and c:get(e, "Inventory")
+		if stock then
+			if #buildings == 0 then
+				amount = stock.reserve or 0
+			end
+			table.insert(buildings, e)
+			capacity = math.min(capacity, stock.capacity)
+		end
+	end
+	if #buildings == 0 then
+		return
+	end
+	local page = cargoPage(selection)
+	local function set(value: number)
+		c:send("reserve", { buildings = buildings, amount = math.max(0, math.min(capacity, value)) })
+	end
+	if page == "root" then
+		list[1] = {
+			label = if amount > 0 then "Резерв: " .. amount else "Резерв",
+			active = amount > 0,
+			title = "Сколько груза хранилище не выдаёт стройке, производству и турелям. Продажа берёт и резерв",
+			run = function()
+				cargoPage(selection, "reserve")
+			end,
+		}
+	elseif page == "reserve" then
+		-- Верхний ряд — прибавить, второй — убавить: по 10 и по 50.
+		for i, step in { 10, 50 } do
+			list[i] = { label = "+" .. step, disabled = amount >= capacity, title = "Резерв: " .. amount, run = function()
+				set(amount + step)
+			end }
+			list[i + 4] = { label = "−" .. step, disabled = amount <= 0, title = "Резерв: " .. amount, run = function()
+				set(amount - step)
+			end }
+		end
+		list[3] = { label = "Всё", active = amount >= capacity, title = "Не выдавать ничего: хранилище только копит", run = function()
+			set(capacity)
+		end }
+		list[CANCEL] = { label = "Снять", active = amount <= 0, title = "Снять резерв: выдавать всё", run = function()
+			set(0)
+		end }
+		back(list, function()
+			cargoPage(selection, "root")
+		end)
+	end
+end
+
+-- Заказ выбранных своих станций запроса (request в commands.ts): какой груз и сколько держать; заказ первой из них и
+-- наименьшая вместимость.
+local function requestSlots(c, list, selection)
+	local buildings, wanted, capacity = {}, {}, math.huge
+	for _, e in selection do
+		local order = logistics.isReady(c, c.player, e) and c:get(e, "Wanted")
+		local stock = order and c:get(e, "Inventory")
+		if order and stock then
+			if #buildings == 0 then
+				wanted = order.items
+			end
+			table.insert(buildings, e)
+			capacity = math.min(capacity, stock.capacity)
+		end
+	end
+	if #buildings == 0 then
+		return
+	end
+	local page = cargoPage(selection)
+	local wares = waresOf(c)
+	if page == "root" then
+		local count = 0
+		for _ in wanted do
+			count += 1
+		end
+		list[1] = {
+			label = if count > 0 then "Заказ: " .. count else "Заказ",
+			active = count > 0,
+			title = "Какой груз и сколько держать на станции: грузовики и трубы будут держать её полной",
+			run = function()
+				cargoPage(selection, "request")
+			end,
+		}
+	elseif page == "request" and not cargo.deal then
+		-- Сначала — какой груз: ячейка на каждый, с заказанным количеством. Количество — на следующем шаге.
+		for i, ware in wares do
+			if i >= BACK - 1 then
+				break
+			end
+			local amount = wanted[ware] or 0
+			local title = c.protos.goods[ware].data.title
+			list[i] = { label = if amount > 0 then title .. " ×" .. amount else title, picture = c.protos.goods[ware], active = amount > 0, title = "Сколько этого груза держать", run = function()
+				cargo.deal = ware
+			end }
+		end
+		back(list, function()
+			cargoPage(selection, "root")
+		end)
+	elseif page == "request" then
+		-- Верхний ряд — прибавить, второй — убавить; «Всё» — сколько осталось места на складе за вычетом других заказов.
+		local resource = cargo.deal :: string
+		local amount = wanted[resource] or 0
+		local others = 0
+		for name, held in wanted do
+			if name ~= resource then
+				others += held
+			end
+		end
+		local max = math.max(0, capacity - others)
+		local function set(value: number)
+			c:send("want", { buildings = buildings, resource = resource, amount = math.max(0, math.min(max, value)) })
+		end
+		local title = c.protos.goods[resource].data.title .. ": держать " .. amount
+		local picture = c.protos.goods[resource]
+		for i, step in { 10, 50 } do
+			list[i] = { label = "+" .. step, picture = picture, disabled = amount >= max, title = title, run = function()
+				set(amount + step)
+			end }
+			list[i + 4] = { label = "−" .. step, picture = picture, disabled = amount <= 0, title = title, run = function()
+				set(amount - step)
+			end }
+		end
+		list[3] = { label = "Всё", active = amount >= max, title = "×" .. max, run = function()
+			set(max)
+		end }
+		list[CANCEL] = { label = "Не заказывать", active = amount <= 0, title = "Не держать этот груз: лишнее увезут в хранилища", run = function()
+			set(0)
+		end }
+		back(list, function()
+			cargo.deal = nil
+		end)
+	end
+end
+
 local function slots(c, selection)
 	local confirm = scuttleSlots(c, selection)
 	if confirm then
@@ -861,6 +1155,16 @@ local function slots(c, selection)
 					c.shared.mode = if picking then nil else { kind = "patrolling", selects = true }
 				end,
 			}
+		end
+	end
+	-- Свои грузовики без строителей: режим работы и что возить; хранилища — резерв, станции запроса — заказ.
+	if #buildersOf(c, selection) == 0 then
+		local units = truckControls.selected(c)
+		if #units > 0 then
+			truckSlots(c, list, selection, units)
+		else
+			reserveSlots(c, list, selection)
+			requestSlots(c, list, selection)
 		end
 	end
 	if #selection == 1 and c:has(selection[1], "Producer") and c:mine(selection[1]) and not c:has(selection[1], "Site") then
@@ -972,7 +1276,7 @@ local function slots(c, selection)
 	else
 		market.port = -1
 	end
-	local root = page.name == "root" and (not trading or market.page == "root")
+	local root = page.name == "root" and (not trading or market.page == "root") and (cargo.key ~= table.concat(selection, ",") or cargo.page == "root")
 	-- Свои готовые здания, которые улучшают: следующий уровень или отмена начатого (level в commands.ts).
 	local raise = root and #buildersOf(c, selection) == 0 and levelState(c, selection)
 	local upcoming = raise and raise.next
@@ -1387,7 +1691,35 @@ local function info(c, selection, width: number, height: number)
 					ui:text("из " .. stock.capacity)
 				end)
 				local job
-				if hauler.mine >= 0 then
+				local order = c:get(first, "Carry")
+				local function titleOf(e: number): string
+					local kind = c:alive(e) and c:proto(e)
+					return if kind then kind.data.title else "?"
+				end
+				local function goodName(name: string): string
+					local kind = c.protos.goods[name]
+					return widgets.lower(if kind then kind.data.title else name)
+				end
+				if order then
+					local left = math.ceil(order.left - 1e-6)
+					job = if order.from >= 0
+						then "Работа: перевозит " .. goodName(order.resource) .. " из «" .. titleOf(order.from) .. "» в «" .. titleOf(order.to) .. "», осталось " .. left
+						else "Работа: везёт " .. goodName(order.resource) .. " в «" .. titleOf(order.to) .. "», осталось " .. left
+				elseif #hauler.route > 0 then
+					local names = {}
+					for _, stop in hauler.route do
+						table.insert(names, titleOf(stop))
+					end
+					job = "Работа: маршрут " .. table.concat(names, " → ")
+				elseif #hauler.serve > 0 then
+					local names = {}
+					for _, building in hauler.serve do
+						table.insert(names, titleOf(building))
+					end
+					job = "Работа: возит только для: " .. table.concat(names, ", ")
+				elseif hauler.supply >= 0 then
+					job = "Работа: обеспечивает «" .. titleOf(hauler.supply) .. "» — везёт, чего ему не хватает"
+				elseif hauler.mine >= 0 then
 					job = "Работа: возит руду из шахты на переработку"
 				elseif hauler.pickup >= 0 then
 					job = "Работа: вывозит груз с земли"
@@ -1930,6 +2262,10 @@ local MODES = {
 	aiming = { name = "Ядерный удар", tip = "Щёлкни по карте — туда придётся удар" },
 	placing = { name = "Стройка: {name}", tip = "Щёлкни, где заложить, — можно ещё и ещё" },
 	paving = { name = "{name}", tip = "Зажми кнопку и тяни по карте" },
+	routing = { name = "Маршрут грузовиков", tip = "Щёлкай по своим зданиям со складом по порядку; остановок: {count}", done = true },
+	serving = { name = "Обслуживание зданий", tip = "Щёлкай по своим зданиям, повторный щелчок убирает; отмечено: {count}", done = true },
+	carrySource = { name = "Перевезти: откуда", tip = "Щёлкни по зданию, откуда взять груз" },
+	carryTarget = { name = "Перевезти: куда", tip = "Щёлкни по зданию, куда отвезти: {name} ×{count}" },
 }
 
 
@@ -1962,8 +2298,23 @@ local function modeBar(c)
 					tip = "Тяни рамку по тому, что разобрать"
 				end
 			end
+			if mode.kind == "routing" or mode.kind == "serving" then
+				tip = (string.gsub(tip, "{count}", tostring(#(mode.stops or mode.buildings))))
+			elseif mode.kind == "carryTarget" then
+				local good = c.protos.goods[mode.resource]
+				tip = (string.gsub((string.gsub(tip, "{name}", widgets.lower(if good then good.data.title else mode.resource))), "{count}", tostring(mode.amount)))
+			end
 			ui:text((string.gsub(spec.name, "{name}", name)), { color = COLORS.team })
 			ui:text(tip, { color = COLORS.soft, wrap = math.max(160, room - 320) })
+			-- Набор маршрута и обслуживания кончается «Готово»: набранное уходит грузовикам.
+			if spec.done then
+				if ui:button("mode:done", { height = 32, padding = { 2, 14 }, skin = "button-primary" }, function()
+					ui:text("Готово", shadow())
+				end) then
+					truckControls.finish(c)
+				end
+				ui:tip("mode:done", "То же — правая кнопка мыши или Enter")
+			end
 			if ui:button("mode:cancel", { height = 32, padding = { 2, 14 } }, function()
 				ui:text("Отмена", shadow())
 			end) then
@@ -2171,6 +2522,172 @@ local function hoverTips(c)
 	end)
 end
 
+-- Сколько груза за щелчок «±» в окне приказа (CARRY_STEP).
+local CARRY_STEP = 10
+-- Что выбрано в окне приказа: здание, груз и сколько.
+local picked: { building: number, resource: string, amount: number }? = nil
+
+-- Окно приказа выбранным грузовикам по зданию (truckMenu в hud.ts): что оттуда взять и сколько, что выгрузить туда из
+-- кузовов, возить ли руду отсюда, обеспечивать ли его.
+local function truckMenu(c)
+	local building = c.shared.truckMenu
+	if not building or not c:alive(building) then
+		picked = nil
+		return
+	end
+	local ui = c.ui
+	local units = truckControls.selected(c)
+	local stock = c:get(building, "Inventory")
+	if #units == 0 or not stock then
+		return
+	end
+	local take, unload, capacity = {}, {}, 0
+	for _, name in goods.names(c) do
+		local amount = math.floor(logistics.spare(c, building, name) + 1e-9)
+		if amount >= 1 then
+			table.insert(take, { resource = name, amount = amount })
+		end
+	end
+	local loaded = {}
+	for _, truck in units do
+		local hold = c:get(truck, "Inventory")
+		if hold then
+			capacity += hold.capacity
+			for _, name in goods.names(c) do
+				local amount = goods.amount(hold, name)
+				if amount > goods.EPSILON and truckControls.isCarryTarget(c, building, name) then
+					loaded[name] = (loaded[name] or 0) + amount
+				end
+			end
+		end
+	end
+	for _, name in goods.names(c) do
+		if loaded[name] then
+			table.insert(unload, { resource = name, amount = loaded[name] })
+		end
+	end
+	local mine = logistics.isReady(c, c.player, building) and logistics.dataOf(c, building).extract == true
+	local needy = logistics.canSupply(c, c.player, building)
+	if picked and picked.building ~= building then
+		picked = nil
+	end
+	local chosen = picked
+	local available = 0
+	for _, item in take do
+		if chosen and item.resource == chosen.resource then
+			available = item.amount
+		end
+	end
+	local amount = if chosen then math.max(1, math.min(available, chosen.amount)) else 0
+	local kind = c:proto(building)
+	local function close()
+		c.shared.truckMenu = nil
+		picked = nil
+	end
+	local function order(name: string, args)
+		c:send(name, args)
+		c:sound("order", { volume = 0.35 })
+		close()
+	end
+	if c.input.hits.escape then
+		close()
+		return
+	end
+	local width = math.min(440, ui.width - 24)
+	ui:box({ id = "truck:backdrop", anchor = { left = 0, right = 0, top = 0, bottom = 0 }, background = "rgb(0 0 0 / 0.35)" })
+	if ui:clicked("truck:backdrop") then
+		close()
+		return
+	end
+	local function list(items, prefix: string, pick: (string, number) -> (), active: string?)
+		ui:box({ direction = "column", gap = 4, align = "stretch" }, function()
+			for _, item in items do
+				if ui:button(prefix .. ":" .. item.resource, { height = 36, padding = { 0, 10 }, justify = "start", gap = 8, active = active == item.resource }, function()
+					goodWith(c, item.resource, item.amount)
+					ui:text(c.protos.goods[item.resource].data.title, shadow())
+				end) then
+					pick(item.resource, item.amount)
+				end
+			end
+		end)
+	end
+	ui:box({ id = "truck", anchor = { centerX = 0, centerY = 0 }, width = width, maxHeight = ui.height - 24, skin = "panel", padding = { 16, 18 }, direction = "column", gap = 10, align = "stretch" }, function()
+		ui:box({ direction = "row", align = "center", gap = 8 }, function()
+			ui:box({ grow = 1 }, function()
+				ui:text("Приказ грузовикам: " .. (if kind then kind.data.title else ""), { color = COLORS.bright, wrap = width - 90 })
+			end)
+			if ui:button("truck:close", { height = 36, padding = { 0, 10 } }, function()
+				ui:text("✕", shadow())
+			end) then
+				close()
+			end
+			ui:tip("truck:close", "Закрыть (Esc)")
+		end)
+		if #take > 0 then
+			ui:box({ direction = "column", gap = 6, align = "stretch" }, function()
+				ui:text("Взять отсюда — выбери груз и сколько:", { color = COLORS.soft })
+				list(take, "truck:take", function(resource: string, have: number)
+					picked = { building = building, resource = resource, amount = have }
+				end, chosen and chosen.resource)
+				if chosen and available >= 1 then
+					ui:box({ direction = "row", align = "center", gap = 4 }, function()
+						if ui:button("truck:less", { height = 36, padding = { 0, 10 }, disabled = amount <= 1 }, function()
+							ui:text("−" .. CARRY_STEP, shadow())
+						end) then
+							picked = { building = building, resource = chosen.resource, amount = math.max(1, amount - CARRY_STEP) }
+						end
+						ui:box({ minWidth = 56, direction = "row", justify = "center" }, function()
+							goodWith(c, chosen.resource, amount)
+						end)
+						if ui:button("truck:more", { height = 36, padding = { 0, 10 }, disabled = amount >= available }, function()
+							ui:text("+" .. CARRY_STEP, shadow())
+						end) then
+							picked = { building = building, resource = chosen.resource, amount = math.min(available, amount + CARRY_STEP) }
+						end
+						if ui:button("truck:all", { height = 36, padding = { 0, 10 }, active = amount >= available }, function()
+							ui:text("Всё", shadow())
+						end) then
+							picked = { building = building, resource = chosen.resource, amount = available }
+						end
+						if ui:button("truck:where", { height = 36, padding = { 0, 10 }, skin = "button-primary" }, function()
+							ui:text("Куда отвезти →", shadow())
+						end) then
+							c.shared.mode = { kind = "carryTarget", from = building, resource = chosen.resource, amount = amount }
+							close()
+						end
+						ui:tip("truck:where", "Потом щёлкни по зданию-получателю. Грузовики возят рейсами — по " .. capacity .. " за раз, — пока не перевезут всё")
+					end)
+				end
+			end)
+		end
+		if #unload > 0 then
+			ui:box({ direction = "column", gap = 6, align = "stretch" }, function()
+				ui:text("Выгрузить сюда из кузова:", { color = COLORS.soft })
+				list(unload, "truck:unload", function(resource: string, have: number)
+					order("carry", { units = units, from = -1, to = building, resource = resource, amount = have })
+				end)
+			end)
+		end
+		if mine or needy then
+			ui:box({ direction = "column", gap = 6, align = "stretch" }, function()
+				if mine and ui:button("truck:mine", { height = 36, padding = { 0, 10 }, justify = "start" }, function()
+					ui:text("Возить руду отсюда на переработку", shadow())
+				end) then
+					order("haul", { units = units, mine = building })
+				end
+				if needy and ui:button("truck:supply", { height = 36, padding = { 0, 10 }, justify = "start" }, function()
+					ui:text("Обеспечивать: возить сюда, чего не хватает", shadow())
+				end) then
+					order("supply", { units = units, target = building })
+				end
+			end)
+		end
+		if #take == 0 and #unload == 0 and not mine and not needy then
+			ui:text("Здесь нечего взять, и сюда нечего выгрузить", { color = COLORS.soft, wrap = width - 36 })
+		end
+	end)
+end
+
 function hud.draw(c)
 	shownAlerts = alertsLib.update(c)
 	alertList(c)
@@ -2180,6 +2697,7 @@ function hud.draw(c)
 	topBar(c)
 	hoverTips(c)
 	bottomBar(c)
+	truckMenu(c)
 end
 
 return hud

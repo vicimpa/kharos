@@ -74,7 +74,7 @@ skirmish.on = {
 skirmish.client = {
 	camera = "rts",
 	-- Выбор места — первым: его Esc и щелчки не достаются выделению.
-	controls = { "deploy", "build", "stroke", "patrol", "aim", "select", "orders" },
+	controls = { "deploy", "build", "stroke", "patrol", "trucks", "aim", "select", "orders" },
 	ui = { "hud", "tech", "pause" },
 	atmosphere = { "weather" },
 	effects = { "traces", "paving", "drops", "construction", "power", "logistics", "connections", "flow", "combat", "conversion", "silos", "steps" },
