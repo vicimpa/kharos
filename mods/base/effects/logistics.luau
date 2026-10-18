@@ -102,17 +102,19 @@ function logistics.update(c)
 		end
 	end
 
-	-- Работа шахты и переработки — по их складу; чужой склад виден не хуже своего, но только в обзоре.
+	-- Работа шахты и переработки — по их складу, завода изделий — по ходу сборки (workOf): пока число меняется, здание
+	-- работает. Чужой склад виден не хуже своего, но только в обзоре.
 	local seen = {}
 	for _, e in c:each({ "Building", "Inventory" }) do
 		local kind = kinds.of(c, e)
 		local data = kind and kind.data
-		if not data or c:has(e, "Site") or not (data.extract or data.refines) then
+		local assembly = c:get(e, "Assembly")
+		if not data or c:has(e, "Site") or not (data.extract or data.refines or assembly) then
 			continue
 		end
 		seen[e] = true
 		local stock = c:get(e, "Inventory")
-		local value = if data.extract then goods.load(stock) else goods.amount(stock, data.refines)
+		local value = if data.extract then goods.load(stock) elseif data.refines then goods.amount(stock, data.refines) else assembly.progress
 		local state = activity[e]
 		if not state then
 			state = { value = value, untilTime = 0 }

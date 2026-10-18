@@ -91,8 +91,12 @@ function power.update(c)
 		local off = economy.shutDown(c, c.player, e)
 		if off then
 			c:dress(e, { off = true })
-		elseif (plants[e] or economy.burning(c, e)) and not site then
-			c:dress(e, { working = true })
+		else
+			-- Электростанция под нагрузкой, горящий реактор и лаборатория, которая ведёт тему, — работают.
+			local lab = c:get(e, "Research")
+			if (plants[e] or economy.burning(c, e) or (lab ~= nil and lab.speed > 0)) and not site and not c:has(e, "Converting") then
+				c:dress(e, { working = true })
+			end
 		end
 		-- По чужому вне обзора не видно, что с ним.
 		if not c:mine(e) and not c:sees(at.x, at.y) then
