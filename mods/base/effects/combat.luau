@@ -23,6 +23,14 @@ combat.data = {
 	rocketBody = 0.3,
 	-- Больше клубов разом не бывает: самые старые уступают место новым.
 	puffLimit = 700,
+	-- Пыль под летающими: клубов в секунду на тайл радиуса юнита, с какого расстояния от середины (в радиусах) они
+	-- поднимаются, с какой скоростью разлетаются, сколько их разом и какую долю ветра набирают (DUST_RATE, DUST_RING,
+	-- DUST_SPEED, DUST_LIMIT, DUST_WIND).
+	dustRate = 30,
+	dustRing = 0.7,
+	dustSpeed = 1.6,
+	dustLimit = 500,
+	dustWind = 0.2,
 	-- Через сколько тайлов пути ракета и ядро оставляют за собой клуб дыма.
 	rocketSmokeStep = 0.22,
 	shellSmokeStep = 0.4,
@@ -91,6 +99,15 @@ type Puff = {
 }
 
 local puffs: { Puff } = {}
+-- Пыль от винтов летающих: тот же клуб, цветом земли под юнитом, слоем под летающими (combat.dust).
+local dust: { any } = {}
+-- Где был каждый летающий в прошлом кадре: пыль от быстрого юнита ложится вдоль пути, а не кучками.
+local flyers: { [number]: { x: number, y: number, seen: number } } = {}
+local dustFrame = 0
+-- Цвет пыли — цвет земли под юнитом; над болотом вместо пыли водяная взвесь, она бледнее (SAND_DUST по биомам,
+-- ROCK_DUST, SPRAY).
+local SAND_DUST = { [0] = 0xd9b57c, 0xe6dfcf, 0xc98660, 0xb3a679 }
+local ROCK_DUST, SPRAY = 0xaa9d89, 0xc4d6cf
 -- Где снаряд оставил последний клуб дыма; по этому же списку видно, какие выстрелы и взрывы уже дымили.
 local trails: { [number]: { x: number, y: number } } = {}
 -- Мир, к которому относятся клубы и следы: начали заново — прежние из другого мира.
@@ -281,6 +298,8 @@ function combat.update(c)
 	if c.tick < lastTick then
 		puffs = {}
 		trails = {}
+		dust = {}
+		flyers = {}
 	end
 	lastTick = c.tick
 	local left, top = c:to_world(0, 0)
@@ -385,6 +404,78 @@ function combat.update(c)
 		c.draw:sprite(puffKind, item.kind, item.x, item.y, size, rgb(math.min(1, item.shade * warm), math.min(1, item.shade * warm), math.min(1, item.shade * day)), level)
 	end
 	puffs = kept
+
+	-- Пыль под летающими: клубы поднимаются кольцом вокруг юнита и разлетаются от него (emitDust), тормозят, сносятся
+	-- ветром и тают; слоем под летающими, её освещает свет сцены, как землю.
+	dustFrame += 1
+	for _, e in c:each({ "Mover", "Position" }) do
+		local mover = c:get(e, "Mover")
+		if mover.class ~= "air" then
+			continue
+		end
+		local at = c:get(e, "Position")
+		if not onScreen(at.x, at.y) then
+			continue
+		end
+		local last = flyers[e]
+		flyers[e] = { x = at.x, y = at.y, seen = dustFrame }
+		local expected = d.dustRate * mover.radius * dt
+		local count = math.floor(expected) + (if math.random() < expected % 1 then 1 else 0)
+		for _ = 1, count do
+			-- Клуб — в случайной точке пути за кадр, чтобы след быстрого юнита был сплошным.
+			local share = if last and math.sqrt((at.x - last.x) ^ 2 + (at.y - last.y) ^ 2) < 1 then math.random() else 1
+			local atX = if last then last.x + (at.x - last.x) * share else at.x
+			local atY = if last then last.y + (at.y - last.y) * share else at.y
+			local angle = math.random() * math.pi * 2
+			local reach = mover.radius * d.dustRing * (0.7 + math.random() * 0.6)
+			local groundX, groundY = atX + math.cos(angle) * reach, atY + math.sin(angle) * reach
+			local terrain, biome = c:terrain(groundX, groundY)
+			local color, level = ROCK_DUST, 0.4
+			if terrain == 0 then
+				color, level = SPRAY, 0.3
+			elseif terrain == 1 then
+				color, level = SAND_DUST[biome or 0] or SAND_DUST[0], 0.5
+			end
+			local speed = d.dustSpeed * (0.6 + math.random() * 0.8)
+			if #dust >= d.dustLimit then
+				table.remove(dust, 1)
+			end
+			table.insert(dust, {
+				x = groundX, y = groundY, speedX = math.cos(angle) * speed, speedY = math.sin(angle) * speed, age = 0,
+				life = 0.6 + math.random() * 0.5, size = mover.radius * (0.6 + math.random() * 0.4), grow = 1.8 + math.random(),
+				level = level, kind = math.floor(math.random() * 3), color = color,
+			})
+		end
+	end
+	if dustFrame % 120 == 0 then
+		for e, flyer in flyers do
+			if dustFrame - flyer.seen > 120 then
+				flyers[e] = nil
+			end
+		end
+	end
+	local dustDrag = math.exp(-dt * 3.5)
+	local settled = {}
+	for _, item in dust do
+		item.age += dt
+		if item.age >= item.life then
+			continue
+		end
+		table.insert(settled, item)
+		item.speedX = wind.x * d.dustWind + (item.speedX - wind.x * d.dustWind) * dustDrag
+		item.speedY = wind.y * d.dustWind + (item.speedY - wind.y * d.dustWind) * dustDrag
+		item.x += item.speedX * dt
+		item.y += item.speedY * dt
+		if not visible(item.x, item.y) then
+			continue
+		end
+		local age = item.age / item.life
+		local size = item.size * (1 + (item.grow - 1) * age)
+		local glow = item.level * math.min(1, age * 6) * (1 - age)
+		local r, g, b = bit32.extract(item.color, 16, 8) / 255, bit32.extract(item.color, 8, 8) / 255, bit32.extract(item.color, 0, 8) / 255
+		c:show(puffKind, item.x, item.y, { phase = item.kind, scale = size, layer = 4, shadow = false, tint = { r * glow, g * glow, b * glow, glow } })
+	end
+	dust = settled
 
 	-- Взрывы: кадр по прожитой доле; к концу дым тает.
 	local blastKind = c.protos.sprites.blast

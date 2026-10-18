@@ -97,6 +97,12 @@ pub struct Shown {
   pub over: bool,
   /// Кадр облика; без него — по времени, как у сущностей.
   pub phase: Option<usize>,
+  /// Во сколько раз крупнее облика: размер тайла облика — scale тайлов мира.
+  pub scale: f32,
+  /// Слой вместо слоя облика (пыль под летающими — 4); None — слой облика.
+  pub layer: Option<usize>,
+  /// Отбрасывает ли тень.
+  pub shadow: bool,
 }
 
 /// Значок вида для скриптов: портрет (или кадр значка) в атласе и его размер в пикселях.
@@ -644,7 +650,10 @@ impl UserData for Ctx {
       let player = get("player")?.as_f64().map_or(state.player, |player| player as u32);
       let over = get("over")?.as_boolean().unwrap_or(false);
       let phase = get("phase")?.as_f64().map(|phase| phase.max(0.0) as usize);
-      state.shown.push(Shown { proto: kind.get("id")?, x, y, built, tint, player, over, phase });
+      let scale = get("scale")?.as_f64().unwrap_or(1.0) as f32;
+      let layer = get("layer")?.as_f64().map(|layer| layer.clamp(0.0, 8.0) as usize);
+      let shadow = get("shadow")?.as_boolean().unwrap_or(true);
+      state.shown.push(Shown { proto: kind.get("id")?, x, y, built, tint, player, over, phase, scale, layer, shadow });
       Ok(())
     });
     // Слышимость точки мира (0..1) и её сторона (−1..1): для своих голосов — моторов, гулов.

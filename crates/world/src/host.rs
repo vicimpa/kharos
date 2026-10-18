@@ -922,6 +922,9 @@ impl UserData for Ctx {
       state.ops.push(Op::Spawn(entity, list));
       Ok(entity)
     });
+    // Применяет накопленные правки мира сразу, а не после обработчика: так готовая база (сценка витрины, песочница)
+    // ставит здание за зданием и видит, что место уже занято (placeBuilding в TS пишет в мир сразу).
+    methods.add_method("flush", |_, this, ()| apply(&mut this.state.borrow_mut()).map_err(mlua::Error::runtime));
     methods.add_method("destroy", |_, this, entity: f64| {
       this.state.borrow_mut().ops.push(Op::Destroy(entity_of(entity)?));
       Ok(())
@@ -1152,6 +1155,8 @@ impl UserData for Ctx {
       let probe = tx.zip(ty).map(|(tx, ty)| (tx.floor() as i32, ty.floor() as i32));
       Ok(this.state.borrow_mut().scene().reach_to(x.floor() as i32, y.floor() as i32, limit, probe))
     });
+    // Тайлы, куда техника доедет из тайла заливкой (vehicleReach), не больше limit: x, y подряд.
+    methods.add_method("reach_tiles", |_, this, (x, y, limit): (f64, f64, usize)| Ok(this.state.borrow_mut().scene().reach_tiles(x.floor() as i32, y.floor() as i32, limit)));
     // Можно ли юниту рода class (vehicle, heavy, infantry, air) встать в тайл.
     methods.add_method("can_stand", |_, this, (class, x, y): (String, f64, f64)| Ok(this.state.borrow_mut().scene().can_stand(&class, x.floor() as i32, y.floor() as i32)));
     // Проходим ли тайл наземному (isWalkable): внутри карты, по проходимой местности, не сквозь здание; foot — пехоте

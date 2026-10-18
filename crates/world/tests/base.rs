@@ -304,6 +304,8 @@ fn showcase(scene: &str, seed: u64) -> Host {
   let mut host = Host::new(mods, Some("menu"), seed, &json!({ "scene": scene, "seed": seed })).unwrap();
   host.start().unwrap();
   host.join(1).unwrap();
+  // Мир сценки заводится в первом тике.
+  host.tick(0.05).unwrap();
   host
 }
 
@@ -1931,4 +1933,36 @@ fn builders_raze_a_mountain_into_rock_and_the_land_keeps_it() {
   let mut state = copy.state.borrow_mut();
   assert_eq!(state.land.as_mut().unwrap().stored(peak.0, peak.1)[0], kharos_engine::terrain::ROCK);
   assert!(!state.memory.land.original.is_empty());
+}
+
+#[test]
+fn base_scenes_raise_a_working_base_build_and_hold_the_line() {
+  // Добыча: готовая база у металла — шахта, главное здание, хранилища, всё в одной сети. Встаёт не на каждой
+  // местности: металл нужен близко к началу мира.
+  let seed = (1..40).find(|&seed| !showcase("mining", seed).signals().iter().any(|signal| signal.name == "scene_failed")).expect("добыча не встала ни на одной местности");
+  let mut host = showcase("mining", seed);
+  let buildings = all(&host, "Building").len();
+  assert!(buildings > 15, "база не встала: {buildings} зданий");
+  assert!(!kind(&host, "buildings", "mine").is_empty() && !kind(&host, "buildings", "command").is_empty());
+  assert!(kind(&host, "units", "truck").len() >= 2, "грузовики");
+  ticks(&mut host, 20 * 20);
+  // Стройка: бригада поднимает здание за зданием.
+  let mut host = showcase("construction", 7);
+  let before = all(&host, "Building").len();
+  let mut sites = 0;
+  for _ in 0..20 * 60 {
+    host.tick(0.05).unwrap();
+    sites = sites.max(all(&host, "Site").len());
+  }
+  assert!(sites > 0, "стройку не заложили");
+  assert!(all(&host, "Building").len() > before + 1, "не построили: {} из {before}", all(&host, "Building").len());
+  // Оборона: турели и стены перед главным зданием, волны идут и бьются.
+  let mut host = showcase("defense", 7);
+  assert!(all(&host, "Building").iter().filter(|(entity, _)| get(&host, *entity, "Armed").is_some() || get(&host, *entity, "Footprint").is_some_and(|footprint| footprint["wall"] == json!(true))).count() > 3, "укрепления нет");
+  let mut shots = 0;
+  for _ in 0..20 * 60 {
+    host.tick(0.05).unwrap();
+    shots = shots.max(all(&host, "Shot").len());
+  }
+  assert!(shots > 0, "волна не пришла или не стреляли");
 }

@@ -747,6 +747,15 @@ impl Scene<'_> {
     self.reach_to(x, y, limit, None).0
   }
 
+  /// Тайлы заливки техники из (x, y), не больше limit: x, y подряд.
+  pub fn reach_tiles(&mut self, x: i32, y: i32, limit: usize) -> Vec<i32> {
+    let cols = Cols::of(self.world);
+    let (mut ground, _) = self.ground(&cols);
+    let mut tiles: Vec<(i32, i32)> = ground.vehicle_reach(x, y, limit, false).into_iter().collect();
+    tiles.sort();
+    tiles.into_iter().flat_map(|(x, y)| [x, y]).collect()
+  }
+
   /// То же, и попал ли в заливку тайл probe: в одном ли он кармане с (x, y).
   pub fn reach_to(&mut self, x: i32, y: i32, limit: usize, probe: Option<(i32, i32)>) -> (usize, bool) {
     let cols = Cols::of(self.world);

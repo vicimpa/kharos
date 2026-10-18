@@ -672,20 +672,23 @@ impl Game {
         None => 0,
       };
       let cell = look.cells[look.cell(0.0, phase)];
-      let [w, h] = look.tiles();
+      let [w, h] = look.tiles().map(|side| side * shown.scale);
       let team = if shown.player == 0 { 3.0 } else if shown.player == state.player { 0.0 } else { 1.0 };
-      let sprite = [shown.x + look.offset[0] - view.x, shown.y + look.offset[1] - view.y, w, h, team, look.shadow[0], 0.0, if shown.player == 0 { 1.0 } else { 0.0 }];
+      let offset = [look.offset[0] * shown.scale, look.offset[1] * shown.scale];
+      let shadow = if shown.shadow { look.shadow } else { [0.0, 0.0] };
+      let layer = shown.layer.unwrap_or(look.layer as usize);
+      let sprite = [shown.x + offset[0] - view.x, shown.y + offset[1] - view.y, w, h, team, shadow[0], 0.0, if shown.player == 0 { 1.0 } else { 0.0 }];
       if shown.over {
         frame.ghosts.extend_from_slice(&instance(sprite, cell, shown.tint));
         continue;
       }
-      let bottom = shown.y + look.offset[1] + h;
+      let bottom = shown.y + offset[1] + h;
       if shown.built < 1.0 {
         for piece in revealed(sprite, cell, shown.built) {
-          sorted.push((look.layer as usize, bottom, piece));
+          sorted.push((layer, bottom, piece));
         }
       } else {
-        sorted.push((look.layer as usize, bottom, instance([sprite[0], sprite[1], w, h, team, look.shadow[0], look.shadow[1], sprite[7]], cell, shown.tint)));
+        sorted.push((layer, bottom, instance([sprite[0], sprite[1], w, h, team, shadow[0], shadow[1], sprite[7]], cell, shown.tint)));
       }
     }
     let buildings = crate::atlas::Layer::Building as usize;
