@@ -305,6 +305,8 @@ function select.update(c)
 	end
 	if start then
 		local moved = math.abs(input.x - start.x) + math.abs(input.y - start.y) > select.data.threshold
+		-- Рамку тянут: камера у края экрана едет за ней (cameras/rts).
+		shared.boxing = input.down.left and moved
 		if input.down.left and moved then
 			c.draw:rect(start.wx, start.wy, input.wx, input.wy, SELECTED, nil, BOX_FILL_ALPHA)
 			c.draw:rect(start.wx, start.wy, input.wx, input.wy, SELECTED, 1)

@@ -23,6 +23,7 @@ trucks.data = {
 local MODES = { routing = true, serving = true, carrySource = true, carryTarget = true }
 
 local pressed: { x: number, y: number }? = nil
+local rightPress: { x: number, y: number }? = nil
 
 -- Свои выбранные грузовики (trucksSelected).
 function trucks.selected(c): { number }
@@ -149,11 +150,20 @@ function trucks.update(c)
 	local mode = shared.mode
 	if not mode or not MODES[mode.kind] then
 		pressed = nil
-		-- Одни грузовики выбраны, правый щелчок по своему складу — окно приказа (а не приказ точкой).
-		if not mode and input.pressed.right and input.inside and not input.over_ui and not input.keys.shift and #selected > 0 and #selected == #(shared.selection or {}) then
-			local target = trucks.storeAt(c, input.wx, input.wy)
-			if trucks.isCarrySource(c, target) then
-				shared.truckMenu = target
+		-- Одни грузовики выбраны, правый щелчок по своему складу — окно приказа (а не приказ точкой); щелчок — на
+		-- отпускании без протяжки: протяжка правой двигает камеру.
+		if not mode and input.pressed.right and input.inside and not input.over_ui then
+			rightPress = { x = input.x, y = input.y }
+		end
+		local press = rightPress
+		if press and input.released.right then
+			rightPress = nil
+			local still = math.abs(input.x - press.x) <= 4 and math.abs(input.y - press.y) <= 4
+			if still and not mode and not input.keys.shift and #selected > 0 and #selected == #(shared.selection or {}) then
+				local target = trucks.storeAt(c, input.wx, input.wy)
+				if trucks.isCarrySource(c, target) then
+					shared.truckMenu = target
+				end
 			end
 		end
 		return

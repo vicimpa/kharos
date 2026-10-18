@@ -11,6 +11,10 @@ orders.data = {
 }
 
 local held: { time: number, x: number, y: number }? = nil
+-- Где нажали правую кнопку: приказ — на отпускании, если её не тянули (тянут — двигают камеру, cameras/rts).
+local pressed: { x: number, y: number }? = nil
+-- Сдвиг указателя, после которого правая кнопка — протяжка камеры, а не приказ, в пикселях (CLICK_SLOP).
+local SLOP = 4
 
 -- Приказ точкой: что с ней делать — строить, чинить или ехать, — решает хост (resolveOrder); заводу — точка сбора в тайле.
 local function order(c, wx: number, wy: number)
@@ -38,9 +42,18 @@ function orders.update(c)
 	-- Окно приказа грузовикам (controls/trucks) — тоже не до приказов.
 	if c.shared.paused or c.shared.mode or c.shared.modeClosedAt == c.time or c.shared.truckMenu then
 		held = nil
+		pressed = nil
 		return
 	end
 	if input.pressed.right and input.inside and not input.over_ui then
+		pressed = { x = input.x, y = input.y }
+	end
+	local start = pressed
+	if start and (math.abs(input.x - start.x) > SLOP or math.abs(input.y - start.y) > SLOP) then
+		pressed = nil
+	end
+	if pressed and input.released.right then
+		pressed = nil
 		order(c, input.wx, input.wy)
 	end
 	-- Касание: долгое нажатие на месте — приказ.

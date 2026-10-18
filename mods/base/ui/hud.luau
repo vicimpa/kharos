@@ -2763,6 +2763,8 @@ local function truckMenu(c)
 end
 
 function hud.draw(c)
+	-- Видимая часть карты — между верхней полосой и нижней панелью (inset камеры): у её краёв едет камера за рамкой.
+	c.shared.inset = { top = TOP_HEIGHT, bottom = INNER + 16, left = 0, right = 0 }
 	shownAlerts = alertsLib.update(c)
 	alertList(c)
 	stepsPanel(c)
