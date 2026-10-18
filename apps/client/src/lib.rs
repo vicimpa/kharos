@@ -239,6 +239,8 @@ impl App {
       }
       return Ok(());
     }
+    // Графика игрока (settings.graphics в моде): рендер читает её каждый кадр, смена видна сразу.
+    self.renderer.graphics = self.graphics();
     let Some(game) = &mut self.game else { return Ok(()) };
     let (frame, view) = game.frame(input)?;
     let size = [size[0] as i32, size[1] as i32];
@@ -286,6 +288,21 @@ impl App {
       None => {}
     }
     Ok(())
+  }
+
+  /// Настройки графики из c.app (ключ graphics); чего нет — высокое.
+  fn graphics(&self) -> render::Graphics {
+    let state = self.link.borrow();
+    let saved = state.prefs.get("graphics");
+    let number = |key: &str| saved.and_then(|value| value.get(key)).and_then(serde_json::Value::as_f64);
+    let level = |key: &str| number(key).map_or(2, |value| value.clamp(0.0, 2.0) as usize);
+    render::Graphics { resolution: number("resolution").unwrap_or(1.0) as f32, terrain: level("terrain"), shadows: level("shadows"), weather: level("weather") }
+  }
+
+  /// Предел кадров в секунду (graphics.fps); None — без предела.
+  pub fn fps_limit(&self) -> Option<f64> {
+    let state = self.link.borrow();
+    state.prefs.get("graphics").and_then(|value| value.get("fps")).and_then(serde_json::Value::as_f64).filter(|fps| *fps > 0.0)
   }
 
   pub fn shot(&self, path: &str, size: [u32; 2]) {

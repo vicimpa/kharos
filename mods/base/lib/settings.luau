@@ -75,6 +75,44 @@ local function choice(ui, id: string, label: string, tip: string, values: { any 
 end
 
 -- Окно настроек. Возвращает true, если нажали «Назад».
+-- Графика (graphics.ts): доля пикселей мира, детализация земли, теней и осадков (0 — низкая, 1 — средняя, 2 — высокая) и
+-- предел кадров (0 — без предела). Хранится в c.app под ключом graphics; рендер и окно читают её каждый кадр.
+settings.PRESETS = {
+	{ "low", "Низкое", { resolution = 0.5, terrain = 0, shadows = 0, weather = 0, fps = 30 } },
+	{ "medium", "Среднее", { resolution = 0.75, terrain = 1, shadows = 1, weather = 1, fps = 60 } },
+	{ "high", "Высокое", { resolution = 1, terrain = 2, shadows = 2, weather = 2, fps = 0 } },
+}
+settings.RESOLUTIONS = { 0.5, 0.75, 1 }
+settings.FPS_LIMITS = { 30, 60, 0 }
+local GRAPHICS_KEYS = { "resolution", "terrain", "shadows", "weather", "fps" }
+local LEVEL_NAMES = { [0] = "Низкая", "Средняя", "Высокая" }
+
+-- Настройки графики игрока; без сохранённого выбора — высокий набор.
+function settings.graphics(c)
+	local saved = c.app:get("graphics") or {}
+	local value = table.clone(settings.PRESETS[3][3])
+	for _, key in GRAPHICS_KEYS do
+		if type(saved[key]) == "number" then
+			value[key] = saved[key]
+		end
+	end
+	return value
+end
+
+-- Какому набору соответствуют настройки; nil — подобраны вручную (presetOf).
+local function presetOf(value): string?
+	for _, preset in settings.PRESETS do
+		local same = true
+		for _, key in GRAPHICS_KEYS do
+			same = same and preset[3][key] == value[key]
+		end
+		if same then
+			return preset[1]
+		end
+	end
+	return nil
+end
+
 function settings.window(c, anchor: { [string]: number }?): boolean
 	local ui = c.ui
 	return form.window(ui, { id = "settings", title = "Настройки", width = WIDTH, back = "Назад", anchor = anchor }, function()
@@ -107,6 +145,51 @@ function settings.window(c, anchor: { [string]: number }?): boolean
 				end)
 			end)
 		end
+
+		-- Графика: набор целиком или каждый эффект отдельно. Эффекты не выключаются — упрощаются; смена видна сразу.
+		local value = settings.graphics(c)
+		local preset = presetOf(value)
+		form.groupTitle(ui, "Графика")
+		ui:text("Качество", { color = COLORS.dim })
+		local presets = {}
+		for _, item in settings.PRESETS do
+			table.insert(presets, { item[1], item[2] })
+		end
+		if not preset then
+			table.insert(presets, { "custom", "Своё" })
+		end
+		local picked = form.chips(ui, "settings:preset", presets, preset or "custom", INNER, { fill = true })
+		for _, item in settings.PRESETS do
+			if picked == item[1] then
+				c.app:set("graphics", table.clone(item[3]))
+			end
+		end
+		local function set(key: string, level)
+			local nextValue = settings.graphics(c)
+			nextValue[key] = level
+			c.app:set("graphics", nextValue)
+		end
+		local resolution = choice(ui, "settings:resolution", "Разрешение", "В скольких пикселях рисуется мир: меньше — быстрее, но пиксели крупнее. Интерфейс остаётся чётким.", settings.RESOLUTIONS, value.resolution, function(share)
+			return string.format("%d%%", math.round(share * 100))
+		end)
+		if resolution then
+			set("resolution", resolution)
+		end
+		for _, detail in { { "terrain", "Детализация земли", "Как ровно выглядит земля, когда камера далеко: выше — глаже, ниже — быстрее." }, { "shadows", "Точность теней", "Как точно фары ночью отбрасывают тени от зданий и техники." }, { "weather", "Детализация осадков", "Сколько капель, всплесков и слоёв снега видно в непогоду." } } do
+			local level = choice(ui, "settings:" .. detail[1], detail[2], detail[3], { 0, 1, 2 }, value[detail[1]], function(level)
+				return LEVEL_NAMES[level]
+			end)
+			if level then
+				set(detail[1], level)
+			end
+		end
+		local fps = choice(ui, "settings:fps", "Предел кадров", "Меньше кадров — меньше нагрев и расход батареи.", settings.FPS_LIMITS, value.fps, function(limit)
+			return if limit > 0 then tostring(limit) else "Нет"
+		end)
+		if fps then
+			set("fps", fps)
+		end
+		ui:text("Ниже — быстрее на слабых устройствах. Меняется сразу; наведи на название, чтобы узнать, что оно делает.", { color = COLORS.muted, wrap = INNER })
 
 		-- Интерфейс: то, что дело вкуса, а не мощности устройства. Смена видна сразу.
 		local prefs = settings.prefs(c)

@@ -312,6 +312,7 @@ const float LEVELS = 5.0;
 const float BAYER[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
 const float SPACING = 3.0;
 const int MAX_STEPS = 64;
+uniform int uSteps;
 const float SKIP = 1.5;
 void main() {
   ivec2 cell = ivec2(floor(vTexel));
@@ -324,7 +325,7 @@ void main() {
   if (along <= 0.0 || value <= 0.0) discard;
   vec2 from = vBeam.xy + texel / TEXELS;
   vec2 to = vBeam.xy + direction * SKIP / TEXELS;
-  int steps = max(1, int(ceil(max(length(texel) - SKIP, 0.0) / SPACING)));
+  int steps = clamp(int(ceil(max(length(texel) - SKIP, 0.0) / SPACING)), 1, uSteps);
   bool outside = false;
   for (int i = 0; i < MAX_STEPS; i++) {
     if (i >= steps) break;
@@ -442,7 +443,30 @@ struct LandWindow {
   slots: Vec<Option<(i32, i32, u64)>>,
 }
 
+/// Настройки графики игрока (graphics.ts): доля пикселей мира и уровни детализации 0–2.
+#[derive(Clone, Copy, Debug)]
+pub struct Graphics {
+  pub resolution: f32,
+  pub terrain: usize,
+  pub shadows: usize,
+  pub weather: usize,
+}
+
+impl Default for Graphics {
+  fn default() -> Self {
+    Self { resolution: 1.0, terrain: 2, shadows: 2, weather: 2 }
+  }
+}
+
+/// Сколько точек земли усредняется в пикселе, сколько раз луч проверяется на тень — по уровню (SAMPLES в terrainPass.ts,
+/// SHADOW_STEPS в lightingPass.ts; высокий — прежний предел лучей).
+const SAMPLES: [f32; 3] = [1.0, 2.0, 4.0];
+const SHADOW_STEPS: [i32; 3] = [10, 20, 64];
+
 pub struct Renderer {
+  pub graphics: Graphics,
+  /// Кадр мира в долю пикселей экрана (resolution < 1): потом он растягивается на экран.
+  world: Option<Target>,
   pub gl: Gl,
   programs: Programs,
   sprite_vao: glow::VertexArray,
@@ -514,7 +538,7 @@ impl Renderer {
       let font = gl.texture([ATLAS_SIZE as i32; 2], glow::R8, glow::RED, None);
       raw.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
       raw.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
-      Ok(Self { gl, programs, sprite_vao, sprite_data, spot_vao, spot_data, decal_vao, decal_data, beam_vao, beam_data, empty_vao, batch_vao, batch_vertices, batch_indices, font, font_generation: 0, atlas: None, skin: None, fog: None, minimap: None, preview: None, land: None, occluders: None, lightmap: None, size: [0, 0] })
+      Ok(Self { graphics: Graphics::default(), world: None, gl, programs, sprite_vao, sprite_data, spot_vao, spot_data, decal_vao, decal_data, beam_vao, beam_data, empty_vao, batch_vao, batch_vertices, batch_indices, font, font_generation: 0, atlas: None, skin: None, fog: None, minimap: None, preview: None, land: None, occluders: None, lightmap: None, size: [0, 0] })
     }
   }
 
@@ -657,7 +681,7 @@ impl Renderer {
     gl.uniform_1_f32(uniform("uZoom").as_ref(), zoom);
     gl.uniform_1_f32(uniform("uPixel").as_ref(), 1.0 / zoom);
     gl.uniform_1_f32(uniform("uTime").as_ref(), (frame.time * SWAMP_FPS).floor() / SWAMP_FPS);
-    gl.uniform_1_f32(uniform("uSamples").as_ref(), 4.0);
+    gl.uniform_1_f32(uniform("uSamples").as_ref(), SAMPLES[self.graphics.terrain.min(2)]);
     gl.uniform_3_f32(uniform("uDunes").as_ref(), DUNES[0], DUNES[1], DUNES[2]);
     gl.bind_texture(glow::TEXTURE_2D, Some(window.texture));
     gl.bind_vertex_array(Some(self.empty_vao));
@@ -684,7 +708,7 @@ impl Renderer {
     gl.uniform_2_f32(uniform("uWind").as_ref(), frame.wind[0], frame.wind[1]);
     gl.uniform_2_f32(uniform("uDrift").as_ref(), frame.drift[0], frame.drift[1]);
     gl.uniform_1_f32(uniform("uPrecipitation").as_ref(), frame.precipitation);
-    gl.uniform_1_i32(uniform("uDetail").as_ref(), 2);
+    gl.uniform_1_i32(uniform("uDetail").as_ref(), self.graphics.weather.min(2) as i32);
     gl.bind_texture(glow::TEXTURE_2D, Some(window.texture));
     gl.enable(glow::BLEND);
     gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
@@ -735,7 +759,39 @@ impl Renderer {
   }
 
   /// Кадр мира: земля, тени и спрайты по слоям, свет.
+  /// Мир кадра: при resolution < 1 — в свой кадр меньшего размера, который потом растягивается на экран; интерфейс
+  /// рисуется поверх в полном разрешении (pixelDensity в app.ts).
   pub fn draw_world(&mut self, view: &View, frame: &Frame, size: [i32; 2]) {
+    let resolution = self.graphics.resolution.clamp(0.25, 1.0);
+    if resolution >= 0.999 {
+      if let Some(target) = self.world.take() {
+        self.gl.drop_target(&target);
+      }
+      self.paint_world(view, frame, size, None);
+      return;
+    }
+    let scaled = [((size[0] as f32 * resolution).round() as i32).max(1), ((size[1] as f32 * resolution).round() as i32).max(1)];
+    if !self.world.as_ref().is_some_and(|target| target.size == scaled) {
+      if let Some(target) = self.world.take() {
+        self.gl.drop_target(&target);
+      }
+      self.world = Some(self.gl.target(scaled, glow::RGBA8, glow::RGBA));
+    }
+    let framebuffer = self.world.as_ref().map(|target| target.framebuffer);
+    let mut low = *view;
+    low.scale *= resolution;
+    self.paint_world(&low, frame, scaled, framebuffer);
+    let gl = &self.gl.gl;
+    unsafe {
+      gl.bind_framebuffer(glow::READ_FRAMEBUFFER, framebuffer);
+      gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
+      gl.blit_framebuffer(0, 0, scaled[0], scaled[1], 0, 0, size[0], size[1], glow::COLOR_BUFFER_BIT, glow::NEAREST);
+      gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+    }
+    self.size = size;
+  }
+
+  fn paint_world(&mut self, view: &View, frame: &Frame, size: [i32; 2], target: Option<glow::Framebuffer>) {
     self.size = size;
     let night = frame.light < 1.0;
     if night {
@@ -760,7 +816,7 @@ impl Renderer {
     self.update_land(view);
     let gl = &self.gl.gl;
     unsafe {
-      gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+      gl.bind_framebuffer(glow::FRAMEBUFFER, target);
       gl.viewport(0, 0, size[0], size[1]);
       gl.active_texture(glow::TEXTURE0);
       gl.disable(glow::BLEND);
@@ -831,12 +887,13 @@ impl Renderer {
           self.camera(beam, view);
           gl.uniform_3_f32(gl.get_uniform_location(beam, "uColor").as_ref(), LIGHT_COLOR[0], LIGHT_COLOR[1], LIGHT_COLOR[2]);
           gl.uniform_1_f32(gl.get_uniform_location(beam, "uStrength").as_ref(), 1.0);
+          gl.uniform_1_i32(gl.get_uniform_location(beam, "uSteps").as_ref(), SHADOW_STEPS[self.graphics.shadows.min(2)]);
           gl.bind_texture(glow::TEXTURE_2D, Some(occluders.texture));
           gl.bind_vertex_array(Some(self.beam_vao));
           gl.draw_arrays_instanced(glow::TRIANGLE_STRIP, 0, 4, (frame.beams.len() / 8) as i32);
         }
       }
-      gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+      gl.bind_framebuffer(glow::FRAMEBUFFER, target);
       gl.blend_func(glow::DST_COLOR, glow::ZERO);
       gl.use_program(Some(self.programs.blit));
       gl.bind_texture(glow::TEXTURE_2D, Some(lightmap.texture));

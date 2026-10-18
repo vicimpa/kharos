@@ -35,11 +35,13 @@ struct Shell {
   /// Снимок кадра: куда и через сколько кадров.
   shot: Option<(String, u32)>,
   frames: u32,
+  /// Когда рисовали прошлый кадр: предел кадров (graphics.fps) ждёт до следующего срока.
+  drawn: Option<std::time::Instant>,
 }
 
 pub fn run() {
   let shot = std::env::var("KHAROS_SHOT").ok().map(|path| (path, std::env::var("KHAROS_SHOT_FRAMES").ok().and_then(|frames| frames.parse().ok()).unwrap_or(120)));
-  let mut shell = Shell { input: Input { focused: true, ..Default::default() }, gl: None, app: None, shot, frames: 0 };
+  let mut shell = Shell { input: Input { focused: true, ..Default::default() }, gl: None, app: None, shot, frames: 0, drawn: None };
   let event_loop = EventLoop::new().expect("цикл событий");
   if let Err(error) = event_loop.run_app(&mut shell) {
     eprintln!("цикл событий: {error}");
@@ -173,15 +175,25 @@ impl ApplicationHandler for Shell {
     }
   }
 
-  fn about_to_wait(&mut self, _: &ActiveEventLoop) {
-    if let Some(gl) = &self.gl {
-      gl.window.request_redraw();
+  fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+    let Some(gl) = &self.gl else { return };
+    // Предел кадров: кадр не раньше своего срока; снимок кадра идёт без предела.
+    let limit = if self.shot.is_some() { None } else { self.app.as_ref().and_then(App::fps_limit) };
+    if let (Some(fps), Some(drawn)) = (limit, self.drawn) {
+      let due = drawn + std::time::Duration::from_secs_f64(1.0 / fps);
+      if std::time::Instant::now() < due {
+        event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(due));
+        return;
+      }
     }
+    event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
+    gl.window.request_redraw();
   }
 }
 
 impl Shell {
   fn redraw(&mut self, event_loop: &ActiveEventLoop) {
+    self.drawn = Some(std::time::Instant::now());
     let (Some(gl), Some(app)) = (&self.gl, &mut self.app) else { return };
     let size = gl.window.inner_size();
     if size.width == 0 || size.height == 0 {
