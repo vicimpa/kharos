@@ -95,4 +95,13 @@ function patrol.update(c)
 	end
 end
 
+-- Полоса режима (ui/hud): название и что делать.
+patrol.modes = {
+	patrolling = {
+		describe = function(c)
+			return c:t("mode.patrolling"), c:t("mode.tips.patrolling")
+		end,
+	},
+}
+
 return patrol

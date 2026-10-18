@@ -221,4 +221,14 @@ function build.update(c)
 	end
 end
 
+-- Полоса режима (ui/hud): какое здание ставят и что делать.
+build.modes = {
+	placing = {
+		describe = function(c, mode)
+			local building = mode.building and c.protos.buildings[mode.building]
+			return c:t("mode.placing", { name = building and c:t(building.data.title) or "" }), c:t("mode.tips.placing")
+		end,
+	},
+}
+
 return build

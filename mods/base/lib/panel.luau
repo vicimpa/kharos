@@ -5,12 +5,14 @@
 --   panel = {
 --     slots = { { at = 50, fill = function(c, list, view) … end } },  -- ячейки сетки: list[1..12] = ячейка
 --     info = { { at = 220, draw = function(c, view) … end } },        -- строки сведений, шириной view.width
+--     overlay = { { at = 60, draw = function(c, view) … end } },      -- поверх поля: подсказки, окна
 --   }
 --
 -- Куски идут по at, при равенстве — по имени вида. view сетки: selection, builders — свои строители среди выбранного,
 -- root — сетка на корне (кусок, открывший свою страницу, ставит false; дальше куски корня молчат), exclusive — кусок,
 -- который забирает сетку целиком (подтверждение), кладёт туда свой list. view сведений: selection, first, kind, many,
--- site (стройка первого), built (готовое здание, выбранное одно), width.
+-- site (стройка первого), built (готовое здание, выбранное одно), width. Поверх поля куски встают между частями самой
+-- панели (lib/panel.LAYERS); view у них общий на кадр: tip — подсказка у указателя уже показана.
 --
 -- Ячейка: label, picture (вид), title и about (карточка), cost и gain, materials со stock, power и idle, count, unit,
 -- active, disabled, short, hint (подсказка шага), fresh и seen (новая кнопка), lamp, zones, run — что делает щелчок.
@@ -27,6 +29,12 @@ local panel = {}
 panel.CONVERT, panel.CANCEL, panel.DEMOLISH, panel.BACK = 9, 10, 11, 12
 panel.SWITCH = panel.BACK
 panel.UPGRADE = 8
+
+-- Места частей самой панели среди кусков поверх поля: уведомления, первые шаги, полоса режима, награды, верхняя полоса,
+-- нижняя панель. Подсказки над картой — между верхней и нижней, окна — после нижней.
+panel.LAYERS = { alerts = 10, steps = 20, mode = 30, rewards = 40, top = 50, bottom = 70 }
+-- Высота верхней полосы.
+panel.TOP = 38
 
 -- Сторона значка в ячейке и в очереди производства.
 panel.TILE = 32
@@ -45,6 +53,18 @@ function panel.number(value: number): string
 		return tostring(math.floor(rounded) + 0)
 	end
 	return (string.gsub(string.format("%.2f", rounded), "0+$", ""))
+end
+
+-- Подсказка у указателя над картой: тайл под ним и где встать подсказке; nil — указатель не над картой или подсказка
+-- уже показана.
+function panel.hover(c, view): (number?, number?, { [string]: number }?)
+	local input = c.input
+	if view.tip or not input.inside or input.over_ui then
+		return nil, nil, nil
+	end
+	local width = c.ui.width
+	local anchor = if input.x > width - 260 then { right = width - input.x + 16, top = input.y + 16 } else { left = input.x + 16, top = input.y + 16 }
+	return math.floor(input.wx), math.floor(input.wy), anchor
 end
 
 -- Энергия сети для подписи: выработка повреждённых станций дробная — до десятых и вниз, а спрос — вверх, чтобы нехватка
@@ -133,6 +153,28 @@ function panel.goodsRow(c, items: { [string]: number }, empty: string?)
 end
 
 export type Part = { at: number, source: string, fn: (...any) -> () }
+
+-- Режимы наведения (c.shared.mode) по видам: их описывает управление, которое их ведёт, полем modes —
+-- { describe(c, режим) → название, что делать; done(c)? — кнопка «Готово» }.
+local modes = setmetatable({}, { __mode = "k" }) :: { [any]: { [string]: any } }
+
+function panel.mode(protos, kind: string)
+	local found = modes[protos]
+	if not found then
+		found = {}
+		for _, list in protos do
+			for _, other in list do
+				if type(other) == "table" and type(other.modes) == "table" then
+					for name, spec in other.modes do
+						found[name] = spec
+					end
+				end
+			end
+		end
+		modes[protos] = found
+	end
+	return found[kind]
+end
 
 -- Куски панели по полю (slots или info) со всех видов: по at, при равенстве — по разделу и имени вида.
 local collected = setmetatable({}, { __mode = "k" }) :: { [any]: { [string]: { Part } } }

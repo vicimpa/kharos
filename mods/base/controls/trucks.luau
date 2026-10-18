@@ -199,4 +199,31 @@ function trucks.update(c)
 	end
 end
 
+-- Полоса режима (ui/hud): маршрут и обслуживание кончаются «Готово» — набранное уходит грузовикам.
+trucks.modes = {
+	routing = {
+		describe = function(c, mode)
+			return c:t("mode.routing"), c:t("mode.tips.routing", { stops = #mode.stops })
+		end,
+		done = trucks.finish,
+	},
+	serving = {
+		describe = function(c, mode)
+			return c:t("mode.serving"), c:t("mode.tips.serving", { count = #mode.buildings })
+		end,
+		done = trucks.finish,
+	},
+	carrySource = {
+		describe = function(c)
+			return c:t("mode.carrySource"), c:t("mode.tips.carrySource")
+		end,
+	},
+	carryTarget = {
+		describe = function(c, mode)
+			local good = c.protos.goods[mode.resource]
+			return c:t("mode.carryTarget"), c:t("mode.tips.carryTarget", { name = if good then c:t(good.data.title) else mode.resource, amount = mode.amount })
+		end,
+	},
+}
+
 return trucks

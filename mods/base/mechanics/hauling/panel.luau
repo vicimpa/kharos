@@ -1,6 +1,7 @@
 --!strict
 -- Перевозки на панели: у своих грузовиков без строителей — режим работы и что возить, у хранилищ — резерв, у станций
--- запроса — заказ; в сведениях — кузов и работа грузовика, склад здания, материалы стройки и первого заказа.
+-- запроса — заказ; в сведениях — кузов и работа грузовика, склад здания, материалы стройки и первого заказа; поверх поля
+-- — окно приказа грузовикам по зданию.
 
 local goods = require("lib/goods")
 local logistics = require("lib/logistics")
@@ -10,7 +11,7 @@ local widgets = require("lib/widgets")
 local world = require("lib/world")
 local truckControls = require("controls/trucks")
 
-local COLORS = widgets.COLORS
+local COLORS, shadow = widgets.COLORS, widgets.shadow
 local goodWith, goodsRow = panel.goodWith, panel.goodsRow
 
 -- Страницы сетки грузовиков, хранилищ и станций запроса (filter, reserve, request): key — выделение, для которого
@@ -407,7 +408,174 @@ local function materials(c, view)
 	end
 end
 
+-- Сколько груза за щелчок «±» в окне приказа.
+local CARRY_STEP = 10
+-- Что выбрано в окне приказа: здание, груз и сколько.
+local picked: { building: number, resource: string, amount: number }? = nil
+
+-- Окно приказа выбранным грузовикам по зданию: что оттуда взять и сколько, что выгрузить туда из кузовов, возить ли
+-- руду отсюда, обеспечивать ли его.
+local function truckMenu(c, _view)
+	local building = c.shared.truckMenu
+	if not building or not c:alive(building) then
+		picked = nil
+		return
+	end
+	local ui = c.ui
+	local units = truckControls.selected(c)
+	local stock = c:get(building, "Inventory")
+	if #units == 0 or not stock then
+		return
+	end
+	local take, unload, capacity = {}, {}, 0
+	for _, name in goods.names(c) do
+		local amount = math.floor(logistics.spare(c, building, name) + 1e-9)
+		if amount >= 1 then
+			table.insert(take, { resource = name, amount = amount })
+		end
+	end
+	local loaded = {}
+	for _, truck in units do
+		local hold = c:get(truck, "Inventory")
+		if hold then
+			capacity += hold.capacity
+			for _, name in goods.names(c) do
+				local amount = goods.amount(hold, name)
+				if amount > goods.EPSILON and truckControls.isCarryTarget(c, building, name) then
+					loaded[name] = (loaded[name] or 0) + amount
+				end
+			end
+		end
+	end
+	for _, name in goods.names(c) do
+		if loaded[name] then
+			table.insert(unload, { resource = name, amount = loaded[name] })
+		end
+	end
+	local mine = world.isReady(c, c.player, building) and logistics.dataOf(c, building).extract == true
+	local needy = logistics.canSupply(c, c.player, building)
+	if picked and picked.building ~= building then
+		picked = nil
+	end
+	local chosen = picked
+	local available = 0
+	for _, item in take do
+		if chosen and item.resource == chosen.resource then
+			available = item.amount
+		end
+	end
+	local amount = if chosen then math.max(1, math.min(available, chosen.amount)) else 0
+	local kind = c:proto(building)
+	local function close()
+		c.shared.truckMenu = nil
+		picked = nil
+	end
+	local function order(name: string, args)
+		c:send(name, args)
+		c:sound("order", { volume = 0.35 })
+		close()
+	end
+	if c.input.hits.escape then
+		close()
+		return
+	end
+	local width = math.min(440, ui.width - 24)
+	ui:box({ id = "truck:backdrop", anchor = { left = 0, right = 0, top = 0, bottom = 0 }, background = "rgb(0 0 0 / 0.35)" })
+	if ui:clicked("truck:backdrop") then
+		close()
+		return
+	end
+	local function list(items, prefix: string, pick: (string, number) -> (), active: string?)
+		ui:box({ direction = "column", gap = 4, align = "stretch" }, function()
+			for _, item in items do
+				if ui:button(prefix .. ":" .. item.resource, { height = 36, padding = { 0, 10 }, justify = "start", gap = 8, active = active == item.resource }, function()
+					goodWith(c, item.resource, item.amount)
+					ui:text(c:t(c.protos.goods[item.resource].data.title), shadow())
+				end) then
+					pick(item.resource, item.amount)
+				end
+			end
+		end)
+	end
+	ui:box({ id = "truck", anchor = { centerX = 0, centerY = 0 }, width = width, maxHeight = ui.height - 24, skin = "panel", padding = { 16, 18 }, direction = "column", gap = 10, align = "stretch" }, function()
+		ui:box({ direction = "row", align = "center", gap = 8 }, function()
+			ui:box({ grow = 1 }, function()
+				ui:text(c:t("truck.title", { name = if kind then c:t(kind.data.title) else "" }), { color = COLORS.bright, wrap = width - 90 })
+			end)
+			if ui:button("truck:close", { height = 36, padding = { 0, 10 } }, function()
+				ui:text("✕", shadow())
+			end) then
+				close()
+			end
+			ui:tip("truck:close", c:t("truck.closeTip"))
+		end)
+		if #take > 0 then
+			ui:box({ direction = "column", gap = 6, align = "stretch" }, function()
+				ui:text(c:t("truck.take"), { color = COLORS.soft })
+				list(take, "truck:take", function(resource: string, have: number)
+					picked = { building = building, resource = resource, amount = have }
+				end, chosen and chosen.resource)
+				if chosen and available >= 1 then
+					ui:box({ direction = "row", align = "center", gap = 4 }, function()
+						if ui:button("truck:less", { height = 36, padding = { 0, 10 }, disabled = amount <= 1 }, function()
+							ui:text("−" .. CARRY_STEP, shadow())
+						end) then
+							picked = { building = building, resource = chosen.resource, amount = math.max(1, amount - CARRY_STEP) }
+						end
+						ui:box({ minWidth = 56, direction = "row", justify = "center" }, function()
+							goodWith(c, chosen.resource, amount)
+						end)
+						if ui:button("truck:more", { height = 36, padding = { 0, 10 }, disabled = amount >= available }, function()
+							ui:text("+" .. CARRY_STEP, shadow())
+						end) then
+							picked = { building = building, resource = chosen.resource, amount = math.min(available, amount + CARRY_STEP) }
+						end
+						if ui:button("truck:all", { height = 36, padding = { 0, 10 }, active = amount >= available }, function()
+							ui:text(c:t("grid.all"), shadow())
+						end) then
+							picked = { building = building, resource = chosen.resource, amount = available }
+						end
+						if ui:button("truck:where", { height = 36, padding = { 0, 10 }, skin = "button-primary" }, function()
+							ui:text(c:t("truck.where"), shadow())
+						end) then
+							c.shared.mode = { kind = "carryTarget", from = building, resource = chosen.resource, amount = amount }
+							close()
+						end
+						ui:tip("truck:where", c:t("truck.whereTip", { capacity = capacity }))
+					end)
+				end
+			end)
+		end
+		if #unload > 0 then
+			ui:box({ direction = "column", gap = 6, align = "stretch" }, function()
+				ui:text(c:t("truck.unload"), { color = COLORS.soft })
+				list(unload, "truck:unload", function(resource: string, have: number)
+					order("carry", { units = units, from = -1, to = building, resource = resource, amount = have })
+				end)
+			end)
+		end
+		if mine or needy then
+			ui:box({ direction = "column", gap = 6, align = "stretch" }, function()
+				if mine and ui:button("truck:mine", { height = 36, padding = { 0, 10 }, justify = "start" }, function()
+					ui:text(c:t("truck.mine"), shadow())
+				end) then
+					order("haul", { units = units, mine = building })
+				end
+				if needy and ui:button("truck:supply", { height = 36, padding = { 0, 10 }, justify = "start" }, function()
+					ui:text(c:t("truck.supply"), shadow())
+				end) then
+					order("supply", { units = units, target = building })
+				end
+			end)
+		end
+		if #take == 0 and #unload == 0 and not mine and not needy then
+			ui:text(c:t("truck.nothing"), { color = COLORS.soft, wrap = width - 36 })
+		end
+	end)
+end
+
 return {
 	slots = { { at = 40, fill = slots } },
 	info = { { at = 100, draw = stock }, { at = 180, draw = materials } },
+	overlay = { { at = 80, draw = truckMenu } },
 }

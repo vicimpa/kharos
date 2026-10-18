@@ -79,4 +79,13 @@ function deploy.update(c)
 	end
 end
 
+-- Полоса режима (ui/hud): название и что делать.
+deploy.modes = {
+	deploying = {
+		describe = function(c)
+			return c:t("mode.deploying"), c:t("mode.tips.deploying")
+		end,
+	},
+}
+
 return deploy

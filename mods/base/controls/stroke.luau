@@ -17,6 +17,9 @@ local wallet = require("lib/wallet")
 
 local stroke = {}
 
+-- Названия инструментов протяжки: стена и ворота — как здание.
+stroke.TOOL_NAMES = { pipe = "grid.tools.pipe", well = "grid.tools.well", foundation = paving.TITLES.foundation, road = paving.TITLES.road, remove = paving.TITLES.remove, peak = paving.TITLES.peak, cliff = paving.TITLES.cliff }
+
 -- Призраки, как у выбора места, с предумноженной альфой.
 local GHOST = { 0.7, 0.7, 0.7, 0.7 }
 local FORBIDDEN_GHOST = { 0.7, 0.14, 0.1, 0.7 }
@@ -264,5 +267,26 @@ function stroke.update(c)
 		end
 	end
 end
+
+-- Полоса режима (ui/hud): какой инструмент, сколько тайлов и почём.
+stroke.modes = {
+	paving = {
+		describe = function(c, mode)
+			local tool = c.protos.buildings[mode.tool]
+			local name = c:t(stroke.TOOL_NAMES[mode.tool]) or (tool and c:t(tool.data.title)) or mode.tool
+			local tip = c:t("mode.tips.pavingStart")
+			local shown = c.shared.paving
+			if shown and shown.tiles > 0 then
+				tip = c:t("mode.tips.paving", { tiles = shown.tiles, cost = shown.cost })
+				if (shown.short or 0) > 0 then
+					tip ..= c:t("mode.tips.pavingShort", { short = shown.short })
+				end
+			elseif mode.tool == "remove" then
+				tip = c:t("mode.tips.remove")
+			end
+			return c:t("{name}", { name = name }), tip
+		end,
+	},
+}
 
 return stroke

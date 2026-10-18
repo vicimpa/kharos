@@ -103,4 +103,13 @@ function aim.update(c)
 	end
 end
 
+-- Полоса режима (ui/hud): название и что делать.
+aim.modes = {
+	aiming = {
+		describe = function(c)
+			return c:t("mode.aiming"), c:t("mode.tips.aiming")
+		end,
+	},
+}
+
 return aim

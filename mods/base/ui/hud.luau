@@ -1,22 +1,20 @@
 --!strict
--- Панель игрока: верхняя полоса и нижняя — мини-карта, сведения о выбранном, сетка команд 4 × 3.
+-- Панель игрока: верхняя полоса и нижняя — мини-карта, сведения о выбранном, сетка команд 4 × 3; уведомления, первые
+-- шаги, полоса режима и награды. Сетку, сведения и то, что поверх поля, дают куски механик (lib/panel), режимы —
+-- управление (modes).
 
 local widgets = require("lib/widgets")
 local panel = require("lib/panel")
 local stats = require("lib/stats")
-local construction = require("lib/construction")
 local economy = require("lib/economy")
 local goods = require("lib/goods")
-local supply = require("lib/supply")
 local logistics = require("lib/logistics")
 local research = require("lib/research")
 local tactics = require("lib/tactics")
 local alertsLib = require("lib/alerts")
 local missiles = require("lib/missiles")
 local stepsLib = require("lib/steps")
-local depositsLib = require("lib/deposits")
 local paving = require("lib/paving")
-local truckControls = require("controls/trucks")
 local seenLib = require("lib/seen")
 local wallet = require("lib/wallet")
 
@@ -25,7 +23,7 @@ local COLORS, shadow = widgets.COLORS, widgets.shadow
 local hud = {}
 
 -- Верхняя полоса и нижняя панель: высоты, ячейки, портреты.
-local TOP_HEIGHT = 38
+local TOP_HEIGHT = panel.TOP
 local INNER = 140
 local CELL_WIDTH = 132
 local GRID_WIDTH = 4 * CELL_WIDTH + 3 * 4
@@ -34,11 +32,8 @@ local PORTRAIT = 96
 local TILE = 32
 -- Сторона мини-карты: из настроек игрока, но не больше, чем оставляет сведениям ширина экрана.
 local settings = require("lib/settings")
-local world = require("lib/world")
 local INFO_MIN = 104 + 10 + 24 + 150
 local GRID_KEYS = { "T", "Y", "U", "I", "G", "H", "J", "K", "B", "N", "M", "," }
--- Названия инструментов протяжки в полосе режима: стена и ворота — как здание.
-local TOOL_NAMES = { pipe = "grid.tools.pipe", well = "grid.tools.well", foundation = paving.TITLES.foundation, road = paving.TITLES.road, remove = paving.TITLES.remove, peak = paving.TITLES.peak, cliff = paving.TITLES.cliff }
 -- С какой доли выработки полная нагрузка сети уже тесна: число энергии на полосе желтеет.
 local GRID_TIGHT = 0.8
 
@@ -637,25 +632,11 @@ local function stepsPanel(c)
 	end)
 end
 
--- Режимы наведения: название и что делать — ключи словаря; у покрытия название — сам инструмент.
-local MODES = {
-	deploying = { name = "mode.deploying", tip = "mode.tips.deploying" },
-	patrolling = { name = "mode.patrolling", tip = "mode.tips.patrolling" },
-	aiming = { name = "mode.aiming", tip = "mode.tips.aiming" },
-	placing = { name = "mode.placing", tip = "mode.tips.placing" },
-	paving = { name = "{name}", tip = "mode.tips.pavingStart" },
-	routing = { name = "mode.routing", tip = "mode.tips.routing", done = true },
-	serving = { name = "mode.serving", tip = "mode.tips.serving", done = true },
-	carrySource = { name = "mode.carrySource", tip = "mode.tips.carrySource" },
-	carryTarget = { name = "mode.carryTarget", tip = "mode.tips.carryTarget" },
-}
-
-
 -- Полоса режима над полем: какой режим, что делать дальше и как выйти. Esc и правая кнопка работают и так, но на
 -- сенсорном экране их нет.
 local function modeBar(c)
 	local mode = c.shared.mode
-	local spec = mode and MODES[mode.kind]
+	local spec = mode and panel.mode(c.protos, mode.kind)
 	if not spec then
 		return
 	end
@@ -664,38 +645,14 @@ local function modeBar(c)
 	local room = if stepsShown(c) and ui.width >= NARROW then math.min(ui.width - 24, math.max(280, ui.width - 2 * 324)) else ui.width - 24
 	ui:box({ anchor = { centerX = 0, top = TOP_HEIGHT + 6 } }, function()
 		ui:box({ id = "mode", skin = "panel", padding = { 10, 12, 10, 16 }, direction = "row", align = "center", gap = 12, maxWidth = room }, function()
-			local building = mode.building and c.protos.buildings[mode.building]
-			local name = building and c:t(building.data.title) or ""
-			local tip = c:t(spec.tip)
-			if mode.kind == "paving" then
-				local tool = c.protos.buildings[mode.tool]
-				name = c:t(TOOL_NAMES[mode.tool]) or (tool and c:t(tool.data.title)) or mode.tool
-				local shown = c.shared.paving
-				if shown and shown.tiles > 0 then
-					tip = c:t("mode.tips.paving", { tiles = shown.tiles, cost = shown.cost })
-					if (shown.short or 0) > 0 then
-						tip ..= c:t("mode.tips.pavingShort", { short = shown.short })
-					end
-				elseif mode.tool == "remove" then
-					tip = c:t("mode.tips.remove")
-				end
-			end
-			if mode.kind == "routing" then
-				tip = c:t(spec.tip, { stops = #mode.stops })
-			elseif mode.kind == "serving" then
-				tip = c:t(spec.tip, { count = #mode.buildings })
-			elseif mode.kind == "carryTarget" then
-				local good = c.protos.goods[mode.resource]
-				tip = c:t(spec.tip, { name = if good then c:t(good.data.title) else mode.resource, amount = mode.amount })
-			end
-			ui:text(c:t(spec.name, { name = name }), { color = COLORS.team })
+			local name, tip = spec.describe(c, mode)
+			ui:text(name, { color = COLORS.team })
 			ui:text(tip, { color = COLORS.soft, wrap = math.max(160, room - 320) })
-			-- Набор маршрута и обслуживания кончается «Готово»: набранное уходит грузовикам.
 			if spec.done then
 				if ui:button("mode:done", { height = 32, padding = { 2, 14 }, skin = "button-primary" }, function()
 					ui:text(c:t("mode.done"), shadow())
 				end) then
-					truckControls.finish(c)
+					spec.done(c)
 				end
 				ui:tip("mode:done", c:t("mode.doneTip"))
 			end
@@ -805,285 +762,38 @@ local function alertList(c)
 	end)
 end
 
--- Остаток, каким игрок видел месторождение в последний раз: пока видит хоть тайл — настоящий, в тумане — прежний; так
--- туман не выдаёт, копают ли его чужие. Ключ — сущность месторождения.
-local seenReserve: { [number]: number } = {}
-
-local function knownReserve(c, e: number, x: number, y: number): number?
-	for dy = 0, depositsLib.SIZE - 1 do
-		for dx = 0, depositsLib.SIZE - 1 do
-			if c:sees(x + dx + 0.5, y + dy + 0.5) then
-				local left = c:get(e, "Deposit").reserve
-				seenReserve[e] = left
-				return left
-			end
-		end
-	end
-	return seenReserve[e]
-end
-
--- Что выйдет из месторождения и через что: «Металлическая руда → Плавильня → Металл».
-local function chainOf(c, resource: string): string
-	local ore = goods.oreOf(c, resource)
-	local refinery = "?"
-	for _, kind in construction.menu(c) do
-		if ore and kind.data.refines == ore then
-			refinery = c:t(kind.data.title)
-			break
-		end
-	end
-	local function title(name: string?): string
-		local kind = name and c.protos.goods[name]
-		return if kind then c:t(kind.data.title) else "?"
-	end
-	return title(ore) .. " → " .. refinery .. " → " .. title(resource)
-end
-
--- Подсказки у указателя над картой: месторождение — какое, сколько осталось и что из него выйдет; своя труба или
--- колодец — сколько зданий в сети и что в её хранилищах.
-local function hoverTips(c)
-	local input = c.input
-	if not input.inside or input.over_ui then
-		return
-	end
-	local ui = c.ui
-	local anchor = if input.x > ui.width - 260 then { right = ui.width - input.x + 16, top = input.y + 16 } else { left = input.x + 16, top = input.y + 16 }
-	local tileX, tileY = math.floor(input.wx), math.floor(input.wy)
-	-- Месторождение занимает SIZE × SIZE тайлов: подходит то, что накрывает тайл под указателем.
-	local half = depositsLib.SIZE / 2
-	for _, e in c:each({ "Deposit", "Position" }) do
-		local at = c:get(e, "Position")
-		local x, y = at.x - half, at.y - half
-		if tileX >= x and tileX < x + depositsLib.SIZE and tileY >= y and tileY < y + depositsLib.SIZE and c:knows(e) then
-			local kind = c:proto(e)
-			local resource = kind and kind.name
-			local good = resource and c.protos.goods[resource]
-			if not good then
-				return
-			end
-			local left = knownReserve(c, e, x, y)
-			ui:box({ anchor = anchor, skin = "panel", padding = { 8, 12 }, direction = "column", gap = 2, passive = true }, function()
-				ui:box({ direction = "row", align = "center", gap = 6 }, function()
-					ui:image(good, 20, 20)
-					ui:text(c:t("hud.depositTip", { name = c:t(good.data.title) }))
-					ui:text(if left == nil then c:t("hud.leftUnknown") elseif left > 0 then c:t("hud.left", { amount = math.floor(left) }) else c:t("hud.depleted"), { color = COLORS.dim })
-				end)
-				ui:text(chainOf(c, resource), { color = COLORS.dim, wrap = 300 })
-			end)
-			return
-		end
-	end
-	local e = c:occupant(tileX, tileY)
-	local kind = e and c:mine(e) and c:proto(e)
-	if not kind or not kind.data.pipe then
-		return
-	end
-	local network = logistics.networkOf(c, e)
-	if not network then
-		return
-	end
-	local buildings, items, capacity = 0, {}, 0
-	for _, member in network.members do
-		local other = c:proto(member)
-		if other and not other.data.pipe then
-			buildings += 1
-		end
-		if logistics.isStore(c, member) and world.isReady(c, c.player, member) then
-			local stock = c:get(member, "Inventory")
-			if stock then
-				capacity += stock.capacity
-				for name, amount in stock.items do
-					items[name] = (items[name] or 0) + amount
-				end
-			end
-		end
-	end
-	ui:box({ anchor = anchor, skin = "panel", padding = { 8, 12 }, direction = "row", align = "center", gap = 6, passive = true }, function()
-		ui:text(c:t("hud.network", { buildings = buildings }))
-		goodsRow(c, items, if capacity > 0 then c:t("hud.storesEmpty") else c:t("hud.noStores"))
-	end)
-end
-
--- Сколько груза за щелчок «±» в окне приказа.
-local CARRY_STEP = 10
--- Что выбрано в окне приказа: здание, груз и сколько.
-local picked: { building: number, resource: string, amount: number }? = nil
-
--- Окно приказа выбранным грузовикам по зданию: что оттуда взять и сколько, что выгрузить туда из кузовов, возить ли
--- руду отсюда, обеспечивать ли его.
-local function truckMenu(c)
-	local building = c.shared.truckMenu
-	if not building or not c:alive(building) then
-		picked = nil
-		return
-	end
-	local ui = c.ui
-	local units = truckControls.selected(c)
-	local stock = c:get(building, "Inventory")
-	if #units == 0 or not stock then
-		return
-	end
-	local take, unload, capacity = {}, {}, 0
-	for _, name in goods.names(c) do
-		local amount = math.floor(logistics.spare(c, building, name) + 1e-9)
-		if amount >= 1 then
-			table.insert(take, { resource = name, amount = amount })
-		end
-	end
-	local loaded = {}
-	for _, truck in units do
-		local hold = c:get(truck, "Inventory")
-		if hold then
-			capacity += hold.capacity
-			for _, name in goods.names(c) do
-				local amount = goods.amount(hold, name)
-				if amount > goods.EPSILON and truckControls.isCarryTarget(c, building, name) then
-					loaded[name] = (loaded[name] or 0) + amount
-				end
-			end
-		end
-	end
-	for _, name in goods.names(c) do
-		if loaded[name] then
-			table.insert(unload, { resource = name, amount = loaded[name] })
-		end
-	end
-	local mine = world.isReady(c, c.player, building) and logistics.dataOf(c, building).extract == true
-	local needy = logistics.canSupply(c, c.player, building)
-	if picked and picked.building ~= building then
-		picked = nil
-	end
-	local chosen = picked
-	local available = 0
-	for _, item in take do
-		if chosen and item.resource == chosen.resource then
-			available = item.amount
-		end
-	end
-	local amount = if chosen then math.max(1, math.min(available, chosen.amount)) else 0
-	local kind = c:proto(building)
-	local function close()
-		c.shared.truckMenu = nil
-		picked = nil
-	end
-	local function order(name: string, args)
-		c:send(name, args)
-		c:sound("order", { volume = 0.35 })
-		close()
-	end
-	if c.input.hits.escape then
-		close()
-		return
-	end
-	local width = math.min(440, ui.width - 24)
-	ui:box({ id = "truck:backdrop", anchor = { left = 0, right = 0, top = 0, bottom = 0 }, background = "rgb(0 0 0 / 0.35)" })
-	if ui:clicked("truck:backdrop") then
-		close()
-		return
-	end
-	local function list(items, prefix: string, pick: (string, number) -> (), active: string?)
-		ui:box({ direction = "column", gap = 4, align = "stretch" }, function()
-			for _, item in items do
-				if ui:button(prefix .. ":" .. item.resource, { height = 36, padding = { 0, 10 }, justify = "start", gap = 8, active = active == item.resource }, function()
-					goodWith(c, item.resource, item.amount)
-					ui:text(c:t(c.protos.goods[item.resource].data.title), shadow())
-				end) then
-					pick(item.resource, item.amount)
-				end
-			end
-		end)
-	end
-	ui:box({ id = "truck", anchor = { centerX = 0, centerY = 0 }, width = width, maxHeight = ui.height - 24, skin = "panel", padding = { 16, 18 }, direction = "column", gap = 10, align = "stretch" }, function()
-		ui:box({ direction = "row", align = "center", gap = 8 }, function()
-			ui:box({ grow = 1 }, function()
-				ui:text(c:t("truck.title", { name = if kind then c:t(kind.data.title) else "" }), { color = COLORS.bright, wrap = width - 90 })
-			end)
-			if ui:button("truck:close", { height = 36, padding = { 0, 10 } }, function()
-				ui:text("✕", shadow())
-			end) then
-				close()
-			end
-			ui:tip("truck:close", c:t("truck.closeTip"))
-		end)
-		if #take > 0 then
-			ui:box({ direction = "column", gap = 6, align = "stretch" }, function()
-				ui:text(c:t("truck.take"), { color = COLORS.soft })
-				list(take, "truck:take", function(resource: string, have: number)
-					picked = { building = building, resource = resource, amount = have }
-				end, chosen and chosen.resource)
-				if chosen and available >= 1 then
-					ui:box({ direction = "row", align = "center", gap = 4 }, function()
-						if ui:button("truck:less", { height = 36, padding = { 0, 10 }, disabled = amount <= 1 }, function()
-							ui:text("−" .. CARRY_STEP, shadow())
-						end) then
-							picked = { building = building, resource = chosen.resource, amount = math.max(1, amount - CARRY_STEP) }
-						end
-						ui:box({ minWidth = 56, direction = "row", justify = "center" }, function()
-							goodWith(c, chosen.resource, amount)
-						end)
-						if ui:button("truck:more", { height = 36, padding = { 0, 10 }, disabled = amount >= available }, function()
-							ui:text("+" .. CARRY_STEP, shadow())
-						end) then
-							picked = { building = building, resource = chosen.resource, amount = math.min(available, amount + CARRY_STEP) }
-						end
-						if ui:button("truck:all", { height = 36, padding = { 0, 10 }, active = amount >= available }, function()
-							ui:text(c:t("grid.all"), shadow())
-						end) then
-							picked = { building = building, resource = chosen.resource, amount = available }
-						end
-						if ui:button("truck:where", { height = 36, padding = { 0, 10 }, skin = "button-primary" }, function()
-							ui:text(c:t("truck.where"), shadow())
-						end) then
-							c.shared.mode = { kind = "carryTarget", from = building, resource = chosen.resource, amount = amount }
-							close()
-						end
-						ui:tip("truck:where", c:t("truck.whereTip", { capacity = capacity }))
-					end)
-				end
-			end)
-		end
-		if #unload > 0 then
-			ui:box({ direction = "column", gap = 6, align = "stretch" }, function()
-				ui:text(c:t("truck.unload"), { color = COLORS.soft })
-				list(unload, "truck:unload", function(resource: string, have: number)
-					order("carry", { units = units, from = -1, to = building, resource = resource, amount = have })
-				end)
-			end)
-		end
-		if mine or needy then
-			ui:box({ direction = "column", gap = 6, align = "stretch" }, function()
-				if mine and ui:button("truck:mine", { height = 36, padding = { 0, 10 }, justify = "start" }, function()
-					ui:text(c:t("truck.mine"), shadow())
-				end) then
-					order("haul", { units = units, mine = building })
-				end
-				if needy and ui:button("truck:supply", { height = 36, padding = { 0, 10 }, justify = "start" }, function()
-					ui:text(c:t("truck.supply"), shadow())
-				end) then
-					order("supply", { units = units, target = building })
-				end
-			end)
-		end
-		if #take == 0 and #unload == 0 and not mine and not needy then
-			ui:text(c:t("truck.nothing"), { color = COLORS.soft, wrap = width - 36 })
-		end
-	end)
-end
+-- Части самой панели по местам (lib/panel.LAYERS); между ними — куски механик поверх поля.
+local LAYERS = {
+	{ at = panel.LAYERS.alerts, fn = function(c)
+		alertList(c)
+	end },
+	{ at = panel.LAYERS.steps, fn = stepsPanel },
+	{ at = panel.LAYERS.mode, fn = modeBar },
+	{ at = panel.LAYERS.rewards, fn = rewards },
+	{ at = panel.LAYERS.top, fn = topBar },
+	{ at = panel.LAYERS.bottom, fn = bottomBar },
+}
 
 function hud.draw(c)
 	-- Видимая часть карты — между верхней полосой и нижней панелью (inset камеры): у её краёв едет камера за рамкой.
 	c.shared.inset = { top = TOP_HEIGHT, bottom = INNER + 16, left = 0, right = 0 }
 	shownAlerts = alertsLib.update(c)
-	alertList(c)
-	stepsPanel(c)
-	modeBar(c)
-	rewards(c)
-	topBar(c)
-	hoverTips(c)
-	bottomBar(c)
-	truckMenu(c)
+	local overlays = panel.parts(c.protos, "overlay")
+	local view = {}
+	local next = 1
+	for _, layer in LAYERS do
+		while overlays[next] and overlays[next].at < layer.at do
+			overlays[next].fn(c, view)
+			next += 1
+		end
+		layer.fn(c)
+	end
+	for i = next, #overlays do
+		overlays[i].fn(c, view)
+	end
 end
 
+-- Сетка и сведения для выбранного — снаружи: так их сверяют, не рисуя.
 hud.slots, hud.info = slots, info
 
 return hud

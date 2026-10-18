@@ -16,8 +16,8 @@ local widgets = require("lib/widgets")
 local COLORS = widgets.COLORS
 local percent = panel.percent
 
--- Названия инструментов протяжки: стена и ворота — как здание.
-local TOOL_NAMES = { pipe = "grid.tools.pipe", well = "grid.tools.well", foundation = paving.TITLES.foundation, road = paving.TITLES.road, remove = paving.TITLES.remove, peak = paving.TITLES.peak, cliff = paving.TITLES.cliff }
+-- Названия инструментов протяжки.
+local TOOL_NAMES = require("controls/stroke").TOOL_NAMES
 -- Инструменты раздела «Покрытие» и их подсказки: цена тайла — {cost}, моста — {bridge}.
 local PAVE_TOOLS = { "foundation", "road", "peak", "cliff" }
 local PAVE_TIPS = {
