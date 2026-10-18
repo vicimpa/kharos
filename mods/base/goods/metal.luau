@@ -1,19 +1,17 @@
 --!strict
--- Груз: металл. Данные — packages/base/data/resources.json, цвет —
--- resourceColors.ts, значок — goodIcons.ts.
+-- Груз: металл.
 
 local goods = require("lib/goods")
 
-return {
-	data = {
-		title = "goods.metal",
-		kind = "resource",
-		-- Место в списке грузов (GOODS): ресурсы, изделия, руда.
-		order = 1,
-		-- Цвет груза: значок, груз на луче, месторождение на карте.
-		color = 0xb8c4d0,
-		-- Цена единицы при продаже через космопорт.
-		price = 10,
-	},
-	look = goods.look("metal", 0xb8c4d0),
+local kind = {}
+
+kind.data = {
+	kind = "resource",
+	order = 1,
+	color = 0xb8c4d0,
+	price = 10,
 }
+
+kind.look = goods.look("metal", kind.data.color)
+
+return kind

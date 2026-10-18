@@ -10,7 +10,7 @@ local WHITE = { [0] = 0x6d7680, 0x9aa4ae, 0xc3cbd3, 0xe1e7ec, 0xffffff }
 local PCB = { [0] = 0x0d3a22, 0x16603a, 0x2a8c55 }
 
 return b.look(2, 2, function(g, t: number, working: boolean)
-	local tint = b.accent(b.GOOD_COLORS.parts)
+	local tint = b.accent(b.goodColor("parts"))
 	b.slab(g, 0, 2, 32, 30, 3, WHITE)
 
 	-- Плата: зелёное поле с дорожками и микросхемами.

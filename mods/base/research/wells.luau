@@ -3,8 +3,6 @@
 
 return {
 	data = {
-		title = "research.wells",
-		info = "researchInfo.wells",
 		-- Место в списке тем (TOPICS).
 		order = 24,
 		-- Темы, без которых эту не начать.

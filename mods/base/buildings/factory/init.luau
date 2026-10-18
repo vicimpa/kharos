@@ -7,10 +7,6 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "buildings.factory",
-	about = "Машинный завод: машинки и тяжёлая техника. Строится из стройблоков: военная промышленность требует цеха.",
-	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "buildingInfo.factory",
 	width = 3,
 	height = 3,
 	cost = 450,

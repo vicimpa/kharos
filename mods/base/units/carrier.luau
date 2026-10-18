@@ -8,8 +8,6 @@ local units = require("lib/units")
 local kind = {}
 
 kind.data = {
-	title = "units.carrier",
-	about = "Носитель: колёсное шасси танка без своего оружия — на нём три ракетные турели и ремонтная. Ремонтной нужен компонент.",
 	speed = 3,
 	turn = 2.5,
 	radius = 0.8,

@@ -8,7 +8,7 @@ local IRON, RUST, INK, BRICK, FIRE = b.IRON, b.RUST, b.INK, b.BRICK, b.FIRE
 local TURN, FRAMES, round, hash, pulse, fireColor = b.TURN, b.FRAMES, b.round, b.hash, b.pulse, b.fireColor
 
 return b.look(3, 3, function(g, t: number, working: boolean)
-	local tint = b.accent(b.GOOD_COLORS.metal)
+	local tint = b.accent(b.goodColor("metal"))
 	local frame = math.floor(t * FRAMES)
 	b.slab(g, 0, 2, 48, 46, 3, IRON)
 	g:rect(2, 4, 44, 1, RUST[0])

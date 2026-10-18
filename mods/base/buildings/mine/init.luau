@@ -8,10 +8,6 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "buildings.mine",
-	about = "Шахта энергии не просит и начинает свою зону: тянуть к месторождению цепочку зданий не нужно. Добытое копится в шахте, пока его не выкачают грузовики.",
-	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "buildingInfo.mine",
 	width = 2,
 	height = 2,
 	cost = 300,

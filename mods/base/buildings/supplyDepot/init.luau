@@ -8,10 +8,6 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "buildings.supplyDepot",
-	about = "Станция поставки: здесь машины снабжения грузятся вчетверо быстрее, чем у хранилищ сети. Без неё машину снабжения не заказать.",
-	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "buildingInfo.supplyDepot",
 	width = 3,
 	height = 2,
 	cost = 350,

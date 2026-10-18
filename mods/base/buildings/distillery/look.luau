@@ -8,7 +8,7 @@ local STEEL, IRON, RUST, INK = b.STEEL, b.IRON, b.RUST, b.INK
 local TURN, round, pulse, chase, fireColor = b.TURN, b.round, b.pulse, b.chase, b.fireColor
 
 return b.look(2, 3, function(g, t: number, working: boolean)
-	local tint = b.accent(b.GOOD_COLORS.fuel)
+	local tint = b.accent(b.goodColor("fuel"))
 	b.slab(g, 0, 2, 32, 46, 3, STEEL)
 	g:rect(3, 42, 26, 1, RUST[1])
 

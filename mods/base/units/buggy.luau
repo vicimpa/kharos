@@ -8,8 +8,6 @@ local units = require("lib/units")
 local kind = {}
 
 kind.data = {
-	title = "units.buggy",
-	about = "Машинки: быстрые и хрупкие. Багги: за водителем сидит пассажир с миниганом и стреляет во все стороны. Она же разведчик: видит дальше всех на земле.",
 	speed = 6,
 	turn = 5,
 	radius = 0.45,

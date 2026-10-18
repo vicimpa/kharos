@@ -4,8 +4,6 @@
 return {
 	data = {
 		-- Ярус 5: разряд, щит, осада, реактор.
-		title = "research.arcs",
-		info = "researchInfo.arcs",
 		-- Место в списке тем (TOPICS).
 		order = 42,
 		-- Темы, без которых эту не начать.

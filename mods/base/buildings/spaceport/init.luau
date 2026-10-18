@@ -8,10 +8,6 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "buildings.spaceport",
-	about = "Космопорт торгует: энергию просит всегда. Товар на продажу грузовики сгружают в трюм корабля. Строится из металла, а не из стройблоков: с него начинаются деньги, и первой продаже хватает одной линии металла — без цеха и кремния.",
-	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "buildingInfo.spaceport",
 	width = 3,
 	height = 3,
 	cost = 450,

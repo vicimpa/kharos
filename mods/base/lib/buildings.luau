@@ -29,27 +29,10 @@ buildings.FIRE = { [0] = 0x6a1a10, 0xc2401a, 0xf08a2a, 0xffd36a, 0xfff4d0 }
 buildings.BRICK = { [0] = 0x2a1a16, 0x5e2f24, 0x9a523a, 0xc47a57, 0xe0a080 }
 -- Электрическая дуга: от синего к белому.
 buildings.ARC = { [0] = 0x2f5fd0, 0x8fc0ff, 0xf2f8ff }
--- Цвета грузов (resourceColors.ts): у здания им окрашено то, что оно выдаёт или хранит.
-buildings.GOOD_COLORS = {
-	metal = 0xb8c4d0,
-	silicon = 0x7f9cff,
-	fuel = 0xffc93c,
-	kharite = 0xc06bff,
-	lithium = 0xf59ac0,
-	uranium = 0xb4e84a,
-	blocks = 0xd8b98a,
-	ammo = 0xe0803a,
-	parts = 0x4fd6a2,
-	rods = 0x7ef0b0,
-	metalOre = 0x8d7a5f,
-	siliconOre = 0x5a6a8a,
-	fuelOre = 0x8a7a2a,
-	khariteOre = 0x7a4a9a,
-	lithiumOre = 0x9a6a7e,
-	uraniumOre = 0x6a8a3a,
-}
--- Руды по порядку (ORES в resources.ts).
-buildings.ORES = { "metalOre", "siliconOre", "fuelOre", "khariteOre", "lithiumOre", "uraniumOre" }
+-- Цвет груза из его вида (goods/): у здания им окрашено то, что оно выдаёт или хранит.
+function buildings.goodColor(good: string): number
+	return require("goods/" .. good).data.color
+end
 
 local INK, TEAM = buildings.INK, buildings.TEAM
 local TURN = math.pi * 2

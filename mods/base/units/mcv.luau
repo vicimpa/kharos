@@ -7,8 +7,6 @@ local units = require("lib/units")
 local kind = {}
 
 kind.data = {
-	title = "units.mcv",
-	about = "Пушка будущего главного здания едет на крыше: поворачивается, но не стреляет.",
 	speed = 2.5,
 	turn = 2.2,
 	radius = 0.8,

@@ -9,7 +9,7 @@ local TURN, FRAMES, pulse, chase = b.TURN, b.FRAMES, b.pulse, b.chase
 local CONCRETE = { [0] = 0x4a4844, 0x6e6a63, 0x8f8a80, 0xb1aba0, 0xd4cfc4 }
 
 return b.look(2, 2, function(g, t: number, working: boolean)
-	local tint = b.accent(b.GOOD_COLORS.blocks)
+	local tint = b.accent(b.goodColor("blocks"))
 	b.slab(g, 0, 2, 32, 30, 3, CONCRETE)
 
 	-- Мешалка: барабан с лопастями, в работе они крутятся в сером растворе.

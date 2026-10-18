@@ -7,8 +7,6 @@ local units = require("lib/units")
 local kind = {}
 
 kind.data = {
-	title = "units.builder",
-	about = "Строитель сам подвозит материалы на свою стройку, если их никто не везёт: кузов на 10 и луч, как у грузовика.",
 	speed = 4,
 	turn = 5,
 	radius = 0.45,

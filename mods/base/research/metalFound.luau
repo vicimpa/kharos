@@ -3,8 +3,6 @@
 
 return {
 	data = {
-		title = "research.metalFound",
-		info = "researchInfo.metalFound",
 		-- Место в списке тем (TOPICS).
 		order = 3,
 		-- Тема-открытие: открывается сама, когда это случилось с игроком.

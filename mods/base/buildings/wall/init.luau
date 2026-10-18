@@ -7,10 +7,6 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "buildings.wall",
-	about = "Дешёвая стена не расширяет зону: иначе цепочкой стен можно было бы бесплатно протянуть контроль через карту.",
-	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "buildingInfo.wall",
 	width = 1,
 	height = 1,
 	cost = 30,

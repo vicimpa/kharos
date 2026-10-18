@@ -8,9 +8,11 @@ local b = require("lib/buildings")
 
 local STEEL, IRON, RUST, INK, DARK, GOLD = b.STEEL, b.IRON, b.RUST, b.INK, b.DARK, b.GOLD
 local TURN, FRAMES, round, pulse, chase = b.TURN, b.FRAMES, b.round, b.pulse, b.chase
+-- Руды по порядку грузов.
+local ORES = { "metalOre", "siliconOre", "fuelOre", "khariteOre", "lithiumOre", "uraniumOre" }
 
 return b.look(2, 2, function(g, t: number, working: boolean, variant: number)
-	local ore = if variant ~= 0 then b.accent(b.GOOD_COLORS[b.ORES[variant]]) else RUST
+	local ore = if variant ~= 0 then b.accent(b.goodColor(ORES[variant])) else RUST
 	b.slab(g, 0, 1, 32, 31, 3, STEEL)
 
 	-- Ствол шахты и лента от него к бункеру: в работе по ней идёт руда.
@@ -80,4 +82,4 @@ return b.look(2, 2, function(g, t: number, working: boolean, variant: number)
 	g:rect(24, 7, 5, 3, INK)
 	g:rect(25, 8, 3, 2, if beacon > 0.3 then GOLD[2] elseif beacon > 0 then GOLD[1] else bit32.band(GOLD[0], 0x5f5f5f))
 	b.bulb(g, 2, 6, if working then pulse(t) else 0.08)
-end, { working = true, variants = #b.ORES + 1 })
+end, { working = true, variants = #ORES + 1 })

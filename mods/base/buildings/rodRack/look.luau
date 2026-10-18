@@ -8,7 +8,7 @@ local IRON, INK = b.IRON, b.INK
 local pulse, chase = b.pulse, b.chase
 
 return b.look(1, 1, function(g, t: number)
-	local tint = b.accent(b.GOOD_COLORS.rods)
+	local tint = b.accent(b.goodColor("rods"))
 	b.slab(g, 0, 1, 16, 15, 2, IRON)
 	g:rect(2, 3, 12, 9, INK)
 	g:rect(3, 4, 10, 7, IRON[1])

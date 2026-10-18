@@ -8,10 +8,6 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "buildings.shieldGenerator",
-	about = "Генератор щита гасит урон по своим под куполом от стрелков снаружи: против артиллерии и бомбардировщиков, а не против штурма вплотную. Энергию берёт всегда; строится из компонентов.",
-	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "buildingInfo.shieldGenerator",
 	width = 2,
 	height = 2,
 	cost = 1200,

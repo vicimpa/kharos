@@ -3,8 +3,6 @@
 
 return {
 	data = {
-		title = "research.siliconFound",
-		info = "researchInfo.siliconFound",
 		-- Место в списке тем (TOPICS).
 		order = 4,
 		-- Тема-открытие: открывается сама, когда это случилось с игроком.

@@ -7,10 +7,6 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "buildings.radar",
-	about = "Радар открывает туман далеко вокруг: так видно, кто идёт к базе, и куда бить артиллерией.",
-	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "buildingInfo.radar",
 	width = 2,
 	height = 2,
 	cost = 400,

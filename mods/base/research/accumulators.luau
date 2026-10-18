@@ -3,8 +3,6 @@
 
 return {
 	data = {
-		title = "research.accumulators",
-		info = "researchInfo.accumulators",
 		-- Место в списке тем (TOPICS).
 		order = 25,
 		-- Темы, без которых эту не начать.

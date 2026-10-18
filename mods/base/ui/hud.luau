@@ -304,7 +304,7 @@ end
 
 -- Описание здания для карточки: что делает и какие здания открывает (aboutOf).
 local function aboutOf(c, kind): string
-	local info = c:t(kind.data.info) or kind.data.about or ""
+	local info = c:t(kind.data.info) or ""
 	local opens = {}
 	for _, other in construction.menu(c) do
 		if other.data.requires and table.find(other.data.requires, kind.name) then

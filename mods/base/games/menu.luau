@@ -7,7 +7,6 @@
 local menu = {}
 
 menu.data = {
-	title = "games.menu",
 	land = "desert",
 	-- Карта витрины крошечная: её считают с нуля для каждого слайда (SHOWCASE_SIZE — 128 тайлов).
 	size = 64,

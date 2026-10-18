@@ -3,8 +3,6 @@
 
 return {
 	data = {
-		title = "research.lithiumOre",
-		info = "researchInfo.lithiumOre",
 		-- Место в списке тем (TOPICS).
 		order = 18,
 		-- Темы, без которых эту не начать.

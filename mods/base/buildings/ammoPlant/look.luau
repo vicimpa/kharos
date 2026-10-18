@@ -8,7 +8,7 @@ local IRON, RUST, INK, HAZARD = b.IRON, b.RUST, b.INK, b.HAZARD
 local FRAMES, pulse, chase = b.FRAMES, b.pulse, b.chase
 
 return b.look(2, 2, function(g, t: number, working: boolean)
-	local tint = b.accent(b.GOOD_COLORS.ammo)
+	local tint = b.accent(b.goodColor("ammo"))
 	b.slab(g, 0, 2, 32, 30, 3, IRON)
 	for x = 2, 29, 4 do
 		g:rect(x, 26, 2, 2, HAZARD[1])

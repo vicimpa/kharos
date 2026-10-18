@@ -5,7 +5,7 @@
 
 local b = require("lib/buildings")
 
-local STEEL, IRON, INK, HAZARD, GOOD = b.STEEL, b.IRON, b.INK, b.HAZARD, b.GOOD_COLORS
+local STEEL, IRON, INK, HAZARD, goodColor = b.STEEL, b.IRON, b.INK, b.HAZARD, b.goodColor
 local pulse, chase = b.pulse, b.chase
 
 return b.look(2, 2, function(g, t: number)
@@ -18,7 +18,7 @@ return b.look(2, 2, function(g, t: number)
 		g:rect(3 + i, 26, 2, 1, HAZARD[1])
 	end
 	-- Ящики разного груза: металл, стройблоки, патроны, кремний.
-	for _, crate in { { 5, 14, GOOD.metal }, { 12, 14, GOOD.blocks }, { 5, 20, GOOD.ammo }, { 12, 20, GOOD.silicon } } do
+	for _, crate in { { 5, 14, goodColor("metal") }, { 12, 14, goodColor("blocks") }, { 5, 20, goodColor("ammo") }, { 12, 20, goodColor("silicon") } } do
 		local x, y = crate[1], crate[2]
 		local tint = b.accent(crate[3])
 		g:rect(x, y, 6, 5, INK)

@@ -8,10 +8,6 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "buildings.laserTurret",
-	about = "Лазерная турель — противотанковая: бьёт мгновенно и лучше всего по тяжёлой броне. Патронов не просит, а питается от энергии зоны: грузовики ей не нужны, но электростанция — нужна.",
-	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "buildingInfo.laserTurret",
 	width = 1,
 	height = 1,
 	cost = 400,

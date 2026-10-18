@@ -7,8 +7,6 @@ local units = require("lib/units")
 local kind = {}
 
 kind.data = {
-	title = "units.flamer",
-	about = "Пехота. Огнемётчик: штурмовик ближнего боя — выжигает пехоту в окопах и здания, к броне ему не подойти.",
 	speed = 3.4,
 	turn = 10,
 	radius = 0.3,

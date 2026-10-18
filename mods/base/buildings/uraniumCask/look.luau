@@ -7,7 +7,7 @@ local b = require("lib/buildings")
 local IRON, INK = b.IRON, b.INK
 
 return b.look(1, 1, function(g, t: number)
-	local tint = b.accent(b.GOOD_COLORS.uranium)
+	local tint = b.accent(b.goodColor("uranium"))
 	b.slab(g, 0, 1, 16, 15, 2, IRON)
 	g:circle(8, 7, 6, INK)
 	g:circle(8, 7, 5, IRON[1])

@@ -7,7 +7,6 @@ local units = require("lib/units")
 local kind = {}
 
 kind.data = {
-	title = "units.drone",
 	speed = 7.5,
 	turn = 6,
 	radius = 0.35,

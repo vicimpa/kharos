@@ -8,10 +8,6 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "buildings.accumulator",
-	about = "Накопитель держит минуту работы электростанции: база переживает снесённую станцию или перегруз, пока его хватает. Строится из лития: это его работа.",
-	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "buildingInfo.accumulator",
 	width = 2,
 	height = 2,
 	cost = 400,

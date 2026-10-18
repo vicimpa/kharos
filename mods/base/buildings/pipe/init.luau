@@ -8,10 +8,6 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "buildings.pipe",
-	about = "Трубы связывают здания в сеть: по ним идут груз и энергия. Наземная дешёвая и хрупкая и перекрывает проезд, как стена; колодцы ведут подземный отрезок, под которым ездят и строят, а уязвимы только сами колодцы.",
-	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "buildingInfo.pipe",
 	width = 1,
 	height = 1,
 	cost = 5,

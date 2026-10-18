@@ -4,8 +4,6 @@
 return {
 	data = {
 		-- Ярус 4: тяжёлая техника, лазеры, стержни, третий уровень зданий, землеройные работы.
-		title = "research.earthworks",
-		info = "researchInfo.earthworks",
 		-- Место в списке тем (TOPICS).
 		order = 35,
 		-- Темы, без которых эту не начать.

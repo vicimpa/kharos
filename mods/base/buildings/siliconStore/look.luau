@@ -9,7 +9,7 @@ local FRAMES, pulse = b.FRAMES, b.pulse
 local WHITE = { [0] = 0x6d7680, 0x9aa4ae, 0xc3cbd3, 0xe1e7ec, 0xffffff }
 
 return b.look(2, 2, function(g, t: number)
-	local tint = b.accent(b.GOOD_COLORS.silicon)
+	local tint = b.accent(b.goodColor("silicon"))
 	b.slab(g, 0, 1, 32, 31, 3, WHITE)
 	-- Боксы: окна в корпусе, за стеклом — стопки пластин.
 	for _, at in { { 3, 4 }, { 17, 4 }, { 3, 15 }, { 17, 15 } } do

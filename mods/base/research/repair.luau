@@ -3,8 +3,6 @@
 
 return {
 	data = {
-		title = "research.repair",
-		info = "researchInfo.repair",
 		-- Место в списке тем (TOPICS).
 		order = 33,
 		-- Темы, без которых эту не начать.

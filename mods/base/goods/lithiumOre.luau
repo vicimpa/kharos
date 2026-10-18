@@ -1,19 +1,17 @@
 --!strict
--- Груз: литиевая руда. Данные — packages/base/data/ores.json, цвет —
--- resourceColors.ts, значок — goodIcons.ts.
+-- Груз: литиевая руда.
 
 local goods = require("lib/goods")
 
-return {
-	data = {
-		title = "goods.lithiumOre",
-		kind = "ore",
-		-- Место в списке грузов (GOODS): ресурсы, изделия, руда.
-		order = 15,
-		-- Цвет груза: значок, груз на луче, месторождение на карте.
-		color = 0x9a6a7e,
-		-- Что выходит на переработке.
-		resource = "lithium",
-	},
-	look = goods.look("ore", 0x9a6a7e, 0xf59ac0),
+local kind = {}
+
+kind.data = {
+	kind = "ore",
+	order = 15,
+	color = 0x9a6a7e,
+	resource = "lithium",
 }
+
+kind.look = goods.look("ore", kind.data.color, require("./lithium").data.color)
+
+return kind

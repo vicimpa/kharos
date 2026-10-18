@@ -8,7 +8,7 @@ local STEEL, RUST, INK = b.STEEL, b.RUST, b.INK
 local round, pulse, teamColor = b.round, b.pulse, b.teamColor
 
 return b.look(2, 2, function(g, t: number)
-	local tint = b.accent(b.GOOD_COLORS.lithium)
+	local tint = b.accent(b.goodColor("lithium"))
 	b.slab(g, 0, 2, 32, 30, 3, STEEL)
 	-- Шина над банками.
 	g:rect(3, 4, 26, 3, INK)

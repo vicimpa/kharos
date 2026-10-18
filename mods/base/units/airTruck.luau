@@ -8,8 +8,6 @@ local units = require("lib/units")
 local kind = {}
 
 kind.data = {
-	title = "units.airTruck",
-	about = "Летающие: им нужно топливо. Летающий грузовик: везёт меньше обычного, зато вдвое быстрее и напрямик — над болотами и горами. Его сбивает ПВО.",
 	speed = 7,
 	turn = 5,
 	radius = 0.45,

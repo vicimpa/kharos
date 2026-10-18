@@ -7,7 +7,7 @@ local STEEL, IRON, INK, HAZARD = b.STEEL, b.IRON, b.INK, b.HAZARD
 local TURN, round, pulse = b.TURN, b.round, b.pulse
 
 return b.look(2, 2, function(g, t: number)
-	local tint = b.accent(b.GOOD_COLORS.fuel)
+	local tint = b.accent(b.goodColor("fuel"))
 	b.slab(g, 0, 1, 32, 31, 3, STEEL)
 	b.pipe(g, 3, 26, 26)
 	for _, at in { { 10, 11 }, { 22, 19 } } do

@@ -7,7 +7,6 @@ local sandbox = require("lib/sandbox")
 
 local game = table.clone(skirmish)
 game.data = table.clone(skirmish.data)
-game.data.title = "games.sandbox"
 
 game.on = {
 	player_joined = function(ctx, event)

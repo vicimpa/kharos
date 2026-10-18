@@ -3,8 +3,6 @@
 
 return {
 	data = {
-		title = "research.radar",
-		info = "researchInfo.radar",
 		-- Место в списке тем (TOPICS).
 		order = 11,
 		-- Темы, без которых эту не начать.

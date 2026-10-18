@@ -7,8 +7,6 @@ local units = require("lib/units")
 local kind = {}
 
 kind.data = {
-	title = "units.lancer",
-	about = "Лазеру нужен кремний.",
 	speed = 4.5,
 	turn = 4.5,
 	radius = 0.45,

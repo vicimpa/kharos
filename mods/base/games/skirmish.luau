@@ -6,7 +6,6 @@
 local skirmish = {}
 
 skirmish.data = {
-	title = "games.skirmish",
 	-- STARTING_CREDITS: строителей заказывают в развёрнутом главном здании, на это кредиты и есть.
 	credits = 1500,
 	-- С чем появляется игрок, по порядку: MCV встаёт на само место, остальные — вокруг (STARTING_UNITS).

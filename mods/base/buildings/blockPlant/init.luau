@@ -7,10 +7,6 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "buildings.blockPlant",
-	about = "Заводы изделий: каждый собирает своё изделие из ресурсов (§3.7 design.md). Склад общий на сырьё и готовое.",
-	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "buildingInfo.blockPlant",
 	width = 2,
 	height = 2,
 	cost = 300,

@@ -7,7 +7,7 @@ local STEEL, INK = b.STEEL, b.INK
 local pulse, chase = b.pulse, b.chase
 
 return b.look(1, 1, function(g, t: number)
-	local tint = b.accent(b.GOOD_COLORS.parts)
+	local tint = b.accent(b.goodColor("parts"))
 	b.slab(g, 0, 1, 16, 15, 2, STEEL)
 	g:rect(2, 3, 12, 9, INK)
 	-- Ящички в два столбца, огоньки бегут сверху вниз.

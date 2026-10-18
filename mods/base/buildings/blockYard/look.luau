@@ -8,7 +8,7 @@ local IRON, RUST, INK, HAZARD = b.IRON, b.RUST, b.INK, b.HAZARD
 local TURN, round, pulse = b.TURN, b.round, b.pulse
 
 return b.look(2, 2, function(g, t: number)
-	local tint = b.accent(b.GOOD_COLORS.blocks)
+	local tint = b.accent(b.goodColor("blocks"))
 	b.slab(g, 0, 1, 32, 31, 3, IRON)
 	g:rect(2, 3, 28, 22, IRON[1])
 	-- Поддоны: деревянная решётка, на ней кладка блоков со швами.

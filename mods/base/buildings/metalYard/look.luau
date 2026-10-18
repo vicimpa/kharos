@@ -8,7 +8,7 @@ local IRON, INK, HAZARD = b.IRON, b.INK, b.HAZARD
 local TURN, round, pulse = b.TURN, b.round, b.pulse
 
 return b.look(3, 2, function(g, t: number)
-	local tint = b.accent(b.GOOD_COLORS.metal)
+	local tint = b.accent(b.goodColor("metal"))
 	b.slab(g, 0, 1, 48, 31, 3, IRON)
 	g:rect(2, 3, 44, 24, IRON[1])
 	for x = 3, 45, 8 do

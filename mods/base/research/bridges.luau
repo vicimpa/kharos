@@ -3,8 +3,6 @@
 
 return {
 	data = {
-		title = "research.bridges",
-		info = "researchInfo.bridges",
 		-- Место в списке тем (TOPICS).
 		order = 22,
 		-- Темы, без которых эту не начать.

@@ -3,8 +3,6 @@
 
 return {
 	data = {
-		title = "research.khariteOre",
-		info = "researchInfo.khariteOre",
 		-- Место в списке тем (TOPICS).
 		order = 17,
 		-- Темы, без которых эту не начать.

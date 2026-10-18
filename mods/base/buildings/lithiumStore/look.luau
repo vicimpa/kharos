@@ -7,7 +7,7 @@ local b = require("lib/buildings")
 local IRON = b.IRON
 
 return b.look(2, 1, function(g, t: number)
-	local tint = b.accent(b.GOOD_COLORS.lithium)
+	local tint = b.accent(b.goodColor("lithium"))
 	b.slab(g, 0, 1, 32, 15, 2, IRON)
 	g:rect(2, 3, 28, 9, IRON[0])
 	-- Стеллаж: три яруса брикетов.

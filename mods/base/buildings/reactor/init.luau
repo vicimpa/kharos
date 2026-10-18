@@ -8,10 +8,6 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "buildings.reactor",
-	about = "Реактор даёт шесть электростанций на 9 тайлах вместо 24 и жжёт стержень в минуту — около 90 кредитов сырья. Разрушенный с топливом взрывается: его ставят за стеной и в стороне.",
-	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "buildingInfo.reactor",
 	width = 3,
 	height = 3,
 	cost = 2500,

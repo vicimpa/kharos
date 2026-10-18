@@ -3,8 +3,6 @@
 
 return {
 	data = {
-		title = "research.shields",
-		info = "researchInfo.shields",
 		-- Место в списке тем (TOPICS).
 		order = 43,
 		-- Темы, без которых эту не начать.

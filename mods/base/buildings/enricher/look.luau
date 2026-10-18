@@ -8,7 +8,7 @@ local IRON, INK, HAZARD = b.IRON, b.INK, b.HAZARD
 local TURN, round, pulse = b.TURN, b.round, b.pulse
 
 return b.look(2, 2, function(g, t: number, working: boolean)
-	local tint = b.accent(b.GOOD_COLORS.kharite)
+	local tint = b.accent(b.goodColor("kharite"))
 	b.slab(g, 0, 2, 32, 30, 3, IRON)
 	for x = 2, 29, 4 do
 		g:rect(x, 4, 2, 2, HAZARD[1])

@@ -8,7 +8,7 @@ local IRON, INK, HAZARD = b.IRON, b.INK, b.HAZARD
 local pulse = b.pulse
 
 return b.look(2, 1, function(g, t: number)
-	local tint = b.accent(b.GOOD_COLORS.ammo)
+	local tint = b.accent(b.goodColor("ammo"))
 	b.slab(g, 0, 1, 32, 15, 2, IRON)
 	-- Обвалование: земляной вал вокруг крыши.
 	g:rect(2, 3, 28, 9, 0x4d4030)

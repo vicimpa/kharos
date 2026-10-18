@@ -8,10 +8,6 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "buildings.repairStation",
-	about = "Ремонтная станция чинит технику и здания вокруг себя — так же и за ту же цену, что строитель, и тоже не под огнём: это пункт обслуживания в тылу. Пехота рядом поправляется быстрее. Без энергии не работает.",
-	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "buildingInfo.repairStation",
 	width = 3,
 	height = 3,
 	cost = 500,

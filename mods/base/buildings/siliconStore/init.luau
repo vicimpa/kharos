@@ -7,9 +7,6 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "buildings.siliconStore",
-	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "buildingInfo.siliconStore",
 	width = 2,
 	height = 2,
 	cost = 150,

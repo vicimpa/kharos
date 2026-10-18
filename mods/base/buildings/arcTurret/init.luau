@@ -8,10 +8,6 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "buildings.arcTurret",
-	about = "Разрядная турель — против толпы: разряд бьёт цель и перескакивает на соседей, достаёт и до летающих, но недалеко. Как и лазерная, патронов не просит и стреляет энергией зоны, только берёт её больше.",
-	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "buildingInfo.arcTurret",
 	width = 1,
 	height = 1,
 	cost = 500,

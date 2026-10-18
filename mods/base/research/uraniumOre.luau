@@ -4,8 +4,6 @@
 return {
 	data = {
 		-- Ярус 3: уран, компоненты, машинный завод, аэродром и ремонт, второй уровень зданий.
-		title = "research.uraniumOre",
-		info = "researchInfo.uraniumOre",
 		-- Место в списке тем (TOPICS).
 		order = 28,
 		-- Темы, без которых эту не начать.

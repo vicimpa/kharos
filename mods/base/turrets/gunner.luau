@@ -7,7 +7,6 @@ local units = require("lib/units")
 local kind = {}
 
 kind.data = {
-	about = "Пассажир багги с миниганом: лёгкий, разворачивается быстро.",
 	turn = 8,
 	radius = 0.45,
 	weapon = "machinegun",

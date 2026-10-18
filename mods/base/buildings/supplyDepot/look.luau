@@ -9,7 +9,7 @@ local STEEL, IRON, INK, HAZARD = b.STEEL, b.IRON, b.INK, b.HAZARD
 local TURN, round, pulse, chase = b.TURN, b.round, b.pulse, b.chase
 
 return b.look(3, 2, function(g, t: number)
-	local tint = b.accent(b.GOOD_COLORS.ammo)
+	local tint = b.accent(b.goodColor("ammo"))
 	b.slab(g, 0, 1, 48, 31, 3, IRON)
 	-- Площадка погрузки справа: жёлто-чёрная рамка, внутри — бетон.
 	g:rect(24, 4, 21, 22, INK)

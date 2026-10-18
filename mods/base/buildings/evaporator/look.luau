@@ -9,7 +9,7 @@ local round, pulse = b.round, b.pulse
 local SALT = { [0] = 0x7a7068, 0xa89e94, 0xd0c8be, 0xe8e2da, 0xffffff }
 
 return b.look(3, 2, function(g, t: number, working: boolean)
-	local tint = b.accent(b.GOOD_COLORS.lithium)
+	local tint = b.accent(b.goodColor("lithium"))
 	b.slab(g, 0, 2, 48, 30, 3, SALT)
 	-- Пруды: обваловка, рассол и блики, которые в работе плывут.
 	for _, pond in { { 3, 5, 0 }, { 3, 16, 0.5 } } do
