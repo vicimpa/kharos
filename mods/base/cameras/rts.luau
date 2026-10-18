@@ -36,6 +36,12 @@ rts.data = {
 	flightArrived = 0.5,
 	-- Сколько пикселей от края видимой части карты двигают камеру, пока тянут рамку (EDGE).
 	edge = 6,
+	-- Тряска от взрывов (shake.ts): сдвиг при полной силе на зуме shakeZoom, в тайлах; сколько силы уходит за секунду;
+	-- как быстро камера дёргается (MAX_OFFSET, BASE_ZOOM, DECAY, FREQUENCY).
+	shakeOffset = 0.25,
+	shakeZoom = 32,
+	shakeDecay = 2.8,
+	shakeFrequency = 40,
 }
 
 -- Масштаб, к которому идёт камера (nil — не меняется), и точка экрана, которая стоит на месте.
@@ -51,6 +57,9 @@ local flight: { x: number, y: number }? = nil
 local flightVelocityX, flightVelocityY = 0, 0
 -- Где камера стояла после прошлого кадра: стоит в другом месте — её переставили со стороны.
 local placed: { x: number, y: number }? = nil
+-- Тряска: сдвиг, которым увели камеру в прошлом кадре (его снимают перед движением), и часы тряски.
+local shaken = { x = 0, y = 0 }
+local shakeTime = 0
 
 -- Гасит всё движение.
 local function halt()
@@ -74,6 +83,10 @@ end
 
 function rts.update(cam, c)
 	local input = c.input
+	-- Прошлый сдвиг тряски снимается: камера движется от своего места, а не от уведённого.
+	cam.x -= shaken.x
+	cam.y -= shaken.y
+	shaken.x, shaken.y = 0, 0
 	-- Под меню партии камера стоит.
 	if c.shared.paused then
 		drag = nil
@@ -196,6 +209,21 @@ function rts.update(cam, c)
 	cam.x = math.clamp(cam.x, -size, size)
 	cam.y = math.clamp(cam.y, -size, size)
 	placed = { x = cam.x, y = cam.y }
+	-- Тряска (shake.ts): сила копится от толчков (c.shared.trauma, audio/battle) и уходит; камеру уводит на квадрат
+	-- силы, плавно — по сумме синусов. На экране она растёт с зумом.
+	local trauma = math.max(0, (c.shared.trauma or 0) - dt * d.shakeDecay)
+	c.shared.trauma = trauma
+	shakeTime += dt
+	if trauma > 0 then
+		local function wave(seed: number): number
+			local f = shakeTime * d.shakeFrequency
+			return (math.sin(f + seed) + math.sin(f * 1.73 + seed * 2.1) * 0.6 + math.sin(f * 2.9 + seed * 3.7) * 0.3) / 1.9
+		end
+		local strength = trauma * trauma * d.shakeOffset * (cam.zoom / d.shakeZoom)
+		shaken.x, shaken.y = wave(0) * strength, wave(17) * strength
+		cam.x += shaken.x
+		cam.y += shaken.y
+	end
 end
 
 return rts

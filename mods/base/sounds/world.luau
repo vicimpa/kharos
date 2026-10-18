@@ -467,6 +467,187 @@ local function surrender(rate: number, variant: number)
 	end)
 end
 
+-- Огнемёт: хлопок поджига и рёв струи — шум, который вспыхивает и гаснет, со светлым шипением сверху (flame).
+local function flame(rate: number, variant: number)
+	local t = 0
+	local roar = lowpass(rate, function()
+		return 700 + 1500 * decay(t, 0.12)
+	end)
+	local hiss = highpass(rate, 3000)
+	local flutter = random(variant + 601)
+	local gust = 1
+	return render(rate, 0.55, variant, function(time, noise)
+		t = time
+		if math.floor(time * 60) ~= math.floor((time - 1 / rate) * 60) then
+			gust = 0.7 + flutter() * 0.3
+		end
+		local n = noise()
+		return (roar(n) * 2.4 * gust + hiss(n) * 0.25) * attack(time, 0.02) * decay(time, 0.18)
+	end)
+end
+
+-- Зенитка: сухой хлопок выстрела и тугой «тумп» снаряда, как удар по барабану (flak).
+local function flak(rate: number, variant: number)
+	local crack = highpass(rate, 2200)
+	local body = lowpass(rate, 500)
+	local phase = 0
+	return render(rate, 0.35, variant, function(t, noise)
+		local n = noise()
+		phase += 2 * PI * (90 + 140 * decay(t, 0.02)) / rate
+		return crack(n) * decay(t, 0.006) * 0.8 + body(n) * decay(t, 0.05) * 1.6 + sin(phase) * decay(t, 0.07) * 0.8
+	end)
+end
+
+-- Гаубица: удар ниже пушечного, раскат катится дольше и уходит эхом (artillery).
+local function artillery(rate: number, variant: number)
+	local crack = highpass(rate, 1200)
+	local rumble = lowpass(rate, 220)
+	local echo = lowpass(rate, 400)
+	local phase = 0
+	return render(rate, 1.9, variant, function(t, noise)
+		local n = noise()
+		phase += 2 * PI * (30 + 50 * decay(t, 0.15)) / rate
+		local tail = if t > 0.35 then echo(n) * decay(t - 0.35, 0.45) * 0.9 else echo(0)
+		return crack(n) * decay(t, 0.015) * 0.9 + sin(phase) * decay(t, 0.4) + rumble(n) * decay(t, 0.5) * 2.6 + tail
+	end)
+end
+
+-- Бомба: свист падения — тон сползает вниз и крепнет (bombFall).
+local function bombFall(rate: number, variant: number)
+	local phase = variant * 0.3
+	local air = bandpass(rate, 1400, 3)
+	return render(rate, 0.9, variant, function(t, noise)
+		phase += 2 * PI * (1500 - 700 * (t / 0.9)) / rate
+		local swell = attack(t, 0.5) * min(1, (0.9 - t) / 0.05)
+		return (sin(phase) * 0.5 + air(noise()) * 0.8) * swell
+	end)
+end
+
+-- Пуля попала: короткий щелчок о броню, иногда со звоном рикошета (ricochet).
+local function ricochet(rate: number, variant: number)
+	local next = random(variant + 701)
+	local whine = next() < 0.6
+	local start = 2800 + next() * 1600
+	local tick = highpass(rate, 2500)
+	local phase = 0
+	return render(rate, if whine then 0.3 else 0.06, variant, function(t, noise)
+		phase += 2 * PI * start * (1 - 0.35 * min(1, t / 0.3)) / rate
+		return tick(noise()) * decay(t, 0.004) * 1.2 + (if whine then sin(phase) * attack(t, 0.01) * decay(t, 0.08) * 0.35 else 0)
+	end)
+end
+
+-- Подбитая машина: скрежет и хруст смятого металла после взрыва, долгий звон обшивки (wreck).
+local function wreck(rate: number, variant: number)
+	local next = random(variant + 801)
+	local crunch = bandpass(rate, 900 + next() * 400, 2)
+	local ring = metal(180 + next() * 120, 0.6, variant + 811)
+	local rattle = highpass(rate, 1500)
+	return render(rate, 1.4, variant, function(t, noise)
+		local n = noise()
+		local grit = if t < 0.5 then crunch(n) * (0.5 + 0.5 * sin(2 * PI * 23 * t) ^ 2) * decay(t, 0.15) * 2 else crunch(0)
+		return grit + ring(t) * 0.5 + rattle(n) * (if next() < 0.003 then 1 else 0) * decay(t, 0.5) * 3
+	end)
+end
+
+-- Рушится здание: глухой обвал — рокот, удары падающих плит и сыплющийся щебень (collapse).
+local function collapse(rate: number, variant: number)
+	local next = random(variant + 901)
+	local rumble = lowpass(rate, 140)
+	local debris = bandpass(rate, 700, 1.5)
+	local grit = highpass(rate, 2500)
+	local falls = {}
+	for i = 1, 7 do
+		falls[i] = { at = 0.15 + next() * 1.6, level = 0.5 + next() * 0.5 }
+	end
+	local thuds = lowpass(rate, 300)
+	return render(rate, 2.6, variant, function(t, noise)
+		local n = noise()
+		local hits = 0
+		for _, fall in falls do
+			if t >= fall.at then
+				hits += decay(t - fall.at, 0.05) * fall.level
+			end
+		end
+		local sprinkle = if next() < 0.02 * decay(t, 0.9) then 1 else 0
+		return rumble(n) * attack(t, 0.05) * decay(t, 0.8) * 3 + thuds(n * hits) * 4 + debris(n) * decay(t, 0.6) * 0.6 + grit(sprinkle) * 0.8
+	end)
+end
+
+-- Лазер попал: шипение прожжённого металла — шум, который тает, с тонким звоном (sizzle).
+local function sizzle(rate: number, variant: number)
+	local hiss = highpass(rate, 3500)
+	local phase = variant
+	return render(rate, 0.35, variant, function(t, noise)
+		phase += 2 * PI * 2600 / rate
+		return hiss(noise()) * attack(t, 0.005) * decay(t, 0.1) * 1.2 + sin(phase) * decay(t, 0.05) * 0.2
+	end)
+end
+
+-- Огонь лизнул цель: потрескивание горящего — щелчки поверх тихого гула пламени (burn).
+local function burn(rate: number, variant: number)
+	local next = random(variant + 3101)
+	local roar = lowpass(rate, 500)
+	local pop = bandpass(rate, 1800, 2)
+	return render(rate, 0.5, variant, function(t, noise)
+		local n = noise()
+		local crack = if next() < 0.004 then 1 else 0
+		return roar(n) * decay(t, 0.2) * 1.4 + pop(crack) * 4 * decay(t, 0.3)
+	end)
+end
+
+-- Разряд ударил в цель: сухой щелчок и треск (zap).
+local function zap(rate: number, variant: number)
+	local snap = highpass(rate, 2000)
+	local body = bandpass(rate, 700, 2)
+	return render(rate, 0.18, variant, function(t, noise)
+		local n = noise()
+		return snap(n) * decay(t, 0.008) * 1.5 + body(n) * decay(t, 0.03) * (0.6 + 0.4 * sign(sin(2 * PI * 90 * t)))
+	end)
+end
+
+-- Покрытие легло: шлепок плиты и короткий скрежет мастерка (paved).
+local function paved(rate: number, variant: number)
+	local slap = lowpass(rate, 400)
+	local scrape = bandpass(rate, 2500, 2)
+	return render(rate, 0.45, variant, function(t, noise)
+		local n = noise()
+		return slap(n) * decay(t, 0.04) * 3 + scrape(n) * (if t > 0.08 then attack(t - 0.08, 0.05) * decay(t - 0.08, 0.1) else 0) * 0.8
+	end)
+end
+
+-- Месторождение выработано: бур захлёбывается и встаёт, два нисходящих тона (depleted).
+local function depleted(rate: number, variant: number)
+	local grit = lowpass(rate, 900)
+	local phase = 0
+	return render(rate, 1.4, variant, function(t, noise)
+		phase += 2 * PI * 95 * decay(t, 0.5) / rate
+		local drill = (((phase / (2 * PI)) % 1 * 2 - 1) * 0.4 + grit(noise())) * decay(t, 0.35)
+		local tones = (if t > 0.5 then sin(2 * PI * 330 * t) * decay(t - 0.5, 0.15) else 0) + (if t > 0.75 then sin(2 * PI * 247 * t) * decay(t - 0.75, 0.25) else 0)
+		return drill + tones * 0.5
+	end)
+end
+
+-- Рубильник: щелчок и гул, который разгоняется (включили) или стихает (выключили) (power).
+local function power(rate: number, variant: number, on: boolean)
+	local click = bandpass(rate, 1500, 3)
+	local phase = 0
+	return render(rate, 0.8, variant, function(t, noise)
+		local sweep = if on then min(1, t / 0.5) else 1 - min(1, t / 0.6)
+		phase += 2 * PI * (40 + 80 * sweep) / rate
+		local hum = (sin(phase) + sin(phase * 2) * 0.4) * (if on then attack(t, 0.1) * min(1, (0.8 - t) / 0.3) else decay(t, 0.3))
+		return click(noise()) * decay(t, 0.006) * 4 + hum * 0.6
+	end)
+end
+
+-- Грузовик загрузился или опустел: глухой удар и звон кузова (cargo).
+local function cargo(rate: number, variant: number)
+	local thud = lowpass(rate, 220)
+	local ring = metal(260 + variant * 20, 0.12, variant + 3301)
+	return render(rate, 0.4, variant, function(t, noise)
+		return thud(noise()) * decay(t, 0.03) * 3 + ring(t) * 0.35
+	end)
+end
+
 local function sound(bus: string, make)
 	return { bus = bus, variants = 3, render = make }
 end
@@ -500,6 +681,25 @@ return {
 		shieldUp = sound("world", shieldUp),
 		-- Петли.
 		reactor = loopSound(reactor),
+		flame = sound("battle", flame),
+		flak = sound("battle", flak),
+		artillery = sound("battle", artillery),
+		bombFall = sound("battle", bombFall),
+		ricochet = sound("battle", ricochet),
+		wreck = sound("battle", wreck),
+		collapse = sound("battle", collapse),
+		sizzle = sound("battle", sizzle),
+		burn = sound("battle", burn),
+		zap = sound("battle", zap),
+		paved = sound("world", paved),
+		depleted = sound("world", depleted),
+		powerOn = sound("world", function(rate, variant)
+			return power(rate, variant, true)
+		end),
+		powerOff = sound("world", function(rate, variant)
+			return power(rate, variant, false)
+		end),
+		cargo = sound("world", cargo),
 		overload = loopSound(overload),
 		construct = loopSound(construct),
 		weld = loopSound(weld),

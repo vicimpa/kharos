@@ -3,13 +3,14 @@
 -- створки шахты встали; своему игроку открыта тема или выдана награда — по одному звуку, сколько бы их ни пришло
 -- разом; отсчёт перед ядерным ударом — раз в секунду последние countdown секунд по точке удара,
 -- которую игрок видит; база гибнет волной после сдачи — сирена (своя — громче и везде); игрок проиграл — аккорд; груз
--- упал на землю — удар ящиков, подобрали — тише.
+-- упал на землю — удар ящиков, подобрали — тише; покрытие легло — шлепок, сняли — тише; месторождение выработано;
+-- здание включили или выключили; свой грузовик загрузился доверху или опустел; разобранное здание рухнуло.
 -- Остальное, что слышно по событиям хоста, приходит сигналами механик (ворота, радар, достроено). Скачок часов мира —
 -- новый мир или загрузка: тогда сверять не с чем.
 
 -- Громкость вблизи и как часто один звук может повторяться (VOLUMES, MIN_GAP).
-local VOLUMES = { shieldHit = 0.35, shieldDown = 0.6, shieldUp = 0.35, doorsLocked = 0.7, surrender = 0.6, crates = 0.35 }
-local MIN_GAP = { shieldHit = 0.08, countdown = 0.5, surrender = 5, researched = 1, crates = 0.15 }
+local VOLUMES = { shieldHit = 0.35, shieldDown = 0.6, shieldUp = 0.35, doorsLocked = 0.7, surrender = 0.6, crates = 0.35, paved = 0.25, depleted = 0.4, powerOn = 0.35, powerOff = 0.35, cargo = 0.3, collapse = 0.45 }
+local MIN_GAP = { shieldHit = 0.08, countdown = 0.5, surrender = 5, researched = 1, crates = 0.15, paved = 0.2, powerOn = 0.15, powerOff = 0.15, cargo = 0.2 }
 -- Подобранный груз тише: это не событие, а уборка (QUIET).
 local QUIET = 0.5
 -- Громкость уведомлений и как далеко слышно чужую сдачу (NOTICE_VOLUME, HEARING × 3).
@@ -27,6 +28,12 @@ local JUMP = 100
 local shields: { [number]: { hit: number, up: boolean } } = {}
 local doors: { [number]: boolean } = {}
 local crates: { [number]: { x: number, y: number } } = {}
+local laying: { [number]: { x: number, y: number } } = {}
+local removing: { [number]: { x: number, y: number } } = {}
+local spent: { [number]: boolean } = {}
+local switched: { [number]: boolean } = {}
+local loads: { [number]: boolean } = {}
+local demolishing: { [number]: { x: number, y: number } } = {}
 local countdown = math.huge
 local doomed = 0
 local lost = false
@@ -101,6 +108,78 @@ return {
 			end
 		end
 		crates = lying
+		-- Покрытие: легло — шлепок; сняли — тише. Работу, которую отменили, не слышно.
+		local nextLaying, nextRemoving = {}, {}
+		for _, e in c:each({ "Pave", "Position" }) do
+			local at = c:get(e, "Position")
+			local list = if c:get(e, "Pave").remove then nextRemoving else nextLaying
+			list[e] = { x = at.x, y = at.y }
+		end
+		if not fresh then
+			local function paved(at): boolean
+				return c:layer("paving", math.floor(at.x), math.floor(at.y), 0) ~= 0
+			end
+			for e, at in laying do
+				if not nextLaying[e] and paved(at) then
+					play("paved", at.x, at.y)
+				end
+			end
+			for e, at in removing do
+				if not nextRemoving[e] and not paved(at) then
+					play("paved", at.x, at.y, VOLUMES.paved * QUIET)
+				end
+			end
+		end
+		laying, removing = nextLaying, nextRemoving
+		-- Месторождение выработано.
+		local nextSpent = {}
+		for _, e in c:each({ "Deposit", "Position" }) do
+			local deposit = c:get(e, "Deposit")
+			nextSpent[e] = deposit.spent == true
+			if not fresh and deposit.spent and spent[e] == false then
+				local at = c:get(e, "Position")
+				play("depleted", at.x, at.y)
+			end
+		end
+		spent = nextSpent
+		-- Рубильник: здание выключили или включили.
+		local nextSwitched = {}
+		for _, e in c:each({ "Building", "Position" }) do
+			local off = c:has(e, "Off")
+			nextSwitched[e] = off
+			if not fresh and switched[e] ~= nil and switched[e] ~= off then
+				local at = c:get(e, "Position")
+				play(if off then "powerOff" else "powerOn", at.x, at.y)
+			end
+		end
+		switched = nextSwitched
+		-- Грузовик загрузился доверху или опустел.
+		local nextLoads = {}
+		for _, e in c:each({ "Hauler", "Position" }) do
+			local full = c:get(e, "Hauler").full
+			nextLoads[e] = full
+			if not fresh and loads[e] ~= nil and loads[e] ~= full then
+				local at = c:get(e, "Position")
+				play("cargo", at.x, at.y)
+			end
+		end
+		loads = nextLoads
+		-- Разобрали: площадка разбора ушла вместе со зданием — обвал.
+		local nextDemolishing = {}
+		for _, e in c:each({ "Site", "Position" }) do
+			if c:get(e, "Site").demolish then
+				local at = c:get(e, "Position")
+				nextDemolishing[e] = { x = at.x, y = at.y }
+			end
+		end
+		if not fresh then
+			for e, at in demolishing do
+				if not c:alive(e) then
+					play("collapse", at.x, at.y)
+				end
+			end
+		end
+		demolishing = nextDemolishing
 		-- Отсчёт: ближайший удар, точку которого игрок видит.
 		local left = math.huge
 		for _, e in c:each({ "Mark" }) do
