@@ -2,6 +2,7 @@
 //! столбцы буферами, меняют мир командами, говорят друг с другом событиями, а клиентам шлют сигналы.
 
 pub mod host;
+pub mod motion;
 pub mod schema;
 pub mod tools;
 pub mod vision;

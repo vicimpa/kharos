@@ -402,12 +402,17 @@ pub struct Style {
 /// Картинка в интерфейсе: кадр атласа обликов (сторона team) или кусок скина (монета).
 #[derive(Clone, Copy, Debug)]
 pub enum Image {
-  Sprite { uv: [f32; 4], team: usize },
+  Sprite {
+    uv: [f32; 4],
+    team: usize,
+  },
   Coin,
   Minimap,
   Preview,
   /// Картинка из файла мода — гладкая, с прозрачностью.
-  Picture { uv: [f32; 4] },
+  Picture {
+    uv: [f32; 4],
+  },
 }
 
 #[derive(Clone, Debug)]
@@ -903,17 +908,17 @@ impl Gui {
       if node.style.anchor.is_some() {
         self.top.push(node);
       } else {
-      let [px, py] = self.pointer.unwrap_or([0.0, 0.0]);
-      let mut x = px + 14.0;
-      if x + node.want.0 > width - 8.0 {
-        x = px - 14.0 - node.want.0;
-      }
-      let mut y = py - node.want.1 - 12.0;
-      if y < 8.0 {
-        y = py + 20.0;
-      }
-      node.style.anchor = Some(Anchor { left: Some(x.clamp(8.0, (width - 8.0 - node.want.0).max(8.0))), top: Some(y.clamp(8.0, (height - 8.0 - node.want.1).max(8.0))), ..Default::default() });
-      self.top.push(node);
+        let [px, py] = self.pointer.unwrap_or([0.0, 0.0]);
+        let mut x = px + 14.0;
+        if x + node.want.0 > width - 8.0 {
+          x = px - 14.0 - node.want.0;
+        }
+        let mut y = py - node.want.1 - 12.0;
+        if y < 8.0 {
+          y = py + 20.0;
+        }
+        node.style.anchor = Some(Anchor { left: Some(x.clamp(8.0, (width - 8.0 - node.want.0).max(8.0))), top: Some(y.clamp(8.0, (height - 8.0 - node.want.1).max(8.0))), ..Default::default() });
+        self.top.push(node);
       }
     }
     let (width, height) = (self.width, self.height);

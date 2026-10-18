@@ -75,23 +75,35 @@ pub struct Schema {
   by_name: HashMap<String, ComponentId>,
 }
 
-/// Компоненты движка: место, направление, владелец, вид, глаз (обзор, vision.rs) и место на носителе (tools.rs:
-/// носитель, вперёд и вправо от его центра в тайлах, свой поворот).
-pub const BUILTIN: &[(&str, &[(&str, f64)])] = &[
-  ("Position", &[("x", 0.0), ("y", 0.0)]),
-  ("Facing", &[("angle", 0.0)]),
-  ("Owner", &[("player", 0.0)]),
-  ("Proto", &[("id", 0.0)]),
-  ("Sight", &[("radius", 0.0)]),
-  ("Attached", &[("parent", 0.0), ("along", 0.0), ("across", 0.0), ("angle", 0.0)]),
-];
+/// Компоненты движка и их поля со значениями по умолчанию: место, направление, владелец, вид, глаз (обзор,
+/// vision.rs), место на носителе (tools.rs), ход и путь (motion), основание здания (занятость, motion) и игрок с
+/// союзниками (кто кому уступает дорогу).
+pub fn builtin() -> Vec<(&'static str, Vec<(&'static str, Value)>)> {
+  use serde_json::json;
+  vec![
+    ("Position", vec![("x", json!(0)), ("y", json!(0))]),
+    ("Facing", vec![("angle", json!(0))]),
+    ("Owner", vec![("player", json!(0))]),
+    ("Proto", vec![("id", json!(0))]),
+    ("Sight", vec![("radius", json!(0))]),
+    ("Attached", vec![("parent", json!(0)), ("along", json!(0)), ("across", json!(0)), ("angle", json!(0))]),
+    // Ход: скорость в тайлах в секунду, поворот в радианах в секунду, радиус тела, род (vehicle, heavy, infantry,
+    // air) — по нему замедление на местности; rooted — стоит на месте (разворачивается).
+    ("Mover", vec![("speed", json!(0)), ("turn", json!(0)), ("radius", json!(0)), ("class", json!("vehicle")), ("rooted", json!(false))]),
+    // Путь: точки центров тайлов подряд, цель, сколько ждёт и пробовал, на сколько подойти, едет ли напрямую.
+    ("Path", vec![("points", json!([])), ("goalX", json!(0)), ("goalY", json!(0)), ("wait", json!(0)), ("tries", json!(0)), ("near", json!(0)), ("roads", json!(false)), ("direct", json!(false)), ("stuck", json!(false)), ("best", json!(-1)), ("slot", json!(false))]),
+    // Основание здания: тайлы вокруг центра (Position), занятые для хода; passable — проезд открыт (ворота).
+    ("Footprint", vec![("width", json!(1)), ("height", json!(1)), ("passable", json!(false))]),
+    ("Player", vec![("id", json!(0)), ("allies", json!([]))]),
+  ]
+}
 
 impl Schema {
   pub fn new() -> Self {
     let mut schema = Self::default();
-    for (name, fields) in BUILTIN {
-      for (field, default) in *fields {
-        schema.declare(name, field, Value::from(*default)).expect("поля движка");
+    for (name, fields) in builtin() {
+      for (field, default) in fields {
+        schema.declare(name, field, default).expect("поля движка");
       }
     }
     schema

@@ -15,6 +15,8 @@ skirmish.data = {
 	size = 128,
 	-- Местность — вид из lands/.
 	land = "desert",
+	-- Правила мира: замедление на местности по родам юнитов.
+	rules = require("lib/rules"),
 }
 
 -- Место игрока: первый — в центре, остальные — по кругу.
@@ -30,14 +32,26 @@ skirmish.on = {
 	player_joined = function(ctx, event)
 		local player = event.player
 		local x, y = home(player)
-		ctx:spawn("buildings/factory", { Position = { x = x, y = y }, Owner = { player = player } })
-		local count = 0
+		-- Здание — по тайлам: середина завода 3 × 3 — в середине тайла.
+		local tx, ty = math.floor(x), math.floor(y)
+		ctx:spawn("buildings/factory", { Position = { x = tx + 0.5, y = ty + 0.5 }, Owner = { player = player } })
+		-- Машины — когда завод уже стоит: их места ищутся вокруг него.
+		ctx:emit("base_built", { player = player, x = tx, y = ty })
+	end,
+	-- Стартовые машины — на свободных тайлах вокруг завода (spawnStartingUnits).
+	base_built = function(ctx, event)
+		local list = {}
 		for name, amount in skirmish.data.start do
 			for _ = 1, amount do
-				count += 1
-				local ux, uy = x - 2 + count * 1.4, y + 4
-				ctx:spawn("units/" .. name, { Position = { x = ux, y = uy }, Facing = { angle = math.pi / 2 }, Owner = { player = player } })
+				table.insert(list, name)
 			end
+		end
+		local tiles = ctx:free_tiles(event.x, event.y, #list)
+		for i, name in list do
+			if i * 2 > #tiles then
+				break
+			end
+			ctx:spawn("units/" .. name, { Position = { x = tiles[i * 2 - 1] + 0.5, y = tiles[i * 2] + 0.5 }, Owner = { player = event.player } })
 		end
 	end,
 }

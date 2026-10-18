@@ -44,7 +44,7 @@ struct System {
 /// Чем система считает: своей функцией Luau над столбцами или системой движка (`engine = "follow"`, tools.rs).
 enum Run {
   Luau(Function),
-  Engine(fn(&mut World)),
+  Engine(fn(&mut State)),
 }
 
 /// Отложенная команда системы или обработчика.
@@ -71,6 +71,17 @@ pub struct State {
   pub vision: Option<crate::vision::Vision>,
   /// Местность партии (data.land — вид из lands/): тот же генератор, что рисует клиент.
   pub land: Option<kharos_engine::terrain::Land>,
+  /// Ход: поиски пути, занятость, правила местности партии (data.rules).
+  pub motion: crate::motion::Motion,
+  pub rules: crate::motion::Rules,
+}
+
+impl State {
+  /// Мир и всё, что нужно ходу (motion).
+  pub fn scene(&mut self) -> crate::motion::Scene<'_> {
+    let bounds = self.vision.as_ref().map(|vision| vision.bounds);
+    crate::motion::Scene { world: &mut self.world, land: self.land.as_mut(), motion: &mut self.motion, bounds, rules: &self.rules }
+  }
 }
 
 /// Клетки 4 × 4 тайла: сущности с Position.
@@ -148,7 +159,7 @@ impl Host {
     }
     content.apply_options(game, options)?;
     let schema = Rc::new(schema_of(&content)?);
-    let state = Rc::new(RefCell::new(State { world: World::new(schema.clone()), ops: Vec::new(), events: Vec::new(), signals: Vec::new(), tick: 0, dt: 0.05, rng: seed.max(1), grid: None, vision: None, land: None }));
+    let state = Rc::new(RefCell::new(State { world: World::new(schema.clone()), ops: Vec::new(), events: Vec::new(), signals: Vec::new(), tick: 0, dt: 0.05, rng: seed.max(1), grid: None, vision: None, land: None, motion: Default::default(), rules: Default::default() }));
     let lua = &content.lua;
     let storage = lua.create_table().map_err(lua_error("storage"))?;
     let game_table = content.get("games", game).expect("партия");
@@ -182,6 +193,12 @@ impl Host {
       }
     }
     let systems = order_systems(systems)?;
+    // Правила хода партии: замедление по родам и местности (data.rules).
+    if let Some(rules) = content.get("games", game).and_then(|table| table.get::<Option<Table>>("data").ok().flatten()).and_then(|data| data.get::<Option<Table>>("rules").ok().flatten()) {
+      if let Json::Object(map) = content.lua.from_value::<Json>(Value::Table(rules)).map_err(lua_error("data.rules"))? {
+        state.borrow_mut().rules = crate::motion::Rules(map);
+      }
+    }
     // Обзор — по карте партии: data.size тайлов от центра, data.fog — есть ли туман (по умолчанию есть).
     let data: Option<Table> = content.get("games", game).and_then(|table| table.get::<Option<Table>>("data").ok().flatten());
     if let Some(size) = data.as_ref().and_then(|data| data.get::<Option<i32>>("size").ok().flatten()) {
@@ -269,7 +286,7 @@ impl Host {
     if let Run::Engine(tool) = system.run {
       {
         let mut state = self.state.borrow_mut();
-        tool(&mut state.world);
+        tool(&mut state);
         state.grid = None;
       }
       let ran = clock();
@@ -374,6 +391,7 @@ impl Host {
       "next": world.next_id(),
       "entities": entities,
       "vision": vision,
+      "motion": state.motion.save(),
       "storage": saved(&Value::Table(self.storage.clone()))?,
     }))
   }
@@ -414,6 +432,9 @@ impl Host {
       }
       world.set_next(get("next")?.as_u64().unwrap_or(1) as Entity);
       state.world = world;
+      if let Some(saved) = snapshot.get("motion") {
+        state.motion.load(saved);
+      }
       if let (Some(vision), Some(Json::Object(saved))) = (state.vision.as_mut(), snapshot.get("vision")) {
         for (player, cells) in saved {
           let (Ok(player), Some(cells)) = (player.parse::<u32>(), cells.as_array()) else { continue };
@@ -995,6 +1016,37 @@ impl UserData for Ctx {
       let foot = tile[0] != kharos_engine::terrain::MOUNTAIN && tile[3] & kharos_engine::terrain::FOOT_BIT != 0;
       Ok((Some(tile[0] & 3), Some(tile[1] >> 6), Some(foot)))
     });
+    // Ход (motion). Приказ группе идти в тайл: каждому свой тайл рядом, наземные едут напрямую и ищут путь, только
+    // упёршись (orderGroupMove).
+    methods.add_method("move_group", |_, this, (units, x, y): (Vec<f64>, f64, f64)| {
+      let units = units.into_iter().map(entity_of).collect::<mlua::Result<Vec<_>>>()?;
+      this.state.borrow_mut().scene().order_group_move(&units, x.floor() as i32, y.floor() as i32);
+      Ok(())
+    });
+    // Путь одному в тайл, с поиском (orderMove); near — подойти на столько тайлов. → "set", "removed" или "kept".
+    methods.add_method("move", |_, this, (entity, x, y, near): (f64, f64, f64, Option<f64>)| {
+      let entity = entity_of(entity)?;
+      let moved = this.state.borrow_mut().scene().order_move(entity, x.floor() as i32, y.floor() as i32, None, 0.0, near.unwrap_or(0.0), None);
+      Ok(match moved {
+        crate::motion::Moved::Set => "set",
+        crate::motion::Moved::Removed => "removed",
+        crate::motion::Moved::Kept => "kept",
+      })
+    });
+    // Встать: путь снимается.
+    methods.add_method("stop", |_, this, entity: f64| {
+      let entity = entity_of(entity)?;
+      this.state.borrow_mut().scene().stop(entity);
+      Ok(())
+    });
+    // Свободные тайлы вокруг тайла (freeTilesNear): count мест через тайл, от кольца from; x и y подряд.
+    methods.add_method("free_tiles", |_, this, (x, y, count, from, air): (f64, f64, usize, Option<i32>, Option<bool>)| Ok(this.state.borrow_mut().scene().free_tiles(x.floor() as i32, y.floor() as i32, count, from.unwrap_or(0), air.unwrap_or(false))));
+    // Можно ли юниту рода class (vehicle, heavy, infantry, air) встать в тайл.
+    methods.add_method("can_stand", |_, this, (class, x, y): (String, f64, f64)| Ok(this.state.borrow_mut().scene().can_stand(&class, x.floor() as i32, y.floor() as i32)));
+    // Доля полной скорости рода class на тайле.
+    methods.add_method("terrain_speed", |_, this, (class, x, y): (String, f64, f64)| Ok(this.state.borrow_mut().scene().terrain_speed(&class, x.floor() as i32, y.floor() as i32)));
+    // Здание на тайле (Footprint) или nil.
+    methods.add_method("occupant", |_, this, (x, y): (f64, f64)| Ok(this.state.borrow_mut().scene().occupant(x.floor() as i32, y.floor() as i32)));
     // Сид местности партии.
     methods.add_method("seed", |_, this, ()| Ok(this.state.borrow().land.as_ref().map(|land| land.config.seed)));
     // Случайное 0..1 от координат и сида — тот же hash, что у генератора местности TS.

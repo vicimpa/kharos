@@ -36,7 +36,7 @@ mounts.on = {
 }
 
 mounts.systems = {
-	follow = { engine = "follow", after = { "drive", "separate" } },
+	follow = { engine = "follow", after = { "move" } },
 }
 
 return mounts

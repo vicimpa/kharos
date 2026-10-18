@@ -1,12 +1,19 @@
 //! Системы движка, которые вид ставит в тик по имени: `follow = { engine = "follow", after = { "drive" } }`. Порядок
 //! решает контент, а работу делает Rust — то, что горячее и общее для разных механик (docs/content.md, §3).
 
+use crate::host::State;
 use crate::world::{Entity, World};
 
 /// Системы движка по именам.
-pub fn find(name: &str) -> Option<fn(&mut World)> {
+pub fn find(name: &str) -> Option<fn(&mut State)> {
   match name {
-    "follow" => Some(follow),
+    "follow" => Some(|state| follow(&mut state.world)),
+    // Ход (motion): пути упёршимся и движение по путям — в том месте тика, где их поставил вид.
+    "plan_paths" => Some(|state| state.scene().plan_paths()),
+    "move_units" => Some(|state| {
+      let step = state.dt;
+      state.scene().move_units(step)
+    }),
     _ => None,
   }
 }

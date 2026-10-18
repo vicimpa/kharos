@@ -1,5 +1,5 @@
-//! Замер хоста: мод base и мод-замер, в котором N багги ездят по полю (новая цель доехавшему). Сравнить с голым
-//! замером crates/content-bench: там та же ходовая без движка вокруг.
+//! Замер хоста: мод base и мод-замер, в котором N багги ездят по полю напрямую, объезжая друг друга (ход движка,
+//! motion), — доехавшему раз в секунду новая цель. Местности нет: замер — ход и толпа, а не поиск пути.
 //!
 //!   cargo run -p kharos-world --release --example bench [юнитов]
 
@@ -14,28 +14,30 @@ const BENCH: &[(&str, &str)] = &[
   (
     "games/bench.luau",
     r#"
-local bench = { data = { units = 10000, size = 250 } }
+local bench = { data = { units = 10000, size = 250, rules = require("@base/lib/rules") } }
+-- Путь напрямую в тайл — как у приказа группе (aimAtTiles).
+local function aim(x, y)
+  local tx, ty = math.floor(x), math.floor(y)
+  return { points = { tx + 0.5, ty + 0.5 }, goalX = tx, goalY = ty, direct = true }
+end
 function bench.start(ctx)
   local n, size = bench.data.units, bench.data.size
   for i = 1, n do
     local x, y = (i * 7919) % (size * 2) - size, (i * 104729) % (size * 2) - size
-    ctx:spawn("units/buggy", { Position = { x = x, y = y }, Owner = { player = 1 }, Drive = { tx = -x, ty = -y, moving = true } })
+    ctx:spawn("units/buggy", { Position = { x = x + 0.5, y = y + 0.5 }, Owner = { player = 1 }, Path = aim(-x, -y) })
   end
 end
 bench.systems = {
   retarget = {
-    query = { "Drive" },
-    write = { "Drive" },
-    after = "drive",
+    query = { "Mover" },
+    every = 20,
+    after = "move",
     run = function(q, ctx)
-      local d = q.Drive
       local size = bench.data.size
       for i = 0, q.n - 1 do
-        local at = i * 8
-        if buffer.readf64(d.moving, at) == 0 then
-          buffer.writef64(d.tx, at, ctx:random() * size * 2 - size)
-          buffer.writef64(d.ty, at, ctx:random() * size * 2 - size)
-          buffer.writef64(d.moving, at, 1)
+        local entity = buffer.readf64(q.entity, i * 8)
+        if not ctx:has(entity, "Path") then
+          ctx:add(entity, "Path", aim(ctx:random() * size * 2 - size, ctx:random() * size * 2 - size))
         end
       end
     end,

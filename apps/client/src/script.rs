@@ -201,13 +201,13 @@ impl ClientState {
     }
   }
 
-  /// Сущность под точкой мира: юниты по радиусу, здания по прямоугольнику; ближайшая к точке.
+  /// Сущность под точкой мира: юниты по радиусу корпуса (Mover), здания по основанию (Footprint); ближайшая к точке.
   pub fn pick(&self, x: f64, y: f64) -> Option<Entity> {
     let state = self.world.borrow();
     let world = &state.world;
     let position = world.schema.id("Position")?;
-    let unit = world.schema.id("Unit");
-    let building = world.schema.id("Building");
+    let unit = world.schema.id("Mover");
+    let building = world.schema.id("Footprint");
     let mut best: Option<(f64, Entity)> = None;
     let owner = world.schema.id("Owner");
     for &entity in &world.stores[position].entities {

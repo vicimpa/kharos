@@ -27,9 +27,9 @@ local last = { time = -1, entity = 0 }
 -- Где сущность: середина и размер в тайлах; у юнита — описанный квадрат кольца.
 local function bounds(c, e: number): (number, number, number, number, boolean)
 	local at = c:get(e, "Position")
-	local unit = c:get(e, "Unit")
-	if unit then
-		local size = (unit.radius + RING_MARGIN) * 2
+	local mover = c:get(e, "Mover")
+	if mover then
+		local size = (mover.radius + RING_MARGIN) * 2
 		return at.x, at.y, size, size, true
 	end
 	local building = c:get(e, "Building")
@@ -72,17 +72,35 @@ end
 local function marks(c, selection)
 	local pixel = 1 / c.camera.zoom
 	for _, e in selection do
-		local drive = c:get(e, "Drive")
+		-- Путь — под кольцом: точки отсчитываются от конца пути, поэтому стоят на земле, а не ползут с юнитом.
+		local path = c:get(e, "Path")
 		local at = c:get(e, "Position")
-		if drive and drive.moving and at then
-			dashes(c, at.x, at.y, drive.tx, drive.ty, PATH_ALPHA)
-			local half = PATH_GOAL / 2
-			c.draw:rect(drive.tx - half, drive.ty - half, drive.tx + half, drive.ty + half, SELECTED, 2)
+		if path and at and #path.points >= 2 then
+			local points = { at.x, at.y }
+			for _, value in path.points do
+				table.insert(points, value)
+			end
+			local dot, step = PATH_DOT * pixel, PATH_GAP * pixel
+			local carry = 0
+			for i = #points - 1, 3, -2 do
+				local dx, dy = points[i - 2] - points[i], points[i - 1] - points[i + 1]
+				local length = math.sqrt(dx * dx + dy * dy)
+				local along = carry
+				while along < length do
+					local x, y = points[i] + dx / length * along, points[i + 1] + dy / length * along
+					c.draw:rect(x - dot / 2, y - dot / 2, x + dot / 2, y + dot / 2, SELECTED, nil, PATH_ALPHA)
+					along += step
+				end
+				carry = along - length
+			end
+			local gx, gy, half = points[#points - 1], points[#points], PATH_GOAL / 2
+			c.draw:rect(gx - half, gy - half, gx + half, gy + half, SELECTED, 2)
 		end
 		local producer = c:get(e, "Producer")
 		if producer and producer.rally and at then
-			dashes(c, at.x, at.y, producer.rallyX, producer.rallyY, PATH_ALPHA)
-			local x, y = producer.rallyX, producer.rallyY
+			-- Точка сбора — тайл: флажок в его середине.
+			local x, y = producer.rallyX + 0.5, producer.rallyY + 0.5
+			dashes(c, at.x, at.y, x, y, PATH_ALPHA)
 			c.draw:rect(x - pixel, y - 0.9, x + pixel, y, SELECTED)
 			c.draw:rect(x + pixel, y - 0.9, x + pixel + 0.45, y - 0.6, SELECTED)
 		end

@@ -11,10 +11,12 @@ orders.data = {
 
 local held: { time: number, x: number, y: number }? = nil
 
-local function order(c, x: number, y: number)
+-- Приказ — в тайл под указателем, как у TS: хост принимает тайлы.
+local function order(c, wx: number, wy: number)
+	local x, y = math.floor(wx), math.floor(wy)
 	local units, building = {}, nil
 	for _, e in c.shared.selection or {} do
-		if c:has(e, "Drive") then
+		if c:has(e, "Mover") then
 			table.insert(units, e)
 		elseif c:has(e, "Producer") then
 			building = e

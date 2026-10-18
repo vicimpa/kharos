@@ -343,7 +343,7 @@ local function minimapView(c, side: number)
 			local x, y = tile(u, v)
 			local units = {}
 			for _, e in c.shared.selection or {} do
-				if c:has(e, "Drive") then
+				if c:has(e, "Mover") then
 					table.insert(units, e)
 				end
 			end

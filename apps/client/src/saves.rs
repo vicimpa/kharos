@@ -7,13 +7,7 @@ use std::path::PathBuf;
 
 /// Папка настроек и сохранений: `KHAROS_CONFIG`, иначе `~/.config/kharos` (Windows — `%APPDATA%\Kharos`).
 pub fn config_dir() -> Option<PathBuf> {
-  std::env::var_os("KHAROS_CONFIG").map(PathBuf::from).or_else(|| {
-    if cfg!(windows) {
-      std::env::var_os("APPDATA").map(|dir| PathBuf::from(dir).join("Kharos"))
-    } else {
-      std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config").join("kharos"))
-    }
-  })
+  std::env::var_os("KHAROS_CONFIG").map(PathBuf::from).or_else(|| if cfg!(windows) { std::env::var_os("APPDATA").map(|dir| PathBuf::from(dir).join("Kharos")) } else { std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config").join("kharos")) })
 }
 
 /// Миллисекунды эпохи.

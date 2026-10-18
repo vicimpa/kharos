@@ -33,8 +33,9 @@ buggy.entity = function(kind)
 		Position = {},
 		Facing = {},
 		Owner = {},
-		Drive = { move = "wheels", speed = d.speed, turn = d.turn },
-		Unit = { radius = d.radius },
+		-- Ход — движком (motion): скорость, поворот, радиус корпуса, род (по нему замедление на местности).
+		Mover = { speed = d.speed, turn = d.turn, radius = d.radius, class = d.kind },
+		Unit = {},
 		Sight = { radius = d.sight },
 	}
 end
