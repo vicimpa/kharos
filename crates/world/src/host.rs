@@ -38,7 +38,13 @@ struct System {
   spent: [f64; 4],
   after: Vec<String>,
   before: Vec<String>,
-  run: Function,
+  run: Run,
+}
+
+/// Чем система считает: своей функцией Luau над столбцами или системой движка (`engine = "follow"`, tools.rs).
+enum Run {
+  Luau(Function),
+  Engine(fn(&mut World)),
 }
 
 /// Отложенная команда системы или обработчика.
@@ -260,6 +266,19 @@ impl Host {
   fn run_system(&mut self, index: usize) -> Result<(), Error> {
     let started = clock();
     let system = &self.systems[index];
+    if let Run::Engine(tool) = system.run {
+      {
+        let mut state = self.state.borrow_mut();
+        tool(&mut state.world);
+        state.grid = None;
+      }
+      let ran = clock();
+      let name = system.name.clone();
+      self.settle(&name)?;
+      self.systems[index].spent[1] += ran - started;
+      return Ok(());
+    }
+    let Run::Luau(run) = &system.run else { unreachable!() };
     let lua = &self.content.lua;
     let (query, rows) = {
       let state = self.state.borrow();
@@ -272,7 +291,7 @@ impl Host {
       (query, entities)
     };
     let built = clock();
-    system.run.call::<()>((&query, &self.ctx, &system.proto)).map_err(lua_error(&system.name))?;
+    run.call::<()>((&query, &self.ctx, &system.proto)).map_err(lua_error(&system.name))?;
     let ran = clock();
     if !system.write.is_empty() && !rows.is_empty() {
       let mut state = self.state.borrow_mut();
@@ -509,6 +528,7 @@ fn schema_of(content: &Content) -> Result<Schema, Error> {
     for (component, fields) in list {
       let mut fields: Vec<(String, Value)> = fields.pairs::<String, Value>().collect::<mlua::Result<_>>().map_err(lua_error(format!("{label}.components.{component}")))?;
       fields.sort_by(|a, b| a.0.cmp(&b.0));
+      schema.component(&component);
       for (field, default) in fields {
         let default: Json = content.lua.from_value(default).map_err(lua_error(format!("{label}.components.{component}.{field}")))?;
         schema.declare(&component, &field, default).map_err(|error| format!("{label}: {error}"))?;
@@ -544,7 +564,10 @@ fn system_of(lua: &Lua, schema: &Schema, state: &Rc<RefCell<State>>, label: &str
   let every = spec.get::<Option<u64>>("every").map_err(lua_error(format!("{name}.every")))?.unwrap_or(1).max(1);
   let order = |field: &str| -> Result<Vec<String>, Error> { Ok(spec.get::<Option<StringOrList>>(field).map_err(lua_error(format!("{name}.{field}")))?.map(|list| list.0).unwrap_or_default()) };
   let (after, before) = (order("after")?, order("before")?);
-  let run = function(&spec, "run").map_err(lua_error(&name))?.ok_or_else(|| format!("{name}: нет run"))?;
+  let run = match spec.get::<Option<String>>("engine").map_err(lua_error(format!("{name}.engine")))? {
+    Some(tool) => Run::Engine(crate::tools::find(&tool).ok_or_else(|| format!("{name}: нет системы движка {tool}"))?),
+    None => Run::Luau(function(&spec, "run").map_err(lua_error(&name))?.ok_or_else(|| format!("{name}: нет run"))?),
+  };
   Ok(System { name, key, proto, query, filter, write, every, spent: [0.0; 4], after, before, run })
 }
 

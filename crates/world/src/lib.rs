@@ -3,6 +3,7 @@
 
 pub mod host;
 pub mod schema;
+pub mod tools;
 pub mod vision;
 pub mod world;
 

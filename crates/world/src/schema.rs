@@ -12,8 +12,8 @@
 //! буферами; `Any` — по сущности, через `ctx:get` и `ctx:set`. Один компонент могут объявлять несколько видов: поля
 //! складываются, одно поле с разными видами — ошибка.
 //!
-//! Компоненты движка — `Position`, `Facing`, `Owner`, `Proto`, `Sight` — объявлены всегда: по ним клиент рисует и
-//! сглаживает, а обзор считает, кто что видит.
+//! Компоненты движка — `Position`, `Facing`, `Owner`, `Proto`, `Sight`, `Attached` — объявлены всегда: по ним клиент
+//! рисует и сглаживает, обзор считает, кто что видит, а носители ведут то, что на них закреплено.
 
 use serde_json::Value;
 use std::collections::HashMap;
@@ -75,8 +75,16 @@ pub struct Schema {
   by_name: HashMap<String, ComponentId>,
 }
 
-/// Компоненты движка: место, направление, владелец, вид и глаз (обзор, vision.rs).
-pub const BUILTIN: &[(&str, &[(&str, f64)])] = &[("Position", &[("x", 0.0), ("y", 0.0)]), ("Facing", &[("angle", 0.0)]), ("Owner", &[("player", 0.0)]), ("Proto", &[("id", 0.0)]), ("Sight", &[("radius", 0.0)])];
+/// Компоненты движка: место, направление, владелец, вид, глаз (обзор, vision.rs) и место на носителе (tools.rs:
+/// носитель, вперёд и вправо от его центра в тайлах, свой поворот).
+pub const BUILTIN: &[(&str, &[(&str, f64)])] = &[
+  ("Position", &[("x", 0.0), ("y", 0.0)]),
+  ("Facing", &[("angle", 0.0)]),
+  ("Owner", &[("player", 0.0)]),
+  ("Proto", &[("id", 0.0)]),
+  ("Sight", &[("radius", 0.0)]),
+  ("Attached", &[("parent", 0.0), ("along", 0.0), ("across", 0.0), ("angle", 0.0)]),
+];
 
 impl Schema {
   pub fn new() -> Self {
@@ -97,6 +105,18 @@ impl Schema {
     self.id(name).map(|id| &self.components[id])
   }
 
+  /// Объявляет компонент, если его ещё нет: без полей он — метка (`Turret = {}`).
+  pub fn component(&mut self, component: &str) -> ComponentId {
+    match self.by_name.get(component) {
+      Some(&id) => id,
+      None => {
+        self.components.push(Component { name: component.to_string(), fields: Vec::new(), nums: 0, anys: 0 });
+        self.by_name.insert(component.to_string(), self.components.len() - 1);
+        self.components.len() - 1
+      }
+    }
+  }
+
   /// Объявляет поле компонента (и компонент, если его ещё нет).
   pub fn declare(&mut self, component: &str, field: &str, default: Value) -> Result<(), String> {
     let kind = match &default {
@@ -105,14 +125,7 @@ impl Schema {
       Value::String(_) => Kind::Str,
       Value::Array(_) | Value::Object(_) | Value::Null => Kind::Any,
     };
-    let id = match self.by_name.get(component) {
-      Some(&id) => id,
-      None => {
-        self.components.push(Component { name: component.to_string(), fields: Vec::new(), nums: 0, anys: 0 });
-        self.by_name.insert(component.to_string(), self.components.len() - 1);
-        self.components.len() - 1
-      }
-    };
+    let id = self.component(component);
     let entry = &mut self.components[id];
     if let Some(existing) = entry.field(field) {
       return if existing.kind == kind { Ok(()) } else { Err(format!("{component}.{field}: объявлено и как {}, и как {}", existing.kind.name(), kind.name())) };
