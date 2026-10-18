@@ -4,12 +4,15 @@
  *   bun tools/art/dump.ts <файл> раздел/вид…
  *
  * Виды: units/<тип> (фазы хода × 64 направления), turrets/<тип> (64), buildings/<тип> (фазы — 16 кадров простоя и,
- * если здание работает, ещё 16 кадров работы; направления — варианты соседства). Порядок кадров — как у облика в
+ * если здание работает, ещё 16 кадров работы; направления — варианты соседства), sprites/<картинка> (взрыв и дым —
+ * combatSprites, гарь, щербинки и остовы — decalsSprites; картинка меньше кадра мода — посреди него). Порядок кадров — как у облика в
  * моде: фаза за фазой, внутри — направления. Рядом, в <файл>.json, — сколько кадров у каждого вида и их размер.
  */
 import { Pixmap } from '../../packages/client/src/render/pixmap'
 import { MASK_TEAM, TURRET_ART, UNIT_ART, UNIT_FRAME, UNIT_GAITS } from '../../packages/client/src/game/units/unitArt'
 import { ART_FRAMES, ART_TILE, BUILDING_ART } from '../../packages/client/src/game/buildings/buildingArt'
+import { combatSprites } from '../../packages/client/src/game/combatPass'
+import { decalsSprites } from '../../packages/client/src/game/decalsPass'
 
 const TURN = Math.PI * 2
 const DIRECTIONS = 64
@@ -50,6 +53,29 @@ for (const kind of kinds) {
         out.push(image.data)
         bytes = image.data.length
       }
+    }
+  } else if (section === 'sprites') {
+    // Картинки подачи: какие кадры из наборов TS и сторона кадра мода.
+    const combat = combatSprites()
+    const decals = decalsSprites()
+    const sets: Record<string, [typeof combat, number]> = {
+      blast: [combat.slice(0, 8), 48],
+      puff: [combat.slice(8, 11), 16],
+      scorch: [decals.slice(1, 19), 48],
+      pock: [decals.slice(19, 22), 6],
+      wreck: [decals.slice(22), 32],
+    }
+    const set = sets[name]
+    if (!set) throw new Error(`нет картинки ${kind}`)
+    const [sprites, frame] = set
+    for (const sprite of sprites) {
+      const own = new Pixmap(sprite.width, sprite.height)
+      sprite.draw(own)
+      const image = new Pixmap(frame, frame)
+      const shift = (frame - sprite.width) / 2
+      for (let y = 0; y < sprite.height; y++) image.data.set(own.data.subarray(y * sprite.width * 4, (y + 1) * sprite.width * 4), ((y + shift) * frame + shift) * 4)
+      out.push(image.data)
+      bytes = image.data.length
     }
   } else throw new Error(`не знаю раздела ${section}`)
   sizes.push({ kind, frames: out.length - before, bytes })

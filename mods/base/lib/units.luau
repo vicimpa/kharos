@@ -563,12 +563,31 @@ function draw.coreTurret(g, angle, team)
 end
 
 -- Чертёж юнита по виду: draw(canvas, угол, фаза) в маске цвета стороны.
+-- Виды юнитов по порядку UNIT_TYPES.
+units.NAMES = { "mcv", "builder", "infantry", "truck", "flamer", "rocketeer", "buggy", "flak", "lancer", "tank", "artillery", "tesla", "carrier", "supplier", "airTruck", "drone", "gunship", "bomber" }
+
 units.art = {}
-for _, name in { "mcv", "builder", "infantry", "truck", "rocketeer", "flamer", "buggy", "flak", "lancer", "tank", "artillery", "tesla", "carrier", "supplier", "drone", "airTruck", "gunship", "bomber" } do
+for _, name in units.NAMES do
 	local art = draw[name]
 	units.art[name] = function(canvas, angle: number, phase: number)
 		art(canvas, angle, MASK_TEAM, phase)
 	end
+end
+
+-- Чертёж юнита name и турели turret в цветах стороны team ({ тёмный, основной, светлый }), а не в маске: так рисуются
+-- остовы (drawWreck в decalsPass.ts).
+local function palette(team: { number })
+	return { [0] = team[1], team[2], team[3] }
+end
+
+function units.paint(canvas, name: string, angle: number, team: { number }, phase: number)
+	draw[name](canvas, angle, palette(team), phase)
+end
+
+local TURRET_ART = { gunner = "gunnerTurret", arc = "arcTurret", cannon = "cannonTurret", rocket = "rocketTurret", repair = "repairTurret", laser = "laserTurret", core = "coreTurret", mcv = "coreTurret" }
+
+function units.paintTurret(canvas, name: string, angle: number, team: { number })
+	draw[TURRET_ART[name]](canvas, angle, palette(team), 0)
 end
 
 -- Турели: свой кадр в 32 пикселя и одно положение хода.

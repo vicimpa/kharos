@@ -7,7 +7,7 @@ OUT=.cache/art
 mkdir -p $OUT
 KINDS=("$@")
 if (( ${#KINDS} == 0 )); then
-  KINDS=(${(f)"$(cd mods/base && ls units/*.luau turrets/*.luau | sed 's/\.luau$//'; ls -d buildings/*/ | sed 's|/$||')"})
+  KINDS=(${(f)"$(cd mods/base && ls units/*.luau turrets/*.luau sprites/*.luau | sed 's/\.luau$//'; ls -d buildings/*/ | sed 's|/$||')"})
 fi
 bun tools/art/dump.ts $OUT/ts.bin $KINDS || exit 1
 cargo run -q -p kharos-client --release --example looks $OUT/mods.bin $KINDS || exit 1
@@ -16,9 +16,16 @@ import json, sys
 a, b = open(sys.argv[1], 'rb').read(), open(sys.argv[2], 'rb').read()
 parts = json.load(open(sys.argv[1] + '.json'))
 off, failed = 0, 0
+
+# Кадры равны, если равны все пиксели; прозрачные равны, что бы ни лежало в их цвете (TS стирает пиксель одной альфой).
+def same(x, y):
+    if x == y:
+        return True
+    return all(x[i + 3] == y[i + 3] and (x[i + 3] == 0 or x[i:i + 3] == y[i:i + 3]) for i in range(0, len(x), 4))
+
 for part in parts:
     name, frames, size = part['kind'], part['frames'], part['bytes']
-    bad = [i for i in range(frames) if a[off + i * size:off + (i + 1) * size] != b[off + i * size:off + (i + 1) * size]]
+    bad = [i for i in range(frames) if not same(a[off + i * size:off + (i + 1) * size], b[off + i * size:off + (i + 1) * size])]
     off += frames * size
     print(('OK  ' if not bad else 'FAIL') + f' {name}: {frames - len(bad)} из {frames} кадров совпали' + (f' (первый несовпавший — {bad[0]})' if bad else ''))
     failed += bool(bad)

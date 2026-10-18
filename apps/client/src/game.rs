@@ -269,7 +269,9 @@ impl Game {
       let mut state = self.state.borrow_mut();
       state.world = self.host.state.clone();
       state.prev.clear();
-      state.decals.clear();
+      for list in &mut state.decals {
+        list.clear();
+      }
       state.particles.clear();
     }
     let game_table = named(&self.client, "games", &game)?;
@@ -611,21 +613,25 @@ impl Game {
     let world = state.world.borrow();
     let player = state.player;
     let bounds = view.bounds(2.0);
-    state.decals.retain_mut(|decal| {
-      decal.age += dt;
-      let [_, _, x, y] = decal.line;
-      if decal.age >= decal.life || world.vision.as_ref().is_some_and(|vision| !vision.sees(player, x as f64, y as f64)) {
-        return false;
-      }
-      if x < bounds[0] || x > bounds[2] || y < bounds[1] || y > bounds[3] {
-        return true;
-      }
-      let share = ((decal.age / decal.life - FADE_FROM) / (1.0 - FADE_FROM)).max(0.0);
-      let left = 1.0 - share * share * (3.0 - 2.0 * share);
-      let [r, g, b] = decal.color;
-      frame.decals.extend_from_slice(&[decal.line[0], decal.line[1], decal.line[2], decal.line[3], decal.width, 0.0, 0.0, 0.0, 0.0, r, g, b, decal.opacity, left, decal.density, decal.seed]);
-      true
-    });
+    // Снизу вверх: колеи, отметины, остовы.
+    for list in &mut state.decals {
+      list.retain_mut(|decal| {
+        decal.age += dt;
+        let [_, _, x, y] = decal.line;
+        if decal.age >= decal.life || world.vision.as_ref().is_some_and(|vision| !vision.sees(player, x as f64, y as f64)) {
+          return false;
+        }
+        if x < bounds[0] || x > bounds[2] || y < bounds[1] || y > bounds[3] {
+          return true;
+        }
+        let share = ((decal.age / decal.life - FADE_FROM) / (1.0 - FADE_FROM)).max(0.0);
+        let left = 1.0 - share * share * (3.0 - 2.0 * share);
+        let [r, g, b] = decal.color;
+        let [u, v, w, h] = decal.frame;
+        frame.decals.extend_from_slice(&[decal.line[0], decal.line[1], decal.line[2], decal.line[3], decal.width, u, v, w, h, r, g, b, decal.opacity, left, decal.density, decal.seed]);
+        true
+      });
+    }
   }
 
   /// Снимок партии для слота: мир, камера и тик.

@@ -36,12 +36,13 @@ pub struct Particle {
   pub drift: bool,
 }
 
-/// След на земле (decalsPass.ts): отрезок в тайлах, ширина в тайлах, цвет 0..1, непрозрачность, доля закрашенных
-/// пикселей, зерно растворения, возраст и срок в секундах.
+/// След на земле (decalsPass.ts): отрезок в тайлах, ширина в тайлах, кадр атласа (u, v, ширина, высота; ширина 0 —
+/// белый пиксель), цвет 0..1, непрозрачность, доля закрашенных пикселей, зерно растворения, возраст и срок в секундах.
 #[derive(Clone, Copy, Debug)]
 pub struct Decal {
   pub line: [f32; 4],
   pub width: f32,
+  pub frame: [f32; 4],
   pub color: [f32; 3],
   pub opacity: f32,
   pub density: f32,
@@ -50,8 +51,9 @@ pub struct Decal {
   pub life: f32,
 }
 
-/// Больше следов разом не бывает: самые старые уступают место новым (TRACE_LIMIT).
-pub const DECAL_LIMIT: usize = 12_000;
+/// Слои следов снизу вверх — колеи, отметины (гарь, щербинки), остовы — и сколько в каждом бывает разом: самые старые
+/// уступают место новым (TRACE_LIMIT, MARK_LIMIT, WRECK_LIMIT).
+pub const DECAL_LIMITS: [usize; 3] = [12_000, 3_000, 800];
 
 /// Разовый звук, заказанный скриптом за кадр: запись банка, громкость, сторона, скорость.
 pub struct SoundOrder {
@@ -137,7 +139,7 @@ pub struct ClientState {
   pub outbox: Vec<(String, Json)>,
   pub sounds: Vec<SoundOrder>,
   pub particles: Vec<Particle>,
-  pub decals: std::collections::VecDeque<Decal>,
+  pub decals: [std::collections::VecDeque<Decal>; 3],
   /// Слой поверх мира — в тайлах; glow — его светящаяся часть, складывается с картинкой.
   pub draw: crate::ui::Batch,
   pub glow: crate::ui::Batch,
@@ -160,6 +162,18 @@ const NEAR_ZOOM: f32 = 32.0;
 const DETUNE: f64 = 0.08;
 
 impl ClientState {
+  /// Кладёт след в слой layer; полон — уходит самый старый.
+  pub fn lay(&mut self, layer: usize, mut decal: Decal) {
+    let [x1, y1, ..] = decal.line;
+    let count: usize = self.decals.iter().map(|list| list.len()).sum();
+    decal.seed = kharos_engine::terrain::hash(x1 as f64 * 16.0, y1 as f64 * 16.0, self.time + count as f64) as f32 * 1000.0;
+    let list = &mut self.decals[layer];
+    if list.len() >= DECAL_LIMITS[layer] {
+      list.pop_front();
+    }
+    list.push_back(decal);
+  }
+
   /// Насколько слышно то, что в (x, y): 1 — на экране вблизи, 0 — далеко за краем; за краем звук стихает на reach
   /// полуширин экрана (nearness в hearing.ts).
   pub fn nearness(&self, x: f32, y: f32, reach: f32) -> f32 {
@@ -556,12 +570,37 @@ impl UserData for Ctx {
       if opacity <= 0.0 || life <= 0.0 {
         return Ok(());
       }
-      let mut state = c.state.borrow_mut();
-      let seed = kharos_engine::terrain::hash(x1 as f64 * 16.0, y1 as f64 * 16.0, state.time + state.decals.len() as f64) as f32 * 1000.0;
-      if state.decals.len() >= DECAL_LIMIT {
-        state.decals.pop_front();
+      let decal = Decal { line: [x1, y1, x2, y2], width: get("width", 1.0 / 16.0)?, frame: [0.0; 4], color, opacity, density: get("density", 1.0)?, seed: 0.0, age: 0.0, life };
+      c.state.borrow_mut().lay(0, decal);
+      Ok(())
+    });
+    // Картинка на земле (stamp в decalsPass.ts): кадр облика kind (фаза phase, направление по углу angle) в его
+    // натуральную величину с серединой в (x, y), ровно по сетке пикселей мира; непрозрачность, срок в секундах и слой —
+    // 1 (отметины) или 2 (остовы). c:stamp({ kind, phase, angle, x, y, opacity, life, layer }).
+    methods.add_method("stamp", |_, c, spec: Table| {
+      let kind: Table = spec.get("kind")?;
+      let id: u32 = kind.get("id")?;
+      let get = |key: &str, default: f32| spec.get::<Option<f32>>(key).map(|value| value.unwrap_or(default));
+      let (x, y, opacity, life) = (get("x", 0.0)?, get("y", 0.0)?, get("opacity", 1.0)?, get("life", 60.0)?);
+      let layer = spec.get::<Option<usize>>("layer")?.unwrap_or(1).min(2);
+      let (uv, size) = {
+        let state = c.state.borrow();
+        let Some(info) = state.looks.get(&id) else { return Ok(()) };
+        let directions = info.directions.max(1);
+        let direction = (spec.get::<Option<f64>>("angle")?.unwrap_or(0.0) / crate::atlas::TURN * directions as f64).round().rem_euclid(directions as f64) as usize;
+        let phases = (info.cells.len() / directions).max(1);
+        let phase = spec.get::<Option<usize>>("phase")?.unwrap_or(0) % phases;
+        let Some(&uv) = info.cells.get(phase * directions + direction) else { return Ok(()) };
+        (uv, info.size[0])
+      };
+      if opacity <= 0.0 || life <= 0.0 {
+        return Ok(());
       }
-      state.decals.push_back(Decal { line: [x1, y1, x2, y2], width: get("width", 1.0 / 16.0)?, color, opacity, density: get("density", 1.0)?, seed, age: 0.0, life });
+      let left = ((x - size / 32.0) * 16.0).round() / 16.0;
+      let top = ((y - size / 32.0) * 16.0).round() / 16.0;
+      let half = size / 32.0;
+      let decal = Decal { line: [left, top + half, left + size / 16.0, top + half], width: size / 16.0, frame: [uv[0], uv[1], uv[2] - uv[0], uv[3] - uv[1]], color: [1.0; 3], opacity, density: 1.0, seed: 0.0, age: 0.0, life };
+      c.state.borrow_mut().lay(layer, decal);
       Ok(())
     });
     // Сущности со всеми компонентами списка — номерами.

@@ -107,6 +107,19 @@ impl UserData for Canvas {
       canvas.fill(color, [x.floor(), y.floor(), x.floor() + 1.0, y.floor() + 1.0], |_, _| true);
       Ok(())
     });
+    // Пиксель кадра (px, py) от левого верхнего угла, без сдвига начала координат: 0 — пусто, иначе цвет с меткой
+    // тона в старшем байте. Так чертёж читает уже нарисованное — остов обгорает по яркости своих пикселей.
+    methods.add_method("get", |_, canvas, (px, py): (i64, i64)| {
+      let inside = px >= 0 && py >= 0 && (px as usize) < canvas.width && (py as usize) < canvas.height;
+      Ok(if inside { canvas.data[py as usize * canvas.width + px as usize] } else { 0 })
+    });
+    // Записывает пиксель кадра (px, py) как есть; 0 — стирает.
+    methods.add_method_mut("set", |_, canvas, (px, py, color): (i64, i64, u32)| {
+      if px >= 0 && py >= 0 && (px as usize) < canvas.width && (py as usize) < canvas.height {
+        canvas.data[py as usize * canvas.width + px as usize] = color;
+      }
+      Ok(())
+    });
     // Сдвиг начала координат: так на портрете рисуют турели на их местах (originX += … в portraits.ts).
     methods.add_method_mut("translate", |_, canvas, (dx, dy): (f64, f64)| {
       canvas.origin[0] += dx;

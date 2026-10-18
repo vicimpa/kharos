@@ -954,7 +954,15 @@ fn shoot(scene: &mut Scene, fight: &mut Fight, tick: u64, step: f64) {
       let moving = world.has(mover, cols.path);
       let unit_carrier = world.has(carrier, cols.mover);
       let resupplying = cols.flag(world, cols.tactics, cols.resupply, carrier);
-      let stance = if unit_carrier { if resupplying { "hold".to_owned() } else { cols.stance(world, carrier).to_owned() } } else { "defensive".to_owned() };
+      let stance = if unit_carrier {
+        if resupplying {
+          "hold".to_owned()
+        } else {
+          cols.stance(world, carrier).to_owned()
+        }
+      } else {
+        "defensive".to_owned()
+      };
       let had_tactics = world.has(carrier, cols.tactics);
       let patrol = cols.patrols(world, carrier);
       let away = cols.flag(world, cols.tactics, cols.away, carrier);
