@@ -5,6 +5,7 @@
 local widgets = require("lib/widgets")
 local stats = require("lib/stats")
 local conversion = require("lib/conversion")
+local defeat = require("lib/defeat")
 local construction = require("lib/construction")
 local kinds = require("lib/kinds")
 local economy = require("lib/economy")
@@ -606,7 +607,44 @@ local function tradeSlots(c, list, port: number)
 	end
 end
 
+-- Уничтожить выбранных своих юнитов (scuttle в commands.ts): сначала кнопка, потом подтверждение на своей странице —
+-- и на другой клавише. key — выделение, для которого открыто подтверждение; сменилось — страница закрыта.
+local scuttling = { key = "" }
+
+local function scuttleSlots(c, selection): { any }?
+	local key = table.concat(selection, ",")
+	if scuttling.key ~= key then
+		scuttling.key = ""
+		return nil
+	end
+	local gift = defeat.giftable(c, c.player, selection)
+	if #gift == 0 then
+		scuttling.key = ""
+		return nil
+	end
+	local list = {}
+	list[1] = {
+		label = "Уничтожить: " .. #gift,
+		title = "Подтвердить: юниты взорвутся сразу, отменить нельзя",
+		run = function()
+			c:send("scuttle", { units = gift })
+			scuttling.key = ""
+		end,
+	}
+	list[BACK] = {
+		label = "Назад",
+		run = function()
+			scuttling.key = ""
+		end,
+	}
+	return list
+end
+
 local function slots(c, selection)
+	local confirm = scuttleSlots(c, selection)
+	if confirm then
+		return confirm
+	end
 	local list = {}
 	if #buildersOf(c, selection) > 0 then
 		constructionSlots(c, list, selection)
@@ -815,6 +853,16 @@ local function slots(c, selection)
 				for _, e in switchable do
 					c:send("work", { building = e, on = not on })
 				end
+			end,
+		}
+	end
+	-- Свои юниты среди выбранных — уничтожить; место отмены занято, только пока разворачивается MCV.
+	if root and not list[CANCEL] and #defeat.giftable(c, c.player, selection) > 0 then
+		list[CANCEL] = {
+			label = "Уничтожить",
+			title = "Выбранные юниты взорвутся на месте: кредиты не вернутся, место в лимите освободится",
+			run = function()
+				scuttling.key = table.concat(selection, ",")
 			end,
 		}
 	end

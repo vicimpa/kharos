@@ -1,7 +1,7 @@
 --!strict
 --!native
 -- Звуки зданий и мира — перенос packages/client/src/audio/worldSynth.ts: то, что уже есть в игре, — стройка,
--- разворачивание, выезд из завода, ворота, радар, щиты, реактор, корабль космопорта, монеты, ядерный пуск и взрыв, перегруз сети, отсчёт и уведомления. Остальное переедет вместе с механиками.
+-- разворачивание, выезд из завода, ворота, радар, щиты, реактор, корабль космопорта, монеты, ядерный пуск и взрыв, перегруз сети, отсчёт, уведомления, поражение и сдача. Остальное переедет вместе с механиками.
 
 local dsp = require("lib/dsp")
 
@@ -346,6 +346,29 @@ local function beep(rate: number, variant: number)
 	end)
 end
 
+-- Поражение: тяжёлый низкий аккорд, который сползает вниз и гаснет.
+local function defeat(rate: number, variant: number)
+	local notes = { 110, 130.8, 164.8 }
+	return render(rate, 4, variant, function(t)
+		local slide = (1 - 0.06 * min(1, t / 3)) * (1 + variant * 0.006)
+		local output = 0
+		for _, note in notes do
+			local f = note * slide
+			output += (sin(2 * PI * f * t) + sin(2 * PI * f * 2 * t) * 0.3 + sin(2 * PI * f * 3 * t) * 0.12) / #notes
+		end
+		return output * attack(t, 0.15) * decay(t, 1.4)
+	end)
+end
+
+-- Капитуляция: долгий низкий гудок сирены — база гибнет волной.
+local function surrender(rate: number, variant: number)
+	local phase = 0
+	return render(rate, 3, variant, function(t)
+		phase += 2 * PI * (150 + 40 * sin(PI * min(1, t / 3))) * (1 + variant * 0.01) / rate
+		return (sin(phase) + sign(sin(phase)) * 0.2 + sin(phase * 1.5) * 0.3) * attack(t, 0.3) * min(1, (3 - t) / 0.6)
+	end)
+end
+
 local function sound(bus: string, make)
 	return { bus = bus, variants = 3, render = make }
 end
@@ -394,5 +417,7 @@ return {
 		reward = chimeSound({ 784, 988, 1175 }, 0.07, 0.3),
 		delivered = chimeSound({ 659, 784, 659 }, 0.08, 0.25),
 		protectionOver = chimeSound({ 880, 659, 523 }, 0.14, 0.3),
+		defeat = sound("interface", defeat),
+		surrender = sound("interface", surrender),
 	},
 }

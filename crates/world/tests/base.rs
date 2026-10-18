@@ -1369,3 +1369,38 @@ fn silo_launches_a_missile_that_strikes_and_an_interceptor_downs_the_next() {
   assert_eq!(get(&host, guard, "Interceptor").unwrap()["missiles"], json!(0.0));
   assert!(get(&host, guard, "Building").is_some(), "перехватчик разбит");
 }
+
+/// Свои юниты и здания игрока.
+fn owned(host: &Host, player: f64) -> Vec<u32> {
+  let has = |e: u32, component: &str| get(host, e, component).is_some();
+  all(host, "Owner").into_iter().filter(|(e, owner)| owner["player"].as_f64() == Some(player) && (has(*e, "Unit") || has(*e, "Building"))).map(|(e, _)| e).collect()
+}
+
+#[test]
+fn surrender_blows_up_the_base_in_a_wave_from_the_core_and_scuttle_kills_one_unit() {
+  let mut host = host();
+  let (core, _) = deployed(&mut host);
+  host.join(2).unwrap();
+  host.tick(0.05).unwrap();
+  // Уничтожить своего: в ближайшем бою гибнет, чужого не тронуть.
+  let buggies = kind(&host, "units", "buggy");
+  let owner = |host: &Host, e: u32| get(host, e, "Owner").unwrap()["player"].as_f64();
+  let own = buggies.iter().copied().find(|&e| owner(&host, e) == Some(1.0)).unwrap();
+  let enemy = buggies.iter().copied().find(|&e| owner(&host, e) == Some(2.0)).unwrap();
+  host.send(1, "scuttle", json!({ "units": [own, enemy] }));
+  ticks(&mut host, 2);
+  assert!(get(&host, own, "Unit").is_none(), "своя багги цела");
+  assert!(get(&host, enemy, "Unit").is_some(), "чужую уничтожили");
+  // Сдача: кредиты в ноль, главное здание рвётся первым, дальние — позже.
+  let before = owned(&host, 1.0).len();
+  assert!(before > 1);
+  host.send(1, "surrender", json!({}));
+  host.tick(0.05).unwrap();
+  assert_eq!(credits(&host), 0.0);
+  let left = |host: &Host, e: u32| get(host, e, "Doomed").unwrap()["left"].as_f64().unwrap();
+  let first = left(&host, core);
+  assert!(owned(&host, 1.0).iter().all(|&e| left(&host, e) >= first - 10.0), "волна не от главного здания");
+  ticks(&mut host, 200);
+  assert!(owned(&host, 1.0).is_empty(), "база цела: {:?}", owned(&host, 1.0));
+  assert!(!owned(&host, 2.0).is_empty(), "задело чужого");
+}

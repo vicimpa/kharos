@@ -8,6 +8,7 @@
 //! `scar`, `burn`, `wreck`; гибель — событие `killed` для механик.
 //!
 //! Взрывы по площади (`Burst`) бьют всех без разбора; погибшее с `Meltdown` оставляет такой взрыв на своём месте.
+//! Обречённые (`Doomed`) гибнут в свой черёд обычной гибелью (сдача и уничтожение своих, defeat.ts).
 //!
 //! Купола щитов (`Shield`) гасят урон по своим и союзным под ними и останавливают чужие снаряды на краю (shields.ts).
 //!
@@ -121,6 +122,8 @@ struct Cols {
   blast: ComponentId,
   burst: ComponentId,
   meltdown: ComponentId,
+  doomed: ComponentId,
+  doomed_left: usize,
   shield: ComponentId,
   magazine: ComponentId,
   ammo: usize,
@@ -183,6 +186,8 @@ impl Cols {
       blast: id("Blast"),
       burst: id("Burst"),
       meltdown: id("Meltdown"),
+      doomed: id("Doomed"),
+      doomed_left: slot(world, id("Doomed"), "left"),
       shield: id("Shield"),
       magazine: id("Magazine"),
       ammo: slot(world, id("Magazine"), "ammo"),
@@ -1391,6 +1396,22 @@ fn shoot(scene: &mut Scene, fight: &mut Fight, tick: u64, step: f64) {
 
 /// Едкое болото, гибель и взрывы.
 fn finish(scene: &mut Scene, fight: &mut Fight, step: f64, events: &mut Vec<(String, Value)>) {
+  // Обречённые: пришёл черёд — гибель, как от выстрела; что без прочности, просто пропадает.
+  let doomed = scene.world.stores[fight.cols.doomed].entities.clone();
+  for entity in doomed {
+    let cols = &fight.cols;
+    let left = cols.num(scene.world, cols.doomed, cols.doomed_left, entity).unwrap_or(0.0) - 1.0;
+    cols.put(scene.world, cols.doomed, cols.doomed_left, entity, left);
+    if left > 0.0 {
+      continue;
+    }
+    if fight.index.contains_key(&entity) {
+      fight.kill(entity);
+    } else {
+      scene.world.destroy(entity);
+    }
+  }
+
   // Аварии и ядерные удары бьют всех вокруг без разбора — своих и союзников тоже.
   let bursts = scene.world.stores[fight.cols.burst].entities.clone();
   for entity in bursts {
