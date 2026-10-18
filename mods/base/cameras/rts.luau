@@ -1,5 +1,5 @@
 --!strict
--- Камера стратегии: клавиши и края экрана двигают, средняя кнопка тянет, колесо меняет масштаб вокруг курсора — как
+-- Камера стратегии: клавиши двигают, средняя кнопка тянет, колесо меняет масштаб вокруг курсора — как
 -- в TS (controls.ts, cameraMotion.ts): колесо задаёт масштаб, который камера плавно догоняет, держа на месте точку
 -- под курсором.
 
@@ -16,10 +16,8 @@ rts.data = {
 	-- Масштаб догоняет колесо: за столько секунд он проходит две трети пути; ближе этого (в логарифме) — встаёт.
 	zoomSmoothing = 0.09,
 	zoomArrived = 0.001,
-	-- Скорость клавиш и краёв — экранов в секунду.
+	-- Скорость клавиш — экранов в секунду.
 	pan = 0.9,
-	-- Ширина края экрана, где мышь двигает камеру, в пикселях.
-	edge = 6,
 }
 
 -- Масштаб, к которому идёт камера (nil — не меняется), и точка экрана, которая стоит на месте.
@@ -61,20 +59,13 @@ function rts.update(cam, c)
 		cam.y -= (input.y - drag.y) / cam.zoom
 		drag.x, drag.y = input.x, input.y
 	end
-	-- Клавиши и края.
+	-- Клавиши.
 	local dx, dy = 0, 0
 	local keys = input.keys
 	if keys.a or keys.left then dx -= 1 end
 	if keys.d or keys.right then dx += 1 end
 	if keys.w or keys.up then dy -= 1 end
 	if keys.s or keys.down then dy += 1 end
-	if input.inside and input.focused and not drag then
-		local edge = rts.data.edge
-		if input.x < edge then dx -= 1 end
-		if input.x > screen.w - edge then dx += 1 end
-		if input.y < edge then dy -= 1 end
-		if input.y > screen.h - edge then dy += 1 end
-	end
 	local speed = rts.data.pan * math.max(screen.w, screen.h) / cam.zoom * dt
 	cam.x += dx * speed
 	cam.y += dy * speed
