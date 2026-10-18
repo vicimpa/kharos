@@ -613,7 +613,11 @@ impl Game {
     for shown in &state.shown {
       let Some(&index) = self.look_of.get(&shown.proto) else { continue };
       let look = &self.looks[index];
-      let phase = if look.phases > 1 { (time * look.fps as f64) as usize % look.phases } else { 0 };
+      let phase = match shown.phase {
+        Some(phase) => phase % look.phases.max(1),
+        None if look.phases > 1 => (time * look.fps as f64) as usize % look.phases,
+        None => 0,
+      };
       let cell = look.cells[look.cell(0.0, phase)];
       let [w, h] = look.tiles();
       let team = if shown.player == 0 { 3.0 } else if shown.player == state.player { 0.0 } else { 1.0 };

@@ -8,6 +8,7 @@
 local conversion = require("lib/conversion")
 local placement = require("lib/placement")
 local queue = require("lib/queue")
+local drops = require("lib/drops")
 
 local readf64, writef64 = buffer.readf64, buffer.writef64
 
@@ -256,6 +257,8 @@ mechanic.systems = {
 						continue
 					end
 					ctx:destroy(entity)
+					-- Главное здание давит брошенный под ним груз.
+					drops.clear(ctx, x, y, building.data.width, building.data.height)
 					fields.Position = { x = placement.middle(x, building.data.width), y = placement.middle(y, building.data.height) }
 					local made = ctx:spawn(building, fields)
 					ctx:signal("converted", { entity = made, player = player, x = at.x, y = at.y })

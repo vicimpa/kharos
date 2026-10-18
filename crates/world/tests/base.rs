@@ -1491,3 +1491,87 @@ fn surrender_blows_up_the_base_in_a_wave_from_the_core_and_scuttle_kills_one_uni
   assert!(owned(&host, 1.0).is_empty(), "база цела: {:?}", owned(&host, 1.0));
   assert!(!owned(&host, 2.0).is_empty(), "задело чужого");
 }
+
+/// Дропы: место (тайл) и груз.
+fn drops(host: &Host) -> Vec<((i32, i32), serde_json::Map<String, serde_json::Value>)> {
+  all(host, "Drop").into_iter().map(|(entity, _)| {
+    let (x, y) = place(host, entity);
+    ((x.floor() as i32, y.floor() as i32), get(host, entity, "Inventory").unwrap()["items"].as_object().cloned().unwrap_or_default())
+  }).collect()
+}
+
+#[test]
+fn cancelled_site_leaves_materials_on_the_ground_and_a_new_site_crushes_them() {
+  let mut host = host_without_tech();
+  let (_, site, builder) = base_with_builder(&mut host);
+  let (x, y) = generator_spot(&host, site);
+  host.send(1, "build", json!({ "building": "accumulator", "x": x, "y": y, "builders": [] }));
+  host.tick(0.05).unwrap();
+  let accumulator = kind(&host, "buildings", "accumulator")[0];
+  set(&host, accumulator, "Inventory", json!({ "items": { "lithium": 20 } }));
+  host.send(1, "cancelBuild", json!({ "site": accumulator }));
+  host.tick(0.05).unwrap();
+  assert!(kind(&host, "buildings", "accumulator").is_empty());
+  // Привезённое лежит на тайле в середине основания.
+  let lying = drops(&host);
+  assert_eq!(lying.len(), 1, "{lying:?}");
+  assert_eq!(lying[0].0, (x + 1, y + 1));
+  assert_eq!(lying[0].1["lithium"].as_f64(), Some(20.0));
+  // Начатая поверх стройка давит его.
+  host.send(1, "build", json!({ "building": "generator", "x": x, "y": y, "builders": [builder] }));
+  for _ in 0..20 * 60 {
+    host.tick(0.05).unwrap();
+    if all(&host, "Drop").is_empty() {
+      break;
+    }
+  }
+  assert!(all(&host, "Drop").is_empty(), "груз под стройкой цел");
+  let generator = kind(&host, "buildings", "generator")[0];
+  assert!(get(&host, generator, "Footprint").is_some());
+}
+
+#[test]
+fn killed_truck_drops_its_cargo_and_another_truck_takes_it_to_the_yard() {
+  let mut host = host_without_tech();
+  let (core, site, builder) = base_with_builder(&mut host);
+  let yard = {
+    let spot = free_spot(&host, site, 3);
+    raise(&mut host, "metalYard", spot, builder)
+  };
+  host.send(1, "produce", json!({ "building": core, "unit": "truck" }));
+  host.send(1, "produce", json!({ "building": core, "unit": "truck" }));
+  for _ in 0..20 * 120 {
+    host.tick(0.05).unwrap();
+    if kind(&host, "units", "truck").len() == 2 {
+      break;
+    }
+  }
+  let trucks = kind(&host, "units", "truck");
+  assert_eq!(trucks.len(), 2);
+  let (lost, other) = (trucks[0], trucks[1]);
+  // Погибший грузовик оставляет кузов на земле.
+  set(&host, lost, "Inventory", json!({ "items": { "metal": 20 } }));
+  host.send(1, "scuttle", json!({ "units": [lost] }));
+  ticks(&mut host, 2);
+  assert!(kind(&host, "units", "truck").len() == 1, "грузовик цел");
+  let lying = drops(&host);
+  assert_eq!(lying.len(), 1, "{lying:?}");
+  assert!((lying[0].1["metal"].as_f64().unwrap() - 20.0).abs() < 1e-9, "{lying:?}");
+  // Приказ точкой по дропу — вывезти его.
+  let (dx, dy) = lying[0].0;
+  host.send(1, "order", json!({ "units": [other], "x": dx as f64 + 0.5, "y": dy as f64 + 0.5 }));
+  host.tick(0.05).unwrap();
+  let drop = all(&host, "Drop")[0].0;
+  assert_eq!(get(&host, other, "Hauler").unwrap()["pickup"].as_f64(), Some(drop as f64));
+  for _ in 0..20 * 120 {
+    host.tick(0.05).unwrap();
+    if all(&host, "Drop").is_empty() && stocked(&host, yard, "metal") >= 20.0 - 1e-6 {
+      break;
+    }
+  }
+  assert!(all(&host, "Drop").is_empty(), "дроп лежит: {:?}, грузовик {:?}", drops(&host), get(&host, other, "Hauler"));
+  assert!(stocked(&host, yard, "metal") >= 20.0 - 1e-6, "в хранилище {}", stocked(&host, yard, "metal"));
+  // Вывез — свободен.
+  host.tick(0.05).unwrap();
+  assert_eq!(get(&host, other, "Hauler").unwrap()["pickup"].as_f64(), Some(-1.0));
+}

@@ -95,6 +95,8 @@ pub struct Shown {
   pub tint: [f32; 4],
   pub player: u32,
   pub over: bool,
+  /// Кадр облика; без него — по времени, как у сущностей.
+  pub phase: Option<usize>,
 }
 
 /// Значок вида для скриптов: портрет (или кадр значка) в атласе и его размер в пикселях.
@@ -612,7 +614,8 @@ impl UserData for Ctx {
       Ok(())
     });
     // Облик вида kind серединой в (x, y) на этот кадр: { built — доля снизу, остальное чертёж; tint — {r, g, b, a}
-    // с предумноженной альфой; player — чья сторона (по умолчанию своя); over — призраком поверх зданий }.
+    // с предумноженной альфой; player — чья сторона (по умолчанию своя); over — призраком поверх зданий; phase —
+    // кадр облика, без него — по времени }.
     methods.add_method("show", |_, c, (kind, x, y, options): (Table, f32, f32, Option<Table>)| {
       let get = |key: &str| options.as_ref().map_or(Ok(Value::Nil), |table| table.get::<Value>(key));
       let built = get("built")?.as_f64().unwrap_or(1.0).clamp(0.0, 1.0) as f32;
@@ -623,7 +626,8 @@ impl UserData for Ctx {
       let mut state = c.state.borrow_mut();
       let player = get("player")?.as_f64().map_or(state.player, |player| player as u32);
       let over = get("over")?.as_boolean().unwrap_or(false);
-      state.shown.push(Shown { proto: kind.get("id")?, x, y, built, tint, player, over });
+      let phase = get("phase")?.as_f64().map(|phase| phase.max(0.0) as usize);
+      state.shown.push(Shown { proto: kind.get("id")?, x, y, built, tint, player, over, phase });
       Ok(())
     });
     // Слышимость точки мира (0..1) и её сторона (−1..1): для своих голосов — моторов, гулов.

@@ -7,7 +7,7 @@
 local queue = {}
 
 -- Приказы, которые можно ставить в очередь: у них есть конец или их дело ведёт юнит сам (QUEUED).
-queue.QUEUED = { move = true, attack = true, assist = true, haul = true }
+queue.QUEUED = { move = true, attack = true, assist = true, haul = true, pickup = true }
 -- Сколько приказов может ждать в очереди юнита: дальше новые не встают (ORDERS_LIMIT).
 queue.LIMIT = 32
 

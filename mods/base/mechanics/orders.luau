@@ -10,6 +10,7 @@ local construction = require("lib/construction")
 local logistics = require("lib/logistics")
 local tactics = require("lib/tactics")
 local queue = require("lib/queue")
+local drops = require("lib/drops")
 
 local orders = {}
 
@@ -121,6 +122,12 @@ orders.commands = {
 				act("haul", { mine = mine })
 				return
 			end
+			-- Грузовики по дропу — вывозят его.
+			local drop = trucks and drops.at(ctx, x, y)
+			if drop then
+				act("pickup", { drop = drop })
+				return
+			end
 			if site and builders and ctx:get(site, "Owner").player == player then
 				act("assist", { site = site })
 				return
@@ -196,7 +203,12 @@ local function idle(ctx, e: number, turrets: { [number]: { number } }): boolean
 		end
 	end
 	local state = ctx:get(e, "Tactics")
-	return not (state and state.away)
+	if state and state.away then
+		return false
+	end
+	-- Грузовик, который вывозит дроп, занят, пока тот не опустеет.
+	local hauler = ctx:get(e, "Hauler")
+	return not (hauler and hauler.pickup >= 0)
 end
 
 -- Приказы механик по имени — как их зовёт приказ игрока.

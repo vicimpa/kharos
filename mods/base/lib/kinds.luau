@@ -30,6 +30,11 @@ function kinds.of(w, e: number)
 	return proto and byId(w.protos)[proto.id]
 end
 
+-- Вид по номеру; нет — nil.
+function kinds.byId(w, id: number?)
+	return if id then byId(w.protos)[id] else nil
+end
+
 -- Это сущность вида kind?
 function kinds.is(w, e: number, kind): boolean
 	local proto = w:get(e, "Proto")

@@ -5,12 +5,14 @@
 -- важную заявку и везут груз из хранилищ, переработки и цехов зоны; когда заявок нет, развозят готовое по хранилищам.
 -- Руду без переработки никто не возит: она копится в шахте. Как ездят грузовики — mechanics/hauling.
 --
--- Пока нет: патронов турелям, станций запроса, продажи, дропов, маршрутов и ручных приказов — их заявки
--- придут с их механиками. Внутри сети груз везут трубы (mechanics/pipes): грузовик — только между сетями.
+-- Дропы (lib/drops) ничьи: груз с них берут, как со складов зоны, в которой они лежат. Пока нет: станций запроса,
+-- маршрутов и ручных приказов — их заявки придут с их механиками. Внутри сети груз везут трубы (mechanics/pipes):
+-- грузовик — только между сетями.
 
 local goods = require("lib/goods")
 local kinds = require("lib/kinds")
 local research = require("lib/research")
+local drops = require("lib/drops")
 
 local logistics = {}
 
@@ -214,8 +216,18 @@ local function wares(w): { string }
 end
 
 -- Что здание отдаёт по заявкам (offersOf): хранилище и переработка — готовое, цех — всё, кроме сырья своего рецепта,
--- шахта — свою руду.
+-- шахта — свою руду, дроп — всё, что на нём лежит.
 function logistics.offers(w, e: number): { string }
+	if drops.is(w, e) then
+		local stock = w:get(e, "Inventory")
+		local list = {}
+		for _, name in goods.names(w) do
+			if stock and goods.amount(stock, name) > EPSILON then
+				table.insert(list, name)
+			end
+		end
+		return list
+	end
 	if not w:has(e, "Building") or w:has(e, "Site") then
 		return {}
 	end
@@ -642,8 +654,7 @@ function logistics.takeFromNetwork(w, e: number, materials: { [string]: number }
 	end
 end
 
--- Возвращает готовое в хранилища сети здания (returnToNetwork). Чему там нет места, пропадает: груза на земле пока
--- нет (drops.ts).
+-- Возвращает готовое в хранилища сети здания (returnToNetwork). Чему там нет места, ложится на землю у здания.
 function logistics.returnToNetwork(w, e: number, materials: { [string]: number })
 	local stores = {}
 	for _, source in sourcesOf(w, e) do
@@ -651,17 +662,41 @@ function logistics.returnToNetwork(w, e: number, materials: { [string]: number }
 			table.insert(stores, source)
 		end
 	end
+	local left = {}
 	for good, amount in materials do
 		local rest = amount
 		for _, store in stores do
 			rest -= goods.put(w:get(store, "Inventory"), good, rest)
 		end
+		if rest > EPSILON then
+			left[good] = rest
+		end
+	end
+	local at = w:get(e, "Position")
+	if at then
+		drops.put(w, at.x, at.y, left)
 	end
 end
 
--- Можно ли забирать груз со склада (offersPickup): свой готовый склад, где он есть.
+-- Можно ли забирать груз со склада (offersPickup): свой готовый склад или дроп, где он есть.
 function logistics.offersPickup(w, player: number, from: number, good: string): boolean
-	return logistics.isReady(w, player, from) and logistics.spare(w, from, good) > EPSILON
+	return (logistics.isReady(w, player, from) or (w:alive(from) and drops.is(w, from))) and logistics.spare(w, from, good) > EPSILON
+end
+
+-- Дропы в кругах сети (dropsIn): груз с них берут так же, как со складов сети.
+function logistics.dropsIn(w, network): { number }
+	local found = {}
+	local circles = network.circles
+	for _, e in w:each({ "Drop", "Inventory", "Position" }) do
+		local at = w:get(e, "Position")
+		for k = 1, #circles, 3 do
+			if (at.x - circles[k]) ^ 2 + (at.y - circles[k + 1]) ^ 2 <= circles[k + 2] ^ 2 then
+				table.insert(found, e)
+				break
+			end
+		end
+	end
+	return found
 end
 
 -- Дальше этого от стройки строитель за материалом не едет, меньше этого не возит (FETCH_REACH, MIN_FETCH).

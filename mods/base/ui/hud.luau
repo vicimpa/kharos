@@ -1234,6 +1234,8 @@ local function info(c, selection, width: number, height: number)
 				local job
 				if hauler.mine >= 0 then
 					job = "Работа: возит руду из шахты на переработку"
+				elseif hauler.pickup >= 0 then
+					job = "Работа: вывозит груз с земли"
 				elseif hauler.to >= 0 and c:alive(hauler.to) then
 					local kind = c.protos.goods[hauler.resource]
 					local name = widgets.lower(if kind then kind.data.title else hauler.resource)

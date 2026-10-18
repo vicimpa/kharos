@@ -7,8 +7,11 @@
 -- заказанное или увезти готовое из переработки в хранилище (lib/logistics). Работа — забрать груз со склада from и
 -- сгрузить на склад to. Пропал склад, кончился груз или место — грузовик ищет другой или бросает работу.
 --
--- Пока нет: дропов (груз, которому некуда деться, остаётся в кузове), маршрутов и ручных приказов, «обеспечить» и
--- «вывезти дроп», нормы поиска подъезда на тик, уровней шахт и переработки, возобновления месторождений.
+-- Дропы (lib/drops) в своих зонах свободные грузовики вывозят сами, приказ pickup — где бы те ни лежали. Груз, который
+-- некуда везти, потому что к принимающему не подъехать, грузовик бросает на землю.
+--
+-- Пока нет: маршрутов и ручных приказов, «обеспечить», нормы поиска подъезда на тик, уровней шахт и переработки,
+-- возобновления месторождений.
 
 local goods = require("lib/goods")
 local logistics = require("lib/logistics")
@@ -17,6 +20,7 @@ local economy = require("lib/economy")
 local kinds = require("lib/kinds")
 local beams = require("lib/beam")
 local queue = require("lib/queue")
+local drops = require("lib/drops")
 local beamFor, reaches, transfer = beams.beamFor, beams.reaches, beams.transfer
 
 local mechanic = {}
@@ -47,8 +51,9 @@ mechanic.components = {
 	Beam = { radius = 2, rate = 10, give = true, take = true, links = {} },
 	-- Грузовик: mine — шахта, к которой привязан; работа — до amount груза resource со склада from на склад to; full —
 	-- набрал и едет к to; loading — грузится или сгружается в этот тик; waiting — уже ищет подъезд; misses — промахи
-	-- подъезда подряд; filter — что возит (пусто — всё); trapped — обстроен и выехать ему некуда.
-	Hauler = { mine = -1, from = -1, to = -1, resource = "", amount = 0, full = false, loading = false, waiting = false, misses = 0, filter = {}, trapped = false },
+	-- подъезда подряд; filter — что возит (пусто — всё); trapped — обстроен и выехать ему некуда; pickup — дроп, который
+	-- велено вывезти.
+	Hauler = { mine = -1, from = -1, to = -1, resource = "", amount = 0, full = false, loading = false, waiting = false, misses = 0, filter = {}, trapped = false, pickup = -1 },
 	-- Грузовикам игрока не подъехать к этому зданию до тика until: работы сюда не дают, игрок видит значок.
 	Unreachable = { ["until"] = 0 },
 }
@@ -96,7 +101,34 @@ local function release(w, truck: number)
 		return
 	end
 	hauler.mine = NONE
+	hauler.pickup = NONE
 	dropJob(w, truck)
+end
+
+-- Можно ли вывозить этот дроп (canPickup): он ещё лежит. Дропы ничьи, так что забрать его может любой.
+local function canPickup(w, drop: number): boolean
+	return w:alive(drop) and drops.is(w, drop)
+end
+
+-- Бросает весь груз грузовика на землю дропом под ним и снимает с него работу (unload).
+local function unload(w, truck: number)
+	local cargo = w:get(truck, "Inventory")
+	local at = w:get(truck, "Position")
+	drops.put(w, at.x, at.y, cargo.items)
+	for good in cargo.items do
+		cargo.items[good] = nil
+	end
+	dropJob(w, truck)
+end
+
+-- Принимает ли этот груз хоть одно здание игрока, к которому его грузовикам сейчас не подъехать (blockedTaker).
+local function blockedTaker(w, player: number, good: string): boolean
+	for _, e in w:each({ "Unreachable" }) do
+		if logistics.unreachable(w, e) and logistics.accepts(w, player, e, good) then
+			return true
+		end
+	end
+	return false
 end
 
 -- Можно ли вернуть груз туда, откуда взят: здание стоит и место есть.
@@ -163,10 +195,14 @@ local function seekBeam(w, truck: number, building: number, beam: number?)
 end
 
 -- Бросает работу, к которой не подъехать (abandon): груз едет туда, куда подъехать можно, — в хранилище или на
--- переработку, заказчику или обратно; нет такого — остаётся в кузове. Запертый груз держит.
+-- переработку, заказчику или обратно; нет такого — ложится на землю дропом у грузовика: диспетчер увезёт его, когда
+-- появится куда, а сам грузовик свободен. Запертый грузовик груз держит: дроп в его кармане никому не забрать.
 local function abandon(w, truck: number, building: number)
 	local hauler = w:get(truck, "Hauler")
 	hauler.misses = 0
+	if hauler.pickup == building then
+		hauler.pickup = NONE
+	end
 	local good = carriedBy(w, truck)
 	if not good then
 		dropJob(w, truck)
@@ -183,7 +219,7 @@ local function abandon(w, truck: number, building: number)
 	if to then
 		hauler.to, hauler.resource, hauler.full, hauler.waiting = to, good, true, false
 	else
-		dropJob(w, truck)
+		unload(w, truck)
 	end
 end
 
@@ -211,7 +247,7 @@ end
 local function isIdle(w, truck: number): boolean
 	local hauler = w:get(truck, "Hauler")
 	local cargo = w:get(truck, "Inventory")
-	return hauler.mine == NONE and hauler.from == NONE and hauler.to == NONE and (not cargo or goods.load(cargo) <= EPSILON) and not w:has(truck, "Path") and not w:has(truck, "Converting")
+	return hauler.mine == NONE and hauler.pickup == NONE and hauler.from == NONE and hauler.to == NONE and (not cargo or goods.load(cargo) <= EPSILON) and not w:has(truck, "Path") and not w:has(truck, "Converting")
 end
 
 -- Раздаёт работу свободным грузовикам (dispatch): каждому — лучшая из заявок его игрока, важнее и ближе; заявок нет —
@@ -261,6 +297,43 @@ local function dispatch(w)
 				table.insert(mines, e)
 			end
 		end
+		-- Дропы ничьи: их подбирает любой, но сам — только в своих зонах. За дропом на другом краю карты грузовик без
+		-- приказа не едет. С дропа везут и по заявкам — как со склада зоны; руду с него — на переработку.
+		local zoneDrops = {}
+		local function dropsOf(network): { number }
+			local found = zoneDrops[network]
+			if not found then
+				found = logistics.dropsIn(w, network)
+				zoneDrops[network] = found
+			end
+			return found
+		end
+		local seenDrops, allDrops = {}, {}
+		for _, network in w:networks() do
+			if network.player == player then
+				for _, drop in dropsOf(network) do
+					if not seenDrops[drop] then
+						seenDrops[drop] = true
+						table.insert(allDrops, drop)
+						table.insert(outlets, drop)
+						table.insert(mines, drop)
+					end
+				end
+			end
+		end
+		-- Откуда брать готовое для заявки зоны: её здания и дропы в ней (sourcesIn); считается раз на зону.
+		local zoneSources = {}
+		local function sourcesIn(network): { number }
+			local found = zoneSources[network]
+			if not found then
+				found = table.clone(network.members)
+				for _, drop in dropsOf(network) do
+					table.insert(found, drop)
+				end
+				zoneSources[network] = found
+			end
+			return found
+		end
 		-- У шахты с привязанным грузовиком свой возчик: свободные её руду не трогают.
 		local bound = {}
 		for _, truck in w:each({ "Hauler" }) do
@@ -297,6 +370,9 @@ local function dispatch(w)
 							table.insert(list, member)
 						end
 					end
+				end
+				for _, drop in allDrops do
+					table.insert(list, drop)
 				end
 				everywhere = list
 			end
@@ -347,7 +423,7 @@ local function dispatch(w)
 					look(mines)
 				else
 					local localZone = request.zone and not network
-					look(if localZone then request.zone.members else anyZone())
+					look(if localZone then sourcesIn(request.zone) else anyZone())
 					-- В своей зоне взять нечего — из любой своей.
 					if not found and localZone then
 						look(anyZone())
@@ -373,10 +449,11 @@ local function dispatch(w)
 						end
 						local available = logistics.available(w, flows, source, good)
 						local holds = math.min(stock.limits[good] or stock.capacity, stock.capacity)
-						-- Вставшая переработка — руды нет и её не везут — увозит и крошки; цех — остатки прежнего сырья.
+						-- Вставшая переработка — руды нет и её не везут — увозит и крошки; цех — остатки прежнего сырья; с дропа
+						-- увозят всё до крошки.
 						local incoming = flows.incoming[source]
 						local stopped = data.refines ~= nil and goods.amount(stock, data.refines) <= EPSILON and (if incoming then incoming[data.refines] or 0 else 0) <= 0
-						local leftover = stopped or data.researches == true or data.trades == true or (data.assembles ~= nil and not goods.isProduct(w, good))
+						local leftover = stopped or data.researches == true or data.trades == true or (data.assembles ~= nil and not goods.isProduct(w, good)) or drops.is(w, source)
 						if available < (if leftover then EPSILON else math.min(d.PUSH_MIN, room, holds * d.PUSH_SHARE)) then
 							continue
 						end
@@ -422,7 +499,24 @@ local function assign(ctx, player: number, mine: number, units: { number })
 	for _, truck in units do
 		if type(truck) == "number" and ctx:alive(truck) and ctx:has(truck, "Hauler") and ownerOf(ctx, truck) == player then
 			-- Тронется сам в ближайший тик: гружёный — в хранилище, пустой — к шахте.
-			ctx:set(truck, "Hauler", { mine = mine, from = NONE, to = NONE, amount = 0, full = false, loading = false, waiting = false })
+			ctx:set(truck, "Hauler", { mine = mine, pickup = NONE, from = NONE, to = NONE, amount = 0, full = false, loading = false, waiting = false })
+			ctx:stop(truck)
+			any = true
+		end
+	end
+	return any
+end
+
+-- Посылает грузовики игрока вывезти дроп (assignPickup): они бросают прежнюю работу и шахту и возят с него груз рейсами
+-- в хранилища и на переработку, где бы он ни лежал, пока он не опустеет. Потом свободны.
+local function assignPickup(ctx, player: number, drop: number, units: { number })
+	if not canPickup(ctx, drop) then
+		return false
+	end
+	local any = false
+	for _, truck in units do
+		if type(truck) == "number" and ctx:alive(truck) and ctx:has(truck, "Hauler") and ownerOf(ctx, truck) == player then
+			ctx:set(truck, "Hauler", { mine = NONE, pickup = drop, from = NONE, to = NONE, amount = 0, full = false, loading = false, waiting = false })
 			ctx:stop(truck)
 			any = true
 		end
@@ -444,6 +538,18 @@ mechanic.commands = {
 		queue.forget(ctx, args.units)
 		assign(ctx, player, args.mine, args.units)
 	end,
+	-- { drop, units, queue } — вывезти дроп своими грузовиками; с Shift — в очередь.
+	pickup = function(ctx, player, args)
+		if type(args.drop) ~= "number" or type(args.units) ~= "table" then
+			return
+		end
+		if args.queue then
+			queue.push(ctx, player, "pickup", { drop = args.drop }, args.units)
+			return
+		end
+		queue.forget(ctx, args.units)
+		assignPickup(ctx, player, args.drop, args.units)
+	end,
 }
 
 mechanic.on = {
@@ -451,11 +557,15 @@ mechanic.on = {
 	haul = function(ctx, event)
 		assign(ctx, event.player, event.mine, event.units)
 	end,
+	-- Приказ точкой: грузовики по дропу.
+	pickup = function(ctx, event)
+		assignPickup(ctx, event.player, event.drop, event.units)
+	end,
 	-- Приказ идти снимает грузовик с работы и шахты; груз остаётся в кузове.
 	release = function(ctx, event)
 		for _, truck in event.units do
 			if ctx:alive(truck) and ctx:has(truck, "Hauler") then
-				ctx:set(truck, "Hauler", { mine = NONE, from = NONE, to = NONE, amount = 0, full = false, loading = false, waiting = false })
+				ctx:set(truck, "Hauler", { mine = NONE, pickup = NONE, from = NONE, to = NONE, amount = 0, full = false, loading = false, waiting = false })
 			end
 		end
 	end,
@@ -539,6 +649,11 @@ mechanic.systems = {
 					table.insert(released, truck)
 					continue
 				end
+				if hauler.pickup ~= NONE and not canPickup(w, hauler.pickup) then
+					-- Дроп вывезли или застроили: грузовик свободен.
+					table.insert(released, truck)
+					continue
+				end
 				if ctx:has(truck, "Path") or ctx:has(truck, "Converting") then
 					continue
 				end
@@ -566,6 +681,37 @@ mechanic.systems = {
 						end
 						hauler.from, hauler.to, hauler.resource = hauler.mine, to, ore
 						hauler.amount = math.min(cargo.capacity, logistics.space(w, to, ore, logistics.flows(w, truck)))
+						hauler.full = false
+					elseif hauler.pickup ~= NONE then
+						-- Следующий рейс с дропа: первый груз, который пускает фильтр и которому есть куда ехать. Фильтр не
+						-- пускает ничего из лежащего — приказ снимается; места нет нигде — грузовик ждёт.
+						local drop = hauler.pickup
+						local list = {}
+						for _, good in logistics.offers(w, drop) do
+							if #hauler.filter == 0 or table.find(hauler.filter, good) then
+								table.insert(list, good)
+							end
+						end
+						if #list == 0 then
+							table.insert(released, truck)
+							continue
+						end
+						if not retry then
+							continue
+						end
+						local good, to = nil, nil
+						for _, name in list do
+							to = logistics.deliveryFor(w, truck, name)
+							if to then
+								good = name
+								break
+							end
+						end
+						if not good or not to then
+							continue
+						end
+						hauler.from, hauler.to, hauler.resource = drop, to, good
+						hauler.amount = math.min(cargo.capacity, logistics.space(w, to, good, logistics.flows(w, truck)), logistics.spare(w, drop, good))
 						hauler.full = false
 					else
 						-- Свободный и пустой ждёт работы от диспетчера.
@@ -666,8 +812,15 @@ mechanic.systems = {
 					to = from
 				end
 				hauler.to = to or NONE
+				-- Места нет только там, куда не подъехать, — груз ложится на землю, как у бросившего работу (abandon).
+				-- Просто полные хранилища — другое дело: груз ждёт в кузове, пока место не освободится.
+				if not to and not hauler.trapped and blockedTaker(w, player, good) then
+					unload(w, truck)
+				end
 			end
 
+			-- Пустые дропы исчезают.
+			drops.sweep(w)
 			if ctx.tick % d.dispatchTicks == 0 then
 				dispatch(w)
 			end

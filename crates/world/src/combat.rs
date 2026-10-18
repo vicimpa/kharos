@@ -1486,7 +1486,9 @@ fn finish(scene: &mut Scene, fight: &mut Fight, step: f64, events: &mut Vec<(Str
     if !air && matches!(armor, "vehicle" | "heavy") {
       fight.signal("wreck", json!({ "x": x, "y": y, "facing": facing, "proto": proto }));
     }
-    events.push(("killed".to_owned(), json!({ "entity": entity, "player": player, "x": x, "y": y, "air": air, "proto": proto })));
+    // Что было на погибшем — механикам: груз со склада, топливо и прочее, чего движок не знает.
+    let remains = scene.world.components(entity);
+    events.push(("killed".to_owned(), json!({ "entity": entity, "player": player, "x": x, "y": y, "air": air, "proto": proto, "remains": remains })));
     // Здание с топливом взрывается в следующем бою.
     let cols = &fight.cols;
     if scene.world.has(entity, cols.meltdown) {

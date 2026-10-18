@@ -2,13 +2,16 @@
 -- Разовые звуки мира по сверке с прошлым кадром — перенос части worldSounds.ts: щит принял удар, пробит, поднялся;
 -- створки шахты встали; своему игроку открыта тема или выдана награда — по одному звуку, сколько бы их ни пришло
 -- разом; отсчёт перед ядерным ударом — раз в секунду последние countdown секунд по точке удара,
--- которую игрок видит; база гибнет волной после сдачи — сирена (своя — громче и везде); игрок проиграл — аккорд.
+-- которую игрок видит; база гибнет волной после сдачи — сирена (своя — громче и везде); игрок проиграл — аккорд; груз
+-- упал на землю — удар ящиков, подобрали — тише.
 -- Остальное, что слышно по событиям хоста, приходит сигналами механик (ворота, радар, достроено). Скачок часов мира —
 -- новый мир или загрузка: тогда сверять не с чем.
 
 -- Громкость вблизи и как часто один звук может повторяться (VOLUMES, MIN_GAP).
-local VOLUMES = { shieldHit = 0.35, shieldDown = 0.6, shieldUp = 0.35, doorsLocked = 0.7, surrender = 0.6 }
-local MIN_GAP = { shieldHit = 0.08, countdown = 0.5, surrender = 5, researched = 1 }
+local VOLUMES = { shieldHit = 0.35, shieldDown = 0.6, shieldUp = 0.35, doorsLocked = 0.7, surrender = 0.6, crates = 0.35 }
+local MIN_GAP = { shieldHit = 0.08, countdown = 0.5, surrender = 5, researched = 1, crates = 0.15 }
+-- Подобранный груз тише: это не событие, а уборка (QUIET).
+local QUIET = 0.5
 -- Громкость уведомлений и как далеко слышно чужую сдачу (NOTICE_VOLUME, HEARING × 3).
 local NOTICE_VOLUME = 0.4
 local SURRENDER_REACH = 1.8
@@ -23,6 +26,7 @@ local JUMP = 100
 
 local shields: { [number]: { hit: number, up: boolean } } = {}
 local doors: { [number]: boolean } = {}
+local crates: { [number]: { x: number, y: number } } = {}
 local countdown = math.huge
 local doomed = 0
 local lost = false
@@ -80,6 +84,23 @@ return {
 			end
 		end
 		doors = opened
+		-- Груз: упал — удар ящиков; подобрали — тише.
+		local lying = {}
+		for _, e in c:each({ "Drop", "Position" }) do
+			local at = c:get(e, "Position")
+			lying[e] = { x = at.x, y = at.y }
+			if not fresh and not crates[e] then
+				play("crates", at.x, at.y)
+			end
+		end
+		if not fresh then
+			for e, at in crates do
+				if not lying[e] then
+					play("crates", at.x, at.y, VOLUMES.crates * QUIET)
+				end
+			end
+		end
+		crates = lying
 		-- Отсчёт: ближайший удар, точку которого игрок видит.
 		local left = math.huge
 		for _, e in c:each({ "Mark" }) do

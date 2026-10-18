@@ -9,8 +9,10 @@
 --
 -- Материалы стройке подвозят грузовики и сами строители (mechanics/fetching): дальше привезённого она не идёт.
 --
--- Пока нет: груза брошенной стройки на земле (дропы), покрытия и землеройных работ,
--- улучшений зданий, очереди приказов (Shift).
+-- Привезённое на отменённую стройку и лежавшее на складе разобранного здания остаётся на земле (lib/drops); стройка
+-- давит брошенный под ней груз.
+--
+-- Пока нет: покрытия и землеройных работ, улучшений зданий.
 
 local construction = require("lib/construction")
 local placement = require("lib/placement")
@@ -22,6 +24,7 @@ local queue = require("lib/queue")
 local buildings = require("lib/buildings")
 local economy = require("lib/economy")
 local logistics = require("lib/logistics")
+local drops = require("lib/drops")
 
 local readf64, writef64 = buffer.readf64, buffer.writef64
 
@@ -561,6 +564,8 @@ local function replacePipe(ctx, player: number, e: number)
 	else
 		wallet.refund(ctx, player, construction.refundOf(kind))
 	end
+	-- Привезённые материалы остаются на земле.
+	drops.cargo(ctx, e)
 	ctx:destroy(e)
 end
 
@@ -726,6 +731,8 @@ mechanic.commands = {
 				ctx:remove(site, "Link")
 			end
 		else
+			-- Привезённые материалы остаются на земле.
+			drops.cargo(ctx, site)
 			ctx:destroy(site)
 		end
 	end,
@@ -874,6 +881,8 @@ mechanic.systems = {
 						-- Оплаченное вперёд — очередь юнитов — возвращается целиком, как при отмене.
 						wallet.add(purse, player, construction.refundOf(kind) + construction.prepaidOf(ctx, e))
 					end
+					-- Что лежало на складе здания или стройки, остаётся на земле.
+					drops.cargo(ctx, e)
 					ctx:destroy(e)
 					continue
 				end
@@ -890,6 +899,8 @@ mechanic.systems = {
 					local durability = construction.durabilityOf(ctx, kind, x, y)
 					health = { value = durability * construction.SITE_FLOOR, max = durability }
 					begin(ctx, e, kind, health)
+					-- Стройка давит брошенный под ней груз.
+					drops.clear(ctx, x, y, kind.data.width, kind.data.height)
 				end
 				-- Прочность недостроенного — доля построенного: урон откатывает стройку, и разбитое строят и оплачивают
 				-- заново. Платят по ходу: за каждую построенную долю — та же доля цены; кончились кредиты — стоит.

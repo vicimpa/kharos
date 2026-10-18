@@ -5,6 +5,7 @@
 local conversion = require("lib/conversion")
 local defeat = require("lib/defeat")
 local wallet = require("lib/wallet")
+local drops = require("lib/drops")
 
 local mechanic = {}
 
@@ -26,7 +27,8 @@ local function bankrupt(ctx, player: number)
 end
 
 -- Игрок сдаётся — харакири (surrender): все его юниты и здания взрываются волной от главного здания (или от середины
--- его войска) наружу, каждое — обычной гибелью. Стройки исчезают сразу. Кредиты — в ноль.
+-- его войска) наружу, каждое — обычной гибелью, и груз со складов падает на землю (mechanics/drops). Стройки исчезают
+-- сразу, привезённое на них остаётся на земле. Кредиты — в ноль.
 local function surrender(ctx, player: number)
 	local d = mechanic.data
 	local core = conversion.building(ctx)
@@ -58,6 +60,7 @@ local function surrender(ctx, player: number)
 		end
 	end
 	for _, e in sites do
+		drops.cargo(ctx, e)
 		ctx:destroy(e)
 	end
 	bankrupt(ctx, player)

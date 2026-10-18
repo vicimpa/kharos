@@ -250,6 +250,17 @@ impl World {
     Some(map)
   }
 
+  /// Все компоненты сущности объектом: имя → значение (как `get`).
+  pub fn components(&self, entity: Entity) -> Map<String, Value> {
+    let mut all = Map::new();
+    for (id, component) in self.schema.components.iter().enumerate() {
+      if let Some(value) = self.get(entity, id) {
+        all.insert(component.name.clone(), Value::Object(value));
+      }
+    }
+    all
+  }
+
   /// Число из столбца.
   pub fn num(&self, entity: Entity, component: ComponentId, field: &str) -> Option<f64> {
     let store = &self.stores[component];

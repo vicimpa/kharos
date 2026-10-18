@@ -1,7 +1,7 @@
 --!strict
 --!native
 -- Звуки зданий и мира — перенос packages/client/src/audio/worldSynth.ts: то, что уже есть в игре, — стройка,
--- разворачивание, выезд из завода, ворота, радар, щиты, реактор, корабль космопорта, монеты, ядерный пуск и взрыв, перегруз сети, отсчёт, уведомления, поражение и сдача. Остальное переедет вместе с механиками.
+-- разворачивание, выезд из завода, ворота, груз на земле, радар, щиты, реактор, корабль космопорта, монеты, ядерный пуск и взрыв, перегруз сети, отсчёт, уведомления, поражение и сдача. Остальное переедет вместе с механиками.
 
 local dsp = require("lib/dsp")
 
@@ -44,6 +44,17 @@ local function built(rate: number, variant: number)
 		local n = noise()
 		local clicks = if t < 0.2 then pulse(t, 0.035, 0.003) else 0
 		return ratchet(n * clicks) * 3 + clang(t, n)
+	end)
+end
+
+-- Груз упал на землю: глухой удар ящиков и стук.
+local function crates(rate: number, variant: number)
+	local thud = lowpass(rate, 260)
+	local wood = bandpass(rate, 600, 4)
+	return render(rate, 0.5, variant, function(t, noise)
+		local n = noise()
+		local hits = decay(t, 0.03) + (if t > 0.09 then decay(t - 0.09, 0.02) * 0.6 else 0)
+		return thud(n * hits) * 4 + wood(n * hits) * 2
 	end)
 end
 
@@ -389,6 +400,7 @@ return {
 	bank = {
 		built = sound("world", built),
 		gate = sound("world", gate),
+		crates = sound("world", crates),
 		radar = sound("world", radar),
 		nukeBlast = sound("battle", nuke),
 		doorsLocked = sound("world", doorsLocked),
