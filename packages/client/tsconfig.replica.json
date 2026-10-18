@@ -1,7 +1,0 @@
-{
-  "//": "Реплика без DOM, с типами Bun: ею пользуются боты и проверки сервера (tools/smoke/server.ts).",
-  "extends": "../tsconfig/bun.json",
-  "files": [
-    "src/net/replica.ts"
-  ]
-}

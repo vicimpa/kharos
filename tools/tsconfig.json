@@ -1,7 +1,0 @@
-{
-  "//": "Для редактора: инструменты под Bun. В bun run typecheck пока не входит — 4 старые ошибки типов в tools/modbench.ts.",
-  "extends": "../packages/tsconfig/bun.json",
-  "include": [
-    "."
-  ]
-}

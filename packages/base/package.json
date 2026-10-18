@@ -1,9 +1,0 @@
-{
-  "name": "@kharos/base",
-  "private": true,
-  "version": "0.1.0",
-  "type": "module",
-  "exports": {
-    "./*.json": "./data/*.json"
-  }
-}

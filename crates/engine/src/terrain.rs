@@ -394,17 +394,6 @@ impl Land {
     }
   }
 
-  /// Кладёт чанк карты целиком — байты вместе с выводимым, как их отдаёт `getChunk`: так зеркало TS досылает правки
-  /// карты и загруженный мир. Выводимое соседей не пересчитывает: изменившихся соседей шлют тоже.
-  pub fn set_chunk(&mut self, chunk_x: i32, chunk_y: i32, bytes: &[u8]) -> Result<(), String> {
-    let at = self.area.index(chunk_x, chunk_y).ok_or_else(|| format!("чанк ({chunk_x}, {chunk_y}) вне карты"))?;
-    if bytes.len() != CHUNK_BYTES {
-      return Err(format!("чанк ({chunk_x}, {chunk_y}): {} байт", bytes.len()));
-    }
-    self.owned[at] = Some(bytes.to_vec());
-    Ok(())
-  }
-
   /// Байты тайла (x, y).
   pub fn tile(&mut self, x: i32, y: i32) -> [u8; 4] {
     let chunk = self.chunk(x.div_euclid(CHUNK_SIZE), y.div_euclid(CHUNK_SIZE));

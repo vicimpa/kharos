@@ -1,9 +1,0 @@
-{
-  "$schema": "https://json.schemastore.org/tsconfig",
-  "//": "Код страницы и воркеров: DOM и типы Vite (шейдеры строкой, воркеры по адресу).",
-  "extends": "./base.json",
-  "compilerOptions": {
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["vite/client"]
-  }
-}

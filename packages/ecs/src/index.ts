@@ -1,6 +1,0 @@
-export { component } from './component'
-export type { Component, ComponentInit, ComponentInput, ComponentOptions, Entity } from './component'
-export { Loop } from './loop'
-export type { LoopOptions, System, Time } from './loop'
-export { World } from './world'
-export type { ChangeListener, Cleanup, DataOf, JournalOp, Row, WorldSnapshot } from './world'

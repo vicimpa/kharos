@@ -39,65 +39,31 @@ pub fn turn_toward(facing: f64, wanted: f64, max_turn: f64) -> f64 {
   }
 }
 
-// Синус, косинус, арктангенс, гипотенуза и степень в JS не одинаковы между движками и платформами: JavaScriptCore (Bun) берёт
-// их у системы, V8 — у своей fdlibm и своего `hypot`. Поэтому в wasm они приходят от хоста — импортом `math` (его
-// даёт `loadSimWasm` в packages/sim-rust, фича `host-math`), и Rust считает ровно как TS рядом; в нативе и в клиенте в
-// браузере — свои, как у Bun.
-#[cfg(all(target_arch = "wasm32", feature = "host-math"))]
-mod host {
-  #[link(wasm_import_module = "math")]
-  extern "C" {
-    pub fn hypot(a: f64, b: f64) -> f64;
-    pub fn sin(x: f64) -> f64;
-    pub fn cos(x: f64) -> f64;
-    pub fn atan2(y: f64, x: f64) -> f64;
-    pub fn pow(x: f64, y: f64) -> f64;
-  }
-}
+// Синус, косинус, арктангенс, гипотенуза и степень — свои, как у Bun: на нативе и в браузере одни и те же.
 
 /// `Math.hypot` двух чисел.
 pub fn js_hypot(a: f64, b: f64) -> f64 {
-  #[cfg(all(target_arch = "wasm32", feature = "host-math"))]
-  return unsafe { host::hypot(a, b) };
-  #[cfg(not(all(target_arch = "wasm32", feature = "host-math")))]
   a.hypot(b)
 }
 
 /// `Math.sin`.
 pub fn js_sin(x: f64) -> f64 {
-  #[cfg(all(target_arch = "wasm32", feature = "host-math"))]
-  return unsafe { host::sin(x) };
-  #[cfg(not(all(target_arch = "wasm32", feature = "host-math")))]
   x.sin()
 }
 
 /// `Math.cos`.
 pub fn js_cos(x: f64) -> f64 {
-  #[cfg(all(target_arch = "wasm32", feature = "host-math"))]
-  return unsafe { host::cos(x) };
-  #[cfg(not(all(target_arch = "wasm32", feature = "host-math")))]
   x.cos()
 }
 
 /// `Math.atan2`.
 pub fn js_atan2(y: f64, x: f64) -> f64 {
-  #[cfg(all(target_arch = "wasm32", feature = "host-math"))]
-  return unsafe { host::atan2(y, x) };
-  #[cfg(not(all(target_arch = "wasm32", feature = "host-math")))]
   y.atan2(x)
 }
 
 /// Угол от b до a, от -π до π (`angleBetween`).
 pub fn angle_between(a: f64, b: f64) -> f64 {
   js_atan2(js_sin(a - b), js_cos(a - b))
-}
-
-/// `x ** y` из JS.
-pub fn js_pow(x: f64, y: f64) -> f64 {
-  #[cfg(all(target_arch = "wasm32", feature = "host-math"))]
-  return unsafe { host::pow(x, y) };
-  #[cfg(not(all(target_arch = "wasm32", feature = "host-math")))]
-  x.powf(y)
 }
 
 #[cfg(test)]

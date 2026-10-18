@@ -1,18 +1,5 @@
-node_modules
-dist
+# Сборка cargo и trunk (target/web).
+/target
 .DS_Store
 *.local
-save.json*
-save.kharos*
-settings.json
-tls/
-/target
-apps/native/js/*.bundle.js
-apps/native/js/chunk-*.js
-apps/native/js/assets
-
-.cache/
-apps/native/fonts
-# Пакеты ставит Bun (bun.lock); lock-файл npm не нужен
-package-lock.json
 .claude/settings.local.json

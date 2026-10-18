@@ -17,13 +17,19 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - run: bun test
-      - run: bun run build
+      # Тулчейн и цель wasm32 — из rust-toolchain.toml; звук на десктопе (cpal) собирается с заголовками ALSA.
+      - run: rustup show
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - run: cargo test --release
+      # Клиент в браузере: trunk собирает wasm32 и сам берёт wasm-opt; адреса — относительные, страница живёт в папке.
+      - uses: jetli/trunk-action@v0.5.0
+        with:
+          version: 'v0.21.14'
+      - run: trunk build --release --public-url ./
+        working-directory: apps/client/web
       - uses: crazy-max/ghaction-github-pages@v4
         with:
           target_branch: gh-pages
-          build_dir: apps/web/dist
+          build_dir: target/web
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

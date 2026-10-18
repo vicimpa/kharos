@@ -116,16 +116,6 @@ impl Search {
     self.cut
   }
 
-  /// Норма: поиски внутри run вместе осматривают не больше tiles тайлов (`withSearchQuota`).
-  pub fn with_quota<R>(&mut self, tiles: f64, run: impl FnOnce(&mut Self) -> R) -> R {
-    let previous = self.cap;
-    self.cap = self.cap.min(self.searched + tiles.max(0.0));
-    self.cut = false;
-    let result = run(self);
-    self.cap = previous;
-    result
-  }
-
   /// Норма для run, который берёт поиск сам (через Sim): ставит и снимает её вокруг.
   pub fn open_quota(&mut self, tiles: f64) -> f64 {
     let previous = self.cap;

@@ -1,8 +1,0 @@
-{
-  "$schema": "https://json.schemastore.org/tsconfig",
-  "//": "Код под Bun без DOM: сервер и то, что он тянет, — так в серверную сборку не протечёт ничего браузерного.",
-  "extends": "./base.json",
-  "compilerOptions": {
-    "types": ["bun"]
-  }
-}

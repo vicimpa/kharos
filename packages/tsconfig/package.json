@@ -1,6 +1,0 @@
-{
-  "name": "@kharos/tsconfig",
-  "private": true,
-  "version": "0.1.0",
-  "description": "Общие настройки TypeScript для пакетов и приложений: base — без окружения, dom — страница, bun — сервер"
-}

@@ -113,10 +113,10 @@ void main() {
 }
 "#;
 
-/// Шейдер земли из TS — тот же файл, без строки версии: её подставляет `Gl::program`.
-const TERRAIN_FS: &str = include_str!("../../../packages/client/src/map/terrain.frag");
-/// Шейдер осадок из TS, так же.
-const WEATHER_FS: &str = include_str!("../../../packages/client/src/weather/weather.frag");
+/// Шейдер земли (перенесён из TS как есть), без строки версии: её подставляет `Gl::program`.
+const TERRAIN_FS: &str = include_str!("shaders/terrain.frag");
+/// Шейдер осадков, так же.
+const WEATHER_FS: &str = include_str!("shaders/weather.frag");
 
 /// Оттенки освещения, как в lightingPass.ts: ночь, сумерки (добавка в середине шкалы) и полдень — белый.
 const NIGHT: [f32; 3] = [0.16, 0.2, 0.42];
