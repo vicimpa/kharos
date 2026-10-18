@@ -5,9 +5,8 @@
 -- важную заявку и везут груз из хранилищ, переработки и цехов зоны; когда заявок нет, развозят готовое по хранилищам.
 -- Руду без переработки никто не возит: она копится в шахте. Как ездят грузовики — mechanics/hauling.
 --
--- Дропы (lib/drops) ничьи: груз с них берут, как со складов зоны, в которой они лежат. Пока нет: станций запроса,
--- маршрутов и ручных приказов — их заявки придут с их механиками. Внутри сети груз везут трубы (mechanics/pipes):
--- грузовик — только между сетями.
+-- Дропы (lib/drops) ничьи: груз с них берут, как со складов зоны, в которой они лежат. Станция запроса держит
+-- заказанное игроком (Wanted). Внутри сети груз везут трубы (mechanics/pipes): грузовик — только между сетями.
 
 local goods = require("lib/goods")
 local kinds = require("lib/kinds")
@@ -49,6 +48,23 @@ end
 -- Хранилище ли это (isStore).
 function logistics.isStore(w, e: number): boolean
 	return dataOf(w, e).stores == true
+end
+
+-- Станция ли это запроса: держит заказанное игроком (isRequester).
+function logistics.isRequester(w, e: number): boolean
+	return dataOf(w, e).requester == true
+end
+
+-- Сколько этого груза станция запроса держит по заказу игрока; у остальных — ноль (wantedOf).
+function logistics.wantedOf(w, e: number, good: string): number
+	local wanted = w:get(e, "Wanted")
+	return if wanted then wanted.items[good] or 0 else 0
+end
+
+-- Не берёт ли заказчик to груз у source: станция запроса не берёт у другой станции — иначе две станции, заказавшие
+-- одно и то же, возили бы его друг у друга по кругу (barred).
+function logistics.barred(w, to: number, source: number): boolean
+	return logistics.isRequester(w, to) and logistics.isRequester(w, source)
 end
 
 local function distance(w, a: number, b: number): number
@@ -99,6 +115,19 @@ function logistics.flows(w, except: number?): Flows
 			add(flows.outgoing, hauler.from, hauler.resource, hauler.amount - carried)
 		end
 	end
+	-- Грузовики с ручным приказом (Carry): везут в to, а ещё не набравшие обещали забрать из from (carrying.ts).
+	for _, truck in w:each({ "Carry", "Inventory" }) do
+		local order = w:get(truck, "Carry")
+		if truck == except then
+			continue
+		end
+		local cargo = w:get(truck, "Inventory")
+		local carried = goods.amount(cargo, order.resource)
+		add(flows.incoming, order.to, order.resource, if order.full then carried else math.max(carried, math.min(order.left, cargo.capacity)))
+		if order.from ~= NONE and not order.full then
+			add(flows.outgoing, order.from, order.resource, math.min(order.left, cargo.capacity) - carried)
+		end
+	end
 	-- Строители, которые сами везут материал на стройку (mechanics/fetching).
 	for _, builder in w:each({ "Fetch", "Inventory" }) do
 		local fetch = w:get(builder, "Fetch")
@@ -127,6 +156,11 @@ function logistics.given(w, e: number, good: string, sale: boolean?): number
 		return 0
 	end
 	return math.max(0, goods.amount(stock, good) - (if sale then 0 else stock.reserve or 0))
+end
+
+-- Сколько у станции запроса лишнего сверх заказа: его увозят в хранилища (surplusOf).
+function logistics.surplusOf(w, e: number, good: string): number
+	return math.max(0, logistics.spare(w, e, good) - logistics.wantedOf(w, e, good))
 end
 
 -- Сколько можно забрать, кроме обещанного другим грузовикам (availableIn).
@@ -218,7 +252,8 @@ end
 -- Что здание отдаёт по заявкам (offersOf): хранилище и переработка — готовое, цех — всё, кроме сырья своего рецепта,
 -- шахта — свою руду, дроп — всё, что на нём лежит.
 function logistics.offers(w, e: number): { string }
-	if drops.is(w, e) then
+	-- Дроп отдаёт всё, что на нём лежит, станция запроса — всё, что держит.
+	if drops.is(w, e) or logistics.isRequester(w, e) then
 		local stock = w:get(e, "Inventory")
 		local list = {}
 		for _, name in goods.names(w) do
@@ -471,6 +506,16 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 			need(e, "ammo", room, logistics.PRIORITY.ammo, "zone", true)
 		end
 	end
+	-- Станции запроса: недостающее до заказа игрока.
+	for _, e in w:each({ "Wanted", "Inventory" }) do
+		if not logistics.isReady(w, player, e) then
+			continue
+		end
+		local stock = w:get(e, "Inventory")
+		for good, amount in w:get(e, "Wanted").items do
+			need(e, good, amount - goods.amount(stock, good), logistics.PRIORITY.production)
+		end
+	end
 	-- Продажа: товар заявки, пока корабль не улетел. Недостачу заказывают целыми единицами, как стройка: хранилище отдало
 	-- дробный остаток — и заявке не хватает меньше MIN_JOB, а такое не привёз бы никто. Лишнее вернётся в хранилища.
 	for _, e in w:each({ "Trade", "Inventory" }) do
@@ -485,6 +530,20 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 		return a.priority > b.priority
 	end)
 	return requests
+end
+
+-- Нужен ли этому своему зданию или стройке груз прямо сейчас: тогда грузовики можно послать его обеспечить (canSupply).
+function logistics.canSupply(w, player: number, target: any): boolean
+	local owner = type(target) == "number" and w:alive(target) and w:get(target, "Owner")
+	if not owner or owner.player ~= player then
+		return false
+	end
+	for _, request in logistics.requests(w, player, { incoming = {}, outgoing = {} }) do
+		if request.to == target then
+			return true
+		end
+	end
+	return false
 end
 
 -- Не подъехать грузовикам к зданию: отметка Unreachable ещё действует.
@@ -587,6 +646,10 @@ function logistics.accepts(w, player: number, to: number, good: string): boolean
 	end
 	if logistics.isStore(w, to) then
 		return true
+	end
+	-- Станция запроса — только заказанное и не сверх заказа.
+	if logistics.isRequester(w, to) then
+		return goods.amount(stock, good) < logistics.wantedOf(w, to, good) - EPSILON
 	end
 	if (logistics.materials(w, to) or {})[good] then
 		return true

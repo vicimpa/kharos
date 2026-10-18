@@ -1806,3 +1806,83 @@ fn spent_deposit_leaves_and_a_new_one_appears_elsewhere_after_renewal() {
   ticks(&mut host, 21);
   assert!(get(&host, mined, "Deposit").is_none(), "шахты нет — ушло");
 }
+
+/// Тикает, пока test не станет правдой; не стало за seconds секунд — false.
+fn until(host: &mut Host, seconds: f64, test: impl Fn(&Host) -> bool) -> bool {
+  for _ in 0..(seconds * 20.0) as usize {
+    host.tick(0.05).unwrap();
+    if test(host) {
+      return true;
+    }
+  }
+  false
+}
+
+#[test]
+fn trucks_carry_by_hand_ride_routes_and_fill_request_stations() {
+  let mut host = host_without_tech();
+  let (core, site, builder) = base_with_builder(&mut host);
+  let player = all(&host, "Player")[0].0;
+  set(&host, player, "Player", json!({ "credits": 20000 }));
+  let generator = {
+    let spot = free_spot(&host, site, 2);
+    raise(&mut host, "generator", spot, builder)
+  };
+  assert!(get(&host, generator, "Footprint").is_some());
+  let from = {
+    let spot = free_spot(&host, site, 3);
+    raise(&mut host, "metalYard", spot, builder)
+  };
+  let to = {
+    let spot = free_spot(&host, site, 3);
+    raise(&mut host, "metalYard", spot, builder)
+  };
+  set(&host, from, "Inventory", json!({ "items": { "metal": 60 } }));
+  host.send(1, "produce", json!({ "building": core, "unit": "truck" }));
+  assert!(until(&mut host, 60.0, |host| !kind(host, "units", "truck").is_empty()), "грузовик не вышел");
+  let truck = kind(&host, "units", "truck")[0];
+  // Резерв: не больше вместимости.
+  host.send(1, "reserve", json!({ "buildings": [from], "amount": 10 }));
+  host.tick(0.05).unwrap();
+  assert_eq!(get(&host, from, "Inventory").unwrap()["reserve"].as_f64(), Some(10.0));
+  host.send(1, "reserve", json!({ "buildings": [from], "amount": 0 }));
+  // Ручная перевозка: 20 металла из одного хранилища в другое, потом приказ кончается сам.
+  host.send(1, "carry", json!({ "units": [truck], "from": from, "to": to, "resource": "metal", "amount": 20 }));
+  host.tick(0.05).unwrap();
+  assert!(get(&host, truck, "Carry").is_some(), "приказ не принят");
+  assert!(until(&mut host, 120.0, |host| get(host, truck, "Carry").is_none()), "приказ не кончился: {:?}", get(&host, truck, "Carry"));
+  assert!((stocked(&host, to, "metal") - 20.0).abs() < 1e-6, "привезено {}", stocked(&host, to, "metal"));
+  // Маршрут по двум хранилищам: свои готовые здания, подряд одинаковые склеиваются.
+  host.send(1, "route", json!({ "units": [truck], "stops": [from, from, to] }));
+  host.tick(0.05).unwrap();
+  assert_eq!(get(&host, truck, "Hauler").unwrap()["route"], json!([from, to]));
+  assert!(until(&mut host, 120.0, |host| stocked(host, to, "metal") >= 30.0), "по маршруту не возит: {:?}", get(&host, truck, "Hauler"));
+  // Фильтр — только известные грузы.
+  host.send(1, "filter", json!({ "units": [truck], "goods": ["silicon", "nothing"] }));
+  host.tick(0.05).unwrap();
+  assert_eq!(get(&host, truck, "Hauler").unwrap()["filter"], json!(["silicon"]));
+  host.send(1, "filter", json!({ "units": [truck], "goods": [] }));
+  // Приказ идти снимает маршрут.
+  let (x, y) = place(&host, truck);
+  host.send(1, "move", json!({ "units": [truck], "x": x, "y": y + 2.0 }));
+  host.tick(0.05).unwrap();
+  assert!(get(&host, truck, "Hauler").unwrap()["route"].as_array().is_none_or(|list| list.is_empty()));
+  // Станция запроса держит заказанное: недостающее довозят.
+  let station = {
+    let spot = free_spot(&host, site, 2);
+    raise(&mut host, "requestStation", spot, builder)
+  };
+  host.send(1, "want", json!({ "buildings": [station], "resource": "metal", "amount": 15 }));
+  host.tick(0.05).unwrap();
+  assert_eq!(get(&host, station, "Wanted").unwrap()["items"]["metal"].as_f64(), Some(15.0));
+  assert!(until(&mut host, 180.0, |host| stocked(host, station, "metal") >= 15.0 - 1e-6), "станция пуста: {:?}", get(&host, station, "Inventory"));
+  // «Обеспечить»: стройке нужен литий — грузовик возит только ей.
+  set(&host, from, "Inventory", json!({ "accepts": [], "items": { "metal": 30, "lithium": 30 } }));
+  let spot = free_spot(&host, site, 2);
+  host.send(1, "build", json!({ "building": "accumulator", "x": spot.0, "y": spot.1, "builders": [] }));
+  host.tick(0.05).unwrap();
+  let accumulator = kind(&host, "buildings", "accumulator")[0];
+  host.send(1, "supply", json!({ "units": [truck], "target": accumulator }));
+  host.tick(0.05).unwrap();
+  assert_eq!(get(&host, truck, "Hauler").unwrap()["supply"].as_f64(), Some(accumulator as f64));
+}

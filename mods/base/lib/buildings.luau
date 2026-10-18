@@ -197,6 +197,10 @@ function buildings.entity(kind, protos)
 		Health = { hp = data.hp or data.cost * buildings.HP_PER_COST },
 	}
 	entity.Link = buildings.link(kind)
+	-- Станция запроса держит заказанное игроком (Wanted).
+	if data.requester then
+		entity.Wanted = {}
+	end
 	-- Склад (equipStorage): шахта копит руду, переработка — руду и готовое, хранилище — свой груз.
 	entity.Inventory = goods.stock(data)
 	-- Производителю без своего склада — склад под материалы заказов (PRODUCER_HOLD).

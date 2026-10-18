@@ -129,6 +129,15 @@ orders.commands = {
 				act("pickup", { drop = drop })
 				return
 			end
+			-- Грузовики по своему зданию или стройке, которым нужен груз, — обеспечивают их; строители при этом строят.
+			local needy = planned or ctx:occupant(x, y)
+			if trucks and needy and logistics.canSupply(ctx, player, needy) then
+				act("supply", { target = needy })
+				if builders and planned == needy then
+					act("assist", { site = needy })
+				end
+				return
+			end
 			if site and builders and ctx:get(site, "Owner").player == player then
 				act("assist", { site = site })
 				return
