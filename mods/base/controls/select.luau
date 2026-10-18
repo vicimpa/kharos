@@ -28,6 +28,9 @@ local SERVE = 0x73d9ff
 
 local start: { x: number, y: number, wx: number, wy: number }? = nil
 local last = { time = -1, entity = 0 }
+-- Группы по цифре и какую выбрали последней (двойное нажатие — камера к ней).
+local groups: { [string]: { number } } = {}
+local lastGroup = { time = -1, digit = "" }
 
 -- Где сущность: середина и размер в тайлах; у юнита — описанный квадрат кольца.
 local function bounds(c, e: number): (number, number, number, number, boolean)
@@ -276,6 +279,22 @@ local function marks(c, selection)
 	end
 end
 
+-- Камера летит к середине выделенного (lookAtSelection).
+local function lookAt(c, selection)
+	local x, y, count = 0, 0, 0
+	for _, e in selection do
+		local at = c:get(e, "Position")
+		if at then
+			x += at.x
+			y += at.y
+			count += 1
+		end
+	end
+	if count > 0 then
+		c.shared.flyTo = { x = x / count, y = y / count }
+	end
+end
+
 function select.update(c)
 	local input = c.input
 	local shared = c.shared
@@ -335,8 +354,8 @@ function select.update(c)
 				local e = c:pick(input.wx, input.wy)
 				if e and c:mine(e) then
 					picked = { e }
-					-- Двойной щелчок: все свои того же вида на экране.
-					if last.entity == e and c.time - last.time < select.data.double then
+					-- Двойной щелчок или Ctrl: все свои того же вида на экране.
+					if (last.entity == e and c.time - last.time < select.data.double) or input.keys.ctrl or input.keys.meta then
 						local kind = c:proto(e)
 						local x1, y1 = c:to_world(0, 0)
 						local x2, y2 = c:to_world(c.screen.w, c.screen.h)
@@ -364,6 +383,45 @@ function select.update(c)
 	end
 	if not input.down.left then
 		start = nil
+	end
+	-- Группы (assignGroup и selectGroup в controls.ts): Ctrl+цифра запоминает своих выделенных, цифра выбирает группу
+	-- (с Shift — добавляет), та же цифра ещё раз подряд — камера к ней.
+	for digit = 0, 9 do
+		local key = tostring(digit)
+		if input.hits[key] then
+			if input.keys.ctrl or input.keys.meta then
+				local own = {}
+				for _, e in selection do
+					if c:mine(e) then
+						table.insert(own, e)
+					end
+				end
+				groups[key] = if #own > 0 then own else nil
+			else
+				local group = {}
+				for _, e in groups[key] or {} do
+					if c:alive(e) and c:mine(e) then
+						table.insert(group, e)
+					end
+				end
+				groups[key] = if #group > 0 then group else nil
+				if #group > 0 then
+					if input.keys.shift then
+						for _, e in group do
+							if not table.find(selection, e) then
+								table.insert(selection, e)
+							end
+						end
+					else
+						selection = group
+					end
+					if lastGroup.digit == key and c.time - lastGroup.time < select.data.double then
+						lookAt(c, selection)
+					end
+					lastGroup = { digit = key, time = c.time }
+				end
+			end
+		end
 	end
 	-- Открыто окно исследований (ui/tech) — Escape закрывает его, и только.
 	if input.hits.escape and shared.techOpen then

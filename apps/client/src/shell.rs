@@ -264,7 +264,8 @@ fn key_name(physical: &PhysicalKey, logical: &Key) -> Option<String> {
     if let Some(letter) = text.strip_prefix("Key") {
       return Some(letter.to_lowercase());
     }
-    if let Some(digit) = text.strip_prefix("Digit") {
+    // Цифры и над буквами, и на цифровом блоке.
+    if let Some(digit) = text.strip_prefix("Digit").or_else(|| text.strip_prefix("Numpad").filter(|rest| rest.len() == 1 && rest.chars().all(|ch| ch.is_ascii_digit()))) {
       return Some(digit.to_string());
     }
     let named = match code {

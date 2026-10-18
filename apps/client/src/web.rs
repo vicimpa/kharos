@@ -139,7 +139,8 @@ fn key_name(event: &KeyboardEvent) -> Option<String> {
   if let Some(letter) = code.strip_prefix("Key") {
     return Some(letter.to_lowercase());
   }
-  if let Some(digit) = code.strip_prefix("Digit") {
+  // Цифры и над буквами, и на цифровом блоке.
+  if let Some(digit) = code.strip_prefix("Digit").or_else(|| code.strip_prefix("Numpad").filter(|rest| rest.len() == 1 && rest.chars().all(|ch| ch.is_ascii_digit()))) {
     return Some(digit.to_string());
   }
   let named = match code.as_str() {
