@@ -559,7 +559,7 @@ impl Game {
         _ if look.phases > 1 && !dress.off => (time * look.fps as f64) as usize % look.phases,
         _ => 0,
       };
-      // Ничьё (игрок 0) — серым, как юниты и здания у TS; без владельца вовсе (месторождения, ракеты) — в своих цветах.
+      // Ничьё (игрок 0) — серым, как юниты и здания у TS; без владельца вовсе (месторождения) — в своих цветах.
       let (team, grey) = match world.world.num(entity, owner, "player").map(|player| player as u32) {
         None => (3.0, 0.0),
         Some(0) => (3.0, 1.0),
