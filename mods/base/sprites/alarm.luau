@@ -1,7 +1,9 @@
 --!strict
 -- Значки над зданиями (drawIcon и drawOff в powerPass.ts), 16 пикселей: фаза 0 — нехватка энергии, жёлтая молния на
 -- красном круге; фаза 1 — «Выключено», знак питания на сером круге; фаза 2 — «Не подъехать» (drawBlocked), белая
--- черта на красном круге, как знак «въезд запрещён».
+-- черта на красном круге, как знак «въезд запрещён»; фаза 3 — подложка значка нехватки груза (drawLack): тёмный
+-- круг в красном кольце, груз рисуется поверх своим обликом; фаза 4 — «Не хватает кредитов» (drawBroke), золотая
+-- монета в том же кольце.
 
 local INK = 0x0b111b
 
@@ -15,6 +17,14 @@ local function draw(g, _, phase: number)
 			g:line(10, 3, 6, 8, width, color)
 			g:line(6, 8, 10, 8, width, color)
 			g:line(10, 8, 6, 13, width, color)
+		end
+	elseif phase == 3 or phase == 4 then
+		g:circle(8, 8, 7, 0xe5492f)
+		g:circle(8, 8, 6, 0x121c2a)
+		if phase == 4 then
+			g:circle(8, 8, 4, 0x8a5a14)
+			g:circle(8, 8, 3.2, 0xf0c95a)
+			g:rect(7, 6, 2, 4, 0x8a5a14)
 		end
 	elseif phase == 2 then
 		g:circle(8, 8, 7, 0xc8321f)
@@ -32,6 +42,6 @@ local function draw(g, _, phase: number)
 end
 
 return {
-	data = { starved = 0, off = 1, blocked = 2 },
-	look = { size = 16, origin = { 0, 0 }, phases = 3, draw = draw },
+	data = { starved = 0, off = 1, blocked = 2, lack = 3, broke = 4 },
+	look = { size = 16, origin = { 0, 0 }, phases = 5, draw = draw },
 }

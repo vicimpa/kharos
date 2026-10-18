@@ -4,6 +4,8 @@
 -- тик после хода закреплённое встаёт на своё место и смотрит туда же, куда носитель, плюс свой поворот; закреплённое
 -- на погибшем исчезает — это система движка follow (followCarriers в sim-ts).
 
+local supply = require("lib/supply")
+
 local mounts = {}
 
 mounts.components = {
@@ -22,11 +24,15 @@ local function mount(ctx, entity: number, proto: number)
 	local facing = ctx:get(entity, "Facing")
 	local owner = ctx:get(entity, "Owner")
 	for _, item in list do
+		local turret = ctx.protos.turrets[item.turret]
+		local weapon = turret and turret.data.weapon and ctx.protos.weapons[turret.data.weapon]
 		ctx:spawn("turrets/" .. item.turret, {
 			Position = { x = at.x, y = at.y },
 			Facing = { angle = if facing then facing.angle else 0 },
 			Owner = { player = if owner then owner.player else 0 },
 			Attached = { parent = entity, along = item.along, across = item.across },
+			-- Выстрел турели стоит магазину носителя (lib/supply).
+			Armed = if weapon then { cost = supply.costOn(kind, ctx.protos, weapon) } else nil,
 		})
 	end
 end

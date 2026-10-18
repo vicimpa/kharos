@@ -184,6 +184,18 @@ local function marks(c, selection)
 			local gx, gy, half = points[#points - 1], points[#points], PATH_GOAL / 2
 			c.draw:rect(gx - half, gy - half, gx + half, gy + half, SELECTED, 2)
 		end
+		-- Круг раздачи выбранной машины снабжения: свои внутри него пополняют магазины с её склада.
+		local kind = at and c:proto(e)
+		local serves = kind and kind.data and kind.data.supplies
+		if serves then
+			local dot, step = PATH_DOT * pixel, PATH_GAP * pixel
+			local count = math.ceil(math.pi * 2 * serves.radius / step)
+			for i = 0, count - 1 do
+				local angle = i / count * math.pi * 2
+				local x, y = at.x + math.cos(angle) * serves.radius, at.y + math.sin(angle) * serves.radius
+				c.draw:rect(x - dot / 2, y - dot / 2, x + dot / 2, y + dot / 2, SELECTED, nil, PATH_ALPHA)
+			end
+		end
 		local producer = c:get(e, "Producer")
 		if producer and producer.rally and at then
 			-- Точка сбора — тайл: флажок в его середине.

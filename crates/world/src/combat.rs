@@ -11,7 +11,10 @@
 //!
 //! Купола щитов (`Shield`) гасят урон по своим и союзным под ними и останавливают чужие снаряды на краю (shields.ts).
 //!
-//! Пока без боеприпасов, защиты новичка и плит фундамента: они придут со своими механиками (docs/port.md).
+//! Боеприпасы: выстрел тратит `Armed.cost` из магазина носителя (`Magazine`), без запаса не стреляют; юнит с
+//! магазином меньше `least` пуст — бросает цель.
+//!
+//! Пока без защиты новичка и плит фундамента: они придут со своими механиками (docs/port.md).
 
 use crate::host::{Signal, State};
 use crate::motion::Scene;
@@ -59,6 +62,8 @@ const LEASH: f64 = 8.0;
 const RED_WASTES: u8 = 2;
 /// Нет цели.
 const NONE: f64 = -1.0;
+/// Погрешность долей: магазин, в котором на выстрел не хватает меньше этого, — полон на выстрел.
+const EPSILON: f64 = 1e-9;
 
 /// Вид оружия (weapons.json).
 #[derive(Clone, Debug, Default)]
@@ -117,6 +122,10 @@ struct Cols {
   burst: ComponentId,
   meltdown: ComponentId,
   shield: ComponentId,
+  magazine: ComponentId,
+  ammo: usize,
+  least: usize,
+  cost: usize,
   sight: ComponentId,
   proto: ComponentId,
   mover_radius: usize,
@@ -175,6 +184,10 @@ impl Cols {
       burst: id("Burst"),
       meltdown: id("Meltdown"),
       shield: id("Shield"),
+      magazine: id("Magazine"),
+      ammo: slot(world, id("Magazine"), "ammo"),
+      least: slot(world, id("Magazine"), "least"),
+      cost: slot(world, armed, "cost"),
       sight: id("Sight"),
       proto: id("Proto"),
       mover_radius: slot(world, mover, "radius"),
@@ -1110,6 +1123,18 @@ fn shoot(scene: &mut Scene, fight: &mut Fight, tick: u64, step: f64) {
       let mover = carrier;
       let moving = world.has(mover, cols.path);
       let unit_carrier = world.has(carrier, cols.mover);
+      // Расстрелявший магазин молчит: цель бросает и новой не ищет, пока не пополнится.
+      let empty = unit_carrier && cols.num(world, cols.magazine, cols.ammo, carrier).is_some_and(|ammo| ammo < cols.num(world, cols.magazine, cols.least, carrier).unwrap_or(0.0) - EPSILON);
+      if empty {
+        // Путь погони — боя, а не игрока: гнаться больше не за чем.
+        if armed.chase {
+          scene.world.remove(mover, fight.cols.path);
+        }
+        armed.target = NONE;
+        armed.chase = false;
+        armed.ordered = false;
+        break 'shooter;
+      }
       let resupplying = cols.flag(world, cols.tactics, cols.resupply, carrier);
       let stance = if unit_carrier {
         if resupplying {
@@ -1280,6 +1305,16 @@ fn shoot(scene: &mut Scene, fight: &mut Fight, tick: u64, step: f64) {
       let share = cols.num(scene.world, cols.throttle, cols.share, carrier).unwrap_or(1.0);
       if share <= 0.0 {
         break 'shooter;
+      }
+      // Выстрел — из магазина носителя: не хватает — молчит, пока не пополнят.
+      let cost = cols.num(scene.world, cols.armed, cols.cost, entity).unwrap_or(0.0);
+      if cost > 0.0 {
+        if let Some(ammo) = cols.num(scene.world, cols.magazine, cols.ammo, carrier) {
+          if ammo < cost - EPSILON {
+            break 'shooter;
+          }
+          cols.put(scene.world, cols.magazine, cols.ammo, carrier, (ammo - cost).max(0.0));
+        }
       }
       armed.cooldown = 1f64.max(js_round(spec.reload / step / share));
 

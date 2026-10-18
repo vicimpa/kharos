@@ -97,10 +97,10 @@ pub fn builtin() -> Vec<(&'static str, Vec<(&'static str, Value)>)> {
     ("Player", vec![("id", json!(0)), ("allies", json!([]))]),
     // Связь в сеть (networks.rs): круг зоны, группа стыка, проводник, подземный отрезок, ядро сети, основание, лист.
     ("Link", vec![("radius", json!(0)), ("group", json!("")), ("conduit", json!(false)), ("tunnel", json!(0)), ("core", json!(false)), ("width", json!(1)), ("height", json!(1)), ("leaf", json!(false))]),
-    // Бой (combat): прочность — доля от hp, hit — тик последнего попадания; оружие стрелка, его поворот и откуда
-    // вылетает выстрел; стойка юнита; выстрел и взрыв — сущности для подачи.
+    // Бой (combat): прочность — доля от hp, hit — тик последнего попадания; оружие стрелка, его поворот, откуда
+    // вылетает выстрел и сколько он стоит магазину носителя; стойка юнита; выстрел и взрыв — сущности для подачи.
     ("Health", vec![("value", json!(1)), ("max", json!(1)), ("regen", json!(0)), ("hit", json!(-1)), ("hp", json!(1))]),
-    ("Armed", vec![("weapon", json!("")), ("turn", json!(0)), ("radius", json!(0)), ("target", json!(-1)), ("chase", json!(false)), ("cooldown", json!(0)), ("stuck", json!(0)), ("ordered", json!(false))]),
+    ("Armed", vec![("weapon", json!("")), ("turn", json!(0)), ("radius", json!(0)), ("target", json!(-1)), ("chase", json!(false)), ("cooldown", json!(0)), ("stuck", json!(0)), ("ordered", json!(false)), ("cost", json!(0))]),
     ("Tactics", vec![("stance", json!("defensive")), ("patrol", json!([])), ("leg", json!(0)), ("away", json!(false)), ("homeX", json!(0)), ("homeY", json!(0)), ("resupply", json!(false))]),
     ("Shot", vec![("weapon", json!("")), ("player", json!(0)), ("source", json!(-1)), ("target", json!(-1)), ("fromX", json!(0)), ("fromY", json!(0)), ("toX", json!(0)), ("toY", json!(0)), ("prevX", json!(0)), ("prevY", json!(0)), ("age", json!(0)), ("life", json!(0)), ("blocked", json!(false)), ("air", json!(false))]),
     ("Blast", vec![("size", json!(1)), ("age", json!(0)), ("life", json!(0)), ("lift", json!(0))]),
@@ -112,6 +112,9 @@ pub fn builtin() -> Vec<(&'static str, Vec<(&'static str, Value)>)> {
     // Купол щита вокруг сущности (combat): пока есть запас charge и купол не погашен (down — до какого тика), урон по
     // своим и союзным под ним от стрелков снаружи и от летающих берёт запас; чужие снаряды рвутся на его краю. hit —
     // тик последнего погашенного удара; пробитый до нуля гаснет на recover секунд. Запас растит механика мода.
+    // Магазин носителя (combat): выстрел стрелка тратит из него Armed.cost, не хватает — не стреляет; у юнита, у
+    // которого меньше least, — пусто: цель он бросает и новой не ищет.
+    ("Magazine", vec![("ammo", json!(0)), ("least", json!(0))]),
     ("Shield", vec![("charge", json!(0)), ("hit", json!(-1)), ("down", json!(0)), ("radius", json!(0)), ("recover", json!(10))]),
     // Доля работы носителя (0..1): его оружие перезаряжается во столько раз дольше, при нуле молчит.
     ("Throttle", vec![("share", json!(1))]),

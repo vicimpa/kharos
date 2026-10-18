@@ -1153,3 +1153,97 @@ fn shield_charges_on_power_and_stops_a_shell_at_its_edge() {
   ticks(&mut host, 2);
   assert_eq!(get(&host, dome, "Shield").unwrap()["charge"], json!(0.0));
 }
+
+/// Турель на носителе.
+fn gun_of(host: &Host, carrier: u32) -> u32 {
+  all(host, "Attached").into_iter().find(|(_, attached)| attached["parent"].as_f64() == Some(carrier as f64)).map(|(entity, _)| entity).unwrap()
+}
+
+fn ammo(host: &Host, entity: u32) -> f64 {
+  get(host, entity, "Magazine").unwrap()["ammo"].as_f64().unwrap()
+}
+
+#[test]
+fn magazines_empty_in_fire_refill_in_the_network_and_empty_units_go_for_ammo() {
+  let mut host = host_without_tech();
+  let (_, site, builder) = base_with_builder(&mut host);
+  host.join(2).unwrap();
+  host.tick(0.05).unwrap();
+  let buggies = kind(&host, "units", "buggy");
+  let owner = |host: &Host, e: u32| get(host, e, "Owner").unwrap()["player"].as_f64();
+  let own: Vec<u32> = buggies.iter().copied().filter(|&e| owner(&host, e) == Some(1.0)).collect();
+  let enemy = buggies.iter().copied().find(|&e| owner(&host, e) == Some(2.0)).unwrap();
+  let buggy = own[0];
+  // Полный магазин с завода; выстрел пулемёта стоит его доли.
+  assert_eq!(ammo(&host, buggy), 30.0);
+  let cost = get(&host, gun_of(&host, buggy), "Armed").unwrap()["cost"].as_f64().unwrap();
+  assert!(cost > 0.0, "выстрел бесплатный");
+  // Стреляет — тратит.
+  host.send(2, "stance", json!({ "units": [enemy], "stance": "passive" }));
+  let (x, y) = place(&host, buggy);
+  set(&host, enemy, "Position", json!({ "x": x + 3.0, "y": y }));
+  ticks(&mut host, 40);
+  let left = ammo(&host, buggy);
+  assert!(left < 30.0, "не стрелял");
+  // Пустой молчит: цель бросает.
+  set(&host, buggy, "Magazine", json!({ "ammo": 0 }));
+  ticks(&mut host, 2);
+  assert_eq!(get(&host, gun_of(&host, buggy), "Armed").unwrap()["target"], json!(-1.0), "пустой стреляет");
+  set(&host, enemy, "Position", json!({ "x": x + 60.0, "y": y + 60.0 }));
+  // В своей сети магазин пополняется из хранилищ: 10 в секунду.
+  let spot = free_spot(&host, site, 2);
+  let bunker = raise(&mut host, "ammoBunker", spot, builder);
+  set(&host, bunker, "Inventory", json!({ "items": { "ammo": 100 } }));
+  let (cx, cy) = place(&host, bunker);
+  set(&host, buggy, "Position", json!({ "x": cx + 2.5, "y": cy }));
+  set(&host, buggy, "Magazine", json!({ "ammo": 0 }));
+  ticks(&mut host, 21);
+  let refilled = ammo(&host, buggy);
+  assert!(refilled >= 9.9 && refilled <= 10.1 + 1e-9, "пополнено {refilled}");
+  assert!((stocked(&host, bunker, "ammo") - (100.0 - refilled)).abs() < 1e-6, "взято из хранилища");
+  // Пустой вне сети сам идёт за боеприпасами и запоминает, куда вернуться.
+  let far = own[1];
+  let (fx, fy) = place(&host, far);
+  set(&host, far, "Magazine", json!({ "ammo": 0 }));
+  let mut going = false;
+  for _ in 0..100 {
+    host.tick(0.05).unwrap();
+    if get(&host, far, "Tactics").is_some_and(|tactics| tactics["resupply"] == json!(true)) {
+      going = true;
+      break;
+    }
+  }
+  assert!(going, "не пошёл за боеприпасами");
+  let tactics = get(&host, far, "Tactics").unwrap();
+  assert_eq!((tactics["homeX"].as_f64().unwrap(), tactics["homeY"].as_f64().unwrap()), (fx.floor(), fy.floor()));
+  assert!(get(&host, far, "Path").is_some());
+}
+
+#[test]
+fn building_turret_fires_only_with_ammo_in_its_store() {
+  let mut host = host_without_tech();
+  let (_, site, builder) = base_with_builder(&mut host);
+  host.join(2).unwrap();
+  host.tick(0.05).unwrap();
+  let spot = free_spot(&host, site, 1);
+  let turret = raise(&mut host, "turret", spot, builder);
+  let gun = gun_of(&host, turret);
+  assert!(get(&host, gun, "Armed").unwrap()["cost"].as_f64().unwrap() > 0.0);
+  let enemy = kind(&host, "units", "buggy").into_iter().find(|&e| get(&host, e, "Owner").unwrap()["player"].as_f64() == Some(2.0)).unwrap();
+  host.send(2, "stance", json!({ "units": [enemy], "stance": "passive" }));
+  let (x, y) = place(&host, turret);
+  set(&host, enemy, "Position", json!({ "x": x + 3.0, "y": y }));
+  // Выстрелы этой турели за count тиков (бьёт и пушка главного здания — её не считаем).
+  let shots = |host: &mut Host, count: usize| {
+    let mut fired = 0;
+    for _ in 0..count {
+      host.tick(0.05).unwrap();
+      fired += all(host, "Shot").iter().filter(|(_, shot)| shot["source"].as_f64() == Some(turret as f64) && shot["age"].as_f64() == Some(0.0)).count();
+    }
+    fired
+  };
+  assert_eq!(shots(&mut host, 40), 0, "пустая турель стреляет");
+  set(&host, turret, "Inventory", json!({ "items": { "ammo": 20 } }));
+  assert!(shots(&mut host, 40) > 0, "с боеприпасами не стреляет");
+  assert!(stocked(&host, turret, "ammo") < 20.0, "не потратила");
+}

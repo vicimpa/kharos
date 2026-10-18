@@ -5,6 +5,7 @@
 -- повреждёнными зданиями — полоска прочности, над генератором щита — запас; над своими зданиями, к которым не подъехать грузовикам, — «въезд запрещён».
 
 local economy = require("lib/economy")
+local supply = require("lib/supply")
 local noise = require("lib/noise").of
 
 local power = {}
@@ -26,6 +27,11 @@ power.data = {
 	icon = 0.75,
 	iconPeriod = 1,
 	iconShown = 0.7,
+	-- Значок над юнитом: насколько выше его края, в тайлах (UNIT_ICON_GAP); запас на исходе — бледный значок такой
+	-- непрозрачности (LOW_ALPHA), с какой доли магазина (LOW_SHARE = AMMO_REORDER).
+	unitGap = 0.45,
+	lowAlpha = 0.5,
+	lowShare = 0.25,
 	-- Полоса прочности: высота и промежуток в пикселях экрана, отступ над крышей в тайлах (STATUS_BAR, STATUS_STACK,
 	-- STATUS_GAP).
 	bar = 3,
@@ -122,6 +128,38 @@ function power.update(c)
 			end
 		end
 	end
+	-- Свои юниты с пустым магазином — значок боеприпасов, как над турелью без них, на исходе — он же бледный. Магазин
+	-- видит только хозяин.
+	if supply.enabled(c) then
+		local ammo = c.protos.goods.ammo
+		for _, e in c:each({ "Magazine", "Unit", "Position" }) do
+			if not c:mine(e) then
+				continue
+			end
+			local kind = c:proto(e)
+			local capacity = if kind then supply.magazineOf(kind) else 0
+			if capacity == 0 then
+				continue
+			end
+			local empty = supply.isEmpty(c, e)
+			if if empty then not iconOn else supply.ammoOf(c, e) >= capacity * d.lowShare then
+				continue
+			end
+			local at = c:get(e, "Position")
+			if at.x < x1 - 2 or at.x > x2 + 2 or at.y < y1 - 2 or at.y > y2 + 2 then
+				continue
+			end
+			local y = at.y - c:get(e, "Mover").radius - d.unitGap
+			power.lack(c, ammo, at.x, y, if empty then 1 else d.lowAlpha)
+		end
+	end
+end
+
+-- Значок нехватки груза kind в (x, y) — тёмный круг в красном кольце и груз в нём (drawLack), непрозрачностью alpha.
+function power.lack(c, kind, x: number, y: number, alpha: number)
+	local size = power.data.icon
+	c.draw:sprite(c.protos.sprites.alarm, c.protos.sprites.alarm.data.lack, x, y, size, nil, alpha)
+	c.draw:sprite(kind, 0, x, y, size * 10 / 16, nil, alpha)
 end
 
 return power

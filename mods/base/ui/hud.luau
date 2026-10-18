@@ -9,6 +9,7 @@ local construction = require("lib/construction")
 local kinds = require("lib/kinds")
 local economy = require("lib/economy")
 local goods = require("lib/goods")
+local supply = require("lib/supply")
 local logistics = require("lib/logistics")
 local research = require("lib/research")
 local tactics = require("lib/tactics")
@@ -76,7 +77,8 @@ local KEY_NAMES = { "t", "y", "u", "i", "g", "h", "j", "k", "b", "n", "m", "," }
 local function number(value: number): string
 	local rounded = math.round(value * 100) / 100
 	if rounded == math.floor(rounded) then
-		return tostring(math.floor(rounded))
+		-- + 0: отрицательный ноль — просто ноль.
+		return tostring(math.floor(rounded) + 0)
 	end
 	return (string.gsub(string.format("%.2f", rounded), "0+$", ""))
 end
@@ -141,6 +143,16 @@ local function goodWith(c, good: string, amount: number?, size: number?, of: num
 			ui:text(tostring(math.floor(amount)) .. (if of then "/" .. math.floor(of) else ""))
 		end
 	end)
+end
+
+-- Запас груза и что с ним (hint в bar.ts): «Название: значок есть/из» строкой, пояснение — абзацем под ней.
+local function stockHint(c, label: string, good: string, have: number, capacity: number, note: string, tone: string, width: number)
+	local ui = c.ui
+	ui:box({ direction = "row", align = "center", gap = 6, width = width }, function()
+		ui:text(label .. ":", { color = tone })
+		goodWith(c, good, have, 20, capacity)
+	end)
+	ui:text(note, { color = tone, wrap = width })
 end
 
 -- Груз списком значков: что лежит, по порядку грузов.
@@ -778,6 +790,36 @@ local function info(c, selection, width: number, height: number)
 				end)
 				ui:tip("info:stats", stats.text(unitKind))
 			end
+			-- Боеприпасы своих выбранных юнитов с магазинами: сколько в среднем осталось (army.ammo в hud.ts).
+			if supply.enabled(c) then
+				local magazines, filled = 0, 0
+				for _, e in selection do
+					local unit = c:has(e, "Unit") and c:mine(e) and c:proto(e)
+					local capacity = if unit then supply.magazineOf(unit) else 0
+					if capacity > 0 then
+						magazines += 1
+						filled += math.min(1, supply.ammoOf(c, e) / capacity)
+					end
+				end
+				if magazines > 0 and filled / magazines < 1 then
+					ui:text("Боеприпасы: " .. percent(filled / magazines) .. ". Магазины пополняются в своей сети из хранилищ и у машины снабжения, авиация — над аэродромом", { color = COLORS.soft, wrap = text })
+				end
+			end
+			-- Машины снабжения: что в отсеках и на какой радиус раздают.
+			local bays, bayCapacity, serves = 0, 0, nil
+			for _, e in selection do
+				local unit = c:has(e, "Unit") and c:mine(e) and c:proto(e)
+				local stock = unit and unit.data.supplies and c:get(e, "Inventory")
+				if stock then
+					bays += math.floor(goods.amount(stock, "ammo"))
+					bayCapacity += stock.capacity
+					serves = unit.data.supplies
+				end
+			end
+			if serves then
+				local tone = if bays <= 0 then COLORS.warn else COLORS.soft
+				stockHint(c, "Боеприпасы", "ammo", bays, bayCapacity, if bays <= 0 then "Пусто: ждёт грузовики, хранилища сети или станцию поставки" else "Раздаёт своим в радиусе " .. serves.radius .. " тайлов; потратит четверть — грузовики привезут в поле, в сети грузится из хранилищ, у станции поставки — вчетверо быстрее", tone, text)
+			end
 			if site then
 				local progress = math.min(1, site.progress / site.total)
 				local label
@@ -863,6 +905,11 @@ local function info(c, selection, width: number, height: number)
 					job = "Работа: сам — возит то, что заказывают здания. Правый щелчок по зданию — приказ"
 				end
 				ui:text(job, { color = COLORS.soft, wrap = text })
+			elseif stock and built and kind.data.ammo then
+				-- У турели на складе только боеприпасы.
+				local have = math.floor(goods.amount(stock, "ammo"))
+				local tone = if have <= 0 then COLORS.warn else COLORS.soft
+				stockHint(c, "Боеприпасы", "ammo", have, stock.capacity, if have <= 0 then "Пусто: турель молчит, пока не подвезут" else "Расстреляет четверть — грузовики подвезут из хранилищ зоны", tone, text)
 			elseif stock and built then
 				ui:box({ direction = "row", align = "center", gap = 6, width = text }, function()
 					ui:text((if kind.data.stores then "Хранилище" else "Склад") .. ":")
@@ -876,11 +923,7 @@ local function info(c, selection, width: number, height: number)
 				local have = math.floor(goods.amount(stock, burns.good))
 				local burning = economy.burning(c, first)
 				local tone = if have <= 0 and not burning then COLORS.warn else COLORS.soft
-				ui:box({ direction = "row", align = "center", gap = 6, width = text, wrap = true }, function()
-					ui:text("Стержни:", { color = tone })
-					goodWith(c, burns.good, have, 20, stock.capacity)
-					ui:text(if burning then ". Стержень горит минуту; грузовики подвозят новые из хранилищ зоны" else " — стержня в работе нет, реактор не вырабатывает", { color = tone, wrap = text - 90 })
-				end)
+				stockHint(c, "Стержни", burns.good, have, stock.capacity, if burning then "Стержень горит минуту; грузовики подвозят новые из хранилищ зоны" else "Стержня в работе нет: реактор не вырабатывает", tone, text)
 			end
 			if built and kind.data.extract then
 				local deposit = logistics.depositUnder(c, first)

@@ -5,6 +5,7 @@
 -- картинка. Массивы цветов — с нуля, как в TS.
 
 local goods = require("lib/goods")
+local supply = require("lib/supply")
 
 local units = {}
 
@@ -782,9 +783,14 @@ function units.entity(kind, protos)
 		-- Пехоту не чинят, зато она понемногу поправляется сама (INFANTRY_REGEN).
 		Health = { hp = data.hp, repairable = not infantry, regen = if infantry then units.INFANTRY_REGEN else 0 },
 	}
-	-- Своё оружие — у корпуса; выстрел вылетает с края юнита.
+	-- Своё оружие — у корпуса; выстрел вылетает с края юнита и стоит доли магазина.
 	if data.weapon then
-		entity.Armed = { weapon = data.weapon, turn = data.turn, radius = data.radius }
+		local weapon = protos.weapons[data.weapon]
+		entity.Armed = { weapon = data.weapon, turn = data.turn, radius = data.radius, cost = if weapon then supply.shotCost(kind, protos, weapon) else 0 }
+	end
+	-- Магазин полон с завода (lib/supply); пуст — когда меньше самого дешёвого выстрела.
+	if data.ammo then
+		entity.Magazine = { ammo = data.ammo, least = supply.cheapest(kind, protos) }
 	end
 	-- Строитель: строит, разбирает и чинит в радиусе data.repair (mechanics/construction).
 	if data.repair then

@@ -406,6 +406,46 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 			need(e, feed, room, logistics.PRIORITY.ammo, "zone", true)
 		end
 	end
+	-- Машины снабжения: боеприпасы, когда израсходована четверть склада, — грузовики везут их в поле. Стоящая в сети,
+	-- где боеприпасы есть, грузится из хранилищ сама (mechanics/supply), и грузовик к ней не гонят.
+	for _, e in w:each({ "Unit", "Inventory", "Owner", "Position" }) do
+		if w:get(e, "Owner").player ~= player or not dataOf(w, e).supplies then
+			continue
+		end
+		local stock = w:get(e, "Inventory")
+		local room = goods.room(stock, "ammo")
+		if room < stock.capacity * logistics.AMMO_REORDER then
+			continue
+		end
+		local at = w:get(e, "Position")
+		local served = false
+		for _, network in w:networks() do
+			if network.player ~= player or served then
+				continue
+			end
+			local circles = network.circles
+			local inside = false
+			for k = 1, #circles, 3 do
+				if (at.x - circles[k]) ^ 2 + (at.y - circles[k + 1]) ^ 2 <= circles[k + 2] ^ 2 then
+					inside = true
+					break
+				end
+			end
+			if inside then
+				for _, member in network.members do
+					if table.find(logistics.offers(w, member), "ammo") and logistics.given(w, member, "ammo") >= logistics.MIN_JOB then
+						served = true
+						break
+					end
+				end
+				-- Ищут в первой сети, в кругах которой машина (find в TS).
+				break
+			end
+		end
+		if not served then
+			need(e, "ammo", room, logistics.PRIORITY.ammo, "zone", true)
+		end
+	end
 	table.sort(requests, function(a, b)
 		return a.priority > b.priority
 	end)
@@ -496,6 +536,11 @@ function logistics.accepts(w, player: number, to: number, good: string): boolean
 	if w:has(to, "Site") then
 		local owner = w:get(to, "Owner")
 		return owner ~= nil and owner.player == player and (logistics.materials(w, to) or {})[good] ~= nil
+	end
+	-- Машина снабжения принимает груз своих отсеков где угодно: к ней едут в поле.
+	if w:has(to, "Unit") then
+		local owner = w:get(to, "Owner")
+		return owner ~= nil and owner.player == player and dataOf(w, to).supplies ~= nil
 	end
 	if not logistics.isReady(w, player, to) or w:has(to, "Converting") then
 		return false

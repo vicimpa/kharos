@@ -215,6 +215,14 @@ function buildings.entity(kind, protos)
 	if data.produces then
 		entity.Producer = {}
 	end
+	-- Турели здания стреляют со склада (data.ammo): магазин движка — тот же запас, его ведёт mechanics/supply.
+	if data.ammo then
+		entity.Magazine = {}
+	end
+	-- Транспортный луч здания: станция поставки грузит им машины снабжения.
+	if data.beam then
+		entity.Beam = { radius = data.beam.radius, rate = data.beam.rate, give = data.beam.give == true, take = data.beam.take == true }
+	end
 	-- Генератор щита держит купол (mechanics/shields): пробитый гаснет на SHIELD_DOWN секунд.
 	if data.shield then
 		entity.Shield = { radius = data.shield.radius, recover = buildings.SHIELD_DOWN }
