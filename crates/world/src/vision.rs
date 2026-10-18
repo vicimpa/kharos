@@ -3,10 +3,12 @@
 //! виден, если его середина в круге). Сколько видит вид — решает мод в своём `entity`. Пересчёт — раз в TICKS тиков.
 
 use crate::world::World;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Раз во сколько тиков пересчитывается обзор.
 pub const TICKS: u64 = 4;
+/// Сторона ячейки видимого (`seenCells` в vision.ts): по ним память сверяет только то, что игрок видит.
+pub const CELL: i32 = 16;
 
 /// Прямоугольник карты в тайлах: [left, right) × [top, bottom).
 #[derive(Clone, Copy, Debug)]
@@ -39,11 +41,13 @@ pub struct Vision {
   pub cells: BTreeMap<u32, Vec<u8>>,
   /// Растёт, когда у игрока поменялось видимое: клиенту — перерисовать туман.
   pub changed: BTreeMap<u32, u64>,
+  /// Ячейки CELL, где игрок видит хоть один тайл.
+  pub visible: BTreeMap<u32, BTreeSet<(i32, i32)>>,
 }
 
 impl Vision {
   pub fn new(bounds: Bounds, fog: bool) -> Self {
-    Self { bounds, fog, cells: BTreeMap::new(), changed: BTreeMap::new() }
+    Self { bounds, fog, cells: BTreeMap::new(), changed: BTreeMap::new(), visible: BTreeMap::new() }
   }
 
   fn index(&self, x: i32, y: i32) -> Option<usize> {
@@ -55,6 +59,7 @@ impl Vision {
     let (Some(sight), Some(owner), Some(position)) = (world.schema.id("Sight"), world.schema.id("Owner"), world.schema.id("Position")) else { return };
     let size = (self.bounds.width() * self.bounds.height()).max(0) as usize;
     let mut fresh: BTreeMap<u32, Vec<u8>> = BTreeMap::new();
+    let mut visible: BTreeMap<u32, BTreeSet<(i32, i32)>> = BTreeMap::new();
     let store = &world.stores[sight];
     for (row, &entity) in store.entities.iter().enumerate() {
       let radius = store.nums[0][row];
@@ -64,6 +69,7 @@ impl Vision {
       }
       let player = player as u32;
       let cells = fresh.entry(player).or_insert_with(|| self.cells.get(&player).map_or_else(|| vec![0; size], |old| old.iter().map(|&cell| cell.min(1)).collect()));
+      let seen = visible.entry(player).or_default();
       let reach = radius * radius;
       let bounds = self.bounds;
       let from_y = bounds.top.max((y - radius).floor() as i32);
@@ -73,6 +79,11 @@ impl Vision {
         let span = (reach - dy * dy).max(0.0).sqrt();
         let from_x = bounds.left.max((x - span).floor() as i32);
         let to_x = (bounds.right - 1).min((x + span).floor() as i32);
+        for cell_x in from_x.div_euclid(CELL)..=to_x.div_euclid(CELL) {
+          if from_x <= to_x {
+            seen.insert((cell_x, tile_y.div_euclid(CELL)));
+          }
+        }
         for tile_x in from_x..=to_x {
           cells[((tile_y - bounds.top) * bounds.width() + tile_x - bounds.left) as usize] = 2;
         }
@@ -82,6 +93,7 @@ impl Vision {
     for (player, old) in &self.cells {
       fresh.entry(*player).or_insert_with(|| old.iter().map(|&cell| cell.min(1)).collect());
     }
+    self.visible = visible;
     for (player, cells) in fresh {
       if self.cells.get(&player) != Some(&cells) {
         *self.changed.entry(player).or_insert(0) += 1;

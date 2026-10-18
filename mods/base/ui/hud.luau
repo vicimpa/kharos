@@ -1674,21 +1674,38 @@ local function minimapView(c, side: number)
 	ui:box({ id = "minimap", width = side, height = side, skin = "well", padding = 4, clip = true }, function()
 		ui:box({ direction = "stack", width = inner, height = inner, background = "#05090f" }, function()
 			ui:image("minimap", inner, inner)
-			-- Разведанные месторождения — цветом своего ресурса.
-			for _, e in c:each({ "Deposit", "Position" }) do
-				local p = c:get(e, "Position")
-				local kind = c:proto(e)
-				if c:explored(p.x, p.y) and kind and kind.data.color then
-					local x, y = at(p.x, p.y)
+			-- Месторождения — цветом своего ресурса: видимые и запомненные.
+			local function deposit(px: number, py: number, kind)
+				if kind and kind.data.color then
+					local x, y = at(px, py)
 					ui:box({ self = { "start", "start" }, padding = { math.floor(y - dot / 2), 0, 0, math.floor(x - dot / 2) } }, function()
 						ui:box({ width = dot, height = dot, background = kind.data.color })
 					end)
 				end
 			end
+			for _, e in c:each({ "Deposit", "Position" }) do
+				if c:visible(e) then
+					local p = c:get(e, "Position")
+					deposit(p.x, p.y, c:proto(e))
+				end
+			end
+			-- Чужие здания в тумане — какими их видели (призраки памяти).
+			local ghosts = c:ghosts()
+			for _, ghost in ghosts do
+				if ghost.parts.Deposit then
+					deposit(ghost.x, ghost.y, ghost.kind)
+				elseif ghost.parts.Building then
+					local owner = ghost.parts.Owner and ghost.parts.Owner.player or 0
+					local x, y = at(ghost.x, ghost.y)
+					local w, h = math.max(dot, ghost.width * scale), math.max(dot, ghost.height * scale)
+					ui:box({ self = { "start", "start" }, padding = { math.floor(y - h / 2), 0, 0, math.floor(x - w / 2) } }, function()
+						ui:box({ width = w, height = h, background = if owner == 0 then SIDE_COLORS.neutral else SIDE_COLORS.foe })
+					end)
+				end
+			end
 			for _, e in c:each({ "Owner", "Position" }) do
 				local building = c:get(e, "Building")
-				local p0 = c:get(e, "Position")
-				if (building or c:has(e, "Unit")) and (c:mine(e) or c:sees(p0.x, p0.y)) then
+				if (building or c:has(e, "Unit")) and c:visible(e) then
 					local owner = c:get(e, "Owner").player
 					local color = if owner == c.player then SIDE_COLORS.own elseif owner == 0 then SIDE_COLORS.neutral else SIDE_COLORS.foe
 					local p = c:get(e, "Position")

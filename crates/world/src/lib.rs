@@ -3,6 +3,7 @@
 
 pub mod combat;
 pub mod host;
+pub mod memory;
 pub mod motion;
 pub mod networks;
 pub mod schema;

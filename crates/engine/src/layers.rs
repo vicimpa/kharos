@@ -86,6 +86,8 @@ pub struct LayerSpec {
   pub remember: bool,
   /// Слой игрока, который читают и союзники.
   pub allies: bool,
+  /// Запоминаемого слоя: канал, где хозяин тайла, — своё и союзное игрок знает, не видя.
+  pub owner: Option<usize>,
 }
 
 /// Строка layers.json как она записана.
@@ -108,6 +110,8 @@ struct RawSpec {
   remember: bool,
   #[serde(default)]
   allies: bool,
+  #[serde(default)]
+  owner: Option<usize>,
   #[serde(default)]
   #[allow(dead_code)]
   about: String,
@@ -142,7 +146,10 @@ impl LayerSpec {
       if raw.allies && raw.scope != Scope::Player {
         return Err(format!("{name}: союзникам открывают только слой игрока"));
       }
-      specs.push(LayerSpec { name, scope: raw.scope, shape, save: raw.save, send: raw.send, remember: raw.remember, allies: raw.allies });
+      if raw.owner.is_some() && !raw.remember {
+        return Err(format!("{name}: хозяин тайла — только у запоминаемого слоя"));
+      }
+      specs.push(LayerSpec { name, scope: raw.scope, shape, save: raw.save, send: raw.send, remember: raw.remember, allies: raw.allies, owner: raw.owner });
     }
     Ok(specs)
   }

@@ -63,6 +63,8 @@ pub struct Game {
   drift: [f32; 2],
   /// С какой правкой обзора нарисован туман.
   fog_seen: Option<u64>,
+  /// Как была показана чужая запоминаемая сущность, когда её видели последний раз: так рисуется её призрак.
+  ghost_dress: HashMap<Entity, crate::script::Dress>,
 }
 
 /// Путь сущности: где её нарисовали в прошлый раз, сколько прошла и когда видели.
@@ -252,7 +254,7 @@ impl Game {
 
     let (land, minimap) = land_of(&client, &game_table, &state)?;
 
-    Ok(Self { host, client, state, ctx, ctx_data, camera, panels, controls, atmosphere, effects, sounds, music, signals, looks, look_of, atlas: Some(atlas), land, minimap, audio, walked: HashMap::new(), drift: [0.0; 2], fog_seen: None, bar: 0, next_bar: 0.0, accumulator: 0.0, last: None, pending, palette })
+    Ok(Self { host, client, state, ctx, ctx_data, camera, panels, controls, atmosphere, effects, sounds, music, signals, looks, look_of, atlas: Some(atlas), land, minimap, audio, walked: HashMap::new(), drift: [0.0; 2], fog_seen: None, ghost_dress: HashMap::new(), bar: 0, next_bar: 0.0, accumulator: 0.0, last: None, pending, palette })
   }
 
   /// Новый мир той же партии с новыми настройками (`c.app:reset`): хост — заново, а клиентская машина, её панели и
@@ -505,6 +507,7 @@ impl Game {
     let schema = &world.world.schema;
     let (Some(position), Some(proto), Some(owner)) = (schema.id("Position"), schema.id("Proto"), schema.id("Owner")) else { return Ok(frame) };
     let attached = schema.id("Attached");
+    let memorable = schema.id("Memorable");
     let bounds = view.bounds(7.0);
     let snap = |value: f32| (value * TEXELS).round() / TEXELS;
     let lights = true;
@@ -525,10 +528,15 @@ impl Game {
       }
       let look = &self.looks[index];
       // Чужое вне обзора не видно: хост TS его и не прислал бы.
+      // Чужое запоминаемое (Memorable) не в обзоре — призраком ниже, каким его видели.
       let player_of = world.world.num(entity, owner, "player").unwrap_or(0.0) as u32;
+      let remembers = memorable.is_some_and(|id| world.world.has(entity, id));
       let hidden = |vision: &kharos_world::vision::Vision| if look.memory { !vision.explored(state.player, x as f64, y as f64) } else { !vision.sees(state.player, x as f64, y as f64) };
-      if player_of != state.player && world.vision.as_ref().is_some_and(hidden) {
+      if player_of != state.player && if remembers { !world.shows(state.player, entity) } else { world.vision.as_ref().is_some_and(hidden) } {
         continue;
+      }
+      if remembers && player_of != state.player {
+        self.ghost_dress.insert(entity, state.dressed.get(&entity).copied().unwrap_or_default());
       }
       // Турель — слоем выше своего носителя.
       let parent = attached.and_then(|id| world.world.num(entity, id, "parent")).filter(|&parent| parent >= 1.0);
@@ -608,6 +616,44 @@ impl Game {
         frame.spots.extend_from_slice(&[x + lx, y + ly, size * 16.0, level]);
         frame.blooms.extend_from_slice(&[x + lx, y + ly, size * 3.0 + 2.0, level]);
       }
+    }
+    // Призраки: чужое запоминаемое в тумане — каким его видели последний раз (memory.rs), без огней.
+    let ghosts = world.ghosts(state.player);
+    if ghosts.len() < self.ghost_dress.len() / 2 {
+      let known: std::collections::HashSet<Entity> = ghosts.iter().map(|(entity, _)| *entity).collect();
+      let shown = |entity: &Entity| known.contains(entity) || world.world.alive(*entity);
+      self.ghost_dress.retain(|entity, _| shown(entity));
+    }
+    for (entity, record) in &ghosts {
+      let (x, y) = (record.x as f32, record.y as f32);
+      if x < bounds[0] || x > bounds[2] || y < bounds[1] || y > bounds[3] {
+        continue;
+      }
+      let Some(&index) = record.num("Proto", "id").and_then(|id| self.look_of.get(&(id as u32))) else { continue };
+      let look = &self.looks[index];
+      let dress = self.ghost_dress.get(entity).copied().unwrap_or_default();
+      let (team, grey) = match record.num("Owner", "player").map(|player| player as u32) {
+        None => (3.0, 0.0),
+        Some(0) => (3.0, 1.0),
+        Some(player) if player == state.player => (0.0, 0.0),
+        Some(_) => (1.0, 0.0),
+      };
+      let angle = record.num("Facing", "angle").unwrap_or(0.0);
+      let cell = match dress.variant {
+        Some(variant) => variant.min(look.directions - 1),
+        None => look.cell(angle, 0),
+      };
+      let [w, h] = look.tiles();
+      let sprite = [x + look.offset[0] - view.x, y + look.offset[1] - view.y, w, h, team, look.shadow[0], look.shadow[1], grey];
+      let bottom = y + look.offset[1] + h;
+      if dress.built < 1.0 {
+        for piece in revealed(sprite, look.cells[cell], dress.built) {
+          sorted.push((look.layer as usize, bottom, piece));
+        }
+        continue;
+      }
+      let tint = if dress.off { SWITCHED_OFF } else { WHOLE };
+      sorted.push((look.layer as usize, bottom, instance(sprite, look.cells[cell], tint)));
     }
     // Облики вне сущностей (c:show): в своём слое по нижнему краю, призраки — поверх зданий.
     for shown in &state.shown {

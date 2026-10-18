@@ -275,7 +275,7 @@ impl ClientState {
     for &entity in &world.stores[position].entities {
       let Some([ex, ey, _]) = self.pose(entity) else { continue };
       let foreign = owner.and_then(|id| world.num(entity, id, "player")).is_some_and(|player| player as u32 != self.player);
-      if foreign && state.vision.as_ref().is_some_and(|vision| !vision.sees(self.player, ex, ey)) {
+      if foreign && !state.shows(self.player, entity) {
         continue;
       }
       let (dx, dy) = (x - ex, y - ey);
@@ -773,7 +773,7 @@ impl UserData for Ctx {
       let world = state.world.borrow();
       let id = kharos_world::tiles::id(&world.layers, &name)?;
       let channel = kharos_world::tiles::channel(&world.layers, id, channel)?;
-      Ok(world.layers.get(id, kharos_engine::layers::Owner::World, x.floor() as i32, y.floor() as i32, channel))
+      Ok(world.known_layer(state.player, id, x.floor() as i32, y.floor() as i32, channel))
     });
     methods.add_method("layer_in", |_, c, (name, x, y, width, height, channel): (String, f64, f64, f64, f64, Option<usize>)| {
       let state = c.state.borrow();
@@ -781,7 +781,40 @@ impl UserData for Ctx {
       let id = kharos_world::tiles::id(&world.layers, &name)?;
       let channel = kharos_world::tiles::channel(&world.layers, id, channel)?;
       let (left, top) = (x.floor() as i32, y.floor() as i32);
-      Ok(kharos_world::tiles::within(&world.layers, id, channel, left, top, left + width.ceil() as i32, top + height.ceil() as i32))
+      Ok(world.known_layer_within(state.player, id, channel, left, top, left + width.ceil() as i32, top + height.ceil() as i32))
+    });
+    // Видит ли свой игрок сущность живой: своё — всегда, чужое запоминаемое (Memorable) — пока его место в обзоре,
+    // остальное — пока виден тайл под ним.
+    methods.add_method("visible", |_, c, e: f64| {
+      let state = c.state.borrow();
+      let world = state.world.borrow();
+      Ok(world.shows(state.player, entity(e)?))
+    });
+    // Что свой игрок помнит в тумане (memory.rs): { id, x, y, width, height, kind (вид, как c:proto), parts —
+    // компоненты, какими их видели }; с прямоугольником — только те, чья середина в нём.
+    methods.add_method("ghosts", |lua, c, (x1, y1, x2, y2): (Option<f64>, Option<f64>, Option<f64>, Option<f64>)| {
+      let state = c.state.borrow();
+      let world = state.world.borrow();
+      let list = lua.create_table();
+      for (e, record) in world.ghosts(state.player) {
+        if let (Some(x1), Some(y1), Some(x2), Some(y2)) = (x1, y1, x2, y2) {
+          if record.x < x1 || record.x > x2 || record.y < y1 || record.y > y2 {
+            continue;
+          }
+        }
+        let ghost = lua.create_table();
+        ghost.set("id", e as f64)?;
+        ghost.set("x", record.x)?;
+        ghost.set("y", record.y)?;
+        ghost.set("width", record.width)?;
+        ghost.set("height", record.height)?;
+        if let Some(proto) = record.num("Proto", "id").and_then(|proto| state.protos.get(proto as usize)) {
+          ghost.set("kind", proto.clone())?;
+        }
+        ghost.set("parts", kharos_content::vm::to_lua(lua, &Json::Object(record.parts.clone()))?)?;
+        list.push(ghost)?;
+      }
+      Ok(list)
     });
     // Случайное число 0..1 от координат и сида — тот же hash, что у генератора местности и погоды в TS.
     methods.add_function("hash", |_, (x, y, seed): (f64, f64, f64)| Ok(kharos_engine::terrain::hash(x, y, seed)));

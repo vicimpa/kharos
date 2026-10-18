@@ -14,6 +14,6 @@ return {
 		rate = 0.5,
 		biomes = { erg = 0.02, saltFlats = 0.14, redWastes = 0.02, marsh = 0.02 },
 	},
-	entity = { Position = {}, Deposit = {} },
+	entity = { Position = {}, Deposit = {}, Memorable = { width = deposits.SIZE, height = deposits.SIZE } },
 	look = deposits.look("lithium"),
 }

@@ -190,6 +190,8 @@ function buildings.entity(kind, protos)
 		Building = { width = data.width, height = data.height },
 		-- Стена и закрытые ворота останавливают выстрелы (isWall).
 		Footprint = { width = data.width, height = data.height, wall = kind.name == "wall" or kind.name == "gate" },
+		-- Чужое здание в тумане игрок помнит таким, каким видел (buildMemory.ts).
+		Memorable = { width = data.width, height = data.height },
 		Sight = { radius = buildings.sight(kind, protos) },
 		-- Прочность без своей — от цены (buildingHp).
 		Health = { hp = data.hp or data.cost * buildings.HP_PER_COST },

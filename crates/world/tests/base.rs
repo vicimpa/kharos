@@ -1712,3 +1712,62 @@ fn builders_lay_road_and_foundation_that_speed_units_and_take_them_up_again() {
   assert!((0..5).all(|i| layer(&host, "paving", x + i, y, 0) == 0.0 && layer(&host, "paving", x + i, y + 1, 0) == 0.0), "разобрано");
   assert!((credits(&host) - before - 5.0).abs() < 1e-9, "за готовое покрытие не возвращают");
 }
+
+/// Ставит все глаза игрока в (x, y).
+fn eyes_to(host: &Host, player: f64, x: f64, y: f64) {
+  let eyes: Vec<u32> = all(host, "Sight").into_iter().map(|(entity, _)| entity).filter(|&entity| get(host, entity, "Owner").is_some_and(|owner| owner["player"].as_f64() == Some(player))).collect();
+  for eye in eyes {
+    set(host, eye, "Position", json!({ "x": x, "y": y }));
+  }
+}
+
+#[test]
+fn foreign_buildings_and_paving_are_remembered_as_last_seen() {
+  let mut host = self::host();
+  host.join(2).unwrap();
+  let (core, (cx, cy)) = deployed(&mut host);
+  let (x, y) = place(&host, core);
+  // Второй игрок видит главное здание первого, отходит — оно у него призраком.
+  eyes_to(&host, 2.0, x, y);
+  ticks(&mut host, 8);
+  assert!(host.state.borrow().memory.sees(2, core));
+  eyes_to(&host, 2.0, x + 60.0, y);
+  ticks(&mut host, 8);
+  {
+    let state = host.state.borrow();
+    assert!(!state.memory.sees(2, core) && !state.shows(2, core));
+    assert!(state.memory.remembered(2, core).is_some_and(|record| record.x == x && record.y == y));
+    assert!(state.memory.remembered(1, core).is_none(), "своё не помнят");
+  }
+  // Дорога первого вдали от второго: свой знает сразу, чужой — нет.
+  {
+    let mut state = host.state.borrow_mut();
+    let paving = state.layers.id("paving").unwrap();
+    state.layers.set(paving, kharos_engine::layers::Owner::World, cx, cy - 3, 0, 2.0);
+    state.layers.set(paving, kharos_engine::layers::Owner::World, cx, cy - 3, 1, 1.0);
+    state.memory.touch(paving, cx, cy - 3);
+  }
+  ticks(&mut host, 4);
+  {
+    let state = host.state.borrow();
+    let paving = state.layers.id("paving").unwrap();
+    assert_eq!(state.known_layer(1, paving, cx, cy - 3, 0), 2.0);
+    assert_eq!(state.known_layer(2, paving, cx, cy - 3, 0), 0.0);
+  }
+  // Сохранение уносит память.
+  let snapshot = host.snapshot().unwrap();
+  let mut copy = self::host();
+  copy.join(2).unwrap();
+  copy.restore(&snapshot).unwrap();
+  assert!(copy.state.borrow().memory.remembered(2, core).is_some());
+  // Снесли в тумане — помнит; увидел пустое место — забыл. Увидел и дорогу.
+  host.state.borrow_mut().world.destroy(core);
+  ticks(&mut host, 8);
+  assert!(host.state.borrow().memory.remembered(2, core).is_some(), "снесённое в тумане");
+  eyes_to(&host, 2.0, x, y);
+  ticks(&mut host, 8);
+  let state = host.state.borrow();
+  assert!(state.memory.remembered(2, core).is_none(), "место в обзоре");
+  let paving = state.layers.id("paving").unwrap();
+  assert_eq!(state.known_layer(2, paving, cx, cy - 3, 1), 1.0, "увидел дорогу");
+}

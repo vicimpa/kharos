@@ -14,6 +14,6 @@ return {
 		rate = 0.3,
 		biomes = { erg = 0.34, saltFlats = 0.08, redWastes = 0.08, marsh = 0.08 },
 	},
-	entity = { Position = {}, Deposit = {} },
+	entity = { Position = {}, Deposit = {}, Memorable = { width = deposits.SIZE, height = deposits.SIZE } },
 	look = deposits.look("kharite"),
 }
