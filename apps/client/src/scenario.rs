@@ -3,7 +3,8 @@
 //!   kharos --scenario путь.luau [--show] [--fps 60] [--lang ru] [--timeout 600] [--size 1280x800] [--scale 1] [--no-ui]
 //!
 //! `--size` — кадр такого размера в логических пикселях в своём буфере, а не в окне (любой, хоть 540x960), `--scale`
-//! — физических пикселей на логический; `--no-ui` — мир без интерфейса (он считается, щелчки по нему работают).
+//! — физических пикселей на логический; `--no-ui` — мир без интерфейса (он считается, щелчки по нему работают);
+//! `--record файл.mp4` — видео всего прогона (нужен ffmpeg), из сценария — `s:record(файл)` и `s:stop()`.
 //!
 //! Время игры — номер кадра ÷ fps, а не часы: прогон не зависит от скорости машины и повторяется кадр в кадр. Окно
 //! невидимо (`--show` — видно), настройки и сохранения — во временной папке, звука нет. Код выхода — итог: 0 — сценарий
@@ -30,6 +31,8 @@ pub struct Options {
   pub size: Option<[u32; 2]>,
   pub scale: f32,
   pub ui: bool,
+  /// Видео всего прогона.
+  pub record: Option<String>,
 }
 
 /// Режим сценария, если он задан флагом `--scenario`.
@@ -46,6 +49,7 @@ pub fn options() -> Option<Options> {
     size: value("--size").and_then(|size| size.split_once('x').and_then(|(w, h)| Some([w.trim().parse().ok()?, h.trim().parse().ok()?]))),
     scale: value("--scale").and_then(|scale| scale.parse().ok()).unwrap_or(1.0),
     ui: !args.iter().any(|arg| arg == "--no-ui"),
+    record: value("--record"),
   })
 }
 
@@ -92,6 +96,9 @@ function s:ui_click(what, button)
 end
 -- Рисовать ли интерфейс (считается он всё равно).
 function s:ui(on) ask({ op = "ui", on = on ~= false }) end
+-- Видео с этого кадра до s:stop() или конца сценария (нужен ffmpeg).
+function s:record(path) ask({ op = "record", path = path }) end
+function s:stop() ask({ op = "stop" }) end
 -- Снимок кадра в PNG — после того, как кадр нарисован.
 function s:shot(path) ask({ op = "shot", path = path }) end
 function s:log(...) print("сценарий:", ...) end
@@ -136,6 +143,9 @@ pub struct Scenario {
   /// Что вернуть сценарию, когда он пойдёт дальше.
   reply: Option<Json>,
   shots: Vec<String>,
+  /// Запись: какую начать после кадра (размер кадра известен только тогда) и идущая.
+  record: Option<String>,
+  recorder: Option<crate::record::Recorder>,
   /// Таблица файла сценария в машинах клиента и хоста партии номер generation.
   loaded: Option<(u64, Option<Table>, Option<Table>)>,
   started: bool,
@@ -159,7 +169,7 @@ impl Scenario {
     let file: Table = lua.load(source.as_str()).set_name(format!("={}", options.path)).eval().map_err(lua_error(&options.path))?;
     let run: Function = file.get("run").map_err(|_| format!("{}: нет run(s)", options.path))?;
     let thread = lua.create_thread(run).map_err(lua_error("сопрограмма"))?;
-    Ok(Self { lua, thread, s, source, name, fps: options.fps, timeout: options.timeout, lang: options.lang.clone(), ui: options.ui, size: options.size, scale: options.scale, frame: 0, actions: Vec::new(), wait: None, reply: None, shots: Vec::new(), loaded: None, started: false, begun: false, reported: false, done: None })
+    Ok(Self { lua, thread, s, source, name, fps: options.fps, timeout: options.timeout, lang: options.lang.clone(), ui: options.ui, size: options.size, scale: options.scale, frame: 0, actions: Vec::new(), wait: None, reply: None, shots: Vec::new(), record: options.record.clone(), recorder: None, loaded: None, started: false, begun: false, reported: false, done: None })
   }
 
   /// Время игры этого кадра.
@@ -205,17 +215,48 @@ impl Scenario {
     self.actions.retain(|(at, _)| *at > frame);
   }
 
-  /// Итог — один раз, когда он есть.
+  /// Итог — один раз, когда он есть; идущая запись дописывается.
   pub fn report(&mut self) -> Option<Result<(), String>> {
-    let done = self.done.take()?;
+    let mut done = self.done.take()?;
     self.reported = true;
+    if let Err(error) = self.stop_recording() {
+      done = done.and(Err(error));
+    }
     Some(done)
   }
 
-  /// После кадра: снимки этого кадра.
+  fn stop_recording(&mut self) -> Result<(), String> {
+    match self.recorder.take() {
+      Some(recorder) => {
+        let frames = recorder.frames;
+        recorder.finish(None)?;
+        eprintln!("сценарий: записано {frames} кадров ({:.1} с)", frames as f64 / self.fps);
+        Ok(())
+      }
+      None => Ok(()),
+    }
+  }
+
+  /// После кадра: снимки и запись этого кадра.
   pub fn after(&mut self, app: &App, size: [u32; 2]) {
     for path in self.shots.drain(..) {
       app.shot(&path, size);
+    }
+    // Запись — с кадров партии: экран до неё (меню под загрузкой) не нужен.
+    if app.game().is_some() && self.started {
+      if let Some(path) = self.record.take() {
+        match crate::record::Recorder::start(&path, size, self.fps, false) {
+          Ok(recorder) => self.recorder = Some(recorder),
+          Err(error) => self.done = Some(Err(error)),
+        }
+      }
+      if let Some(recorder) = &mut self.recorder {
+        if recorder.size() != size {
+          self.done = Some(Err("размер кадра сменился посреди записи".into()));
+        } else if let Err(error) = recorder.frame(&app.pixels(size)) {
+          self.done = Some(Err(error));
+        }
+      }
     }
     self.frame += 1;
   }
@@ -337,6 +378,16 @@ impl Scenario {
       }
       "ui" => {
         app.show_ui = request["on"].as_bool().unwrap_or(true);
+        Ok(false)
+      }
+      "record" => {
+        self.stop_recording()?;
+        self.record = Some(request["path"].as_str().ok_or("s:record: нет пути")?.to_string());
+        Ok(false)
+      }
+      "stop" => {
+        self.record = None;
+        self.stop_recording()?;
         Ok(false)
       }
       "shot" => {

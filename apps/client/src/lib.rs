@@ -15,6 +15,8 @@ mod loading;
 mod render;
 mod saves;
 #[cfg(not(target_arch = "wasm32"))]
+mod record;
+#[cfg(not(target_arch = "wasm32"))]
 mod scenario;
 mod script;
 mod store;
