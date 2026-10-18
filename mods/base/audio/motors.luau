@@ -2,7 +2,8 @@
 -- Моторы техники — перенос packages/client/src/game/motors.ts. Каждая машина — своя езда (lib/drive): заводится
 -- стартером, разгоняется по передачам, едет, сбрасывает газ, тормозит, стоит на холостых и глохнет. Ближайшие VOICES
 -- машин слышны каждая своим голосом, со своей стороны и со своими оборотами; остальные — общим голосом толпы своего
--- мотора. Мотор и тон юнита — data.motor и data.pitch его вида.
+-- мотора. Мотор и тон юнита — data.motor и data.pitch его вида. Свою машину выбрали — она заводится и, пока выбрана,
+-- не глохнет; глохнет только простояв.
 
 local drive = require("lib/drive")
 local motorSounds = require("sounds/motors")
@@ -96,6 +97,10 @@ return {
 		local seen = {}
 		local heard = {}
 		local tick = c.tick
+		local selected = {}
+		for _, e in c.shared.selection or {} do
+			selected[e] = c:mine(e)
+		end
 		for _, e in c:each({ "Unit", "Position", "Facing" }) do
 			local kind = c:proto(e)
 			local name = kind and kind.data and kind.data.motor
@@ -120,8 +125,14 @@ return {
 			end
 			measure(car, at.x, at.y, facing, tick, seconds)
 			local motor = MOTORS[name]
-			local happened = drive.step(car.drive, motor, HANDLINGS[name], motorSounds.START_CRANK, car.target, seconds)
 			local loudness = LOUDNESS[name] * near
+			-- Только что выбрали — заводится.
+			local held = selected[e] == true
+			if held and not car.held and drive.wake(car.drive, motor) then
+				event(c, "start", motor.start, loudness * START_VOLUME, side)
+			end
+			car.held = held
+			local happened = drive.step(car.drive, motor, HANDLINGS[name], motorSounds.START_CRANK, car.target, seconds, held)
 			if happened == "start" and motor.start then
 				event(c, "start", motor.start, loudness * START_VOLUME, side)
 			end

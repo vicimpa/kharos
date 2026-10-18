@@ -1,8 +1,9 @@
 --!strict
 -- Езда машины для звука — перенос packages/client/src/game/drive.ts. Хост двигает юнит сразу на полной скорости и
 -- останавливает разом, а мотор так не умеет: здесь у машины своя скорость, которая догоняет настоящую, — с ней звучат
--- разгон по передачам, ровный ход, сброс газа и остановка. Постояв на холостых, мотор глохнет; тронувшись снова,
--- заводится стартером. Летающие не глохнут.
+-- разгон по передачам, ровный ход, сброс газа и остановка. Постояв на холостых, мотор глохнет; выбранную машину
+-- заводят заранее (wake), а тронувшись заглохшей, она заводится стартером, но звук езды есть сразу. Летающие не
+-- глохнут.
 
 local drive = {}
 
@@ -35,9 +36,28 @@ local function follow(value: number, target: number, seconds: number, lag: numbe
 	return value + (target - value) * (1 - math.exp(-seconds / lag))
 end
 
--- Шаг езды на seconds: target — с какой долей полной скорости юнит едет на самом деле. Возвращает "start" или
--- "brake", если это случилось.
-function drive.step(d, motor, handling, crank: { [string]: number }, target: number, seconds: number): string?
+-- Завести заглушенную машину заранее — её выбрали: стартер крутит, и мотор встаёт на холостые. true — завелась
+-- сейчас (звучит стартер).
+function drive.wake(d, motor): boolean
+	if not motor.start or d.phase ~= "off" then
+		return false
+	end
+	d.phase = "crank"
+	d.timer = 0
+	return true
+end
+
+-- Мотор схватил: с перегазовкой.
+local function catch(d)
+	d.phase = "run"
+	d.timer = 0
+	d.rpm = 0.6
+	d.throttle = 1
+end
+
+-- Шаг езды на seconds: target — с какой долей полной скорости юнит едет на самом деле; hold — не глохнуть (машину
+-- держат выбранной). Возвращает "start" или "brake", если это случилось.
+function drive.step(d, motor, handling, crank: { [string]: number }, target: number, seconds: number, hold: boolean?): string?
 	local event = nil
 	local air = not motor.start
 	local moving = target > STILL
@@ -49,19 +69,15 @@ function drive.step(d, motor, handling, crank: { [string]: number }, target: num
 		if not moving then
 			return nil
 		end
-		d.phase = "crank"
-		d.timer = 0
+		-- Машина уже едет: стартер звучит, но мотор схватывает сразу — езда без молчания.
+		catch(d)
 		event = "start"
-	end
-	if d.phase == "crank" then
-		-- Пока крутит стартер, машина для звука ещё стоит: тронется, когда мотор схватит, — с перегазовкой.
-		if d.timer < crank[motor.start] then
-			return event
+	elseif d.phase == "crank" then
+		-- Стартер докрутит, а тронулась — мотор схватывает сразу.
+		if not moving and d.timer < crank[motor.start] then
+			return nil
 		end
-		d.phase = "run"
-		d.timer = 0
-		d.rpm = 0.6
-		d.throttle = 1
+		catch(d)
 	end
 
 	local before = d.speed
@@ -115,7 +131,7 @@ function drive.step(d, motor, handling, crank: { [string]: number }, target: num
 	d.throttle = follow(d.throttle, throttle, seconds, THROTTLE_LAG)
 
 	if not air then
-		if moving or d.speed > STILL then
+		if moving or d.speed > STILL or hold then
 			d.timer = 0
 		elseif d.timer >= drive.IDLE_HOLD then
 			d.phase = "off"
