@@ -517,7 +517,8 @@ fn restored(lua: &Lua, value: &Json) -> Result<Value, Error> {
   Ok(match value {
     Json::Null => Value::Nil,
     Json::Bool(flag) => Value::Boolean(*flag),
-    Json::Number(number) => match number.as_i64() {
+    // Целое Luau — разрядности платформы (на wasm32 — 32 бита): большее — числом.
+    Json::Number(number) => match number.as_i64().and_then(|integer| mlua::Integer::try_from(integer).ok()) {
       Some(integer) => Value::Integer(integer),
       None => Value::Number(number.as_f64().unwrap_or(0.0)),
     },

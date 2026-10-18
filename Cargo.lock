@@ -1627,6 +1627,7 @@ name = "kharos-client"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "cc",
  "fontdue",
  "glow",
  "glutin",

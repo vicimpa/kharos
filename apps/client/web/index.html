@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>Kharos</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #08111c; overflow: hidden; }
+    canvas { display: block; width: 100vw; height: 100vh; outline: none; touch-action: none; }
+    #status { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: #9bb9d1; font: 16px monospace; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" tabindex="0"></canvas>
+  <div id="status">Загрузка…</div>
+  <script>
+    var Module = {
+      canvas: document.getElementById('canvas'),
+      print: (text) => console.log(text),
+      printErr: (text) => console.warn(text),
+      setStatus: (text) => { const status = document.getElementById('status'); if (status) status.textContent = text },
+      onRuntimeInitialized: () => { document.getElementById('status').remove() },
+    }
+  </script>
+  <script src="mods.js"></script>
+  <script src="kharos.js"></script>
+</body>
+</html>

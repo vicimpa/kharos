@@ -38,6 +38,8 @@ struct Loaded(HashMap<String, mlua::RegistryKey>);
 /// `SIDE` — "host" или "client": общий код вида может спросить, где он.
 pub fn new_vm(side: Side, sources: Sources) -> mlua::Result<Lua> {
   let lua = Lua::new();
+  // Машинного кода под wasm нет: там Luau только толкует байт-код.
+  #[cfg(not(target_arch = "wasm32"))]
   lua.enable_jit(true);
   lua.set_compiler(mlua::chunk::Compiler::new().set_optimization_level(2).set_type_info_level(1));
   lua.set_app_data(sources);

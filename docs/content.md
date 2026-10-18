@@ -266,6 +266,11 @@ base/
       `mlua` с Luau собирается под wasm только через Emscripten, а клиент — под `wasm32-unknown-unknown`. Варианты —
       Luau из `src/mods/luau.wasm` (Emscripten) за мостом JS с той же схемой столбцов, весь клиент под Emscripten или
       Luau под `wasm32-unknown-unknown` с libc из wasi-sdk.
+      **[2026-10-18]** Браузер: весь клиент — под Emscripten (`tools/web/build.sh`, раздаёт `tools/web/serve.sh`).
+      Luau собирается с исключениями wasm, а Rust их умеет на nightly (`-Zemscripten-wasm-eh`, `-Zbuild-std`); JIT —
+      только на нативе. Оболочка — `apps/client/src/web.rs` (холст, WebGL 2 через `web/glue.c`, события страницы из
+      `web/shell.js`), моды — пакетом `mods.data`, настройки и сохранения — IndexedDB. Звука в браузере пока нет
+      (`audio_silent.rs`): Web Audio браузера — следующий шаг. 4,1 МБ wasm без сжатия.
 - [ ] К5. **Замер пилота**: система Luau над 10 тыс. сущностей, загрузка мода, размер бандла клиента. По нему —
       решение, что ещё отдать движку.
 - [ ] К6. (План переноса по шагам — `docs/port.md`.) **Перевод контента** по разделам: ходовые, юниты, здания, экономика, стройка, логистика, бой, торговля,

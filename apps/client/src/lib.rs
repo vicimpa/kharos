@@ -4,6 +4,7 @@
 //! KHAROS_MODS — папки с модами через `:` (по умолчанию `mods` рядом или выше по дереву), KHAROS_GAME — партия.
 
 pub mod atlas;
+#[cfg_attr(target_arch = "wasm32", path = "audio_silent.rs")]
 mod audio;
 mod game;
 mod gl;
@@ -14,6 +15,8 @@ mod saves;
 mod script;
 #[cfg(not(target_arch = "wasm32"))]
 mod shell;
+#[cfg(target_os = "emscripten")]
+pub mod web;
 mod ui;
 
 use game::Game;
@@ -199,4 +202,9 @@ impl App {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run() {
   shell::run();
+}
+
+#[cfg(target_os = "emscripten")]
+pub fn run() {
+  web::run();
 }

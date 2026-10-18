@@ -8,6 +8,10 @@ license = "MPL-2.0"
 description = "Моды Kharos: Luau, разделы, виды, два прохода загрузки"
 
 [dependencies]
-mlua = { version = "0.12", features = ["luau", "luau-jit", "serde"] }
+mlua = { version = "0.12", features = ["luau", "serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+
+# JIT Luau — только на нативе: под Emscripten (браузер) его нет.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+mlua = { version = "0.12", features = ["luau", "luau-jit", "serde"] }
