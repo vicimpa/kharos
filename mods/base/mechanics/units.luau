@@ -6,7 +6,7 @@ return {
 	components = {
 		-- Метка юнита.
 		Unit = {},
-		-- Здание: размер в тайлах, место — центр.
-		Building = { width = 1, height = 1 },
+		-- Здание: размер в тайлах, место — центр; level — уровень, с единицы (lib/levels).
+		Building = { width = 1, height = 1, level = 1 },
 	},
 }

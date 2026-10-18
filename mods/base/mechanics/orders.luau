@@ -93,10 +93,11 @@ orders.commands = {
 			ctx:emit(name, event)
 		end
 		if ctx:sees(player, x, y) then
-			-- Работа для строителей: стройка, разбор или своё повреждённое — здание или юнит.
+			-- Работа для строителей: стройка, разбор, своё повреждённое — здание или юнит — или улучшаемое здание.
 			local planned = construction.siteAt(ctx, x, y)
 			local broken = unitNear(ctx, player, args.x, args.y, true) or ctx:occupant(x, y)
-			local site = planned or (if broken and construction.canRepair(ctx, player, broken) then broken else nil)
+			local fixable = broken and (construction.canRepair(ctx, player, broken) or ctx:has(broken, "Upgrade"))
+			local site = planned or (if fixable then broken else nil)
 			local builders = false
 			for _, e in units do
 				builders = builders or ctx:has(e, "Repair")

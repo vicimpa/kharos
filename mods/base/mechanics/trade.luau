@@ -59,7 +59,7 @@ mechanic.commands = {
 		if wanted < 1 or not wallet.pay(ctx, player, wanted * trade.buyPrice(ctx, resource)) then
 			return
 		end
-		local ticks = trade.flightTicks(ctx, trade.BUY_SECONDS)
+		local ticks = trade.flightTicks(ctx, port, trade.BUY_SECONDS)
 		ctx:add(port, "Trade", { resource = resource, wanted = wanted, left = ticks, total = ticks, buy = true })
 	end,
 
@@ -123,7 +123,7 @@ mechanic.systems = {
 					end
 					ctx:signal("paid", { player = player, x = at.x, y = at.y })
 				elseif trade.delivered(ctx, port) >= order.wanted - 1e-9 then
-					local ticks = trade.flightTicks(ctx, trade.SELL_SECONDS)
+					local ticks = trade.flightTicks(ctx, port, trade.SELL_SECONDS)
 					ctx:set(port, "Trade", { left = ticks, total = ticks })
 					local at = ctx:get(port, "Position")
 					ctx:signal("launched", { player = player, x = at.x, y = at.y })

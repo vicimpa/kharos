@@ -20,6 +20,7 @@ local alertsLib = require("lib/alerts")
 local missiles = require("lib/missiles")
 local stepsLib = require("lib/steps")
 local depositsLib = require("lib/deposits")
+local levels = require("lib/levels")
 
 local clockOf = widgets.clock
 local COLORS, shadow = widgets.COLORS, widgets.shadow
@@ -42,6 +43,8 @@ local GRID_KEYS = { "T", "Y", "U", "I", "G", "H", "J", "K", "B", "N", "M", "," }
 -- Постоянные места сетки: превращение, отмена, разбор и «Назад» (CONVERT, CANCEL, DEMOLISH, BACK в commands.ts);
 -- выключатель — на месте «Назад» (SWITCH).
 local CONVERT, CANCEL, DEMOLISH, BACK = 9, 10, 11, 12
+-- Улучшение здания: конец второго ряда корня — у зданий, которые улучшают, списков там нет (UPGRADE).
+local UPGRADE = 8
 local SWITCH = BACK
 -- Названия инструментов протяжки: стена и ворота — как здание (toolName).
 local TOOL_NAMES = { pipe = "Труба", well = "Колодцы" }
@@ -662,6 +665,50 @@ local function scuttleSlots(c, selection): { any }?
 	return list
 end
 
+-- Уровень выбранных своих готовых зданий, которые улучшают (level в hud.ts): level, gain и factor — первого из них;
+-- next — заказ следующего уровня всем, кого можно поднять сейчас: цена вместе и чего не хватает; raising — те, что уже
+-- поднимают, и как идёт работа у первого из них. nil — таких зданий не выбрано.
+local function levelState(c, selection)
+	local state = nil
+	local materials = {}
+	for _, e in selection do
+		local kind = kinds.of(c, e)
+		local gain = kind and logistics.isReady(c, c.player, e) and levels.gain(kind)
+		if not gain then
+			continue
+		end
+		local level = levels.of(c, e)
+		state = state or { level = level, gain = gain, factor = levels.factor(level) }
+		local upgrade = c:get(e, "Upgrade")
+		if upgrade then
+			if not state.raising then
+				local ticks = construction.workTicks(levels.cost(kind, level, upgrade.scale).credits, c.step)
+				state.raising = { buildings = {}, progress = math.min(1, upgrade.progress / math.max(1, ticks)) }
+			end
+			table.insert(state.raising.buildings, e)
+		elseif levels.upgradable(c, c.player, e) then
+			local price = levels.cost(kind, level, levels.scale(c))
+			state.next = state.next or { buildings = {}, level = level + 1, factor = levels.factor(level + 1), cost = 0, topic = levels.topic(level) }
+			table.insert(state.next.buildings, e)
+			state.next.cost += price.credits
+			for good, amount in price.materials do
+				materials[good] = (materials[good] or 0) + amount
+			end
+			local lack = levels.lack(c, c.player, e)
+			if lack == "research" or (lack == "materials" and not state.next.lack) then
+				state.next.lack = lack
+			end
+		end
+	end
+	if state and state.next then
+		state.next.materials = materials
+		if credits(c) < state.next.cost and state.next.lack ~= "research" then
+			state.next.lack = "credits"
+		end
+	end
+	return state
+end
+
 local function slots(c, selection)
 	local confirm = scuttleSlots(c, selection)
 	if confirm then
@@ -854,6 +901,42 @@ local function slots(c, selection)
 		market.port = -1
 	end
 	local root = page.name == "root" and (not trading or market.page == "root")
+	-- Свои готовые здания, которые улучшают: следующий уровень или отмена начатого (level в commands.ts).
+	local raise = root and #buildersOf(c, selection) == 0 and levelState(c, selection)
+	local upcoming = raise and raise.next
+	if upcoming then
+		local topic = research.topic(c, upcoming.topic)
+		list[UPGRADE] = {
+			label = "Уровень " .. upcoming.level,
+			picture = c:proto(upcoming.buildings[1]),
+			cost = upcoming.cost,
+			materials = upcoming.materials,
+			c = c,
+			stock = (logistics.stockOf(c, c.player)),
+			short = upcoming.lack == "credits",
+			disabled = upcoming.lack ~= nil,
+			title = if upcoming.lack == "research" then "Нужно исследование: " .. (if topic then topic.data.title else upcoming.topic)
+				elseif upcoming.lack == "credits" then "Не хватает кредитов"
+				elseif upcoming.lack then "В зоне здания не хватает готового на улучшение"
+				else "Поднять уровень: " .. levels.GAINS[raise.gain] .. " ×" .. number(upcoming.factor) .. ". Цена списывается сразу, готовое берётся из сети здания; работу делают строители, здание при этом работает",
+			run = function()
+				for _, e in upcoming.buildings do
+					c:send("upgrade", { building = e, builders = {} })
+				end
+			end,
+		}
+	elseif raise and raise.raising then
+		local raising = raise.raising.buildings
+		list[UPGRADE] = {
+			label = "Отменить",
+			title = "Отменить улучшение: его цена вернётся целиком",
+			run = function()
+				for _, e in raising do
+					c:send("cancelUpgrade", { building = e })
+				end
+			end,
+		}
+	end
 	-- Своя стройка: отменить её или разбор; отменённую уже разбирают — передумать нельзя.
 	local site = #selection == 1 and c:mine(selection[1]) and c:get(selection[1], "Site")
 	if site and not site.undo then
@@ -870,7 +953,7 @@ local function slots(c, selection)
 	for _, e in selection do
 		if construction.canDemolish(c, c.player, e) then
 			table.insert(demolish, e)
-			refund += construction.refundOf(kinds.of(c, e)) + construction.prepaidOf(c, e)
+			refund += construction.refundOf(kinds.of(c, e), levels.of(c, e)) + construction.prepaidOf(c, e)
 		end
 	end
 	-- Свои готовые потребители — включить или выключить все разом (switchable): горит, если хоть один включён.
@@ -1268,6 +1351,15 @@ local function info(c, selection, width: number, height: number)
 				local burning = economy.burning(c, first)
 				local tone = if have <= 0 and not burning then COLORS.warn else COLORS.soft
 				stockHint(c, "Стержни", burns.good, have, stock.capacity, if burning then "Стержень горит минуту; грузовики подвозят новые из хранилищ зоны" else "Стержня в работе нет: реактор не вырабатывает", tone, text)
+			end
+			-- Уровень здания и как идёт улучшение.
+			local raise = built and levelState(c, selection)
+			if raise then
+				ui:text(if raise.level > 1 then "Уровень " .. raise.level .. " из " .. levels.MAX_LEVEL .. ": " .. levels.GAINS[raise.gain] .. " ×" .. number(raise.factor) else "Уровень " .. raise.level .. " из " .. levels.MAX_LEVEL, { color = COLORS.soft, wrap = text })
+				if raise.raising then
+					local progress = raise.raising.progress
+					widgets.bar(ui, progress, if progress > 0 then "Улучшается — готово " .. percent(progress) else "Улучшение ждёт строителя: выбери его и щёлкни по зданию правой кнопкой", text)
+				end
 			end
 			-- Ракетная шахта: сборка боеголовки, готова, пуск.
 			local silo = built and c:mine(first) and kind.data.warhead and c:get(first, "Silo")

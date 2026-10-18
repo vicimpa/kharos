@@ -7,6 +7,7 @@
 -- Пока нет: реакторов (стержни горят с В8 — до тех пор реактор энергии не даёт), уровней зданий (улучшения), дохода игроку не в сети (сетевой хост).
 
 local kinds = require("lib/kinds")
+local levels = require("lib/levels")
 
 local economy = {}
 
@@ -81,12 +82,14 @@ function economy.burning(w, e: number): boolean
 end
 
 -- Сколько энергии даёт (больше нуля) или просит (меньше) здание (powerAt). Реактор — только пока горит стержень.
+-- Выработка растёт с уровнем; у радара — потребление: дальше разведывает — больше ест.
 function economy.powerAt(w, e: number, kind): number
 	local data = kind.data
 	if data.burns then
 		return if economy.burning(w, e) then data.power or 0 else 0
 	end
-	return data.power or 0
+	local power = data.power or 0
+	return if power > 0 or data.scan then power * levels.factorOf(w, e) else power
 end
 
 -- Приносит ли вид доход только при главном здании в сети: все доходные, кроме самого главного (needsCore).

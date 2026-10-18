@@ -5,11 +5,12 @@
 -- разведанным, и месторождения на нём игрок знает. Место вспышки радар берёт там, где ещё не разведано, а когда
 -- разведано всё — где придётся: так он сначала открывает округу, а потом сторожит её. При нехватке энергии вспышки
 -- реже, а если её меньше power от нужного — радар и постоянно видит не дальше обычного здания (Scan.dark); без энергии
--- вовсе и выключенный радар не разведывает. Уровней зданий пока нет: радиус — как у первого.
+-- вовсе и выключенный радар не разведывает. Радиус растёт с уровнем радара (lib/levels).
 
 local buildings = require("lib/buildings")
 local economy = require("lib/economy")
 local kinds = require("lib/kinds")
+local levels = require("lib/levels")
 
 local readf64 = buffer.readf64
 
@@ -56,7 +57,8 @@ mechanic.systems = {
 				local at = i * 8
 				local entity = readf64(q.entity, at)
 				local kind = kinds.of(ctx, entity)
-				local radius = kind and kind.data.scan or 0
+				-- Радиус растёт с уровнем радара, и потребление с ним (lib/economy, powerAt).
+				local radius = (kind and kind.data.scan or 0) * levels.factorOf(ctx, entity)
 				if radius == 0 or ctx:has(entity, "Site") then
 					continue
 				end

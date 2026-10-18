@@ -12,7 +12,10 @@
 -- Привезённое на отменённую стройку и лежавшее на складе разобранного здания остаётся на земле (lib/drops); стройка
 -- давит брошенный под ней груз.
 --
--- Пока нет: покрытия и землеройных работ, улучшений зданий.
+-- Улучшение здания (Upgrade, mechanics/upgrades) — тоже работа строителей: оплачено сразу и ничего не ждёт;
+-- повреждённое сначала чинят, станция его не делает.
+--
+-- Пока нет: покрытия и землеройных работ.
 
 local construction = require("lib/construction")
 local placement = require("lib/placement")
@@ -25,6 +28,7 @@ local buildings = require("lib/buildings")
 local economy = require("lib/economy")
 local logistics = require("lib/logistics")
 local drops = require("lib/drops")
+local levels = require("lib/levels")
 
 local readf64, writef64 = buffer.readf64, buffer.writef64
 
@@ -93,8 +97,24 @@ end
 
 type Work = { x: number, y: number, width: number, height: number, radius: number, cost: number }
 
--- Над чем здесь работают: стройка, разбор или починка; nil — работы нет (workAt). Прямоугольник основания в тайлах;
--- у юнита — точка в его центре и радиус.
+-- Улучшение, над которым здесь сейчас работают (upgradeAt): его компонент, цена в кредитах и сколько тиков работы
+-- одного строителя оно стоит. Повреждённое здание сначала чинят, а здание под разбором не улучшают: тогда улучшения в
+-- работе нет.
+local function upgradeAt(ctx, e: number)
+	local upgrade = ctx:get(e, "Upgrade")
+	if not upgrade or ctx:has(e, "Site") or not ctx:has(e, "Building") or construction.isRepairable(ctx, e) then
+		return nil
+	end
+	local kind = kinds.of(ctx, e)
+	if not kind then
+		return nil
+	end
+	local cost = levels.cost(kind, levels.of(ctx, e), upgrade.scale).credits
+	return { upgrade = upgrade, cost = cost, ticks = construction.workTicks(cost, ctx.dt) }
+end
+
+-- Над чем здесь работают: стройка, разбор, починка или улучшение; nil — работы нет (workAt). Прямоугольник основания
+-- в тайлах; у юнита — точка в его центре и радиус.
 local function workAt(ctx, e: number): Work?
 	if not ctx:alive(e) then
 		return nil
@@ -104,7 +124,8 @@ local function workAt(ctx, e: number): Work?
 		return nil
 	end
 	local site = ctx:has(e, "Site")
-	if not site and not construction.isRepairable(ctx, e) then
+	local raised = not site and upgradeAt(ctx, e)
+	if not site and not raised and not construction.isRepairable(ctx, e) then
 		return nil
 	end
 	local mover = ctx:get(e, "Mover")
@@ -117,7 +138,7 @@ local function workAt(ctx, e: number): Work?
 	end
 	local size = ctx:get(e, "Building")
 	local x, y = construction.corner(ctx, e)
-	return { x = x, y = y, width = size.width, height = size.height, radius = 0, cost = kind.data.cost }
+	return { x = x, y = y, width = size.width, height = size.height, radius = 0, cost = if raised then raised.cost else kind.data.cost }
 end
 
 -- Расстояние от точки до края работы; внутри основания — ноль.
@@ -256,8 +277,11 @@ end
 local isBusy = queue.busyBuilder
 
 -- Стоит ли работа, хотя ремонтник до неё дотянулся: стройка вне зоны или с юнитами на ещё пустой площадке, починка —
--- без кредитов (isStalled).
+-- без кредитов (isStalled). Улучшение оплачено сразу и ничего не ждёт.
 local function isStalled(ctx, e: number, rules, purse, all): boolean
+	if upgradeAt(ctx, e) then
+		return false
+	end
 	local site = ctx:get(e, "Site")
 	if not site then
 		return rules.repairCost > 0 and wallet.balance(purse, ownerOf(ctx, e)) <= 0
@@ -331,6 +355,12 @@ local function repairLinks(ctx, rules, purse, all): { Link }
 			table.insert(targets, { entity = e, work = work, player = ownerOf(ctx, e), demolish = ctx:get(e, "Site").demolish })
 		end
 	end
+	for _, e in ctx:each({ "Upgrade", "Position", "Owner" }) do
+		local work = upgradeAt(ctx, e) and workAt(ctx, e)
+		if work then
+			table.insert(targets, { entity = e, work = work, player = ownerOf(ctx, e), demolish = false, upgrade = true })
+		end
+	end
 	for _, e in ctx:each({ "Health", "Position", "Owner" }) do
 		local health = ctx:get(e, "Health")
 		-- По кому сейчас бьют, не чинят: посланный строитель постоит рядом и возьмётся, когда бой стихнет.
@@ -358,8 +388,8 @@ local function repairLinks(ctx, rules, purse, all): { Link }
 			if target.player ~= repairer.player or target.entity == repairer.carrier then
 				continue
 			end
-			-- Станция только чинит: стройки и разбор — работа строителя.
-			if repairer.station and ctx:has(target.entity, "Site") then
+			-- Станция только чинит: стройки, разбор и улучшение — работа строителя.
+			if repairer.station and (target.upgrade or ctx:has(target.entity, "Site")) then
 				continue
 			end
 			if target.ordered and repairer.site ~= target.entity then
@@ -439,6 +469,12 @@ local function volunteer(ctx, rules, all)
 		if work then
 			local site = ctx:get(e, "Site")
 			table.insert(sites, { entity = e, work = work, player = ownerOf(ctx, e), kind = if site.demolish then nil else kinds.of(ctx, e) })
+		end
+	end
+	for _, e in ctx:each({ "Upgrade", "Position", "Owner" }) do
+		local work = upgradeAt(ctx, e) and workAt(ctx, e)
+		if work then
+			table.insert(sites, { entity = e, work = work, player = ownerOf(ctx, e) })
 		end
 	end
 	for _, e in ctx:each({ "Health", "Position", "Owner" }) do
@@ -744,6 +780,8 @@ mechanic.commands = {
 		if type(building) ~= "number" or not ctx:alive(building) or not construction.canDemolish(ctx, player, building) then
 			return
 		end
+		-- Недоделанное улучшение разбор отменяет: его цена возвращается целиком.
+		levels.cancel(ctx, player, building)
 		local total = construction.siteTicks(kinds.of(ctx, building), ctx.dt)
 		ctx:add(building, "Site", { progress = total, total = total, demolish = true })
 		ctx:remove(building, "Link")
@@ -852,6 +890,20 @@ mechanic.systems = {
 				local kind = kinds.of(ctx, e)
 				local site = ctx:get(e, "Site")
 				local player = ownerOf(ctx, e)
+				local raised = not site and upgradeAt(ctx, e)
+				if raised then
+					-- Улучшение: работа копится, пока не наберётся вся; тогда здание на уровень выше.
+					local progress = raised.upgrade.progress + count
+					if progress < raised.ticks then
+						ctx:set(e, "Upgrade", { progress = progress })
+						continue
+					end
+					local level = levels.of(ctx, e) + 1
+					ctx:remove(e, "Upgrade")
+					ctx:set(e, "Building", { level = level })
+					levels.apply(ctx, e, level)
+					continue
+				end
 				if not site then
 					-- Починка идёт быстрее стройки и оплачивается по мере работы; кончились кредиты — стоит.
 					local health = ctx:get(e, "Health")
@@ -879,7 +931,7 @@ mechanic.systems = {
 					end
 					if not site.undo then
 						-- Оплаченное вперёд — очередь юнитов — возвращается целиком, как при отмене.
-						wallet.add(purse, player, construction.refundOf(kind) + construction.prepaidOf(ctx, e))
+						wallet.add(purse, player, construction.refundOf(kind, levels.of(ctx, e)) + construction.prepaidOf(ctx, e))
 					end
 					-- Что лежало на складе здания или стройки, остаётся на земле.
 					drops.cargo(ctx, e)

@@ -21,6 +21,7 @@ local kinds = require("lib/kinds")
 local beams = require("lib/beam")
 local queue = require("lib/queue")
 local drops = require("lib/drops")
+local levels = require("lib/levels")
 local beamFor, reaches, transfer = beams.beamFor, beams.reaches, beams.transfer
 
 local mechanic = {}
@@ -592,7 +593,7 @@ mechanic.systems = {
 					continue
 				end
 				local product = goods.resourceOf(ctx, ore)
-				local wanted = math.min(d.refineRate * ctx.dt * economy.shareOf(ctx, e), has)
+				local wanted = math.min(d.refineRate * levels.factorOf(ctx, e) * ctx.dt * economy.shareOf(ctx, e), has)
 				local taken = math.min(wanted, goods.room(stock, product) * d.refineRatio)
 				if taken > EPSILON then
 					goods.put(stock, product, goods.take(stock, ore, taken) / d.refineRatio)
@@ -617,7 +618,8 @@ mechanic.systems = {
 					beam.links = {}
 				end
 			end
-			-- Шахты добывают руду в свой склад, пока там есть место; что и как быстро — решает месторождение.
+			-- Шахты добывают руду в свой склад, пока там есть место; что и как быстро — решает месторождение, а скорость
+			-- растёт с уровнем шахты.
 			for _, mine in ctx:each({ "Building", "Inventory" }) do
 				local kind = kinds.of(ctx, mine)
 				if not kind or not kind.data.extract or ctx:has(mine, "Site") then
@@ -630,7 +632,7 @@ mechanic.systems = {
 				end
 				local stock = w:get(mine, "Inventory")
 				local spot = ctx:get(deposit, "Deposit")
-				local rate = kinds.of(ctx, deposit).data.rate
+				local rate = kinds.of(ctx, deposit).data.rate * levels.factorOf(ctx, mine)
 				local taken = math.min(rate * ctx.dt, goods.room(stock, ore), spot.reserve)
 				if taken > 0 then
 					goods.put(stock, ore, taken)

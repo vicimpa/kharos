@@ -88,8 +88,13 @@ end
 -- Руда, которую находит открытие месторождения: её значок и рисуется на теме.
 local FOUND = { metal = "metalOre", silicon = "siliconOre", fuel = "fuelOre", kharite = "khariteOre", lithium = "lithiumOre", uranium = "uraniumOre" }
 
--- Значок темы: находка — руда, научный метод — лаборатория, иначе — первое, что тема открывает (iconOf).
+-- Значок темы: находка — руда, уровни зданий — свой значок, научный метод — лаборатория, иначе — первое, что тема
+-- открывает (iconOf).
 local function iconOf(c, view)
+	local icon = c.protos.icons[view.topic]
+	if icon then
+		return icon
+	end
 	if view.trigger and FOUND[view.trigger] then
 		return c.protos.goods[FOUND[view.trigger]]
 	end

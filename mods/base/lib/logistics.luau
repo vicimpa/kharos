@@ -602,14 +602,34 @@ function logistics.accepts(w, player: number, to: number, good: string): boolean
 	return dataOf(w, to).refines == good or logistics.feedOf(dataOf(w, to)) == good
 end
 
--- Склады сети здания по порядку: сначала хранилища (sourcesOf в upgrades.ts).
-local function sourcesOf(w, e: number): { number }
+-- Склады сети здания по порядку: сначала хранилища (sourcesOf в upgrades.ts). wide — вся его энергосеть (сети труб,
+-- слитые касанием зон), своя сеть первой: так берут на уровни зданий — электростанции труба ни к чему.
+local function sourcesOf(w, e: number, wide: boolean?): { number }
 	local network = logistics.networkOf(w, e)
 	local list = table.clone(if network then network.members else {})
+	local own = {}
+	for _, member in list do
+		own[member] = true
+	end
+	if wide then
+		for _, grid in w:grids() do
+			if table.find(grid.members, e) then
+				for _, member in grid.members do
+					if not own[member] then
+						table.insert(list, member)
+					end
+				end
+				break
+			end
+		end
+	end
 	table.sort(list, function(a, b)
 		local one, two = logistics.isStore(w, a), logistics.isStore(w, b)
 		if one ~= two then
 			return one
+		end
+		if own[a] ~= own[b] then
+			return own[a] == true
 		end
 		return a < b
 	end)
@@ -617,9 +637,10 @@ local function sourcesOf(w, e: number): { number }
 end
 
 -- Сколько груза сеть здания может отдать на его нужды сразу: что отдают склады сети по заявкам (networkStock).
-function logistics.networkStock(w, e: number, good: string): number
+-- wide — склады всей энергосети здания.
+function logistics.networkStock(w, e: number, good: string, wide: boolean?): number
 	local amount = 0
-	for _, source in sourcesOf(w, e) do
+	for _, source in sourcesOf(w, e, wide) do
 		if table.find(logistics.offers(w, source), good) then
 			amount += logistics.given(w, source, good)
 		end
@@ -628,9 +649,9 @@ function logistics.networkStock(w, e: number, good: string): number
 end
 
 -- Хватает ли в сети здания готового на эту цену (networkHas): недостачу меньше погрешности прощают, как стройке.
-function logistics.networkHas(w, e: number, materials: { [string]: number }): boolean
+function logistics.networkHas(w, e: number, materials: { [string]: number }, wide: boolean?): boolean
 	for good, amount in materials do
-		if logistics.networkStock(w, e, good) < amount - 1e-6 then
+		if logistics.networkStock(w, e, good, wide) < amount - 1e-6 then
 			return false
 		end
 	end
@@ -638,9 +659,9 @@ function logistics.networkHas(w, e: number, materials: { [string]: number }): bo
 end
 
 -- Забирает готовое со складов сети здания, сначала из хранилищ (takeFromNetwork). w — книга (goods.book): склады
--- меняются на месте.
-function logistics.takeFromNetwork(w, e: number, materials: { [string]: number })
-	local sources = sourcesOf(w, e)
+-- меняются на месте. wide — со складов всей энергосети здания.
+function logistics.takeFromNetwork(w, e: number, materials: { [string]: number }, wide: boolean?)
+	local sources = sourcesOf(w, e, wide)
 	for good, amount in materials do
 		local left = amount
 		for _, source in sources do
@@ -654,10 +675,11 @@ function logistics.takeFromNetwork(w, e: number, materials: { [string]: number }
 	end
 end
 
--- Возвращает готовое в хранилища сети здания (returnToNetwork). Чему там нет места, ложится на землю у здания.
-function logistics.returnToNetwork(w, e: number, materials: { [string]: number })
+-- Возвращает готовое в хранилища сети здания (returnToNetwork), wide — всей его энергосети. Чему там нет места,
+-- ложится на землю у здания.
+function logistics.returnToNetwork(w, e: number, materials: { [string]: number }, wide: boolean?)
 	local stores = {}
-	for _, source in sourcesOf(w, e) do
+	for _, source in sourcesOf(w, e, wide) do
 		if logistics.isStore(w, source) then
 			table.insert(stores, source)
 		end

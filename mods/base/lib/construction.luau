@@ -9,6 +9,7 @@ local kinds = require("lib/kinds")
 local conversion = require("lib/conversion")
 local depositsLib = require("lib/deposits")
 local trade = require("lib/trade")
+local levels = require("lib/levels")
 
 local construction = {}
 
@@ -374,9 +375,9 @@ function construction.progress(w, e: number): number
 	return math.min(1, site.progress / site.total)
 end
 
--- Сколько кредитов вернёт разбор здания вида kind: доля его цены (refundOf). Уровней пока нет.
-function construction.refundOf(kind): number
-	return math.floor(kind.data.cost * construction.DEMOLISH_REFUND)
+-- Сколько кредитов вернёт разбор здания вида kind уровня level: доля его цены и вложенного в уровни (refundOf).
+function construction.refundOf(kind, level: number?): number
+	return math.floor((kind.data.cost + levels.spent(kind, level or 1)) * construction.DEMOLISH_REFUND)
 end
 
 -- Сколько кредитов здание держит оплаченными вперёд: очередь юнитов и закупка с орбиты (prepaidOf). Разбор их возвращает.

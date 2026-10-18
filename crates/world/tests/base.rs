@@ -1575,3 +1575,58 @@ fn killed_truck_drops_its_cargo_and_another_truck_takes_it_to_the_yard() {
   host.tick(0.05).unwrap();
   assert_eq!(get(&host, other, "Hauler").unwrap()["pickup"].as_f64(), Some(-1.0));
 }
+
+#[test]
+fn builders_raise_building_levels_for_credits_and_blocks_from_the_grid() {
+  let mut host = host_without_tech();
+  let (_, site, builder) = base_with_builder(&mut host);
+  let player = all(&host, "Player")[0].0;
+  set(&host, player, "Player", json!({ "credits": 5000 }));
+  let spot = free_spot(&host, site, 2);
+  let generator = raise(&mut host, "generator", spot, builder);
+  // Склад стройблоков — в той же энергосети, но не на трубе генератора: уровни берут готовое со всей энергосети.
+  let spot = free_spot(&host, site, 3);
+  let yard = raise(&mut host, "blockYard", spot, builder);
+  set(&host, yard, "Inventory", json!({ "items": { "blocks": 50 } }));
+  let level = |host: &Host, entity: u32| get(host, entity, "Building").unwrap()["level"].as_f64().unwrap();
+  let finish = |host: &mut Host, entity: u32| {
+    for _ in 0..20 * 60 {
+      host.tick(0.05).unwrap();
+      if get(host, entity, "Upgrade").is_none() {
+        return;
+      }
+    }
+    panic!("улучшение не закончено: {:?}", get(host, entity, "Upgrade"));
+  };
+  // Генератор за 300: подъём стоит 150 кредитов и 10 стройблоков сразу, работу делает свободный строитель рядом.
+  ticks(&mut host, 2);
+  let before = credits(&host);
+  host.send(1, "upgrade", json!({ "building": generator, "builders": [] }));
+  host.tick(0.05).unwrap();
+  assert!(get(&host, generator, "Upgrade").is_some(), "заказ не принят");
+  assert!((before - credits(&host) - 150.0).abs() <= 1.0, "списано {}", before - credits(&host));
+  assert!((stocked(&host, yard, "blocks") - 40.0).abs() < 1e-6, "стройблоки со склада энергосети");
+  finish(&mut host, generator);
+  assert_eq!(level(&host, generator), 2.0);
+  // Третий уровень просит ещё и компоненты: их нет — заказ не принят.
+  ticks(&mut host, 2);
+  host.send(1, "upgrade", json!({ "building": generator, "builders": [builder] }));
+  host.tick(0.05).unwrap();
+  assert!(get(&host, generator, "Upgrade").is_none(), "без компонентов не поднять");
+  // Отмена возвращает цену целиком: кредиты и стройблоки.
+  let before = credits(&host);
+  host.send(1, "upgrade", json!({ "building": yard, "builders": [] }));
+  host.tick(0.05).unwrap();
+  assert!((stocked(&host, yard, "blocks") - 35.0).abs() < 1e-6);
+  host.send(1, "cancelUpgrade", json!({ "building": yard }));
+  host.tick(0.05).unwrap();
+  assert!(get(&host, yard, "Upgrade").is_none());
+  assert!((credits(&host) - before).abs() <= 1.0, "кредиты вернулись");
+  assert!((stocked(&host, yard, "blocks") - 40.0).abs() < 1e-6, "стройблоки вернулись");
+  // Склад второго уровня вмещает в полтора раза больше.
+  host.send(1, "upgrade", json!({ "building": yard, "builders": [builder] }));
+  host.tick(0.05).unwrap();
+  finish(&mut host, yard);
+  assert_eq!(level(&host, yard), 2.0);
+  assert_eq!(get(&host, yard, "Inventory").unwrap()["capacity"], json!(300.0));
+}

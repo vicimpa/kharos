@@ -7,6 +7,7 @@
 local goods = require("lib/goods")
 local logistics = require("lib/logistics")
 local research = require("lib/research")
+local levels = require("lib/levels")
 
 local trade = {}
 
@@ -43,9 +44,9 @@ function trade.buyResearch(w, player: number, name: string): string?
 	return if research.has(w, player, topic) then nil else topic
 end
 
--- Сколько тиков летит корабль (flightTicks). Уровней зданий пока нет.
-function trade.flightTicks(w, seconds: number): number
-	return math.floor(seconds / w.dt + 0.5)
+-- Сколько тиков летит корабль к космопорту port (flightTicks): с уровнем порта — быстрее.
+function trade.flightTicks(w, port: number, seconds: number): number
+	return math.floor(seconds / levels.factorOf(w, port) / w.dt + 0.5)
 end
 
 -- Свой готовый космопорт игрока (isPort).

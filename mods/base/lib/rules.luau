@@ -11,6 +11,8 @@ return {
 	repairPause = 3,
 	-- Здание строится, когда стоят нужные для него и открыто его исследование (data.requires, data.research).
 	techTree = true,
+	-- Во сколько раз уровни зданий дороже и дольше, чем в матче (lib/levels).
+	upgradeScale = 1,
 	vehicleSand = 0.1,
 	vehicleSwamp = 0.8,
 	heavySand = 0,
