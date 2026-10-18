@@ -128,7 +128,6 @@ end
 mechanic.systems = {
 	-- После грузовиков: что везут они, строители не повезут.
 	fetch = {
-		query = { "Repair", "Inventory", "Beam", "Unit" },
 		after = { "haul" },
 		before = { "fight" },
 		run = function(_, ctx)

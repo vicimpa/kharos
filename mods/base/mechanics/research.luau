@@ -231,7 +231,6 @@ end
 mechanic.systems = {
 	-- Раз в секунду: темы-открытия, у которых случилось условие, открываются сами.
 	triggers = {
-		query = { "Player" },
 		every = 20,
 		run = function(_, ctx)
 			for _, e in ctx:each({ "Player" }) do
@@ -280,7 +279,6 @@ mechanic.systems = {
 
 	-- Лаборатории ведут нынешнюю тему своего хозяина и платят за сделанное.
 	research = {
-		query = { "Player" },
 		after = { "assemble" },
 		before = { "plan" },
 		run = function(_, ctx)

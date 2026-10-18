@@ -1,12 +1,16 @@
 --!strict
--- Схватка: каждый вошедший появляется со стартовым набором — MCV, две багги и взвод пехоты, — и стартовыми кредитами
---; первый — у начала мира, но не в кармане за обрывами. Подача — камера RTS,
--- выделение рамкой и приказы мышью, панель с кредитами, производством и стройкой, погода и звук как в Kharos.
+-- Схватка: каждый вошедший появляется со стартовым набором — MCV, две багги и взвод пехоты, — и стартовыми кредитами;
+-- первый — у начала мира, но не в кармане за обрывами. Подача — камера RTS, выделение рамкой и приказы мышью, панель с
+-- кредитами, производством и стройкой, погода и звук как в Kharos.
 
 local skirmish = {}
 
+-- Эффекты мира, поверх них — цель первого шага.
+local effects = table.clone(require("lib/effects"))
+table.insert(effects, "steps")
+
 skirmish.data = {
-	-- STARTING_CREDITS: строителей заказывают в развёрнутом главном здании, на это кредиты и есть.
+	-- Строителей заказывают в развёрнутом главном здании, на это кредиты и есть.
 	credits = 1500,
 	-- С чем появляется игрок, по порядку: MCV встаёт на само место, остальные — вокруг.
 	start = { "mcv", "buggy", "buggy", "infantry", "infantry", "infantry" },
@@ -76,7 +80,7 @@ skirmish.client = {
 	controls = { "deploy", "build", "stroke", "patrol", "trucks", "aim", "select", "orders" },
 	ui = { "hud", "tech", "pause" },
 	atmosphere = { "weather" },
-	effects = { "traces", "paving", "drops", "construction", "power", "logistics", "connections", "flow", "combat", "conversion", "silos", "steps" },
+	effects = effects,
 	-- Звук: интерфейс, моторы, работа зданий, фон с подложкой и эхом, ветер полёта.
 	audio = { "levels", "interface", "motors", "machines", "world", "battle", "ambience", "flight" },
 }
@@ -88,7 +92,7 @@ skirmish.editor = {
 	controls = { "editor" },
 	ui = { "editor" },
 	atmosphere = { "weather" },
-	effects = { "traces", "paving", "drops", "construction", "power", "logistics", "connections", "flow", "combat", "conversion", "silos" },
+	effects = require("lib/effects"),
 	audio = { "levels", "interface" },
 }
 

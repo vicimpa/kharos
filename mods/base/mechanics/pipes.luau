@@ -152,7 +152,6 @@ end
 mechanic.systems = {
 	-- После стройки и до грузовиков: что идёт по трубам, грузовики уже не везут.
 	pipes = {
-		query = { "Batch" },
 		after = { "construct" },
 		before = { "haul" },
 		run = function(_, ctx)

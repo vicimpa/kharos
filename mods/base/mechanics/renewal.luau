@@ -181,7 +181,6 @@ end
 
 mechanic.systems = {
 	renew = {
-		query = { "Deposit" },
 		every = mechanic.data.check,
 		run = function(_, ctx)
 			local rules = ctx.game.data and ctx.game.data.rules or {}
