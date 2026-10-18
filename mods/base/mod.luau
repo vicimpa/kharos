@@ -13,8 +13,8 @@ return {
 	-- Главное меню — тоже партия из games/: в неё приложение приходит при запуске и из партии по «В меню».
 	menu = "menu",
 	requires = {},
-	-- Название вида без своего — ключ словаря «раздел.имя» («units.buggy»), описание — по TITLED. Так и у видов модов,
-	-- загруженных раньше этой правки.
+	-- Название вида без своего — ключ словаря «раздел.имя» («units.buggy»), описание — по TITLED; остовы — всем юнитам
+	-- с чертежом. Так и у видов модов, загруженных раньше этой правки.
 	patch = function(protos)
 		for section, info in TITLED do
 			for name, kind in protos[section] or {} do
@@ -27,5 +27,6 @@ return {
 				end
 			end
 		end
+		require("sprites/wreck").collect(protos)
 	end,
 }

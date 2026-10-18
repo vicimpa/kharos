@@ -1,7 +1,12 @@
 --!strict
--- Пушка главного здания: тяжёлый купол со спаренным излучателем. Чертёж — lib/units.
+-- Пушка главного здания: тяжёлый купол со спаренным излучателем.
 
 local units = require("lib/units")
+
+-- Пушка главного здания: широкий купол цвета команды с линзой и спаренный излучатель.
+local function draw(p, team)
+	units.coreGun(p, 0, 14, team)
+end
 
 local kind = {}
 
@@ -12,6 +17,6 @@ kind.data = {
 }
 
 kind.entity = units.turretEntity
-kind.look = units.turretLook("core")
+kind.look = units.turretLook(draw)
 
 return kind

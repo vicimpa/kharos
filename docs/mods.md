@@ -242,9 +242,11 @@ look = {
 `canvas.toned(цвет, тон)` — цвет стороны (тон 0, 1, 2 перекрашивает палитра), `translate(dx, dy)`,
 `light(x, y, радиус, яркость)` — огонь кадра (здания). Цвет — `0xRRGGBB`.
 
-Чертежи и помощники Kharos — `lib/units.luau` (перенос `unitArt.ts`: все юниты и турели, `units.look(вид,
-крепления)`) и `lib/buildings.luau` (`buildingArt.ts`: `slab`, `dome`, `tower`, `lamp`, `bulb`, `buildings.look(w, h,
-чертёж)`).
+Чертёж вида лежит в его файле. Помощники Kharos — `lib/units.luau` (перо `units.pen`, детали `wheels`, `tire`,
+`legs`, `heavyHull`, `coreGun`; `units.look({ gait, draw, mounts, traces, lights })` и `units.turretLook(чертёж)`) и
+`lib/buildings.luau` (`slab`, `dome`, `tower`, `lamp`, `bulb`, `buildings.look(w, h, чертёж)`). Облик юнита и турели
+отдаёт ещё `paint(холст, угол, цвета стороны, кадр)` — тот же чертёж в цветах стороны: по нему рисуются остовы
+(`sprites/wreck`), и у юнитов других модов тоже.
 
 ### c
 

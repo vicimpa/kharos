@@ -1,4 +1,4 @@
-//! Кадры обликов из модов сырыми RGBA — сверить перенос графики с TS (tools/art/dump.ts пишет те же кадры из TS):
+//! Кадры и портреты обликов из модов сырыми RGBA — сверить, что правка чертежей не сдвинула ни пикселя:
 //!
 //!   cargo run -p kharos-client --release --example looks <файл> раздел/вид…
 
@@ -18,6 +18,9 @@ fn main() {
     let built = kharos_client::atlas::build(&content.lua, id, look).unwrap();
     for image in &built.images {
       out.extend_from_slice(image);
+    }
+    if let Some((pixels, _)) = &built.portrait {
+      out.extend_from_slice(pixels);
     }
   }
   std::fs::write(path, out).unwrap();

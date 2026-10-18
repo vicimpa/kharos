@@ -1,7 +1,7 @@
 --!strict
 -- Остов погибшей техники: юнит, нарисованный как обычно, обгорает до угля с ржавчиной и копотью, а края его обломаны;
--- турели лежат на своих местах, повёрнутые как попало. Шестнадцать направлений, фаза — вид юнита по порядку
--- units.NAMES.
+-- турели лежат на своих местах, повёрнутые как попало. Шестнадцать направлений, фаза — вид юнита по порядку data.names:
+-- все юниты с чертежом (look.paint), и из других модов тоже — их собирает collect из patch мода (mod.luau).
 
 local units = require("lib/units")
 local noise = require("lib/noise").of
@@ -9,10 +9,12 @@ local noise = require("lib/noise").of
 local DIRECTIONS = 16
 local VARIANTS = 3
 
-local mounts = {}
-for _, name in units.NAMES do
-	mounts[name] = require("units/" .. name).data.mounts or {}
-end
+local wreck = {}
+
+wreck.data = { names = {} :: { string } }
+
+-- Все виды по разделам: их даёт collect.
+local protos: any = nil
 
 -- Байт канала: дробная часть отбрасывается.
 local function byte(value: number): number
@@ -20,19 +22,19 @@ local function byte(value: number): number
 end
 
 local function draw(g, angle: number, phase: number)
-	local name = units.NAMES[phase + 1]
+	local unit = protos.units[wreck.data.names[phase + 1]]
 	local direction = math.round(angle / (math.pi * 2) * DIRECTIONS) % DIRECTIONS
 	local variant = direction % VARIANTS
-	units.paint(g, name, angle, units.TEAMS.foe, 0)
-	for i, mount in mounts[name] do
-		-- Стрелок багги не обгорает в остов.
-		if mount.turret == "gunner" then
+	unit.look.paint(g, angle, units.TEAMS.foe, 0)
+	for i, mount in unit.data.mounts or {} do
+		local turret = protos.turrets[mount.turret]
+		if not turret or not turret.look or not turret.look.paint or turret.look.wreck == false then
 			continue
 		end
 		local x = (math.cos(angle) * mount.along - math.sin(angle) * mount.across) * 16
 		local y = (math.sin(angle) * mount.along + math.cos(angle) * mount.across) * 16
 		g:translate(x, y)
-		units.paintTurret(g, mount.turret, angle + (noise(i - 1, variant, 9) - 0.5) * 2.5, units.TEAMS.foe)
+		turret.look.paint(g, angle + (noise(i - 1, variant, 9) - 0.5) * 2.5, units.TEAMS.foe)
 		g:translate(-x, -y)
 	end
 	local width, height = g.width, g.height
@@ -72,7 +74,20 @@ local function draw(g, angle: number, phase: number)
 	end
 end
 
-return {
-	data = { names = units.NAMES },
-	look = { size = units.FRAME, directions = DIRECTIONS, phases = #units.NAMES, draw = draw },
-}
+wreck.look = { size = units.FRAME, directions = DIRECTIONS, phases = 1, draw = draw }
+
+-- Остовы юнитов всех модов: имена по алфавиту, кадров — по юниту.
+function wreck.collect(all)
+	protos = all
+	local names = {}
+	for name, unit in all.units or {} do
+		if type(unit) == "table" and unit.look and unit.look.paint then
+			table.insert(names, name)
+		end
+	end
+	table.sort(names)
+	wreck.data.names = names
+	wreck.look.phases = math.max(1, #names)
+end
+
+return wreck
