@@ -86,7 +86,7 @@ impl Content {
     let by_name: BTreeMap<&str, &Mod> = mods.iter().map(|one| (one.name.as_str(), one)).collect();
 
     // Виды по разделам.
-    let protos = lua.create_table().map_err(fail("protos"))?;
+    let protos = lua.create_table();
     for name in &names {
       let files = &by_name[name.as_str()].files;
       for section in files.sections() {
@@ -156,7 +156,7 @@ impl Content {
     let data = match table.get::<Option<Table>>("data").map_err(|error| error.to_string())? {
       Some(data) => data,
       None => {
-        let data = self.lua.create_table().map_err(|error| error.to_string())?;
+        let data = self.lua.create_table();
         table.set("data", &data).map_err(|error| error.to_string())?;
         data
       }
@@ -211,7 +211,7 @@ fn section_table(lua: &Lua, protos: &Table, section: &str) -> mlua::Result<Table
   if let Some(table) = protos.raw_get::<Option<Table>>(section)? {
     return Ok(table);
   }
-  let table = lua.create_table()?;
+  let table = lua.create_table();
   protos.raw_set(section, &table)?;
   Ok(table)
 }

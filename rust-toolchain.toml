@@ -1,0 +1,5 @@
+# Rust проекта: Luau на чистом Rust (ulua) требует 1.99; браузер — wasm32-unknown-unknown, собирается тем же cargo.
+[toolchain]
+channel = "1.99.1"
+targets = ["wasm32-unknown-unknown"]
+components = ["clippy", "rustfmt"]

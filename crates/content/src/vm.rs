@@ -38,10 +38,10 @@ struct Loaded(HashMap<String, mlua::RegistryKey>);
 /// `SIDE` — "host" или "client": общий код вида может спросить, где он.
 pub fn new_vm(side: Side, sources: Sources) -> mlua::Result<Lua> {
   let lua = Lua::new();
-  // Машинного кода под wasm нет: там Luau только толкует байт-код.
+  // Машинный код — только на нативе: под wasm Luau толкует байт-код.
   #[cfg(not(target_arch = "wasm32"))]
-  lua.enable_jit(true);
-  lua.set_compiler(mlua::chunk::Compiler::new().set_optimization_level(2).set_type_info_level(1));
+  lua.enable_jit(true)?;
+  lua.set_compiler(mlua::Compiler::new().set_optimization_level(2).set_type_info_level(1));
   lua.set_app_data(sources);
   lua.set_app_data(Loaded::default());
   let globals = lua.globals();
@@ -69,7 +69,7 @@ pub fn run_file(lua: &Lua, mod_name: &str, path: &str) -> mlua::Result<Value> {
 /// `require("lib/geom")` — от корня своего мода, `require("./look")` — от папки файла, `require("@base/lib/geom")` —
 /// из другого мода. Расширение `.luau` и `/init.luau` подставляются. Модуль выполняется один раз.
 fn require(lua: &Lua, path: String) -> mlua::Result<Value> {
-  let caller = lua.inspect_stack(1, |debug| debug.source().source.map(|source| source.to_string())).flatten().unwrap_or_default();
+  let caller = lua.inspect_stack(1).and_then(|debug| debug.source().map(|source| source.trim_start_matches('=').to_string())).unwrap_or_default();
   let (mod_name, file) = resolve(&caller, &path).ok_or_else(|| mlua::Error::runtime(format!("require(\"{path}\"): непонятный путь из {caller}")))?;
   let candidates = [format!("{file}.luau"), format!("{file}/init.luau"), file.clone()];
   let found = {
@@ -127,7 +127,7 @@ fn normalize(path: &str) -> Option<String> {
 /// JSON в значение Luau: `null` — nil (по умолчанию mlua даёт вместо него особое значение, и `if x then` его пропускает).
 pub fn to_lua<T: serde::Serialize + ?Sized>(lua: &Lua, value: &T) -> mlua::Result<Value> {
   use mlua::LuaSerdeExt;
-  lua.to_value_with(value, mlua::serde::SerializeOptions::new().serialize_none_to_null(false).serialize_unit_to_null(false))
+  lua.to_value_with(value, mlua::SerializeOptions::new().serialize_none_to_null(false).serialize_unit_to_null(false))
 }
 
 /// Функция из таблицы, если она там есть.

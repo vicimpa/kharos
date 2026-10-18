@@ -9,8 +9,8 @@ pub const TURN: f64 = std::f64::consts::PI * 2.0;
 /// `buffer` идут быстрым путём встроенных функций (без неё — в 16 раз медленнее). native — машинный код Luau.
 pub fn new_lua(native: bool) -> mlua::Result<Lua> {
   let lua = Lua::new();
-  lua.enable_jit(native);
-  lua.set_compiler(mlua::chunk::Compiler::new().set_optimization_level(2));
+  lua.enable_jit(native)?;
+  lua.set_compiler(mlua::Compiler::new().set_optimization_level(2));
   lua.sandbox(true)?;
   Ok(lua)
 }

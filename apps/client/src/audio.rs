@@ -451,7 +451,7 @@ impl Sound {
   /// Ручки голоса: update(узлы, knobs).
   pub fn knobs(&self, lua: &Lua, knobs: &Value) -> mlua::Result<()> {
     if let (Some(update), Some(handles)) = (&self.update, &self.handles) {
-      update.call::<()>((lua.registry_value::<Value>(handles)?, knobs))?;
+      update.call::<()>((lua.registry_value::<Value>(handles)?, knobs.clone()))?;
     }
     Ok(())
   }

@@ -15,7 +15,7 @@ use crate::render::View;
 
 use kharos_world::host::State;
 use kharos_world::Entity;
-use mlua::{Lua, LuaSerdeExt, Table, UserData, UserDataFields, UserDataMethods, Value};
+use mlua::{Lua, Table, UserData, UserDataFields, UserDataMethods, Value};
 use serde_json::Value as Json;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -486,7 +486,7 @@ impl UserData for Ctx {
     fields.add_field_method_get("audio", |_, c| Ok(c.state.borrow().audio.clone().map(AudioApi)));
     fields.add_field_method_get("screen", |lua, c| {
       let state = c.state.borrow();
-      let table = lua.create_table()?;
+      let table = lua.create_table();
       table.set("w", state.view.screen[0])?;
       table.set("h", state.view.screen[1])?;
       Ok(table)
@@ -783,7 +783,7 @@ impl UserData for AudioApi {
 pub struct UiApi(Rc<RefCell<ClientState>>);
 
 fn click_table(lua: &Lua, click: crate::gui::Click) -> mlua::Result<Table> {
-  let table = lua.create_table()?;
+  let table = lua.create_table();
   table.set("button", click.button)?;
   table.set("shift", click.shift)?;
   table.set("ctrl", click.ctrl)?;
@@ -839,7 +839,7 @@ impl UserData for UiApi {
           state.gui.leaf(Default::default(), crate::gui::Leaf::Image { image, width: dw, height: dh });
           state.gui.close();
         }
-        Value::String(name) if name.to_str()?.as_ref() == "minimap" => state.gui.leaf(Default::default(), crate::gui::Leaf::Image { image: crate::gui::Image::Minimap, width, height }),
+        Value::String(name) if name.to_str()? == "minimap" => state.gui.leaf(Default::default(), crate::gui::Leaf::Image { image: crate::gui::Image::Minimap, width, height }),
         _ => state.gui.leaf(Default::default(), crate::gui::Leaf::Image { image: crate::gui::Image::Coin, width, height }),
       }
       Ok(())
@@ -896,7 +896,7 @@ impl UserData for UiApi {
     });
     methods.add_method("rect", |lua, ui, id: String| {
       let Some(rect) = ui.0.borrow().gui.rect(&id) else { return Ok(None) };
-      let table = lua.create_table()?;
+      let table = lua.create_table();
       table.set("x", rect.x)?;
       table.set("y", rect.y)?;
       table.set("width", rect.w)?;
@@ -920,7 +920,7 @@ impl UserData for UiApi {
         parsed.outline = crate::gui::color(&table.get("outline")?);
       }
       let field = ui.0.borrow_mut().gui.input(&id, &value, &parsed);
-      let result = lua.create_table()?;
+      let result = lua.create_table();
       result.set("value", field.value)?;
       result.set("focused", field.focused)?;
       result.set("keys", field.keys)?;
@@ -957,7 +957,7 @@ impl UserData for UiApi {
       let total = preview.inside.max(1) as f64;
       let (rock, swamp) = (preview.counts[2] as f64 / total, preview.counts[0] as f64 / total);
       state.gui.leaf(crate::gui::Style { alpha: if ready { None } else { Some(0.6) }, ..Default::default() }, crate::gui::Leaf::Image { image: crate::gui::Image::Preview, width, height });
-      let result = lua.create_table()?;
+      let result = lua.create_table();
       result.set("ready", ready)?;
       result.set("rock", rock)?;
       result.set("swamp", swamp)?;
@@ -981,19 +981,19 @@ pub fn fill_input(lua: &Lua, table: &Table, input: &Input, view: &View, over_ui:
   table.set("wx", wx)?;
   table.set("wy", wy)?;
   for (name, values) in [("down", input.down), ("pressed", input.pressed), ("released", input.released)] {
-    let buttons = lua.create_table()?;
+    let buttons = lua.create_table();
     for (index, button) in BUTTONS.iter().enumerate() {
       buttons.set(*button, values[index])?;
     }
     table.set(name, buttons)?;
   }
   table.set("wheel", input.wheel)?;
-  let keys = lua.create_table()?;
+  let keys = lua.create_table();
   for key in &input.keys {
     keys.set(key.as_str(), true)?;
   }
   table.set("keys", keys)?;
-  let hits = lua.create_table()?;
+  let hits = lua.create_table();
   for key in &input.hits {
     hits.set(key.as_str(), true)?;
   }

@@ -10,7 +10,7 @@ use crate::schema::{ComponentId, Kind, Schema};
 use crate::world::{decode, encode_checked, Entity, World};
 use kharos_content::vm::function;
 use kharos_content::{Content, Mod, Side};
-use mlua::{AnyUserData, Function, Lua, LuaSerdeExt, MultiValue, Table, UserData, UserDataFields, UserDataMethods, Value};
+use mlua::{AnyUserData, Function, Lua, MultiValue, Table, UserData, UserDataFields, UserDataMethods, Value};
 use serde_json::{Map, Value as Json};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
@@ -163,7 +163,7 @@ impl Host {
     let schema = Rc::new(schema_of(&content)?);
     let state = Rc::new(RefCell::new(State { world: World::new(schema.clone()), ops: Vec::new(), events: Vec::new(), signals: Vec::new(), tick: 0, dt: 0.05, rng: seed.max(1), grid: None, vision: None, land: None, motion: Default::default(), rules: Default::default(), weapons: Default::default() }));
     let lua = &content.lua;
-    let storage = lua.create_table().map_err(lua_error("storage"))?;
+    let storage = lua.create_table();
     let game_table = content.get("games", game).expect("партия");
     let ctx = lua.create_userdata(Ctx { state: state.clone(), protos: content.protos.clone(), game: game_table, storage: storage.clone(), list: content.list.iter().map(|proto| (proto.section.clone(), proto.name.clone())).collect() }).map_err(lua_error("ctx"))?;
 
@@ -522,9 +522,9 @@ fn restored(lua: &Lua, value: &Json) -> Result<Value, Error> {
       Some(integer) => Value::Integer(integer),
       None => Value::Number(number.as_f64().unwrap_or(0.0)),
     },
-    Json::String(text) => Value::String(lua.create_string(text).map_err(lua_error("storage"))?),
+    Json::String(text) => Value::String(lua.create_string(text)),
     Json::Object(map) => {
-      let table = lua.create_table().map_err(lua_error("storage"))?;
+      let table = lua.create_table();
       for pair in map.get("table").and_then(Json::as_array).into_iter().flatten() {
         let (Some(key), Some(value)) = (pair.get(0), pair.get(1)) else { continue };
         table.set(restored(lua, key)?, restored(lua, value)?).map_err(lua_error("storage"))?;
@@ -656,14 +656,14 @@ impl mlua::FromLua for StringOrList {
 
 /// Таблица запроса: `n`, `entity` и по компоненту — таблица буферов f64 его числовых полей.
 fn columns(lua: &Lua, world: &World, components: &[ComponentId], entities: &[Entity]) -> mlua::Result<Table> {
-  let query = lua.create_table()?;
+  let query = lua.create_table();
   query.raw_set("n", entities.len())?;
   query.raw_set("entity", lua.create_buffer(entities.iter().flat_map(|&entity| (entity as f64).to_le_bytes()).collect::<Vec<u8>>())?)?;
   for &component in components {
     let def = &world.schema.components[component];
     let store = &world.stores[component];
     let rows: Vec<usize> = entities.iter().map(|&entity| store.row(entity).expect("сущность из запроса")).collect();
-    let table = lua.create_table()?;
+    let table = lua.create_table();
     for field in def.fields.iter().filter(|field| field.kind.columnar()) {
       let column = &store.nums[field.slot];
       let mut bytes = Vec::with_capacity(rows.len() * 8);
@@ -1015,9 +1015,9 @@ impl UserData for Ctx {
         x[i] += dx[i];
         y[i] += dy[i];
       }
-      let write = |buffer: &mlua::Buffer, values: &[f64]| buffer.write_bytes(0, &values.iter().flat_map(|value| value.to_le_bytes()).collect::<Vec<u8>>());
-      write(&xs, &x);
-      write(&ys, &y);
+      let write = |mut buffer: mlua::Buffer, values: &[f64]| buffer.write_bytes(0, &values.iter().flat_map(|value| value.to_le_bytes()).collect::<Vec<u8>>());
+      write(xs.clone(), &x);
+      write(ys.clone(), &y);
       Ok(())
     });
     // Местность в тайле: вид (0 — болото, 1 — песок, 2 — скала, 3 — гора), биом (0 — эрг, 1 — солончаки, 2 — красные

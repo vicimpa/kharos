@@ -87,7 +87,7 @@ fn per_tick(mut tick: impl FnMut(u64)) -> f64 {
 fn run(native: bool) -> mlua::Result<()> {
   let lua = new_lua(native)?;
   if native {
-    println!("  машинный код Luau здесь: {}", if unsafe { mlua::ffi::luau_codegen_supported() } != 0 { "есть" } else { "нет" });
+    println!("  машинный код Luau здесь: {}", if mlua::Lua::new().enable_jit(true).is_ok() { "есть" } else { "нет" });
   }
   let started = Instant::now();
   let wheels = load(&lua, "moves/wheels.luau")?;
@@ -101,7 +101,7 @@ fn run(native: bool) -> mlua::Result<()> {
   let mut columns = Columns::new();
   let make = |column: &[f64]| lua.create_buffer(bytes(column));
   let (x, y, facing, tx, ty) = (make(&columns.x)?, make(&columns.y)?, make(&columns.facing)?, make(&columns.tx)?, make(&columns.ty)?);
-  let ctx = lua.create_table()?;
+  let ctx = lua.create_table();
   for (name, buffer) in [("x", &x), ("y", &y), ("facing", &facing), ("tx", &tx), ("ty", &ty)] {
     ctx.set(name, buffer.clone())?;
   }
@@ -112,7 +112,7 @@ fn run(native: bool) -> mlua::Result<()> {
   let pairs: [(&Buffer, fn(&mut Columns) -> &mut Vec<f64>); 5] = [(&x, |c| &mut c.x), (&y, |c| &mut c.y), (&facing, |c| &mut c.facing), (&tx, |c| &mut c.tx), (&ty, |c| &mut c.ty)];
   let copied = per_tick(|tick| {
     for (buffer, column) in &pairs {
-      buffer.write_bytes(0, &bytes(column(&mut columns)));
+      (*buffer).clone().write_bytes(0, &bytes(column(&mut columns)));
     }
     ctx.set("tick", tick).unwrap();
     system.call::<()>(&ctx).unwrap();

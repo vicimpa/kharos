@@ -7,7 +7,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-mlua = { version = "0.12", features = ["luau", "luau-jit"] }
+mlua = { package = "ulua-rt", version = "0.1.7", features = ["jit"] }
 # Замер рендера (src/bin/render.rs) — на стеке клиента rwgpu: окно winit, контекст glutin, рисование glow.
 glow = "0.18"
 png = "0.17"

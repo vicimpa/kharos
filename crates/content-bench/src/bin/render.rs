@@ -353,7 +353,7 @@ impl Sim {
     let column = |salt: usize, size: f64| lua.create_buffer(bytes(&(0..units).map(|i| spread(i, salt, size)).collect::<Vec<_>>()));
     let (x, y, tx, ty) = (column(1, WIDTH)?, column(7, HEIGHT)?, column(13, WIDTH)?, column(29, HEIGHT)?);
     let facing = lua.create_buffer(vec![0u8; units * 8])?;
-    let ctx = lua.create_table()?;
+    let ctx = lua.create_table();
     for (name, buffer) in [("x", &x), ("y", &y), ("facing", &facing), ("tx", &tx), ("ty", &ty)] {
       ctx.set(name, buffer.clone())?;
     }

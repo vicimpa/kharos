@@ -139,7 +139,7 @@ impl Game {
     }
     let lua = &client.lua;
     let game_table = named(&client, "games", game)?;
-    let config: Table = game_table.get::<Option<Table>>("client").map_err(error("client партии"))?.unwrap_or(lua.create_table().map_err(error("client"))?);
+    let config: Table = game_table.get::<Option<Table>>("client").map_err(error("client партии"))?.unwrap_or(lua.create_table());
 
     // Облики видов.
     let mut looks = Vec::new();
@@ -166,7 +166,7 @@ impl Game {
     let atlas = atlas::pack(&mut looks);
 
     let state = Rc::new(RefCell::new(ClientState { world: host.state.clone(), prev: HashMap::new(), alpha: 0.0, view: View { x: 0.0, y: 0.0, zoom: 32.0, screen: [1280.0, 800.0], scale: 1.0 }, input: Input::default(), time: 0.0, dt: 0.0, player, outbox: Vec::new(), sounds: Vec::new(), particles: Vec::new(), decals: Default::default(), draw: Default::default(), glow: Default::default(), lights: Vec::new(), gui: Gui::new(fonts), looks: looks.iter().map(|look| (look.proto, look_info(look))).collect(), audio: None, land: None, preview: crate::script::Preview::new(), protos: client.list.iter().map(|proto| client.by_id(proto.id).expect("вид")).collect() }));
-    let table = || lua.create_table().map_err(error("таблица"));
+    let table = || Ok::<_, String>(lua.create_table());
     let ctx = Ctx { state: state.clone(), input: table()?, camera: table()?, shared: table()?, atmosphere: table()?, music: table()?, protos: client.protos.clone(), game: game_table.clone(), app };
     ctx.camera.set("x", 0.0).map_err(error("камера"))?;
     ctx.camera.set("y", 0.0).map_err(error("камера"))?;
@@ -425,7 +425,7 @@ impl Game {
             let at = self.next_bar + get("beat", 0.0) * beat;
             let length = get("length", 1.0) * beat;
             let pitch = 440.0 * 2f64.powf((get("note", 69.0) - 69.0) / 12.0);
-            let name = mlua::Value::String(lua.create_string(&voice).map_err(error("нота"))?);
+            let name = mlua::Value::String(lua.create_string(&voice));
             if let Some(sound) = audio.start(&lua, &name, "music", None, Some(at), Some(length), pitch, get("velocity", 0.7), mlua::Value::Nil).map_err(error(format!("нота {voice}")))? {
               sound.place(get("gain", 1.0) as f32, get("pan", 0.0) as f32);
             }
