@@ -859,4 +859,33 @@ function logistics.stockOf(w, player: number): ({ [string]: number }, number)
 	return items, capacity
 end
 
+-- Годится ли здание в остановку маршрута или обслуживание: своё готовое здание со складом.
+function logistics.isStop(w, player: number, building: any): boolean
+	return type(building) == "number" and world.isReady(w, player, building) and w:has(building, "Inventory")
+end
+
+-- Годится ли склад отдать по ручному приказу: своё здание или стройка со складом, или дроп.
+function logistics.isCarrySource(ctx, player: number, e: any): boolean
+	if type(e) ~= "number" or not ctx:alive(e) or not ctx:has(e, "Inventory") then
+		return false
+	end
+	return drops.is(ctx, e) or (world.ownerOf(ctx, e) == player and not ctx:has(e, "Unit"))
+end
+
+-- Годится ли склад принять груз по ручному приказу: своё здание, стройка или юнит со складом, где груз поместится;
+-- стройке — только её материалы.
+function logistics.isCarryTarget(ctx, player: number, e: any, good: string): boolean
+	if type(e) ~= "number" or not ctx:alive(e) or world.ownerOf(ctx, e) ~= player or ctx:has(e, "Hauler") then
+		return false
+	end
+	local stock = ctx:get(e, "Inventory")
+	if not stock then
+		return false
+	end
+	if ctx:has(e, "Site") and not table.find(stock.accepts, good) then
+		return false
+	end
+	return goods.room(stock, good) > EPSILON
+end
+
 return logistics

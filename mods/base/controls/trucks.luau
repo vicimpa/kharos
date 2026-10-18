@@ -9,8 +9,7 @@
 
 local construction = require("lib/construction")
 local drops = require("lib/drops")
-local goods = require("lib/goods")
-local world = require("lib/world")
+local logistics = require("lib/logistics")
 
 local trucks = {}
 
@@ -45,32 +44,6 @@ function trucks.storeAt(c, x: number, y: number): number?
 	return nil
 end
 
--- Годится ли склад отдать по приказу: своё здание или стройка со складом, или дроп.
-function trucks.isCarrySource(c, e: number?): boolean
-	if not e or not c:alive(e) or not c:has(e, "Inventory") then
-		return false
-	end
-	return drops.is(c, e) or (c:mine(e) and not c:has(e, "Unit"))
-end
-
--- Годится ли склад принять груз по приказу: своё здание или стройка со складом, где груз поместится; стройке — только
--- её материалы.
-function trucks.isCarryTarget(c, e: number?, good: string): boolean
-	if not e or not c:alive(e) or not c:mine(e) or c:has(e, "Hauler") then
-		return false
-	end
-	local stock = c:get(e, "Inventory")
-	if not stock or (c:has(e, "Site") and not table.find(stock.accepts, good)) then
-		return false
-	end
-	return goods.room(stock, good) > goods.EPSILON
-end
-
--- Годится ли здание в остановку маршрута или обслуживание: своё готовое со складом.
-function trucks.isStop(c, e: number?): boolean
-	return e ~= nil and world.isReady(c, c.player, e) and c:has(e, "Inventory")
-end
-
 -- Отдаёт набранный маршрут или список обслуживания выбранным грузовикам: меньше двух остановок или ничего не отмечено —
 -- набор просто кончается.
 function trucks.finish(c)
@@ -99,7 +72,7 @@ local function click(c, mode, wx: number, wy: number, right: boolean)
 			return
 		end
 		local building = c:occupant(math.floor(wx), math.floor(wy))
-		if not building or not trucks.isStop(c, building) then
+		if not building or not logistics.isStop(c, c.player, building) then
 			return
 		end
 		if mode.kind == "routing" then
@@ -117,7 +90,7 @@ local function click(c, mode, wx: number, wy: number, right: boolean)
 		return
 	end
 	local target = trucks.storeAt(c, wx, wy)
-	local fits = if mode.kind == "carrySource" then trucks.isCarrySource(c, target) else target ~= mode.from and trucks.isCarryTarget(c, target, mode.resource)
+	local fits = if mode.kind == "carrySource" then logistics.isCarrySource(c, c.player, target) else target ~= mode.from and logistics.isCarryTarget(c, c.player, target, mode.resource)
 	if fits then
 		if mode.kind == "carrySource" then
 			shared.truckMenu = target
@@ -160,7 +133,7 @@ function trucks.update(c)
 			local still = math.abs(input.x - press.x) <= 4 and math.abs(input.y - press.y) <= 4
 			if still and not mode and not input.keys.shift and #selected > 0 and #selected == #(shared.selection or {}) then
 				local target = trucks.storeAt(c, input.wx, input.wy)
-				if trucks.isCarrySource(c, target) then
+				if logistics.isCarrySource(c, c.player, target) then
 					shared.truckMenu = target
 				end
 			end

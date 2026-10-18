@@ -1,6 +1,6 @@
 --!strict
 -- Месторождения на карте: при старте партии генератор раскладывает их по клеткам (lib/deposits), каждое — сущность
--- своего вида из deposits/ с запасом. Добывают их шахты (mechanics/hauling).
+-- своего вида из deposits/ с запасом. Добывают их шахты (mechanics/mining).
 
 local deposits = require("lib/deposits")
 

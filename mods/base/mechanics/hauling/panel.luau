@@ -441,7 +441,7 @@ local function truckMenu(c, _view)
 			capacity += hold.capacity
 			for _, name in goods.names(c) do
 				local amount = goods.amount(hold, name)
-				if amount > goods.EPSILON and truckControls.isCarryTarget(c, building, name) then
+				if amount > goods.EPSILON and logistics.isCarryTarget(c, c.player, building, name) then
 					loaded[name] = (loaded[name] or 0) + amount
 				end
 			end
