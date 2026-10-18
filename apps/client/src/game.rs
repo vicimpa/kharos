@@ -559,13 +559,12 @@ impl Game {
         _ if look.phases > 1 && !dress.off => (time * look.fps as f64) as usize % look.phases,
         _ => 0,
       };
-      let player = world.world.num(entity, owner, "player").unwrap_or(0.0) as u32;
-      let (team, grey) = if player == 0 {
-        (3.0, 1.0)
-      } else if player == state.player {
-        (0.0, 0.0)
-      } else {
-        (1.0, 0.0)
+      // Ничьё (игрок 0) — серым, как юниты и здания у TS; без владельца вовсе (месторождения, ракеты) — в своих цветах.
+      let (team, grey) = match world.world.num(entity, owner, "player").map(|player| player as u32) {
+        None => (3.0, 0.0),
+        Some(0) => (3.0, 1.0),
+        Some(player) if player == state.player => (0.0, 0.0),
+        Some(_) => (1.0, 0.0),
       };
       let cell = match dress.variant {
         Some(variant) => (phase % look.phases.max(1)) * look.directions + variant.min(look.directions - 1),
