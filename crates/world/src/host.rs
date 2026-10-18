@@ -274,6 +274,20 @@ impl Host {
     self.settle(name)
   }
 
+  /// Приказ игрока сразу, а не в начале тика (orderNow в editor.ts): мир редактора стоит, систем нет.
+  pub fn command_now(&mut self, player: u32, name: &str, args: Json) -> Result<(), Error> {
+    {
+      // Сигналы и места по клеткам — этого приказа, как у тика.
+      let mut state = self.state.borrow_mut();
+      state.signals.clear();
+      state.grid = None;
+    }
+    let Some((label, handler)) = self.commands.get(name).cloned() else { return Ok(()) };
+    let args = kharos_content::vm::to_lua(self.lua(), &args).map_err(lua_error(format!("приказ {name}")))?;
+    handler.call::<()>((&self.ctx, player, args)).map_err(lua_error(format!("{label}.commands.{name}")))?;
+    self.settle(&format!("{label}.commands.{name}"))
+  }
+
   /// Один тик длиной dt секунд.
   pub fn tick(&mut self, dt: f64) -> Result<(), Error> {
     {
@@ -1184,15 +1198,31 @@ impl UserData for Ctx {
     });
     // Правит землю пакетом (setTile, editTile в landMemory.ts): x, y и четыре хранимых байта подряд. Правку другие
     // игроки узнают, только увидев (memory.rs).
-    methods.add_method("edit_tiles", |_, this, flat: Vec<f64>| {
+    // truth — правка редактора (paint в editor.ts): сразу правда для всех, как будто мир таким и сгенерирован; знание
+    // игроков о тайле забывается.
+    methods.add_method("edit_tiles", |_, this, (flat, truth): (Vec<f64>, Option<bool>)| {
       let mut state = this.state.borrow_mut();
       let State { land, memory, .. } = &mut *state;
       let Some(land) = land.as_mut() else { return Ok(()) };
       land.begin_batch();
       for tile in flat.chunks(6).filter(|tile| tile.len() == 6) {
-        memory.land.edit(land, tile[0].floor() as i32, tile[1].floor() as i32, [tile[2] as u8, tile[3] as u8, tile[4] as u8, tile[5] as u8]);
+        let (x, y, bytes) = (tile[0].floor() as i32, tile[1].floor() as i32, [tile[2] as u8, tile[3] as u8, tile[4] as u8, tile[5] as u8]);
+        if truth == Some(true) {
+          land.write_tile(x, y, bytes);
+          memory.land.forget(x, y, land.stored(x, y));
+        } else {
+          memory.land.edit(land, x, y, bytes);
+        }
       }
       land.end_batch();
+      Ok(())
+    });
+    // Система движка по имени (tools.rs) сразу, вне тика: редактор ставит турели на носители (settle в editor.ts).
+    methods.add_method("engine", |_, this, name: String| {
+      let mut state = this.state.borrow_mut();
+      apply(&mut state).map_err(mlua::Error::runtime)?;
+      let run = crate::tools::find(&name).ok_or_else(|| mlua::Error::runtime(format!("нет системы движка {name}")))?;
+      run(&mut state);
       Ok(())
     });
     // Помнит ли кто-нибудь ушедшее (memory.rs), чья середина в прямоугольнике [x1, x2) × [y1, y2): там его призрак.

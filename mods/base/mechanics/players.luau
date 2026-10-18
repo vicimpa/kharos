@@ -8,7 +8,8 @@ players.components = {
 	-- earned — накопленная дробная часть: стройка платит, разбор возвращает и доход приходит по долям кредита (spend,
 	-- earn); rewards — полученные награды по порядку (mechanics/economy); research — открытые темы, plan — очередь
 	-- исследований, progress — доля начатых, topic — тема, которую ведут лаборатории (mechanics/research).
-	Player = { id = 0, credits = 0, earned = 0, rewards = {}, research = {}, plan = {}, progress = {}, topic = "" },
+	-- camera — где у игрока камера в начале игры: x, y и масштаб (редактор); пусто — у его юнитов.
+	Player = { id = 0, credits = 0, earned = 0, rewards = {}, research = {}, plan = {}, progress = {}, topic = "", camera = {} },
 }
 
 players.on = {

@@ -1988,3 +1988,34 @@ fn orders_over_the_army_limit_are_refused() {
   let queued = producer["queue"].as_array().map_or(0, Vec::len) + usize::from(producer["unit"] != json!(""));
   assert!(queued < 5, "лимит не держит: {queued} заказов");
 }
+
+#[test]
+fn editor_edits_apply_at_once_without_ticks() {
+  let mut host = host_without_tech();
+  let (core, site) = deployed(&mut host);
+  let tick = host.state.borrow().tick;
+  let edit = |host: &mut Host, args: serde_json::Value| host.command_now(1, "edit", args).unwrap();
+  // Здание игроку 2 — сразу, без стройки; игрок 2 заводится без стартового набора.
+  let (x, y) = free_spot(&host, site, 2);
+  edit(&mut host, json!({ "op": "building", "type": "generator", "x": x, "y": y, "player": 2 }));
+  let generator = kind(&host, "buildings", "generator")[0];
+  assert_eq!(get(&host, generator, "Owner").unwrap()["player"].as_f64(), Some(2.0));
+  assert!(get(&host, generator, "Site").is_none(), "готовое");
+  assert_eq!(all(&host, "Player").len(), 2);
+  // Юнит и кредиты.
+  edit(&mut host, json!({ "op": "unit", "type": "tank", "x": x + 4, "y": y, "player": 2 }));
+  assert_eq!(kind(&host, "units", "tank").len(), 1);
+  edit(&mut host, json!({ "op": "credits", "player": 2, "amount": 777 }));
+  let second = all(&host, "Player").into_iter().find(|(_, player)| player["id"].as_f64() == Some(2.0)).unwrap().1;
+  assert_eq!(second["credits"].as_f64(), Some(777.0));
+  // Кисть: скала в песок.
+  edit(&mut host, json!({ "op": "paint", "x": x + 10, "y": y + 10, "size": 3, "brush": { "terrain": 1 } }));
+  assert_eq!(host.state.borrow_mut().land.as_mut().unwrap().stored(x + 10, y + 10)[0], kharos_engine::terrain::SAND);
+  // Сдвиг здания и снос.
+  edit(&mut host, json!({ "op": "move", "entities": [generator], "dx": 0, "dy": -1, "deposits": [] }));
+  let moved = place(&host, generator);
+  edit(&mut host, json!({ "op": "erase", "entities": [core] }));
+  assert!(get(&host, core, "Position").is_none(), "снесено");
+  assert_eq!(host.state.borrow().tick, tick, "мир стоит");
+  assert!(moved.1 < y as f64 + 1.0 + 1e-9, "сдвинуто: {moved:?}");
+}

@@ -164,8 +164,16 @@ impl App {
     }
   }
 
-  /// Пишет партию в её слот, если он есть.
+  /// Пишет партию в её слот, если он есть; редактор пишется только по просьбе (force).
   pub fn save(&mut self) {
+    if self.link.borrow().editing {
+      return;
+    }
+    self.store();
+  }
+
+  /// Пишет партию в её слот, если он есть.
+  fn store(&mut self) {
     let Some(slot) = self.link.borrow().slot.clone() else { return };
     let Some(game) = &self.game else { return };
     match game.save() {
@@ -257,11 +265,13 @@ impl App {
     }
     let request = self.link.borrow_mut().request.take();
     match request {
-      Some(AppRequest::Start { game, options, slot }) => {
+      Some(AppRequest::Start { game, options, slot, editor }) => {
         self.save();
+        self.link.borrow_mut().editing = editor;
         self.game = Some(Self::launch(&mut self.renderer, &self.mods, Some(&game), &options, slot, self.sound.clone(), self.link.clone())?);
         self.saved_at = input.time;
       }
+      Some(AppRequest::Save) => self.store(),
       Some(AppRequest::Reset { options }) => {
         if let Some(game) = &mut self.game {
           game.reset(self.mods.clone(), &options, 1)?;

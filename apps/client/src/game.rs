@@ -69,6 +69,8 @@ pub struct Game {
   land_seen: Option<(u64, u64)>,
   /// Палитра мини-карты (minimap вида lands/) и data.size — перекрашивать пиксели правок земли.
   land_colors: (Vec<Vec<Vec<u8>>>, i32),
+  /// Партия — редактор: мир стоит, приказы — сразу.
+  editor: bool,
 }
 
 /// Путь сущности: где её нарисовали в прошлый раз, сколько прошла и когда видели.
@@ -131,11 +133,20 @@ impl Game {
     let mut host = Host::new(mods.clone(), game, seed, options)?;
     let game = host.game.clone();
     let game = game.as_str();
+    // Редактор (editor.ts): мир стоит, тумана нет — видно всё; новый мир — без игроков.
+    let editor = app.borrow().editing;
     match save {
       Some(snapshot) => host.restore(snapshot)?,
       None => {
         host.start()?;
-        host.join(player)?;
+        if !editor {
+          host.join(player)?;
+        }
+      }
+    }
+    if editor {
+      if let Some(vision) = host.state.borrow_mut().vision.as_mut() {
+        vision.fog = false;
       }
     }
     let client = Content::load(Side::Client, mods).map_err(|error| error.to_string())?;
@@ -145,7 +156,9 @@ impl Game {
     }
     let lua = &client.lua;
     let game_table = named(&client, "games", game)?;
-    let config: Table = game_table.get::<Option<Table>>("client").map_err(error("client партии"))?.unwrap_or(lua.create_table());
+    // Подача редактора — своя (editor партии), иначе — партии (client).
+    let section = if editor { "editor" } else { "client" };
+    let config: Table = game_table.get::<Option<Table>>(section).map_err(error("client партии"))?.unwrap_or(lua.create_table());
 
     // Облики видов.
     let mut looks = Vec::new();
@@ -258,7 +271,7 @@ impl Game {
 
     let (land, minimap, land_colors) = land_of(&client, &game_table, &state)?;
 
-    Ok(Self { host, client, state, ctx, ctx_data, camera, panels, controls, atmosphere, effects, sounds, music, signals, looks, look_of, atlas: Some(atlas), land, minimap, audio, walked: HashMap::new(), drift: [0.0; 2], fog_seen: None, ghost_dress: HashMap::new(), land_seen: None, land_colors, bar: 0, next_bar: 0.0, accumulator: 0.0, last: None, pending, palette })
+    Ok(Self { host, client, state, ctx, ctx_data, camera, panels, controls, atmosphere, effects, sounds, music, signals, looks, look_of, atlas: Some(atlas), land, minimap, audio, walked: HashMap::new(), drift: [0.0; 2], fog_seen: None, ghost_dress: HashMap::new(), land_seen: None, land_colors, editor, bar: 0, next_bar: 0.0, accumulator: 0.0, last: None, pending, palette })
   }
 
   /// Новый мир той же партии с новыми настройками (`c.app:reset`): хост — заново, а клиентская машина, её панели и
@@ -300,6 +313,10 @@ impl Game {
     self.last = Some(input.time);
     self.accumulator += dt;
     let mut ticks = 0;
+    // Мир редактора стоит: тиков нет.
+    if self.editor {
+      self.accumulator = 0.0;
+    }
     while self.accumulator >= STEP {
       if ticks == MAX_TICKS {
         self.accumulator = 0.0;
@@ -397,7 +414,13 @@ impl Game {
       (state.player, std::mem::take(&mut state.outbox))
     };
     for (name, args) in outbox {
-      self.host.send(player, &name, args);
+      // В редакторе приказ — сразу: тиков нет.
+      if self.editor {
+        self.host.command_now(player, &name, args)?;
+        self.pending.extend(self.host.signals());
+      } else {
+        self.host.send(player, &name, args);
+      }
     }
     Ok((self.build(&view, input.time)?, view))
   }

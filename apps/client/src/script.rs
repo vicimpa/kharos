@@ -328,7 +328,9 @@ pub struct Ctx {
 #[derive(Clone, Debug)]
 pub enum AppRequest {
   /// Начать партию games/<game> с настройками (ложатся в её data); slot — слот сохранений, куда она пишется.
-  Start { game: String, options: Json, slot: Option<String> },
+  Start { game: String, options: Json, slot: Option<String>, editor: bool },
+  /// Записать партию в её слот сейчас (редактор: правки пишутся кнопкой, а не сами).
+  Save,
   /// Новый мир идущей партии с настройками — без перезагрузки панелей (витрина меню).
   Reset { options: Json },
   /// Закрыть игру.
@@ -349,6 +351,8 @@ pub struct AppState {
   /// Слоты сохранений и слот идущей партии.
   pub saves: Option<crate::saves::Saves>,
   pub slot: Option<String>,
+  /// Идущая партия — редактор: мир стоит, сам он не пишется.
+  pub editing: bool,
 }
 
 /// Настройки игрока: объект JSON под ключом `client.json` (store.rs): на десктопе — `~/.config/kharos/client.json`
@@ -396,6 +400,8 @@ impl UserData for AppApi {
     fields.add_field_method_get("options", |lua, app| kharos_content::vm::to_lua(lua, &app.0.borrow().options));
     // Слот идущей партии и последний, в который играли (для «Продолжить»), если он ещё есть.
     fields.add_field_method_get("slot", |_, app| Ok(app.0.borrow().slot.clone()));
+    // Идущая партия — редактор.
+    fields.add_field_method_get("editing", |_, app| Ok(app.0.borrow().editing));
     fields.add_field_method_get("last", |_, app| {
       let state = app.0.borrow();
       let last = state.prefs.get("last").and_then(Json::as_str).map(str::to_string);
@@ -407,7 +413,7 @@ impl UserData for AppApi {
     // c.app:start("skirmish", { seed, size, generator, weather, name }) — новая партия после этого кадра.
     methods.add_method("start", |lua, app, (game, options): (String, Option<Value>)| {
       let options: Json = lua.from_value(options.unwrap_or(Value::Nil))?;
-      app.0.borrow_mut().request = Some(AppRequest::Start { game, options: if options.is_null() { Json::Object(Default::default()) } else { options }, slot: None });
+      app.0.borrow_mut().request = Some(AppRequest::Start { game, options: if options.is_null() { Json::Object(Default::default()) } else { options }, slot: None, editor: false });
       Ok(())
     });
     // c.app:reset({ seed, weather, scene… }) — новый мир этой же партии; панели, их память и звук остаются.
@@ -420,7 +426,7 @@ impl UserData for AppApi {
     methods.add_method("to_menu", |_, app, ()| {
       let mut state = app.0.borrow_mut();
       if let Some(menu) = state.menu.clone() {
-        state.request = Some(AppRequest::Start { game: menu, options: Json::Object(Default::default()), slot: None });
+        state.request = Some(AppRequest::Start { game: menu, options: Json::Object(Default::default()), slot: None, editor: false });
       }
       Ok(())
     });
@@ -451,8 +457,23 @@ impl UserData for AppApi {
       let Some(slot) = state.saves.as_ref().and_then(|saves| saves.get(&id)).cloned() else { return Ok(false) };
       let game = slot.get("game").and_then(Json::as_str).unwrap_or_default().to_string();
       let options = slot.get("options").cloned().unwrap_or(Json::Object(Default::default()));
-      state.request = Some(AppRequest::Start { game, options, slot: Some(id) });
+      state.request = Some(AppRequest::Start { game, options, slot: Some(id), editor: false });
       Ok(true)
+    });
+    // Править слот в редакторе (editor.ts): его мир стоит, правки — c:send("edit", …), записать — c.app:save().
+    // Пустой слот — новый мир без игроков («Новая карта» → «В редактор»).
+    methods.add_method("edit", |_, app, id: String| {
+      let mut state = app.0.borrow_mut();
+      let Some(slot) = state.saves.as_ref().and_then(|saves| saves.get(&id)).cloned() else { return Ok(false) };
+      let game = slot.get("game").and_then(Json::as_str).unwrap_or_default().to_string();
+      let options = slot.get("options").cloned().unwrap_or(Json::Object(Default::default()));
+      state.request = Some(AppRequest::Start { game, options, slot: Some(id), editor: true });
+      Ok(true)
+    });
+    // Записать идущую партию в её слот сейчас.
+    methods.add_method("save", |_, app, ()| {
+      app.0.borrow_mut().request = Some(AppRequest::Save);
+      Ok(())
     });
     methods.add_method("rename", |_, app, (id, name): (String, String)| {
       if let Some(saves) = app.0.borrow_mut().saves.as_mut() {

@@ -279,4 +279,7 @@ orders.systems = {
 	},
 }
 
+-- Обработчик приказа игрока по имени (редактор отдаёт приказы сразу, mechanics/editor).
+orders.handler = handlerOf
+
 return orders

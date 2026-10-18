@@ -230,6 +230,19 @@ impl LandRecall {
     self.edits += 1;
   }
 
+  /// Правка редактора — правда для всех: новое становится тем, что знают все, ничего не видев; знание игроков о тайле
+  /// ни к чему.
+  pub fn forget(&mut self, x: i32, y: i32, bytes: [u8; 4]) {
+    self.original.insert((x, y), bytes);
+    for known in self.known.values_mut() {
+      known.remove(&(x, y));
+    }
+    for stale in self.stale.values_mut() {
+      settle(stale, (x, y));
+    }
+    self.edits += 1;
+  }
+
   /// Каким тайл видит игрок: для каждого изменённого тайла — что он о нём знает (fog) или каков он сейчас.
   pub fn known_of(&self, land: &mut kharos_engine::terrain::Land, player: u32, fog: bool) -> Vec<(Tile, [u8; 4])> {
     let known = self.known.get(&player);
