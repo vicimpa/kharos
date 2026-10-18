@@ -62,8 +62,9 @@ end
 return buggy
 ```
 
-У `base` виды юнитов, турелей, оружия и зданий перенесены из `packages/base/data/*.json` как есть (названия — из
-словаря `ru.json`), а сущности собирают `units.entity` и `buildings.entity` по их данным.
+У `base` сущности юнитов и зданий собирают `units.entity` и `buildings.entity` по их данным. Название вида без своего
+`data.title` — ключ словаря «раздел.имя» (`units.buggy`), описание здания и темы — `buildingInfo.имя` и
+`researchInfo.имя`: их вписывает `patch` в `mods/base/mod.luau` видам юнитов, зданий, тем, грузов и партий.
 
 ## Хост
 
