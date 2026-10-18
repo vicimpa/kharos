@@ -5,12 +5,9 @@
 
 local goods = require("lib/goods")
 local kinds = require("lib/kinds")
+local rgb = require("lib/color").rgb
 
 local logistics = {}
-
-local function rgb(r: number, g: number, b: number): number
-	return math.round(r * 255) * 0x10000 + math.round(g * 255) * 0x100 + math.round(b * 255)
-end
 
 logistics.data = {
 	-- Шаг и скорость бегущего груза в тайлах и тайлах в секунду; на сколько тайлов вглубь основания уходит луч.

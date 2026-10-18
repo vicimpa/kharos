@@ -11,6 +11,7 @@ local logistics = require("lib/logistics")
 local construction = require("lib/construction")
 local approach = require("lib/approach")
 local beams = require("lib/beam")
+local world = require("lib/world")
 
 local mechanic = {}
 
@@ -28,10 +29,6 @@ mechanic.components = {
 	-- Поручение строителя: набрать до amount груза resource у from (NONE — уже в кузове) и сгрузить на to; full — набрал.
 	Fetch = { from = -1, to = -1, resource = "", amount = 0, full = false, misses = 0 },
 }
-
-local function onTurn(ctx, e: number, ticks: number): boolean
-	return (ctx.tick + e) % ticks == 0
-end
 
 -- Что в кузове: первый груз по порядку.
 local function cargoOf(w, builder: number): string?
@@ -53,7 +50,7 @@ local function storeFor(w, builder: number, good: string): number?
 	local at = w:get(builder, "Position")
 	local best, bestDistance = nil, math.huge
 	for _, e in w:each({ "Building", "Owner", "Inventory" }) do
-		if not logistics.isReady(w, player, e) or not logistics.isStore(w, e) or goods.room(w:get(e, "Inventory"), good) < logistics.MIN_FETCH then
+		if not world.isReady(w, player, e) or not logistics.isStore(w, e) or goods.room(w:get(e, "Inventory"), good) < logistics.MIN_FETCH then
 			continue
 		end
 		local there = w:get(e, "Position")
@@ -70,7 +67,7 @@ local function goTo(w, builder: number, fetch, target: number)
 	if w:has(builder, "Path") then
 		return
 	end
-	if fetch.misses > 0 and not onTurn(w, builder, mechanic.data.retryTicks) then
+	if fetch.misses > 0 and not world.onTurn(w, builder, mechanic.data.retryTicks) then
 		return
 	end
 	fetch.misses = if approach.go(w, builder, target, w:get(builder, "Beam").radius) then 0 else fetch.misses + 1
@@ -157,7 +154,7 @@ mechanic.systems = {
 						end
 						continue
 					end
-					if not onTurn(ctx, builder, mechanic.data.retryTicks) or not construction.awaitsMaterials(w, site) then
+					if not world.onTurn(ctx, builder, mechanic.data.retryTicks) or not construction.awaitsMaterials(w, site) then
 						continue
 					end
 					flows = flows or logistics.flows(w)
@@ -172,7 +169,7 @@ mechanic.systems = {
 					logistics.add(flows.incoming, site, source.resource, source.amount)
 					continue
 				end
-				if not cargo or builds or ctx:has(builder, "Path") or not onTurn(ctx, builder, mechanic.data.retryTicks) then
+				if not cargo or builds or ctx:has(builder, "Path") or not world.onTurn(ctx, builder, mechanic.data.retryTicks) then
 					continue
 				end
 				local store = storeFor(w, builder, cargo)

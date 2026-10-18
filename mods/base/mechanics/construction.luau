@@ -33,6 +33,7 @@ local drops = require("lib/drops")
 local levels = require("lib/levels")
 local paving = require("lib/paving")
 local earthworks = require("lib/earthworks")
+local world = require("lib/world")
 
 local readf64, writef64 = buffer.readf64, buffer.writef64
 
@@ -85,17 +86,8 @@ local function turnToward(facing: number, wanted: number, maxTurn: number): numb
 	return if math.abs(off) <= maxTurn then wanted else wrap(facing + (if off < 0 then -1 else 1) * maxTurn)
 end
 
-local function onTurn(ctx, entity: number, ticks: number): boolean
-	return (ctx.tick + entity) % ticks == 0
-end
-
-local function ownerOf(ctx, e: number): number
-	local owner = ctx:get(e, "Owner")
-	return if owner then owner.player else 0
-end
-
 local function isOwn(ctx, player: number, e: number): boolean
-	return ctx:alive(e) and ownerOf(ctx, e) == player
+	return ctx:alive(e) and world.ownerOf(ctx, e) == player
 end
 
 -- Расстояние от точки до прямоугольника; внутри — ноль.
@@ -284,10 +276,10 @@ local function clearSite(ctx, site: number, evict: boolean): boolean
 		return true
 	end
 	if evict then
-		local player = ownerOf(ctx, site)
+		local player = world.ownerOf(ctx, site)
 		local own = {}
 		for _, e in inside do
-			if ownerOf(ctx, e) == player and not ctx:has(e, "Path") then
+			if world.ownerOf(ctx, e) == player and not ctx:has(e, "Path") then
 				table.insert(own, e)
 			end
 		end
@@ -308,14 +300,14 @@ local function isStalled(ctx, e: number, rules, purse, all): boolean
 	end
 	local site = ctx:get(e, "Site")
 	if not site then
-		return rules.repairCost > 0 and wallet.balance(purse, ownerOf(ctx, e)) <= 0
+		return rules.repairCost > 0 and wallet.balance(purse, world.ownerOf(ctx, e)) <= 0
 	end
 	if site.demolish then
 		return false
 	end
 	local kind = kinds.of(ctx, e)
 	local x, y = construction.corner(ctx, e)
-	if construction.outOfControl(ctx, ownerOf(ctx, e), kind, x, y, all) then
+	if construction.outOfControl(ctx, world.ownerOf(ctx, e), kind, x, y, all) then
 		return true
 	end
 	if construction.awaitsMaterials(ctx, e) then
@@ -361,12 +353,12 @@ local function repairLinks(ctx, rules, purse, all): { Link }
 		if ctx:has(e, "Building") then
 			local share = if economy.switchedOff(ctx, e) then 0 else economy.shareOf(ctx, e)
 			if share > 0 then
-				table.insert(repairers, { entity = e, player = ownerOf(ctx, e), x = at.x, y = at.y, radius = repair.radius, rate = repair.rate * share, carrier = e, station = true })
+				table.insert(repairers, { entity = e, player = world.ownerOf(ctx, e), x = at.x, y = at.y, radius = repair.radius, rate = repair.rate * share, carrier = e, station = true })
 			end
 			continue
 		end
 		local builds = ctx:get(e, "Builds")
-		table.insert(repairers, { entity = e, player = ownerOf(ctx, e), x = at.x, y = at.y, radius = repair.radius, rate = repair.rate, site = if builds then builds.site else nil, carrier = carrier })
+		table.insert(repairers, { entity = e, player = world.ownerOf(ctx, e), x = at.x, y = at.y, radius = repair.radius, rate = repair.rate, site = if builds then builds.site else nil, carrier = carrier })
 	end
 	if #repairers == 0 then
 		return links
@@ -376,25 +368,25 @@ local function repairLinks(ctx, rules, purse, all): { Link }
 	for _, e in ctx:each({ "Site", "Position", "Owner" }) do
 		local work = workAt(ctx, e)
 		if work then
-			table.insert(targets, { entity = e, work = work, player = ownerOf(ctx, e), demolish = ctx:get(e, "Site").demolish })
+			table.insert(targets, { entity = e, work = work, player = world.ownerOf(ctx, e), demolish = ctx:get(e, "Site").demolish })
 		end
 	end
 	for _, e in ctx:each({ "Pave", "Position", "Owner" }) do
 		local work = workAt(ctx, e)
 		if work then
-			table.insert(targets, { entity = e, work = work, player = ownerOf(ctx, e), demolish = ctx:get(e, "Pave").remove })
+			table.insert(targets, { entity = e, work = work, player = world.ownerOf(ctx, e), demolish = ctx:get(e, "Pave").remove })
 		end
 	end
 	for _, e in ctx:each({ "Dig", "Position", "Owner" }) do
 		local work = workAt(ctx, e)
 		if work then
-			table.insert(targets, { entity = e, work = work, player = ownerOf(ctx, e), demolish = false })
+			table.insert(targets, { entity = e, work = work, player = world.ownerOf(ctx, e), demolish = false })
 		end
 	end
 	for _, e in ctx:each({ "Upgrade", "Position", "Owner" }) do
 		local work = upgradeAt(ctx, e) and workAt(ctx, e)
 		if work then
-			table.insert(targets, { entity = e, work = work, player = ownerOf(ctx, e), demolish = false, upgrade = true })
+			table.insert(targets, { entity = e, work = work, player = world.ownerOf(ctx, e), demolish = false, upgrade = true })
 		end
 	end
 	for _, e in ctx:each({ "Health", "Position", "Owner" }) do
@@ -405,7 +397,7 @@ local function repairLinks(ctx, rules, purse, all): { Link }
 			if work then
 				-- Электростанцию, которой не хватило бы и целой, чинят только посланные к ней.
 				overbuilt = overbuilt or economy.overbuilt(ctx)
-				table.insert(targets, { entity = e, work = work, player = ownerOf(ctx, e), demolish = false, ordered = ctx:has(e, "Building") and overbuilt[e] == true })
+				table.insert(targets, { entity = e, work = work, player = world.ownerOf(ctx, e), demolish = false, ordered = ctx:has(e, "Building") and overbuilt[e] == true })
 			end
 		end
 	end
@@ -482,7 +474,7 @@ local function volunteer(ctx, rules, all)
 	local data = mechanic.data
 	local idle = {}
 	for _, e in ctx:each({ "Repair", "Unit", "Owner" }) do
-		if not onTurn(ctx, e, data.retryTicks) or ctx:has(e, "Converting") or ctx:has(e, "Fetch") then
+		if not world.onTurn(ctx, e, data.retryTicks) or ctx:has(e, "Converting") or ctx:has(e, "Fetch") then
 			continue
 		end
 		-- Стройка, которая ждёт материалов, строителя не держит: он берётся за другую работу, а вернётся, когда подвезут;
@@ -507,26 +499,26 @@ local function volunteer(ctx, rules, all)
 		local work = not construction.awaitsMaterials(ctx, e) and workAt(ctx, e)
 		if work then
 			local site = ctx:get(e, "Site")
-			table.insert(sites, { entity = e, work = work, player = ownerOf(ctx, e), kind = if site.demolish then nil else kinds.of(ctx, e) })
+			table.insert(sites, { entity = e, work = work, player = world.ownerOf(ctx, e), kind = if site.demolish then nil else kinds.of(ctx, e) })
 		end
 	end
 	-- Покрытие зоны не ждёт: строители переходят с тайла на соседний сами. Землеройные работы — тоже.
 	for _, e in ctx:each({ "Pave", "Position", "Owner" }) do
 		local work = workAt(ctx, e)
 		if work then
-			table.insert(sites, { entity = e, work = work, player = ownerOf(ctx, e) })
+			table.insert(sites, { entity = e, work = work, player = world.ownerOf(ctx, e) })
 		end
 	end
 	for _, e in ctx:each({ "Dig", "Position", "Owner" }) do
 		local work = workAt(ctx, e)
 		if work then
-			table.insert(sites, { entity = e, work = work, player = ownerOf(ctx, e) })
+			table.insert(sites, { entity = e, work = work, player = world.ownerOf(ctx, e) })
 		end
 	end
 	for _, e in ctx:each({ "Upgrade", "Position", "Owner" }) do
 		local work = upgradeAt(ctx, e) and workAt(ctx, e)
 		if work then
-			table.insert(sites, { entity = e, work = work, player = ownerOf(ctx, e) })
+			table.insert(sites, { entity = e, work = work, player = world.ownerOf(ctx, e) })
 		end
 	end
 	for _, e in ctx:each({ "Health", "Position", "Owner" }) do
@@ -537,14 +529,14 @@ local function volunteer(ctx, rules, all)
 			overbuilt = overbuilt or economy.overbuilt(ctx)
 			local work = not overbuilt[e] and workAt(ctx, e)
 			if work then
-				table.insert(sites, { entity = e, work = work, player = ownerOf(ctx, e) })
+				table.insert(sites, { entity = e, work = work, player = world.ownerOf(ctx, e) })
 			end
 		end
 	end
 	local open = {}
 	for _, builder in idle do
 		local at = ctx:get(builder, "Position")
-		local player = ownerOf(ctx, builder)
+		local player = world.ownerOf(ctx, builder)
 		local best, bestDistance = nil, data.workRadius
 		for _, site in sites do
 			if site.player ~= player or site.entity == builder then
@@ -1058,7 +1050,7 @@ mechanic.systems = {
 					continue
 				end
 				local at = ctx:get(e, "Position")
-				if distanceTo(work, at.x, at.y) > ctx:get(e, "Repair").radius and onTurn(ctx, e, bit32.lshift(data.retryTicks, math.min(builds.misses, data.maxBackoff))) then
+				if distanceTo(work, at.x, at.y) > ctx:get(e, "Repair").radius and world.onTurn(ctx, e, bit32.lshift(data.retryTicks, math.min(builds.misses, data.maxBackoff))) then
 					ctx:set(e, "Builds", { misses = if approach(ctx, e, builds.site, {}) then 0 else builds.misses + 1 })
 				end
 			end
@@ -1147,14 +1139,14 @@ mechanic.systems = {
 						ctx:set(e, "Pave", { work = work })
 					else
 						-- Уложили: тайл становится готовым покрытием хозяина работы.
-						paving.lay(ctx, x, y, pave.kind, ownerOf(ctx, e))
+						paving.lay(ctx, x, y, pave.kind, world.ownerOf(ctx, e))
 						paving.forget(ctx, e)
 					end
 					continue
 				end
 				local kind = kinds.of(ctx, e)
 				local site = ctx:get(e, "Site")
-				local player = ownerOf(ctx, e)
+				local player = world.ownerOf(ctx, e)
 				local raised = not site and upgradeAt(ctx, e)
 				if raised then
 					-- Улучшение: работа копится, пока не наберётся вся; тогда здание на уровень выше.
@@ -1210,7 +1202,7 @@ mechanic.systems = {
 				local health = ctx:get(e, "Health")
 				if not ctx:has(e, "Footprint") then
 					-- Выгонять пробуют не каждый тик: поиск пути недёшев.
-					if not clearSite(ctx, e, onTurn(ctx, e, data.retryTicks)) then
+					if not clearSite(ctx, e, world.onTurn(ctx, e, data.retryTicks)) then
 						continue
 					end
 					local durability = construction.durabilityOf(ctx, kind, x, y)

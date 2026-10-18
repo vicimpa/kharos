@@ -10,7 +10,7 @@
 local construction = require("lib/construction")
 local drops = require("lib/drops")
 local goods = require("lib/goods")
-local logistics = require("lib/logistics")
+local world = require("lib/world")
 
 local trucks = {}
 
@@ -68,7 +68,7 @@ end
 
 -- Годится ли здание в остановку маршрута или обслуживание: своё готовое со складом.
 function trucks.isStop(c, e: number?): boolean
-	return e ~= nil and logistics.isReady(c, c.player, e) and c:has(e, "Inventory")
+	return e ~= nil and world.isReady(c, c.player, e) and c:has(e, "Inventory")
 end
 
 -- Отдаёт набранный маршрут или список обслуживания выбранным грузовикам: меньше двух остановок или ничего не отмечено —

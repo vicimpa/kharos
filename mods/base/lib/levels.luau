@@ -11,6 +11,7 @@ local logistics = require("lib/logistics")
 local research = require("lib/research")
 local wallet = require("lib/wallet")
 local goods = require("lib/goods")
+local world = require("lib/world")
 
 local levels = {}
 
@@ -128,7 +129,7 @@ end
 -- Поднимают ли это здание игрока сейчас: своё, готовое, из тех, что улучшают, не на верхнем уровне, не разворачивается
 -- и не улучшается.
 function levels.upgradable(w, player: number, e: number): boolean
-	if not logistics.isReady(w, player, e) or w:has(e, "Converting") or w:has(e, "Upgrade") then
+	if not world.isReady(w, player, e) or w:has(e, "Converting") or w:has(e, "Upgrade") then
 		return false
 	end
 	return levels.gain(kinds.of(w, e)) ~= nil and levels.of(w, e) < levels.MAX_LEVEL
@@ -175,7 +176,7 @@ end
 function levels.cancel(ctx, player: number, e: number): boolean
 	local upgrade = ctx:get(e, "Upgrade")
 	local kind = kinds.of(ctx, e)
-	if not upgrade or not kind or not logistics.isReady(ctx, player, e) then
+	if not upgrade or not kind or not world.isReady(ctx, player, e) then
 		return false
 	end
 	local price = levels.cost(kind, levels.of(ctx, e), upgrade.scale)

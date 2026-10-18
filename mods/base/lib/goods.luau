@@ -11,6 +11,8 @@
 -- Склад (Inventory) — items: груз → сколько; capacity — сколько всего; accepts — что сюда кладут (пусто — всё);
 -- limits — сколько каждого самое большее; reserve — сколько хранилище не выдаёт никому, кроме продажи.
 
+local shade = require("lib/color").shade
+
 local goods = {}
 
 -- Заметно меньше этого — пусто: доли копятся с погрешностью.
@@ -208,15 +210,6 @@ local MASKS = {
 }
 -- Камень руды.
 local ROCK = 0x7a6f62
-
--- Цвет, сдвинутый к белому (amount > 0) или к чёрному (amount < 0).
-local function shade(color: number, amount: number): number
-	local function channel(shift: number): number
-		local value = bit32.band(bit32.rshift(color, shift), 255)
-		return math.floor((if amount > 0 then value + (255 - value) * amount else value * (1 + amount)) + 0.5)
-	end
-	return channel(16) * 0x10000 + channel(8) * 0x100 + channel(0)
-end
 
 -- Облик груза: значок 10 × 10; mask — маска (у руды — "ore"), color — цвет, vein — цвет вкраплений.
 function goods.look(mask: string, color: number, vein: number?)

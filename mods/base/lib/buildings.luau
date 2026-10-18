@@ -48,24 +48,11 @@ function buildings.fireColor(level: number): number
 	return buildings.FIRE[math.min(4, math.max(0, math.floor(level * 5)))]
 end
 
--- Воспроизводимое случайное число от 0 до 1 по двум целым.
-function buildings.hash(a: number, b: number): number
-	local value = math.sin(a * 127.1 + b * 311.7) * 43758.5453
-	return value - math.floor(value)
-end
+-- Воспроизводимое случайное число от 0 до 1 по целым.
+buildings.hash = require("lib/noise").of
 
--- Три тона цвета: тёмный, основной, светлый — для окраски частей здания цветом его груза (accent).
-function buildings.accent(color: number)
-	local function mix(amount: number): number
-		local function channel(shift: number): number
-			local value = bit32.band(bit32.rshift(color, shift), 255)
-			local mixed = if amount > 0 then value + (255 - value) * amount else value * (1 + amount)
-			return bit32.lshift(buildings.round(mixed), shift)
-		end
-		return bit32.bor(channel(16), channel(8), channel(0))
-	end
-	return { [0] = mix(-0.55), mix(-0.15), mix(0.3) }
-end
+-- Три тона цвета: тёмный, основной, светлый — для окраски частей здания цветом его груза.
+buildings.accent = require("lib/color").accent
 
 -- Труба с обводкой: горизонтальная, длиной w, осью по строке y.
 function buildings.pipe(g, x: number, y: number, w: number)

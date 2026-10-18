@@ -10,6 +10,7 @@ local logistics = require("lib/logistics")
 local tactics = require("lib/tactics")
 local queue = require("lib/queue")
 local drops = require("lib/drops")
+local world = require("lib/world")
 
 local orders = {}
 
@@ -118,7 +119,7 @@ orders.commands = {
 				trucks = trucks or ctx:has(e, "Hauler")
 			end
 			local mine = ctx:occupant(x, y)
-			if trucks and mine and logistics.isReady(ctx, player, mine) and logistics.dataOf(ctx, mine).extract then
+			if trucks and mine and world.isReady(ctx, player, mine) and logistics.dataOf(ctx, mine).extract then
 				act("haul", { mine = mine })
 				return
 			end

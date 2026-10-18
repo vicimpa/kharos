@@ -12,6 +12,7 @@ local goods = require("lib/goods")
 local kinds = require("lib/kinds")
 local research = require("lib/research")
 local drops = require("lib/drops")
+local world = require("lib/world")
 
 local logistics = {}
 
@@ -38,12 +39,6 @@ local function dataOf(w, e: number)
 	return if kind then kind.data else {}
 end
 logistics.dataOf = dataOf
-
--- Своё готовое здание.
-function logistics.isReady(w, player: number, e: number): boolean
-	local owner = w:alive(e) and w:get(e, "Owner")
-	return owner ~= nil and owner ~= false and owner.player == player and w:has(e, "Building") and not w:has(e, "Site")
-end
 
 -- Хранилище ли это.
 function logistics.isStore(w, e: number): boolean
@@ -407,7 +402,7 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 			continue
 		end
 		-- Выключенному производству материалы не везут.
-		if not site and (not logistics.isReady(w, player, e) or w:has(e, "Converting") or w:has(e, "Off")) then
+		if not site and (not world.isReady(w, player, e) or w:has(e, "Converting") or w:has(e, "Off")) then
 			continue
 		end
 		for good, amount in logistics.missing(w, e) do
@@ -417,7 +412,7 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 	-- Переработка: своя руда из своих шахт, в какой бы зоне они ни стояли; больше буфера не просит.
 	for _, e in w:each({ "Building", "Inventory", "Owner" }) do
 		local ore = dataOf(w, e).refines
-		if not ore or not logistics.isReady(w, player, e) or w:has(e, "Converting") or w:has(e, "Off") then
+		if not ore or not world.isReady(w, player, e) or w:has(e, "Converting") or w:has(e, "Off") then
 			continue
 		end
 		local room = goods.room(w:get(e, "Inventory"), ore)
@@ -429,7 +424,7 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 	-- потратить. Руду — из своих шахт, где бы они ни стояли.
 	local labs = {}
 	for _, e in w:each({ "Building", "Owner", "Inventory" }) do
-		if dataOf(w, e).researches and logistics.isReady(w, player, e) and not w:has(e, "Off") then
+		if dataOf(w, e).researches and world.isReady(w, player, e) and not w:has(e, "Off") then
 			table.insert(labs, e)
 		end
 	end
@@ -445,7 +440,7 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 	for _, e in w:each({ "Assembly", "Inventory", "Owner" }) do
 		local assembly = w:get(e, "Assembly")
 		local product = w.protos.goods[assembly.recipe]
-		if not assembly.on or not product or not logistics.isReady(w, player, e) then
+		if not assembly.on or not product or not world.isReady(w, player, e) then
 			continue
 		end
 		local stock = w:get(e, "Inventory")
@@ -457,7 +452,7 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 	-- ближайшая зона.
 	for _, e in w:each({ "Building", "Inventory", "Owner" }) do
 		local feed = logistics.feedOf(dataOf(w, e))
-		if not feed or not logistics.isReady(w, player, e) then
+		if not feed or not world.isReady(w, player, e) then
 			continue
 		end
 		local stock = w:get(e, "Inventory")
@@ -508,7 +503,7 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 	end
 	-- Станции запроса: недостающее до заказа игрока.
 	for _, e in w:each({ "Wanted", "Inventory" }) do
-		if not logistics.isReady(w, player, e) then
+		if not world.isReady(w, player, e) then
 			continue
 		end
 		local stock = w:get(e, "Inventory")
@@ -520,7 +515,7 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 	-- дробный остаток — и заявке не хватает меньше MIN_JOB, а такое не привёз бы никто. Лишнее вернётся в хранилища.
 	for _, e in w:each({ "Trade", "Inventory" }) do
 		local order = w:get(e, "Trade")
-		if order.total > 0 or order.buy or not logistics.isReady(w, player, e) then
+		if order.total > 0 or order.buy or not world.isReady(w, player, e) then
 			continue
 		end
 		local delivered = math.min(order.wanted, goods.amount(w:get(e, "Inventory"), order.resource))
@@ -569,7 +564,7 @@ function logistics.storeFor(w, truck: number, good: string, except: number?): nu
 	local flows = logistics.flows(w, truck)
 	local best, bestFill, bestDistance = nil, math.huge, math.huge
 	for _, e in w:each({ "Inventory", "Building" }) do
-		if e == except or not logistics.isStore(w, e) or not logistics.isReady(w, player, e) or w:has(e, "Converting") or logistics.unreachable(w, e) then
+		if e == except or not logistics.isStore(w, e) or not world.isReady(w, player, e) or w:has(e, "Converting") or logistics.unreachable(w, e) then
 			continue
 		end
 		local space = logistics.space(w, e, good, flows)
@@ -594,7 +589,7 @@ function logistics.refineryFor(w, truck: number, ore: string, except: number?, s
 	local flows = logistics.flows(w, truck)
 	local best, bestDistance = nil, math.huge
 	for _, e in w:each({ "Inventory", "Building" }) do
-		if e == except or dataOf(w, e).refines ~= ore or not logistics.isReady(w, player, e) or w:has(e, "Converting") or w:has(e, "Off") then
+		if e == except or dataOf(w, e).refines ~= ore or not world.isReady(w, player, e) or w:has(e, "Converting") or w:has(e, "Off") then
 			continue
 		end
 		if logistics.space(w, e, ore, flows) <= EPSILON or logistics.unreachable(w, e) then
@@ -635,7 +630,7 @@ function logistics.accepts(w, player: number, to: number, good: string): boolean
 		local owner = w:get(to, "Owner")
 		return owner ~= nil and owner.player == player and dataOf(w, to).supplies ~= nil
 	end
-	if not logistics.isReady(w, player, to) or w:has(to, "Converting") then
+	if not world.isReady(w, player, to) or w:has(to, "Converting") then
 		return false
 	end
 	-- Космопорт — только товар своей заявки, пока корабль не улетел.
@@ -764,7 +759,7 @@ end
 
 -- Можно ли забирать груз со склада: свой готовый склад или дроп, где он есть.
 function logistics.offersPickup(w, player: number, from: number, good: string): boolean
-	return (logistics.isReady(w, player, from) or (w:alive(from) and drops.is(w, from))) and logistics.spare(w, from, good) > EPSILON
+	return (world.isReady(w, player, from) or (w:alive(from) and drops.is(w, from))) and logistics.spare(w, from, good) > EPSILON
 end
 
 -- Дропы в кругах сети: груз с них берут так же, как со складов сети.
@@ -853,7 +848,7 @@ end
 function logistics.stockOf(w, player: number): ({ [string]: number }, number)
 	local items, capacity = {}, 0
 	for _, e in w:each({ "Inventory", "Building" }) do
-		if logistics.isStore(w, e) and logistics.isReady(w, player, e) then
+		if logistics.isStore(w, e) and world.isReady(w, player, e) then
 			local stock = w:get(e, "Inventory")
 			capacity += stock.capacity
 			for good, amount in stock.items do

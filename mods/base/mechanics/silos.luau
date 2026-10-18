@@ -22,6 +22,7 @@ local logistics = require("lib/logistics")
 local missilesLib = require("lib/missiles")
 local tactics = require("lib/tactics")
 local wallet = require("lib/wallet")
+local world = require("lib/world")
 
 local readf64 = buffer.readf64
 
@@ -68,7 +69,7 @@ local function ownSilo(ctx, player: number, silo: any)
 	end
 	local warhead = warheadOf(ctx, silo)
 	local state = ctx:get(silo, "Silo")
-	if not warhead or not state or not logistics.isReady(ctx, player, silo) then
+	if not warhead or not state or not world.isReady(ctx, player, silo) then
 		return nil, nil
 	end
 	return state, warhead
@@ -78,7 +79,7 @@ end
 function mechanic.warheadLack(w, player: number, silo: number): string?
 	local warhead = warheadOf(w, silo)
 	local state = w:get(silo, "Silo")
-	if not warhead or not state or not logistics.isReady(w, player, silo) or state.ticks > 0 or state.ready then
+	if not warhead or not state or not world.isReady(w, player, silo) or state.ticks > 0 or state.ready then
 		return "busy"
 	end
 	if wallet.credits(w, player) < warhead.cost then
@@ -104,11 +105,6 @@ function mechanic.interceptorLack(w, e: number): string?
 		return "credits"
 	end
 	return if logistics.networkHas(w, e, spec.materials) then nil else "materials"
-end
-
-local function inBounds(ctx, x: number, y: number): boolean
-	local size = ctx.game.data and ctx.game.data.size
-	return not size or (x >= -size and y >= -size and x < size and y < size)
 end
 
 mechanic.commands = {
@@ -146,7 +142,7 @@ mechanic.commands = {
 			return
 		end
 		x, y = math.floor(x), math.floor(y)
-		if not inBounds(ctx, x, y) then
+		if not world.inBounds(ctx, x, y) then
 			return
 		end
 		ctx:set(args.silo, "Silo", { start = if state.start < 0 then ctx.tick else state.start, toX = x + 0.5, toY = y + 0.5 })

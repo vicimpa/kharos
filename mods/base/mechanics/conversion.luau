@@ -9,6 +9,7 @@ local conversion = require("lib/conversion")
 local placement = require("lib/placement")
 local queue = require("lib/queue")
 local drops = require("lib/drops")
+local world = require("lib/world")
 
 local readf64, writef64 = buffer.readf64, buffer.writef64
 
@@ -35,11 +36,6 @@ mechanic.components = {
 	-- MCV послан развернуться в другом месте: левый верхний тайл здания и сколько раз не доехал.
 	Deploys = { x = 0, y = 0, misses = 0 },
 }
-
--- Тик сущности: раз в ticks тиков, у каждой в свой.
-local function onTurn(ctx, entity: number, ticks: number): boolean
-	return (ctx.tick + entity) % ticks == 0
-end
 
 -- Начинает превращение: оно кончится через seconds.
 local function start(ctx, entity: number, seconds: number)
@@ -73,11 +69,6 @@ end
 local function middleOf(ctx, x: number, y: number): (number, number)
 	local data = conversion.building(ctx).data
 	return x + math.floor(data.width / 2), y + math.floor(data.height / 2)
-end
-
-local function inBounds(ctx, x: number, y: number): boolean
-	local size = ctx.game.data and ctx.game.data.size
-	return not size or (x >= -size and y >= -size and x < size and y < size)
 end
 
 local function isTile(value: any): boolean
@@ -132,7 +123,7 @@ mechanic.commands = {
 			return
 		end
 		local data = conversion.building(ctx).data
-		if not inBounds(ctx, x, y) or not inBounds(ctx, x + data.width - 1, y + data.height - 1) then
+		if not world.inBounds(ctx, x, y) or not world.inBounds(ctx, x + data.width - 1, y + data.height - 1) then
 			return
 		end
 		if standsOn(ctx, unit, x, y) then
@@ -201,7 +192,7 @@ mechanic.systems = {
 					else
 						ctx:remove(entity, "Deploys")
 					end
-				elseif onTurn(ctx, entity, bit32.lshift(data.retryTicks, misses)) then
+				elseif world.onTurn(ctx, entity, bit32.lshift(data.retryTicks, misses)) then
 					misses += 1
 					writef64(d.misses, at, misses)
 					if misses > data.misses then
@@ -231,7 +222,7 @@ mechanic.systems = {
 				writef64(left, at, rest)
 				-- Выгонять пробуют не каждый тик: поиск пути недёшев.
 				local unit = ctx:has(entity, "Unit")
-				local clear = not unit or clearSite(ctx, entity, onTurn(ctx, entity, data.evictTicks))
+				local clear = not unit or clearSite(ctx, entity, world.onTurn(ctx, entity, data.evictTicks))
 				if rest <= 0 and clear then
 					table.insert(done, entity)
 				end

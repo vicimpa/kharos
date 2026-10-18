@@ -5,12 +5,9 @@
 
 local noise = require("lib/noise").of
 local earthworks = require("lib/earthworks")
+local rgb = require("lib/color").rgb
 
 local construction = {}
-
-local function rgb(r: number, g: number, b: number): number
-	return math.round(r * 255) * 0x10000 + math.round(g * 255) * 0x100 + math.round(b * 255)
-end
 
 construction.data = {
 	-- Искр на вспышку, как далеко они разлетаются в тайлах и сколько вспышек в секунду.

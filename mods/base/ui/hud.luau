@@ -24,6 +24,7 @@ local paving = require("lib/paving")
 local earthworks = require("lib/earthworks")
 local truckControls = require("controls/trucks")
 local seenLib = require("lib/seen")
+local wallet = require("lib/wallet")
 
 local clockOf = widgets.clock
 local COLORS, shadow = widgets.COLORS, widgets.shadow
@@ -41,6 +42,7 @@ local TILE = 32
 local QUEUED = 24
 -- Сторона мини-карты: из настроек игрока, но не больше, чем оставляет сведениям ширина экрана.
 local settings = require("lib/settings")
+local world = require("lib/world")
 local INFO_MIN = 104 + 10 + 24 + 150
 local GRID_KEYS = { "T", "Y", "U", "I", "G", "H", "J", "K", "B", "N", "M", "," }
 -- Постоянные места сетки: превращение, отмена, разбор и «Назад»; выключатель — на месте «Назад».
@@ -157,17 +159,6 @@ local function shownGrid(c)
 	return if shown then gridState(shown) else nil
 end
 
--- Свой игрок: кредиты.
-local function credits(c): number
-	for _, e in c:each({ "Player" }) do
-		local player = c:get(e, "Player")
-		if player.id == c.player then
-			return player.credits
-		end
-	end
-	return 0
-end
-
 -- Значок груза с количеством.
 local function goodWith(c, good: string, amount: number?, size: number?, of: number?)
 	local ui = c.ui
@@ -216,7 +207,7 @@ local function topBar(c)
 	ui:box({ id = "top", anchor = { left = 0, right = 0, top = 0 }, height = TOP_HEIGHT, skin = "panel", padding = { 4, 12 }, direction = "row", align = "center", gap = 12 }, function()
 		ui:box({ id = "credits", direction = "row", align = "center", gap = 6 }, function()
 			widgets.coin(ui)
-			ui:text(tostring(math.floor(credits(c))), { font = "title", color = COLORS.gold, shadow = COLORS.ink, lift = 2 })
+			ui:text(tostring(math.floor(wallet.credits(c, c.player))), { font = "title", color = COLORS.gold, shadow = COLORS.ink, lift = 2 })
 			local income = math.round(economy.of(c, c.player).income * 100) / 100
 			if income > 0 then
 				ui:text(c:t("hud.perSecond", { amount = number(income) }), { color = COLORS.good })
@@ -614,7 +605,7 @@ local function dealOf(c, port: number, buying: boolean, deal)
 	if not item then
 		return nil
 	end
-	local max = if buying then math.max(0, math.min(room, math.floor(credits(c) / item.price))) else item.available
+	local max = if buying then math.max(0, math.min(room, math.floor(wallet.credits(c, c.player) / item.price))) else item.available
 	return { resource = item.resource, amount = math.max(0, math.min(max, math.floor(deal.amount))), price = item.price, max = max, room = room }
 end
 
@@ -779,7 +770,7 @@ local function levelState(c, selection)
 	local materials = {}
 	for _, e in selection do
 		local kind = kinds.of(c, e)
-		local gain = kind and logistics.isReady(c, c.player, e) and levels.gain(kind)
+		local gain = kind and world.isReady(c, c.player, e) and levels.gain(kind)
 		if not gain then
 			continue
 		end
@@ -808,7 +799,7 @@ local function levelState(c, selection)
 	end
 	if state and state.next then
 		state.next.materials = materials
-		if credits(c) < state.next.cost and state.next.lack ~= "research" then
+		if wallet.credits(c, c.player) < state.next.cost and state.next.lack ~= "research" then
 			state.next.lack = "credits"
 		end
 	end
@@ -975,7 +966,7 @@ end
 local function reserveSlots(c, list, selection)
 	local buildings, amount, capacity = {}, 0, math.huge
 	for _, e in selection do
-		local stock = logistics.isReady(c, c.player, e) and logistics.isStore(c, e) and c:get(e, "Inventory")
+		local stock = world.isReady(c, c.player, e) and logistics.isStore(c, e) and c:get(e, "Inventory")
 		if stock then
 			if #buildings == 0 then
 				amount = stock.reserve or 0
@@ -1026,7 +1017,7 @@ end
 local function requestSlots(c, list, selection)
 	local buildings, wanted, capacity = {}, {}, math.huge
 	for _, e in selection do
-		local order = logistics.isReady(c, c.player, e) and c:get(e, "Wanted")
+		local order = world.isReady(c, c.player, e) and c:get(e, "Wanted")
 		local stock = order and c:get(e, "Inventory")
 		if order and stock then
 			if #buildings == 0 then
@@ -1224,7 +1215,7 @@ local function slots(c, selection)
 			end
 		end
 		local kind = c:proto(building)
-		local money = credits(c)
+		local money = wallet.credits(c, c.player)
 		local orders = ordersOf(busiest)
 		-- Очередь полна — заказывать некуда.
 		local full = ordersOf(building) >= c.protos.mechanics.production.data.queue
@@ -1279,7 +1270,7 @@ local function slots(c, selection)
 	end
 	-- Своя готовая ракетная шахта: боеголовка, пуск и отмена.
 	local silo = #selection == 1 and selection[1]
-	local state = silo and c:mine(silo) and logistics.isReady(c, c.player, silo) and c:get(silo, "Silo")
+	local state = silo and c:mine(silo) and world.isReady(c, c.player, silo) and c:get(silo, "Silo")
 	local warhead = state and c:proto(silo).data.warhead
 	if state and warhead and page.name == "root" then
 		local stage = if state.start >= 0 then "launching" elseif state.ready then "ready" elseif state.ticks > 0 then "assembling" else "empty"
@@ -1708,7 +1699,7 @@ local function info(c, selection, width: number, height: number)
 			if built and economy.coreless(c)[first] then
 				ui:text(c:t("hud.coreless"), { color = COLORS.warn, wrap = text })
 			end
-			if built and c:mine(first) and kind.name == economy.CORE and credits(c) < economy.RELIEF_BELOW then
+			if built and c:mine(first) and kind.name == economy.CORE and wallet.credits(c, c.player) < economy.RELIEF_BELOW then
 				ui:text(c:t("hud.relief", { below = economy.RELIEF_BELOW, income = economy.RELIEF_INCOME }), { color = COLORS.soft, wrap = text })
 			end
 			local starved, off = false, false
@@ -2591,7 +2582,7 @@ local function hoverTips(c)
 		if other and not other.data.pipe then
 			buildings += 1
 		end
-		if logistics.isStore(c, member) and logistics.isReady(c, c.player, member) then
+		if logistics.isStore(c, member) and world.isReady(c, c.player, member) then
 			local stock = c:get(member, "Inventory")
 			if stock then
 				capacity += stock.capacity
@@ -2651,7 +2642,7 @@ local function truckMenu(c)
 			table.insert(unload, { resource = name, amount = loaded[name] })
 		end
 	end
-	local mine = logistics.isReady(c, c.player, building) and logistics.dataOf(c, building).extract == true
+	local mine = world.isReady(c, c.player, building) and logistics.dataOf(c, building).extract == true
 	local needy = logistics.canSupply(c, c.player, building)
 	if picked and picked.building ~= building then
 		picked = nil

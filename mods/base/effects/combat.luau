@@ -7,12 +7,9 @@
 local missiles = require("lib/missiles")
 local noise = require("lib/noise").of
 local tactics = require("lib/tactics")
+local rgb = require("lib/color").rgb
 
 local combat = {}
-
-local function rgb(r: number, g: number, b: number): number
-	return math.round(r * 255) * 0x10000 + math.round(g * 255) * 0x100 + math.round(b * 255)
-end
 
 combat.data = {
 	-- Во сколько раз картинка взрыва шире его радиуса; пятно света — шире в BLAST_LIGHT раз, ореол — вдвое уже.

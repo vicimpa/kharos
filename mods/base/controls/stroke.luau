@@ -13,6 +13,7 @@ local paving = require("lib/paving")
 local earthworks = require("lib/earthworks")
 local zones = require("lib/zones")
 local conversion = require("lib/conversion")
+local wallet = require("lib/wallet")
 
 local stroke = {}
 
@@ -80,7 +81,7 @@ local function surfaceOf(c, tool: string, start, tile): ({ number }, { boolean }
 	local cost = 0
 	if DIG[tool] then
 		-- Землеройные работы в рамке: подсвечены тайлы каждой работы; на что не хватит кредитов — жёлтым.
-		local credits = construction.credits(c, c.player)
+		local credits = wallet.credits(c, c.player)
 		local shown = {}
 		for _, job in earthworks.digsIn(c, c.player, tool, tiles) do
 			local affordable = cost + job.cost <= credits
@@ -110,7 +111,7 @@ local function surfaceOf(c, tool: string, start, tile): ({ number }, { boolean }
 		end
 		return tiles, allowed, 0, short
 	end
-	local credits = construction.credits(c, c.player)
+	local credits = wallet.credits(c, c.player)
 	local all = zones.all(c)
 	local taken = {}
 	for i = 1, #tiles - 1, 2 do

@@ -24,6 +24,7 @@ local beams = require("lib/beam")
 local queue = require("lib/queue")
 local drops = require("lib/drops")
 local levels = require("lib/levels")
+local world = require("lib/world")
 local beamFor, reaches, transfer = beams.beamFor, beams.reaches, beams.transfer
 
 local mechanic = {}
@@ -73,18 +74,9 @@ mechanic.components = {
 	Unreachable = { ["until"] = 0 },
 }
 
-local function onTurn(ctx, e: number, ticks: number): boolean
-	return (ctx.tick + e) % ticks == 0
-end
-
-local function ownerOf(w, e: number): number
-	local owner = w:get(e, "Owner")
-	return if owner then owner.player else 0
-end
-
 -- Может ли игрок привязать грузовики к этому зданию: его готовая шахта.
 local function canHaul(w, player: number, mine: number): boolean
-	return logistics.isReady(w, player, mine) and logistics.dataOf(w, mine).extract == true
+	return world.isReady(w, player, mine) and logistics.dataOf(w, mine).extract == true
 end
 
 -- Что лежит в кузове: первый груз по порядку, которого там есть хоть сколько-то.
@@ -177,7 +169,7 @@ end
 local function requesterFor(w, truck: number, good: string): number?
 	local at = w:get(truck, "Position")
 	local best, bestDistance = nil, math.huge
-	for _, request in logistics.requests(w, ownerOf(w, truck), logistics.flows(w)) do
+	for _, request in logistics.requests(w, world.ownerOf(w, truck), logistics.flows(w)) do
 		if request.resource ~= good or logistics.unreachable(w, request.to) then
 			continue
 		end
@@ -195,7 +187,7 @@ local function seekDue(ctx, truck: number, hauler): boolean
 	if not hauler.waiting then
 		return true
 	end
-	return onTurn(ctx, truck, mechanic.data.retryTicks * 2 ^ math.min(hauler.misses, mechanic.data.maxBackoff))
+	return world.onTurn(ctx, truck, mechanic.data.retryTicks * 2 ^ math.min(hauler.misses, mechanic.data.maxBackoff))
 end
 
 -- Заперт ли грузовик: из его тайла технике не выехать дальше кармана.
@@ -309,7 +301,7 @@ local function dispatch(w)
 				continue
 			end
 		end
-		local player = ownerOf(w, truck)
+		local player = world.ownerOf(w, truck)
 		idle[player] = idle[player] or {}
 		table.insert(idle[player], truck)
 		any = true
@@ -323,7 +315,7 @@ local function dispatch(w)
 		local requests = logistics.requests(w, player, flows)
 		local outlets, mines = {}, {}
 		for _, e in w:each({ "Building", "Inventory" }) do
-			if not logistics.isReady(w, player, e) or w:has(e, "Converting") then
+			if not world.isReady(w, player, e) or w:has(e, "Converting") then
 				continue
 			end
 			local data = logistics.dataOf(w, e)
@@ -427,7 +419,7 @@ local function dispatch(w)
 			if #hauler.serve > 0 then
 				local kept = {}
 				for _, building in hauler.serve do
-					if logistics.isReady(w, player, building) and w:has(building, "Inventory") then
+					if world.isReady(w, player, building) and w:has(building, "Inventory") then
 						table.insert(kept, building)
 					end
 				end
@@ -574,7 +566,7 @@ local function assign(ctx, player: number, mine: number, units: { number })
 	end
 	local any = false
 	for _, truck in units do
-		if type(truck) == "number" and ctx:alive(truck) and ctx:has(truck, "Hauler") and ownerOf(ctx, truck) == player then
+		if type(truck) == "number" and ctx:alive(truck) and ctx:has(truck, "Hauler") and world.ownerOf(ctx, truck) == player then
 			-- Тронется сам в ближайший тик: гружёный — в хранилище, пустой — к шахте.
 			freed(ctx, truck, { mine = mine })
 			any = true
@@ -591,7 +583,7 @@ local function assignPickup(ctx, player: number, drop: number, units: { number }
 	end
 	local any = false
 	for _, truck in units do
-		if type(truck) == "number" and ctx:alive(truck) and ctx:has(truck, "Hauler") and ownerOf(ctx, truck) == player then
+		if type(truck) == "number" and ctx:alive(truck) and ctx:has(truck, "Hauler") and world.ownerOf(ctx, truck) == player then
 			freed(ctx, truck, { pickup = drop })
 			any = true
 		end
@@ -607,7 +599,7 @@ local function trucksOf(ctx, player: number, units: any): { number }
 		return list
 	end
 	for _, truck in units do
-		if type(truck) == "number" and not seen[truck] and ctx:alive(truck) and ctx:has(truck, "Hauler") and ctx:has(truck, "Unit") and ownerOf(ctx, truck) == player then
+		if type(truck) == "number" and not seen[truck] and ctx:alive(truck) and ctx:has(truck, "Hauler") and ctx:has(truck, "Unit") and world.ownerOf(ctx, truck) == player then
 			seen[truck] = true
 			table.insert(list, truck)
 		end
@@ -617,7 +609,7 @@ end
 
 -- Годится ли здание в остановку маршрута или обслуживание: своё готовое здание со складом.
 local function isStop(w, player: number, building: any): boolean
-	return type(building) == "number" and logistics.isReady(w, player, building) and w:has(building, "Inventory")
+	return type(building) == "number" and world.isReady(w, player, building) and w:has(building, "Inventory")
 end
 
 -- Посылает грузовики игрока обеспечить здание или стройку: они бросают прежнюю работу и возят только по его заявкам,
@@ -673,7 +665,7 @@ runRoutes = function(ctx, w)
 		if #hauler.route == 0 or ctx:has(truck, "Path") or ctx:has(truck, "Converting") then
 			continue
 		end
-		local player = ownerOf(ctx, truck)
+		local player = world.ownerOf(ctx, truck)
 		local cargo = w:get(truck, "Inventory")
 		local kept = {}
 		for _, stop in hauler.route do
@@ -691,7 +683,7 @@ runRoutes = function(ctx, w)
 			continue
 		end
 		hauler.stop %= #route
-		local retry = onTurn(ctx, truck, mechanic.data.retryTicks)
+		local retry = world.onTurn(ctx, truck, mechanic.data.retryTicks)
 		local here = route[hauler.stop + 1]
 		if not reaches(w, truck, here) and not reaches(w, here, truck) then
 			if seekDue(ctx, truck, hauler) then
@@ -847,13 +839,13 @@ local function isCarrySource(ctx, player: number, e: any): boolean
 	if type(e) ~= "number" or not ctx:alive(e) or not ctx:has(e, "Inventory") then
 		return false
 	end
-	return drops.is(ctx, e) or (ownerOf(ctx, e) == player and not ctx:has(e, "Unit"))
+	return drops.is(ctx, e) or (world.ownerOf(ctx, e) == player and not ctx:has(e, "Unit"))
 end
 
 -- Годится ли склад принять груз по ручному приказу: своё здание, стройка или юнит со складом, где груз поместится;
 -- стройке — только её материалы.
 local function isCarryTarget(ctx, player: number, e: any, good: string): boolean
-	if type(e) ~= "number" or not ctx:alive(e) or ownerOf(ctx, e) ~= player or ctx:has(e, "Hauler") then
+	if type(e) ~= "number" or not ctx:alive(e) or world.ownerOf(ctx, e) ~= player or ctx:has(e, "Hauler") then
 		return false
 	end
 	local stock = ctx:get(e, "Inventory")
@@ -971,7 +963,7 @@ mechanic.commands = {
 			return
 		end
 		for _, building in args.buildings do
-			if type(building) == "number" and logistics.isReady(ctx, player, building) and logistics.isStore(ctx, building) then
+			if type(building) == "number" and world.isReady(ctx, player, building) and logistics.isStore(ctx, building) then
 				local stock = ctx:get(building, "Inventory")
 				if stock then
 					ctx:set(building, "Inventory", { reserve = math.max(0, math.min(stock.capacity, math.round(args.amount))) })
@@ -987,7 +979,7 @@ mechanic.commands = {
 			return
 		end
 		for _, building in args.buildings do
-			if type(building) ~= "number" or not logistics.isReady(ctx, player, building) then
+			if type(building) ~= "number" or not world.isReady(ctx, player, building) then
 				continue
 			end
 			local wanted, stock = ctx:get(building, "Wanted"), ctx:get(building, "Inventory")
@@ -1129,7 +1121,7 @@ mechanic.systems = {
 			local seeking, working, released, dropped, homeless = {}, {}, {}, {}, {}
 			for _, truck in ctx:each({ "Hauler", "Owner", "Inventory" }) do
 				local hauler = w:get(truck, "Hauler")
-				local player = ownerOf(ctx, truck)
+				local player = world.ownerOf(ctx, truck)
 				local cargo = w:get(truck, "Inventory")
 				hauler.loading = false
 				-- Грузовик с маршрутом ездит по нему сам, с ручным приказом — по приказу.
@@ -1149,7 +1141,7 @@ mechanic.systems = {
 				if ctx:has(truck, "Path") or ctx:has(truck, "Converting") then
 					continue
 				end
-				local retry = onTurn(ctx, truck, d.retryTicks)
+				local retry = world.onTurn(ctx, truck, d.retryTicks)
 				if hauler.from == NONE and hauler.to == NONE then
 					local carried = carriedBy(w, truck)
 					if carried then
@@ -1289,7 +1281,7 @@ mechanic.systems = {
 				-- Хранилища полны — груз остаётся в кузове, грузовик пробует снова.
 				hauler.resource, hauler.full, hauler.waiting = good, true, false
 				local from = hauler.from
-				local player = ownerOf(w, truck)
+				local player = world.ownerOf(w, truck)
 				-- Взятое из хранилища и ставшее ненужным едет обратно туда же.
 				if from ~= NONE and logistics.isStore(w, from) and not logistics.unreachable(w, from) and logistics.accepts(w, player, from, good) then
 					hauler.to = from

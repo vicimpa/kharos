@@ -10,12 +10,9 @@ local economy = require("lib/economy")
 local lacks = require("lib/lacks")
 local supply = require("lib/supply")
 local noise = require("lib/noise").of
+local rgb = require("lib/color").rgb
 
 local power = {}
-
-local function rgb(r: number, g: number, b: number): number
-	return math.round(r * 255) * 0x10000 + math.round(g * 255) * 0x100 + math.round(b * 255)
-end
 
 power.data = {
 	-- Раз во сколько секунд пересчитывается, какие станции под нагрузкой: это обход всех сетей.

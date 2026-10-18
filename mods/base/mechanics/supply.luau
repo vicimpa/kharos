@@ -17,6 +17,7 @@ local kinds = require("lib/kinds")
 local logistics = require("lib/logistics")
 local supply = require("lib/supply")
 local tactics = require("lib/tactics")
+local world = require("lib/world")
 
 local readf64 = buffer.readf64
 local EPSILON = 1e-9
@@ -86,7 +87,7 @@ mechanic.systems = {
 							continue
 						end
 						seen[depot] = true
-						if logistics.dataOf(ctx, depot).depot and logistics.isReady(ctx, supplier.player, depot) and beams.reaches(w, depot, supplier.entity) then
+						if logistics.dataOf(ctx, depot).depot and world.isReady(ctx, supplier.player, depot) and beams.reaches(w, depot, supplier.entity) then
 							beams.transfer(w, depot, supplier.entity, "ammo")
 						end
 					end
@@ -179,7 +180,7 @@ mechanic.systems = {
 				for _, e in ctx:each({ "Building", "Owner", "Position" }) do
 					local data = logistics.dataOf(ctx, e)
 					local player = ctx:get(e, "Owner").player
-					local zone = data.rearms and logistics.isReady(ctx, player, e) and logistics.networkOf(ctx, e)
+					local zone = data.rearms and world.isReady(ctx, player, e) and logistics.networkOf(ctx, e)
 					if zone then
 						local at = ctx:get(e, "Position")
 						table.insert(airfields, { player = player, x = at.x - data.width / 2, y = at.y - data.height / 2, width = data.width, height = data.height, zone = zone })

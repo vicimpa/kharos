@@ -8,6 +8,7 @@ local goods = require("lib/goods")
 local logistics = require("lib/logistics")
 local research = require("lib/research")
 local levels = require("lib/levels")
+local world = require("lib/world")
 
 local trade = {}
 
@@ -50,7 +51,7 @@ end
 
 -- Свой готовый космопорт игрока.
 function trade.isPort(w, player: number, port: number): boolean
-	return logistics.dataOf(w, port).trades == true and logistics.isReady(w, player, port)
+	return logistics.dataOf(w, port).trades == true and world.isReady(w, player, port)
 end
 
 -- Может ли игрок торговать через космопорт: свой, готовый и корабль не в деле. Подарков союзникам кораблём (Transfer)

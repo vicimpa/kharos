@@ -5,6 +5,7 @@
 
 local tactics = require("lib/tactics")
 local queue = require("lib/queue")
+local world = require("lib/world")
 
 local mechanic = {}
 
@@ -14,11 +15,6 @@ mechanic.data = {
 	-- Ближе скольких тайлов к своему месту юнит считается пришедшим: само место мог занять сосед.
 	homeReach = 1.5,
 }
-
-local function inBounds(ctx, x: number, y: number): boolean
-	local size = ctx.game.data and ctx.game.data.size
-	return not size or (x >= -size and y >= -size and x < size and y < size)
-end
 
 local function isTile(value: any): boolean
 	return type(value) == "number" and value == math.floor(value)
@@ -74,7 +70,7 @@ mechanic.commands = {
 				break
 			end
 			local x, y = points[i], points[i + 1]
-			if isTile(x) and isTile(y) and inBounds(ctx, x, y) then
+			if isTile(x) and isTile(y) and world.inBounds(ctx, x, y) then
 				table.insert(stops, x)
 				table.insert(stops, y)
 			end

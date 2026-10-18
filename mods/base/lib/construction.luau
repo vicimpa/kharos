@@ -11,6 +11,8 @@ local depositsLib = require("lib/deposits")
 local trade = require("lib/trade")
 local levels = require("lib/levels")
 local surface = require("lib/surface")
+local world = require("lib/world")
+local wallet = require("lib/wallet")
 
 local construction = {}
 
@@ -53,28 +55,6 @@ function construction.siteTicks(kind, dt: number): number
 	return construction.workTicks(kind.data.cost, dt)
 end
 
--- Состояние игрока (Player) по номеру; нет — nil.
-local function playerState(w, player: number)
-	for _, e in w:each({ "Player" }) do
-		local state = w:get(e, "Player")
-		if state.id == player then
-			return state
-		end
-	end
-	return nil
-end
-
-function construction.credits(w, player: number): number
-	local state = playerState(w, player)
-	return if state then state.credits else 0
-end
-
--- Своё и готовое: здание игрока, которое не строится и не разбирается.
-function construction.isReady(w, player: number, e: number): boolean
-	local owner = w:get(e, "Owner")
-	return w:has(e, "Building") and w:has(e, "Footprint") and not w:has(e, "Site") and owner ~= nil and owner.player == player
-end
-
 -- Каких готовых зданий из списка needs у игрока нет — имена.
 function construction.missing(w, player: number, needs: { string }?): { string }
 	if not needs or #needs == 0 then
@@ -83,7 +63,7 @@ function construction.missing(w, player: number, needs: { string }?): { string }
 	local have = {}
 	for _, e in w:each({ "Building", "Owner" }) do
 		local kind = kinds.of(w, e)
-		if kind and not have[kind.name] and table.find(needs, kind.name) and construction.isReady(w, player, e) then
+		if kind and not have[kind.name] and table.find(needs, kind.name) and world.isReady(w, player, e) then
 			have[kind.name] = true
 		end
 	end
@@ -101,8 +81,8 @@ function construction.researched(w, player: number, topic: string?): boolean
 	if topic == nil or not construction.rules(w).techTree then
 		return true
 	end
-	local state = playerState(w, player)
-	local known = state and state.research
+	local e = wallet.of(w, player)
+	local known = e and w:get(e, "Player").research
 	return type(known) == "table" and table.find(known, topic) ~= nil
 end
 
@@ -344,14 +324,14 @@ function construction.freeCredits(w, player: number): number
 			total += owed(w, e)
 		end
 	end
-	return construction.credits(w, player) - total
+	return wallet.credits(w, player) - total
 end
 
 -- Свои стройки, которым не хватит кредитов на счету: кредиты раздаются по порядку закладки, каждой — на остаток её
 -- цены. Так значок «ждёт кредитов» не мигает, пока доход приносит кредит, а стройка его тратит.
 function construction.short(w, player: number): { [number]: boolean }
 	local short = {}
-	local budget = construction.credits(w, player)
+	local budget = wallet.credits(w, player)
 	for _, e in w:each({ "Site", "Owner" }) do
 		if w:get(e, "Owner").player ~= player or w:get(e, "Site").demolish then
 			continue
@@ -400,7 +380,7 @@ end
 
 -- Может ли игрок разобрать здание: своё, готовое и не главное — главное сворачивают в MCV.
 function construction.canDemolish(w, player: number, e: number): boolean
-	if not construction.isReady(w, player, e) or w:has(e, "Converting") then
+	if not world.isReady(w, player, e) or w:has(e, "Converting") then
 		return false
 	end
 	return not kinds.is(w, e, conversion.building(w))

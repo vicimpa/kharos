@@ -15,6 +15,7 @@ local research = require("lib/research")
 local logistics = require("lib/logistics")
 local depositsLib = require("lib/deposits")
 local kinds = require("lib/kinds")
+local world = require("lib/world")
 
 local steps = {}
 
@@ -118,7 +119,7 @@ local function minesOn(c, player: number, deposit: string): { number }
 	local found = {}
 	for _, e in c:each({ "Building", "Position" }) do
 		local kind = kinds.of(c, e)
-		if kind and kind.name == "mine" and construction.isReady(c, player, e) then
+		if kind and kind.name == "mine" and world.isReady(c, player, e) then
 			local under = logistics.depositUnder(c, e)
 			local spot = under and kinds.of(c, under)
 			if spot and spot.name == deposit then
