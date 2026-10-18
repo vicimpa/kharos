@@ -3936,18 +3936,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ulua-code-gen"
-version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11b4957a4568cba9c909d6cf8e337ff27d1268bbdaa3cbb7e8b673cb3558d31d"
-dependencies = [
- "strum 0.28.0",
- "ulua-common",
- "ulua-vm",
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "ulua-common"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3980,15 +3968,12 @@ dependencies = [
 [[package]]
 name = "ulua-rt"
 version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cc296e9e2222f5a749418bfc42bdee46e99c2595035f82ab29857750f62a8f9"
 dependencies = [
  "serde",
  "strum 0.28.0",
  "thiserror 2.0.21",
  "ulua-ast",
  "ulua-bytecode",
- "ulua-code-gen",
  "ulua-common",
  "ulua-compiler",
  "ulua-vm",

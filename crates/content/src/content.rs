@@ -42,6 +42,14 @@ pub struct Content {
   files: Vec<std::rc::Rc<crate::files::Files>>,
 }
 
+/// Контент кончился — его машина Luau закрывается сразу: значения, которые держит сама машина (таблицы в `ctx`,
+/// голоса, кэш `require`), держат и её, и без этого она не освободилась бы никогда.
+impl Drop for Content {
+  fn drop(&mut self) {
+    self.lua.close();
+  }
+}
+
 /// Ошибка загрузки с тем, где она случилась.
 #[derive(Debug)]
 pub struct LoadError(pub String);

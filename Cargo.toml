@@ -2,6 +2,8 @@
 [workspace]
 resolver = "2"
 members = ["apps/client", "apps/native", "crates/*"]
+# Чужие крейты с нашими правками (vendor/*/VENDORED.md) — не члены рабочей области.
+exclude = ["vendor/*"]
 
 [profile.dev]
 opt-level = 1
@@ -19,3 +21,7 @@ codegen-units = 1
 inherits = "release"
 lto = "fat"
 panic = "abort"
+
+# Luau на Rust с закрытием машины (vendor/ulua-rt/VENDORED.md).
+[patch.crates-io]
+ulua-rt = { path = "vendor/ulua-rt" }

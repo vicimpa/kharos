@@ -12,6 +12,3 @@ mlua = { package = "ulua-rt", version = "0.1.7", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 
-# JIT Luau — только на нативе: под wasm машина толкует байт-код.
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-mlua = { package = "ulua-rt", version = "0.1.7", features = ["serde", "jit"] }

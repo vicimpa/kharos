@@ -38,9 +38,8 @@ struct Loaded(HashMap<String, mlua::RegistryKey>);
 /// `SIDE` — "host" или "client": общий код вида может спросить, где он.
 pub fn new_vm(side: Side, sources: Sources) -> mlua::Result<Lua> {
   let lua = Lua::new();
-  // Машинный код — только на нативе: под wasm Luau толкует байт-код.
-  #[cfg(not(target_arch = "wasm32"))]
-  lua.enable_jit(true)?;
+  // Машинного кода нет: JIT ulua 0.1.7 считает неверно (парное присваивание после вызова теряет второе значение),
+  // а под wasm его нет и так. Luau толкует байт-код.
   lua.set_compiler(mlua::Compiler::new().set_optimization_level(2).set_type_info_level(1));
   lua.set_app_data(sources);
   lua.set_app_data(Loaded::default());

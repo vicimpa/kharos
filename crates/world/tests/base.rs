@@ -195,3 +195,12 @@ fn battle_scenes_fight_until_one_side_is_gone() {
     }
   }
 }
+
+/// Партия кончилась — её машина Luau освобождается: витрина и новые партии не копят машины в памяти.
+#[test]
+fn dropped_host_frees_its_lua() {
+  let host = showcase("battle", 3);
+  let weak = host.lua().weak();
+  drop(host);
+  assert!(weak.try_upgrade().is_none(), "машина Luau пережила свой хост");
+}
