@@ -67,7 +67,7 @@ function power.update(c)
 		local off = economy.shutDown(c, c.player, e)
 		if off then
 			c:dress(e, { off = true })
-		elseif plants[e] and not site then
+		elseif (plants[e] or economy.burning(c, e)) and not site then
 			c:dress(e, { working = true })
 		end
 		-- По чужому вне обзора не видно, что с ним.

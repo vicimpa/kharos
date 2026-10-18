@@ -7,8 +7,9 @@
 //! Что видно игроку — подаче: выстрелы (`Shot`) и взрывы (`Blast`) — сущности мира, следы на земле — сигналы
 //! `scar`, `burn`, `wreck`; гибель — событие `killed` для механик.
 //!
-//! Пока без щитов, боеприпасов, энергии турелей, защиты новичка, аварий (Burst) и плит фундамента: они придут со
-//! своими механиками (docs/port.md).
+//! Взрывы по площади (`Burst`) бьют всех без разбора; погибшее с `Meltdown` оставляет такой взрыв на своём месте.
+//!
+//! Пока без щитов, боеприпасов, защиты новичка и плит фундамента: они придут со своими механиками (docs/port.md).
 
 use crate::host::{Signal, State};
 use crate::motion::Scene;
@@ -111,6 +112,8 @@ struct Cols {
   tactics: ComponentId,
   shot: ComponentId,
   blast: ComponentId,
+  burst: ComponentId,
+  meltdown: ComponentId,
   sight: ComponentId,
   proto: ComponentId,
   mover_radius: usize,
@@ -166,6 +169,8 @@ impl Cols {
       tactics,
       shot: id("Shot"),
       blast: id("Blast"),
+      burst: id("Burst"),
+      meltdown: id("Meltdown"),
       sight: id("Sight"),
       proto: id("Proto"),
       mover_radius: slot(world, mover, "radius"),
@@ -1202,6 +1207,37 @@ fn shoot(scene: &mut Scene, fight: &mut Fight, tick: u64, step: f64) {
 
 /// Едкое болото, гибель и взрывы.
 fn finish(scene: &mut Scene, fight: &mut Fight, step: f64, events: &mut Vec<(String, Value)>) {
+  // Аварии и ядерные удары бьют всех вокруг без разбора — своих и союзников тоже.
+  let bursts = scene.world.stores[fight.cols.burst].entities.clone();
+  for entity in bursts {
+    let cols = &fight.cols;
+    let Some((x, y)) = cols.position(scene.world, entity) else {
+      scene.world.destroy(entity);
+      continue;
+    };
+    let get = |name: &str| cols.num(scene.world, cols.burst, slot(scene.world, cols.burst, name), entity).unwrap_or(0.0);
+    let (radius, damage, core) = (get("radius"), get("damage"), get("core"));
+    for mark in fight.grid.near(x, y, radius) {
+      if fight.dead_set.contains(&fight.marks[mark].entity) {
+        continue;
+      }
+      let distance = distance_to(&fight.marks[mark], x, y);
+      if distance > radius {
+        continue;
+      }
+      let share = if distance <= core { 1.0 } else { (radius - distance) / (radius - core) };
+      let target = &mut fight.marks[mark];
+      target.hit = fight.tick as f64;
+      target.value -= damage * share / target.hp;
+      if target.value <= 0.0 {
+        let dead = target.entity;
+        fight.kill(dead);
+      }
+    }
+    fight.blasts.push(Blast { x, y, size: radius, ground: true });
+    scene.world.destroy(entity);
+  }
+
   // Болото красных пустошей жжёт стоящих в нём наземных юнитов.
   let burn = scene.rules.get("toxicSwamp") * step;
   if burn > 0.0 {
@@ -1246,6 +1282,14 @@ fn finish(scene: &mut Scene, fight: &mut Fight, step: f64, events: &mut Vec<(Str
       fight.signal("wreck", json!({ "x": x, "y": y, "facing": facing, "proto": proto }));
     }
     events.push(("killed".to_owned(), json!({ "entity": entity, "player": player, "x": x, "y": y, "air": air, "proto": proto })));
+    // Здание с топливом взрывается в следующем бою.
+    let cols = &fight.cols;
+    if scene.world.has(entity, cols.meltdown) {
+      let get = |name: &str| cols.num(scene.world, cols.meltdown, slot(scene.world, cols.meltdown, name), entity).unwrap_or(0.0);
+      let (radius, damage) = (get("radius"), get("damage"));
+      let (position, burst) = (cols.position, cols.burst);
+      spawn(scene.world, vec![(position, json!({ "x": x, "y": y })), (burst, json!({ "radius": radius, "damage": damage }))]);
+    }
     scene.world.destroy(entity);
   }
   let (position, blast) = (fight.cols.position, fight.cols.blast);

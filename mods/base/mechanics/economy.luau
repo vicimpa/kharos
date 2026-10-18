@@ -301,7 +301,13 @@ mechanic.systems = {
 					end
 				end
 			end
+			-- Сгоревшая с топливом взрывается, как разбитая в бою (meltdown).
 			for _, e in ruined do
+				local meltdown = ctx:get(e, "Meltdown")
+				if meltdown then
+					local at = ctx:get(e, "Position")
+					ctx:spawn(nil, { Position = { x = at.x, y = at.y }, Burst = { radius = meltdown.radius, damage = meltdown.damage } })
+				end
 				ctx:destroy(e)
 			end
 		end,

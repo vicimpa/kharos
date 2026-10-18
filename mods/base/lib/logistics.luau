@@ -14,6 +14,8 @@ local research = require("lib/research")
 
 local logistics = {}
 
+-- С какой доли израсходованного запаса турели и реакторы заказывают ещё (AMMO_REORDER).
+logistics.AMMO_REORDER = 0.25
 -- Что важнее везти (PRIORITY).
 logistics.PRIORITY = { site = 4, refine = 3, ammo = 3, production = 2, trade = 1 }
 -- Сколько тайлов пути перевешивает одна ступень важности (PRIORITY_WEIGHT).
@@ -274,8 +276,17 @@ end
 
 export type Request = { to: number, resource: string, amount: number, priority: number, source: string, zone: any? }
 
--- Сеть, которая кормит сущность: та, куда она входит, или чьи круги накрывают её середину; nil — ни одна.
-function logistics.zoneOf(w, player: number, e: number)
+-- Что ест здание вида с данными data (feedOf): турель и склад боеприпасов — боеприпасы, реактор — стержни.
+function logistics.feedOf(data): string?
+	if data.ammo or data.depot then
+		return "ammo"
+	end
+	return data.burns and data.burns.good
+end
+
+-- Сеть, которая кормит сущность: та, куда она входит, или чьи круги накрывают её середину; anywhere — иначе ближайшая
+-- к ней по краю круга (nearestZone); nil — ни одна.
+function logistics.zoneOf(w, player: number, e: number, anywhere: boolean?)
 	local own = logistics.networkOf(w, e)
 	if own then
 		return own
@@ -294,19 +305,34 @@ function logistics.zoneOf(w, player: number, e: number)
 			end
 		end
 	end
-	return nil
+	if not anywhere then
+		return nil
+	end
+	local best, bestDistance = nil, math.huge
+	for _, network in w:networks() do
+		if network.player == player then
+			local circles = network.circles
+			for k = 1, #circles, 3 do
+				local distance = math.sqrt((at.x - circles[k]) ^ 2 + (at.y - circles[k + 1]) ^ 2) - circles[k + 2]
+				if distance < bestDistance then
+					best, bestDistance = network, distance
+				end
+			end
+		end
+	end
+	return best
 end
 
 -- Заявки игрока (requestsOf): что, куда и сколько везти, с учётом того, что уже едет; важные — первыми.
 function logistics.requests(w, player: number, flows: Flows): { Request }
 	local requests: { Request } = {}
-	local function need(to: number, good: string, amount: number, priority: number, source: string)
+	local function need(to: number, good: string, amount: number, priority: number, source: string, anywhere: boolean?)
 		local incoming = flows.incoming[to]
 		local left = amount - (if incoming then incoming[good] or 0 else 0)
 		if left < logistics.MIN_JOB then
 			return
 		end
-		local zone = logistics.zoneOf(w, player, to)
+		local zone = logistics.zoneOf(w, player, to, anywhere)
 		if source == "mines" or zone then
 			table.insert(requests, { to = to, resource = good, amount = left, priority = priority, source = source, zone = zone })
 		end
@@ -365,6 +391,19 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 		local stock = w:get(e, "Inventory")
 		for good, amount in product.data.recipe do
 			need(e, good, amount * logistics.STOCKED_CYCLES - goods.amount(stock, good), logistics.PRIORITY.production, "zone")
+		end
+	end
+	-- Турели и реакторы: патроны и стержни, когда израсходована четверть запаса. Оборону ставят и вне зон — её кормит
+	-- ближайшая зона.
+	for _, e in w:each({ "Building", "Inventory", "Owner" }) do
+		local feed = logistics.feedOf(dataOf(w, e))
+		if not feed or not logistics.isReady(w, player, e) then
+			continue
+		end
+		local stock = w:get(e, "Inventory")
+		local room = goods.room(stock, feed)
+		if room >= stock.capacity * logistics.AMMO_REORDER then
+			need(e, feed, room, logistics.PRIORITY.ammo, "zone", true)
 		end
 	end
 	table.sort(requests, function(a, b)
@@ -474,7 +513,8 @@ function logistics.accepts(w, player: number, to: number, good: string): boolean
 	if dataOf(w, to).researches and research.needs(w, player)[good] then
 		return true
 	end
-	return dataOf(w, to).refines == good
+	-- Свой склад здания: переработка принимает руду, турель — патроны, реактор — стержни.
+	return dataOf(w, to).refines == good or logistics.feedOf(dataOf(w, to)) == good
 end
 
 -- Можно ли забирать груз со склада (offersPickup): свой готовый склад, где он есть.

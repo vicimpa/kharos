@@ -74,11 +74,17 @@ function economy.shutDown(w, player: number, e: number): boolean
 	return owner ~= nil and owner.player == player and not w:has(e, "Site") and economy.switchedOff(w, e)
 end
 
+-- Горит ли в реакторе стержень (isBurning): тогда он вырабатывает энергию. У других зданий — false.
+function economy.burning(w, e: number): boolean
+	local reactor = w:get(e, "Reactor")
+	return reactor ~= nil and reactor.left > 0 and not w:has(e, "Off")
+end
+
 -- Сколько энергии даёт (больше нуля) или просит (меньше) здание (powerAt). Реактор — только пока горит стержень.
 function economy.powerAt(w, e: number, kind): number
 	local data = kind.data
 	if data.burns then
-		return 0
+		return if economy.burning(w, e) then data.power or 0 else 0
 	end
 	return data.power or 0
 end

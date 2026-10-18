@@ -863,6 +863,18 @@ local function info(c, selection, width: number, height: number)
 					ui:text("— вмещает " .. stock.capacity .. (if (stock.reserve or 0) > 0 then ", резерв " .. stock.reserve else ""), { color = COLORS.dim })
 				end)
 			end
+			-- Реактор: сколько стержней и горит ли стержень.
+			local burns = kind.data.burns
+			if stock and built and burns then
+				local have = math.floor(goods.amount(stock, burns.good))
+				local burning = economy.burning(c, first)
+				local tone = if have <= 0 and not burning then COLORS.warn else COLORS.soft
+				ui:box({ direction = "row", align = "center", gap = 6, width = text, wrap = true }, function()
+					ui:text("Стержни:", { color = tone })
+					goodWith(c, burns.good, have, 20, stock.capacity)
+					ui:text(if burning then ". Стержень горит минуту; грузовики подвозят новые из хранилищ зоны" else " — стержня в работе нет, реактор не вырабатывает", { color = tone, wrap = text - 90 })
+				end)
+			end
 			if built and kind.data.extract then
 				local deposit = logistics.depositUnder(c, first)
 				local depositKind = deposit and c:proto(deposit)

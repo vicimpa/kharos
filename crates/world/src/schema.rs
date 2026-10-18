@@ -104,6 +104,11 @@ pub fn builtin() -> Vec<(&'static str, Vec<(&'static str, Value)>)> {
     ("Tactics", vec![("stance", json!("defensive")), ("patrol", json!([])), ("leg", json!(0)), ("away", json!(false)), ("homeX", json!(0)), ("homeY", json!(0)), ("resupply", json!(false))]),
     ("Shot", vec![("weapon", json!("")), ("player", json!(0)), ("source", json!(-1)), ("target", json!(-1)), ("fromX", json!(0)), ("fromY", json!(0)), ("toX", json!(0)), ("toY", json!(0)), ("prevX", json!(0)), ("prevY", json!(0)), ("age", json!(0)), ("life", json!(0)), ("blocked", json!(false)), ("air", json!(false))]),
     ("Blast", vec![("size", json!(1)), ("age", json!(0)), ("life", json!(0)), ("lift", json!(0))]),
+    // Взрыв по площади, который бьёт всех без разбора — своих, союзных и чужих (авария, ядерный удар): в ближайшем
+    // бою наносит damage в радиусе core и меньше к краю radius и пропадает. Здание с Meltdown при гибели оставляет
+    // такой взрыв на своём месте.
+    ("Burst", vec![("radius", json!(0)), ("damage", json!(0)), ("core", json!(0))]),
+    ("Meltdown", vec![("radius", json!(0)), ("damage", json!(0))]),
     // Доля работы носителя (0..1): его оружие перезаряжается во столько раз дольше, при нуле молчит.
     ("Throttle", vec![("share", json!(1))]),
   ]

@@ -5,7 +5,7 @@
 
 local dsp = require("lib/dsp")
 
-local random, lowpass, highpass, bandpass, render = dsp.random, dsp.lowpass, dsp.highpass, dsp.bandpass, dsp.render
+local random, lowpass, highpass, bandpass, render, loop = dsp.random, dsp.lowpass, dsp.highpass, dsp.bandpass, dsp.render, dsp.loop
 local decay, attack, pulse, sign = dsp.decay, dsp.attack, dsp.pulse, dsp.sign
 local sin, min = math.sin, math.min
 local PI = math.pi
@@ -102,6 +102,17 @@ local function radar(rate: number, variant: number)
 	end)
 end
 
+-- Реактор: пульс насосов, гул и шелест пара.
+local function reactor(rate: number)
+	local steam = highpass(rate, 1500)
+	local flow = lowpass(rate, 200)
+	return loop(rate, 4, function(t, noise)
+		local n = noise()
+		local pump = pulse(t, 1, 0.25) * sin(2 * PI * 45 * t)
+		return pump * 0.8 + sin(2 * PI * 60 * t) * 0.25 + flow(n) * 0.8 + steam(n) * 0.08 * (1 + sin(2 * PI * 0.25 * t))
+	end)
+end
+
 -- Сеть перегружена: свет мигает — гул проседает и рвётся.
 local function brownout(rate: number, variant: number)
 	local phase = 0
@@ -140,6 +151,12 @@ local function sound(bus: string, make)
 	return { bus = bus, variants = 3, render = make }
 end
 
+local function loopSound(make: (number) -> buffer)
+	return { bus = "world", variants = 1, render = function(rate)
+		return make(rate)
+	end }
+end
+
 local function chimeSound(notes: { number }, gap: number, ring: number)
 	return sound("interface", function(rate, variant)
 		return chime(rate, variant, notes, gap, ring)
@@ -151,6 +168,8 @@ return {
 		built = sound("world", built),
 		gate = sound("world", gate),
 		radar = sound("world", radar),
+		-- Петли.
+		reactor = loopSound(reactor),
 		deploy = sound("world", deploy),
 		rollout = sound("world", rollout),
 		brownout = sound("interface", brownout),

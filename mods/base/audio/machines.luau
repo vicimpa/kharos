@@ -1,11 +1,15 @@
 --!strict
 -- Звук работы зданий — перенос packages/client/src/game/machines.ts. Каждый вид звука — одна петля, сколько бы ни
 -- звучало источников: громкость — по тому, сколько их и насколько они близки к середине экрана, сторона — по тому, где
--- они. Звучит только своё работающее: цех стучит, пока движется его работа.
+-- они. Звучит только своё работающее: цех стучит, пока движется его работа; горящий реактор — и чужой.
+
+local economy = require("lib/economy")
 
 local PERIOD = 0.2
-local LEVELS = { hum = 0.22, machinery = 0.25, drill = 0.2 }
+local LEVELS = { hum = 0.22, machinery = 0.25, drill = 0.2, reactor = 0.3 }
 local SATURATE = 3
+-- Петли мира (worldSounds.ts) набирают громкость быстрее.
+local SATURATES = { reactor = 2 }
 local WORK_HOLD = 0.6
 local HEARING = 0.6
 
@@ -47,12 +51,18 @@ return {
 		local seen = {}
 		for _, e in c:each({ "Building", "Position", "Owner" }) do
 			seen[e] = true
+			local at = c:get(e, "Position")
+			-- Горящий реактор пульсирует, чей бы ни был (worldSounds.ts).
+			local burning = economy.burning(c, e)
+			if burning then
+				add("reactor", at.x, at.y)
+			end
 			if not c:mine(e) then
 				continue
 			end
-			local at = c:get(e, "Position")
 			local kind = c:proto(e)
-			if kind and kind.data and (kind.data.power or 0) > 0 then
+			-- Реактор гудит, только пока горит стержень.
+			if kind and kind.data and (kind.data.power or 0) > 0 and (not kind.data.burns or burning) then
 				add("hum", at.x, at.y)
 			end
 			local producer = c:get(e, "Producer")
@@ -67,7 +77,7 @@ return {
 		end
 		for name, level in LEVELS do
 			local total = sum[name] or 0
-			c.audio:loop(name, level * (1 - math.exp(-total / SATURATE)), if total > 0 then side[name] / total else 0)
+			c.audio:loop(name, level * (1 - math.exp(-total / (SATURATES[name] or SATURATE))), if total > 0 then side[name] / total else 0)
 		end
 	end,
 }

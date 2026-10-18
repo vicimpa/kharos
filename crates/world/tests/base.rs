@@ -598,7 +598,7 @@ fn raise(host: &mut Host, building: &str, (x, y): (i32, i32), builder: u32) -> u
   if let Some(stock) = get(host, entity, "Inventory") {
     set(host, entity, "Inventory", json!({ "items": stock["limits"] }));
   }
-  for _ in 0..20 * 90 {
+  for _ in 0..20 * 180 {
     host.tick(0.05).unwrap();
     if get(host, entity, "Site").is_none() {
       return entity;
@@ -1064,4 +1064,50 @@ fn radar_flashes_where_it_has_not_looked_and_sees_little_when_switched_off() {
   ticks(&mut host, 20 * 15);
   assert_eq!(get(&host, radar, "Sight").unwrap()["radius"], json!(5.0));
   assert!(all(&host, "Flash").is_empty());
+}
+
+/// Новая сущность с компонентами движка или мода.
+fn spawn_with(host: &Host, parts: serde_json::Value) -> u32 {
+  let mut state = host.state.borrow_mut();
+  let entity = state.world.spawn();
+  for (component, values) in parts.as_object().unwrap() {
+    let id = state.world.schema.id(component).unwrap();
+    state.world.add(entity, id, values.as_object().unwrap()).unwrap();
+  }
+  entity
+}
+
+#[test]
+fn reactor_burns_rods_and_blows_up_when_destroyed_with_fuel() {
+  let mut host = host_without_tech();
+  let (_, site, builder) = base_with_builder(&mut host);
+  let player = all(&host, "Player")[0].0;
+  set(&host, player, "Player", json!({ "credits": 10000 }));
+  let spot = free_spot(&host, site, 3);
+  let reactor = raise(&mut host, "reactor", spot, builder);
+  assert!(get(&host, reactor, "Meltdown").is_none(), "пустой не взорвётся");
+  set(&host, reactor, "Inventory", json!({ "items": { "rods": 2 } }));
+  ticks(&mut host, 2);
+  // Взял стержень: горит минуту; с топливом — взорвётся.
+  let left = get(&host, reactor, "Reactor").unwrap()["left"].as_f64().unwrap();
+  assert!(left > 1150.0 && left <= 1200.0, "горит {left}");
+  assert!((stocked(&host, reactor, "rods") - 1.0).abs() < 1e-9);
+  assert_eq!(get(&host, reactor, "Meltdown").unwrap()["radius"], json!(4.0));
+  // Выключенный стержень бережёт.
+  host.send(1, "work", json!({ "building": reactor, "on": false }));
+  ticks(&mut host, 2);
+  let paused = get(&host, reactor, "Reactor").unwrap()["left"].clone();
+  ticks(&mut host, 10);
+  assert_eq!(get(&host, reactor, "Reactor").unwrap()["left"], paused);
+  // Разбитый с топливом оставляет взрыв: он бьёт всех вокруг в следующем бою и пропадает.
+  let (x, y) = place(&host, reactor);
+  spawn_with(&host, json!({ "Position": { "x": x, "y": y }, "Burst": { "radius": 2, "damage": 1e9 } }));
+  host.tick(0.05).unwrap();
+  assert!(get(&host, reactor, "Reactor").is_none(), "реактор разбит");
+  let bursts = all(&host, "Burst");
+  assert_eq!(bursts.len(), 1, "авария");
+  assert_eq!(bursts[0].1["radius"], json!(4.0));
+  assert_eq!(place(&host, bursts[0].0), (x, y));
+  host.tick(0.05).unwrap();
+  assert!(all(&host, "Burst").is_empty(), "взрыв прошёл");
 }
