@@ -10,6 +10,7 @@ mod game;
 mod gl;
 mod gui;
 mod input;
+mod loading;
 mod render;
 mod saves;
 mod script;
@@ -38,7 +39,11 @@ const FONTS: [&[u8]; 2] = [include_bytes!("../fonts/ark-pixel-12px.otf"), includ
 
 pub struct App {
   renderer: Renderer,
-  game: Game,
+  /// Партия; пока идёт загрузка — её нет.
+  game: Option<Game>,
+  /// Экран загрузки: пока считаются звуки; потом — первая партия (first).
+  loading: Option<loading::Loading>,
+  first: Option<String>,
   mods: Vec<Mod>,
   /// Общий синтезатор: банк записей считается один раз на запуск.
   sound: Option<Rc<audio::Engine>>,
@@ -132,8 +137,24 @@ impl App {
     // по умолчанию.
     let first = setting("KHAROS_GAME", "game").or_else(|| menu.clone());
     let link: AppLink = Rc::new(RefCell::new(AppState { menu, prefs: script::Prefs::load(), saves: Some(saves::Saves::load()), ..Default::default() }));
-    let game = Self::launch(&mut renderer, &mods, first.as_deref(), &serde_json::Value::Object(Default::default()), None, sound.clone(), link.clone())?;
-    Ok(Self { renderer, game, mods, sound, link, quit: false, saved_at: 0.0 })
+    // Звуки считаются под экраном загрузки, партия начинается, когда они готовы.
+    let loading = match &sound {
+      Some(engine) => loading::Loading::new(&mods, engine.clone(), gui::Fonts::new(&FONTS)?)?,
+      None => None,
+    };
+    let mut app = Self { renderer, game: None, loading, first, mods, sound, link, quit: false, saved_at: 0.0 };
+    if app.loading.is_none() {
+      app.begin()?;
+    }
+    Ok(app)
+  }
+
+  /// Первая партия — после загрузки.
+  fn begin(&mut self) -> Result<(), String> {
+    self.loading = None;
+    let game = Self::launch(&mut self.renderer, &self.mods, self.first.as_deref(), &serde_json::Value::Object(Default::default()), None, self.sound.clone(), self.link.clone())?;
+    self.game = Some(game);
+    Ok(())
   }
 
   /// Браузер играет звук только после касания или клавиши: оболочка будит его на каждом.
@@ -146,7 +167,8 @@ impl App {
   /// Пишет партию в её слот, если он есть.
   pub fn save(&mut self) {
     let Some(slot) = self.link.borrow().slot.clone() else { return };
-    match self.game.save() {
+    let Some(game) = &self.game else { return };
+    match game.save() {
       Ok((world, camera, tick)) => {
         if let Some(saves) = self.link.borrow_mut().saves.as_mut() {
           saves.store(&slot, tick, camera, &world);
@@ -200,18 +222,28 @@ impl App {
   }
 
   pub fn frame(&mut self, input: &Input, size: [u32; 2]) -> Result<(), String> {
-    let (frame, view) = self.game.frame(input)?;
+    if let Some(loading) = &mut self.loading {
+      // Снимок кадра ждёт загрузку целиком: так счёт его кадров не зависит от скорости расчёта.
+      loading.pump(std::env::var_os("KHAROS_SHOT").is_some())?;
+      loading.draw(&mut self.renderer, input, size);
+      if loading.finished() {
+        self.begin()?;
+      }
+      return Ok(());
+    }
+    let Some(game) = &mut self.game else { return Ok(()) };
+    let (frame, view) = game.frame(input)?;
     let size = [size[0] as i32, size[1] as i32];
     self.renderer.draw_world(&view, &frame, size);
     {
-      let state = self.game.state.borrow();
-      self.renderer.draw_batch(&state.draw, &state.gui.fonts.atlas, &view, true, self.game.palette());
-      self.renderer.draw_glow(&state.glow, &state.gui.fonts.atlas, &view, self.game.palette());
-      self.renderer.draw_batch(&state.gui.batch, &state.gui.fonts.atlas, &view, false, self.game.palette());
+      let state = game.state.borrow();
+      self.renderer.draw_batch(&state.draw, &state.gui.fonts.atlas, &view, true, game.palette());
+      self.renderer.draw_glow(&state.glow, &state.gui.fonts.atlas, &view, game.palette());
+      self.renderer.draw_batch(&state.gui.batch, &state.gui.fonts.atlas, &view, false, game.palette());
     }
     // Схема карты новой игры досчитала ряды — в текстуру.
     {
-      let mut state = self.game.state.borrow_mut();
+      let mut state = game.state.borrow_mut();
       if state.preview.dirty {
         state.preview.dirty = false;
         self.renderer.load_preview(&state.preview.pixels, script::PREVIEW_SIZE);
@@ -227,13 +259,15 @@ impl App {
     match request {
       Some(AppRequest::Start { game, options, slot }) => {
         self.save();
-        self.game = Self::launch(&mut self.renderer, &self.mods, Some(&game), &options, slot, self.sound.clone(), self.link.clone())?;
+        self.game = Some(Self::launch(&mut self.renderer, &self.mods, Some(&game), &options, slot, self.sound.clone(), self.link.clone())?);
         self.saved_at = input.time;
       }
       Some(AppRequest::Reset { options }) => {
-        self.game.reset(self.mods.clone(), &options, 1)?;
+        if let Some(game) = &mut self.game {
+          game.reset(self.mods.clone(), &options, 1)?;
+          Self::upload_land(&mut self.renderer, game);
+        }
         self.link.borrow_mut().options = options;
-        Self::upload_land(&mut self.renderer, &mut self.game);
       }
       Some(AppRequest::Quit) => {
         self.save();

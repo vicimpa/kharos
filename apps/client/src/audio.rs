@@ -552,6 +552,35 @@ fn noise(ctx: &AudioContext, color: usize) -> AudioBuffer {
   buffer
 }
 
+/// Записи банков видов раздела `sounds`: имя, сколько вариантов и шина — по имени, чтобы порядок был одним и тем же
+/// в любой машине Luau.
+pub fn bank_records(kinds: &[(String, Table)]) -> mlua::Result<Vec<(String, usize, String)>> {
+  let mut list = Vec::new();
+  for (_, kind) in kinds {
+    if let Some(bank) = kind.get::<Option<Table>>("bank")? {
+      for pair in bank.pairs::<String, Table>() {
+        let (key, record) = pair?;
+        let variants = record.get::<Option<usize>>("variants")?.unwrap_or(1).max(1);
+        let bus = record.get::<Option<String>>("bus")?.unwrap_or_else(|| "world".into());
+        list.push((key, variants, bus));
+      }
+    }
+  }
+  list.sort_by(|a, b| a.0.cmp(&b.0));
+  Ok(list)
+}
+
+/// Вариант variant записи key — каналы сэмплов на частоте rate. Считается в той машине Luau, где kinds.
+pub fn render_record(kinds: &[(String, Table)], key: &str, variant: usize, rate: f32) -> mlua::Result<Vec<Vec<f32>>> {
+  for (_, kind) in kinds {
+    let Some(bank) = kind.get::<Option<Table>>("bank")? else { continue };
+    let Some(record) = bank.get::<Option<Table>>(key)? else { continue };
+    let render: Function = record.get("render")?;
+    return channels(render.call::<Value>((rate, variant)).map_err(|error| mlua::Error::runtime(format!("{key}: {error}")))?);
+  }
+  Err(mlua::Error::runtime(format!("нет записи {key}")))
+}
+
 /// Сэмплы из Luau: буфер f32 (моно) или таблица буферов (каналы).
 fn channels(value: Value) -> mlua::Result<Vec<Vec<f32>>> {
   let read = |buffer: mlua::Buffer| buffer.to_vec().chunks_exact(4).map(|bytes| f32::from_le_bytes(bytes.try_into().expect("4 байта"))).collect::<Vec<f32>>();
@@ -592,34 +621,45 @@ impl Engine {
   }
 
   /// Банки записей видов раздела `sounds` (`bank = { имя = { variants, bus, render = function(rate, variant) } }`):
-  /// считаются один раз на запуск — уже посчитанные пропускаются.
+  /// считаются один раз на запуск — уже посчитанные пропускаются. Заранее и в несколько потоков их считает экран
+  /// загрузки (crate::loading): тогда здесь считать уже нечего.
   pub fn bake(&self, kinds: &[(String, Table)]) -> mlua::Result<()> {
     let rate = self.ctx.sample_rate();
-    for (_, kind) in kinds {
-      if let Some(bank) = kind.get::<Option<Table>>("bank")? {
-        for pair in bank.pairs::<String, Table>() {
-          let (key, record) = pair?;
-          if self.bank.borrow().contains_key(&key) {
-            continue;
-          }
-          let render: Function = record.get("render")?;
-          let variants = record.get::<Option<usize>>("variants")?.unwrap_or(1).max(1);
-          let bus = record.get::<Option<String>>("bus")?.unwrap_or_else(|| "world".into());
-          let mut list = Vec::new();
-          for variant in 0..variants {
-            let data = channels(render.call::<Value>((rate, variant)).map_err(|error| mlua::Error::runtime(format!("{key}: {error}")))?)?;
-            let length = data.first().map_or(1, Vec::len).max(1);
-            let mut buffer = self.ctx.create_buffer(data.len().max(1), length, rate);
-            for (channel, samples) in data.iter().enumerate() {
-              buffer.copy_to_channel(samples, channel);
-            }
-            list.push(buffer);
-          }
-          self.bank.borrow_mut().insert(key, Record { variants: list, bus });
-        }
+    for (key, variants, bus) in bank_records(kinds)? {
+      if self.has(&key) {
+        continue;
       }
+      let list = (0..variants).map(|variant| render_record(kinds, &key, variant, rate)).collect::<mlua::Result<Vec<_>>>()?;
+      self.store(key, bus, list);
     }
     Ok(())
+  }
+
+  /// Частота, на которой считаются записи.
+  pub fn sample_rate(&self) -> f32 {
+    self.ctx.sample_rate()
+  }
+
+  /// Есть ли запись в банке.
+  pub fn has(&self, key: &str) -> bool {
+    self.bank.borrow().contains_key(key)
+  }
+
+  /// Посчитанная запись — в банк: варианты, у каждого — каналы сэмплов.
+  pub fn store(&self, key: String, bus: String, variants: Vec<Vec<Vec<f32>>>) {
+    let rate = self.ctx.sample_rate();
+    let list = variants
+      .into_iter()
+      .map(|data| {
+        let length = data.first().map_or(1, Vec::len).max(1);
+        let mut buffer = self.ctx.create_buffer(data.len().max(1), length, rate);
+        for (channel, samples) in data.iter().enumerate() {
+          buffer.copy_to_channel(samples, channel);
+        }
+        buffer
+      })
+      .collect();
+    self.bank.borrow_mut().insert(key, Record { variants: list, bus });
   }
 
   pub fn set_volume(&self, bus: &str, volume: f32) {

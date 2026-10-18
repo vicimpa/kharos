@@ -820,6 +820,18 @@ impl Renderer {
   }
 
   /// Батч поверх: world — в тайлах через камеру, иначе — в логических пикселях экрана.
+  /// Кадр без мира — одним цветом (экран загрузки): поверх него ложится интерфейс.
+  pub fn clear(&mut self, size: [u32; 2], color: [u8; 4]) {
+    self.size = [size[0] as i32, size[1] as i32];
+    let gl = &self.gl.gl;
+    unsafe {
+      gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+      gl.viewport(0, 0, self.size[0], self.size[1]);
+      gl.clear_color(color[0] as f32 / 255.0, color[1] as f32 / 255.0, color[2] as f32 / 255.0, 1.0);
+      gl.clear(glow::COLOR_BUFFER_BIT);
+    }
+  }
+
   pub fn draw_batch(&mut self, batch: &Batch, font: &FontAtlas, view: &View, world: bool, palette: &[f32]) {
     self.paint_batch(batch, font, view, world, palette, false);
   }
