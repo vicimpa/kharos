@@ -52,9 +52,11 @@ local function topBar(c)
 			ui:text(string.format("%02d:%02d", math.floor(hour), math.floor(hour * 60) % 60), { color = COLORS.dim })
 		end)
 		ui:tip("clock", "Время суток")
-		ui:button("menu", { padding = { 2, 10 }, height = 30 }, function()
+		if ui:button("menu", { padding = { 2, 10 }, height = 30 }, function()
 			ui:text("Меню", shadow())
-		end)
+		end) then
+			c.shared.paused = true
+		end
 		ui:tip("menu", "Меню игры")
 	end)
 end

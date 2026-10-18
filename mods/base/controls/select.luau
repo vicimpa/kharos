@@ -114,6 +114,16 @@ function select.update(c)
 		end
 	end
 	selection = alive
+	-- Под меню партии управление молчит; выделенное остаётся видно.
+	if shared.paused then
+		start = nil
+		shared.selection = selection
+		marks(c, selection)
+		for _, e in selection do
+			mark(c, e, 1)
+		end
+		return
+	end
 
 	if input.pressed.left and input.inside and not input.over_ui then
 		start = { x = input.x, y = input.y, wx = input.wx, wy = input.wy }
@@ -179,6 +189,10 @@ function select.update(c)
 		start = nil
 	end
 	if input.hits.escape then
+		-- Отменять нечего — Escape открывает меню партии (ui/pause), если тот же Escape его не закрыл.
+		if #selection == 0 and shared.menuClosedAt ~= c.time then
+			shared.paused = true
+		end
 		selection = {}
 	end
 	shared.selection = selection

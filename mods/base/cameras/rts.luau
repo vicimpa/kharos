@@ -31,6 +31,11 @@ end
 
 function rts.update(cam, c)
 	local input = c.input
+	-- Под меню партии камера стоит.
+	if c.shared.paused then
+		drag = nil
+		return
+	end
 	local screen = c.screen
 	local dt = c.dt
 	-- Тянуть средней кнопкой.

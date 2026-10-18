@@ -31,6 +31,10 @@ end
 
 function orders.update(c)
 	local input = c.input
+	if c.shared.paused then
+		held = nil
+		return
+	end
 	if input.pressed.right and input.inside and not input.over_ui then
 		order(c, input.wx, input.wy)
 	end

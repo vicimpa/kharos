@@ -46,7 +46,7 @@ skirmish.on = {
 skirmish.client = {
 	camera = "rts",
 	controls = { "select", "orders" },
-	ui = { "hud" },
+	ui = { "hud", "pause" },
 	atmosphere = { "weather" },
 	effects = { "traces" },
 	-- Звук — как в TS: интерфейс, моторы, работа зданий, фон с подложкой и эхом, ветер полёта.
