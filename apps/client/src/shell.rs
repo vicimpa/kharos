@@ -5,9 +5,12 @@
 //! проверяют без человека у окна. KHAROS_SHOT_POINTER=x,y — указатель там, в логических пикселях (подсказки,
 //! наведение), пока снимается кадр. KHAROS_SHOT_CLICKS=кадр:x,y;кадр:x,y — щелчки левой кнопкой на этих кадрах; после
 //! «кадр:текст» вместо места — набор текста (`20:t=Карта`), «кадр:k=enter» — нажатие клавиши.
+//!
+//! `--scenario путь.luau` — режим сценария (scenario.rs): окно невидимо, время — по кадрам, ввод — от сценария.
 
 use crate::input::Input;
-use crate::App;
+use crate::scenario::{self, Scenario};
+use crate::{App, AppOptions};
 use glutin::config::{Config, ConfigTemplateBuilder};
 use glutin::context::{ContextApi, ContextAttributesBuilder, GlProfile, NotCurrentGlContext as _, PossiblyCurrentContext, Version};
 use glutin::display::{GetGlDisplay as _, GlDisplay as _};
@@ -37,19 +40,48 @@ struct Shell {
   frames: u32,
   /// Когда рисовали прошлый кадр: предел кадров (graphics.fps) ждёт до следующего срока.
   drawn: Option<std::time::Instant>,
+  /// Режим сценария и видно ли окно.
+  scenario: Option<Scenario>,
+  visible: bool,
+  /// Код выхода процесса: итог сценария.
+  code: i32,
 }
 
 pub fn run() {
   let shot = std::env::var("KHAROS_SHOT").ok().map(|path| (path, std::env::var("KHAROS_SHOT_FRAMES").ok().and_then(|frames| frames.parse().ok()).unwrap_or(120)));
-  let mut shell = Shell { input: Input { focused: true, ..Default::default() }, gl: None, app: None, shot, frames: 0, drawn: None };
+  let options = scenario::options();
+  let mut visible = true;
+  let scenario = match &options {
+    Some(options) => {
+      visible = options.show;
+      // Настройки и сохранения сценария — не игрока: во временной папке, если не задано иное.
+      if std::env::var_os("KHAROS_CONFIG").is_none() {
+        let dir = std::env::temp_dir().join(format!("kharos-scenario-{}", std::process::id()));
+        // SAFETY: потоков ещё нет — окружение меняется до запуска чего-либо.
+        unsafe { std::env::set_var("KHAROS_CONFIG", &dir) };
+      }
+      match Scenario::new(options) {
+        Ok(scenario) => Some(scenario),
+        Err(error) => {
+          eprintln!("сценарий: {error}");
+          std::process::exit(1);
+        }
+      }
+    }
+    None => None,
+  };
+  let mut shell = Shell { input: Input { focused: true, ..Default::default() }, gl: None, app: None, shot, frames: 0, drawn: None, scenario, visible, code: 0 };
   let event_loop = EventLoop::new().expect("цикл событий");
   if let Err(error) = event_loop.run_app(&mut shell) {
     eprintln!("цикл событий: {error}");
   }
+  if shell.scenario.is_some() {
+    std::process::exit(shell.code);
+  }
 }
 
-fn create_gl(event_loop: &ActiveEventLoop) -> Result<(Gl, glow::Context), String> {
-  let attributes = Window::default_attributes().with_title("Kharos").with_inner_size(LogicalSize::new(1280.0, 800.0)).with_min_inner_size(LogicalSize::new(480.0, 360.0));
+fn create_gl(event_loop: &ActiveEventLoop, visible: bool) -> Result<(Gl, glow::Context), String> {
+  let attributes = Window::default_attributes().with_visible(visible).with_title("Kharos").with_inner_size(LogicalSize::new(1280.0, 800.0)).with_min_inner_size(LogicalSize::new(480.0, 360.0));
   let template = ConfigTemplateBuilder::new().with_alpha_size(8);
   let (window, config) = DisplayBuilder::new().with_window_attributes(Some(attributes)).build(event_loop, template, |mut configs| configs.next().expect("настройка GL")).map_err(|error| error.to_string())?;
   let window = window.ok_or("нет окна")?;
@@ -78,7 +110,7 @@ impl ApplicationHandler for Shell {
     if self.gl.is_some() {
       return;
     }
-    let (gl, context) = match create_gl(event_loop) {
+    let (gl, context) = match create_gl(event_loop, self.visible) {
       Ok(pair) => pair,
       Err(error) => {
         eprintln!("GL: {error}");
@@ -86,7 +118,7 @@ impl ApplicationHandler for Shell {
         return;
       }
     };
-    match App::new(context) {
+    match App::with(context, AppOptions { sound: self.scenario.is_none() }) {
       Ok(app) => self.app = Some(app),
       Err(error) => {
         eprintln!("{error}");
@@ -103,7 +135,7 @@ impl ApplicationHandler for Shell {
     let scale = gl.window.scale_factor() as f32;
     let input = &mut self.input;
     // Снимок со сценарием указателя: настоящая мышь и клавиатура не вмешиваются — окно открыто на чужом экране.
-    let scripted = self.shot.is_some() && (std::env::var_os("KHAROS_SHOT_CLICKS").is_some() || std::env::var_os("KHAROS_SHOT_POINTER").is_some());
+    let scripted = self.scenario.is_some() || (self.shot.is_some() && (std::env::var_os("KHAROS_SHOT_CLICKS").is_some() || std::env::var_os("KHAROS_SHOT_POINTER").is_some()));
     if scripted && matches!(event, WindowEvent::CursorMoved { .. } | WindowEvent::CursorLeft { .. } | WindowEvent::MouseInput { .. } | WindowEvent::MouseWheel { .. } | WindowEvent::Touch(_) | WindowEvent::KeyboardInput { .. } | WindowEvent::ModifiersChanged(_)) {
       return;
     }
@@ -178,7 +210,7 @@ impl ApplicationHandler for Shell {
   fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
     let Some(gl) = &self.gl else { return };
     // Предел кадров: кадр не раньше своего срока; снимок кадра идёт без предела.
-    let limit = if self.shot.is_some() { None } else { self.app.as_ref().and_then(App::fps_limit) };
+    let limit = if self.shot.is_some() || self.scenario.is_some() { None } else { self.app.as_ref().and_then(App::fps_limit) };
     if let (Some(fps), Some(drawn)) = (limit, self.drawn) {
       let due = drawn + std::time::Duration::from_secs_f64(1.0 / fps);
       if std::time::Instant::now() < due {
@@ -202,7 +234,13 @@ impl Shell {
     let scale = gl.window.scale_factor() as f32;
     self.input.scale = scale;
     self.input.screen = [size.width as f32 / scale, size.height as f32 / scale];
-    self.input.time = crate::clock::seconds();
+    self.input.time = match &self.scenario {
+      Some(scenario) => scenario.time(),
+      None => crate::clock::seconds(),
+    };
+    if let Some(scenario) = &mut self.scenario {
+      scenario.before(app, &mut self.input);
+    }
     if self.shot.is_some() {
       if let Some([x, y]) = std::env::var("KHAROS_SHOT_POINTER").ok().and_then(|value| value.split_once(',').and_then(|(x, y)| Some([x.trim().parse().ok()?, y.trim().parse().ok()?]))) {
         self.input.pointer = Some([x, y]);
@@ -235,10 +273,27 @@ impl Shell {
     }
     if let Err(error) = app.frame(&self.input, [size.width, size.height]) {
       eprintln!("{error}");
+      if self.scenario.is_some() {
+        self.code = 1;
+      }
       event_loop.exit();
       return;
     }
     self.frames += 1;
+    if let Some(scenario) = &mut self.scenario {
+      scenario.after(app, [size.width, size.height]);
+      if let Some(done) = scenario.report() {
+        match done {
+          Ok(()) => eprintln!("сценарий: дошёл до конца за {} кадров ({:.1} с игры)", scenario.frame, scenario.time()),
+          Err(error) => {
+            eprintln!("сценарий упал на кадре {}: {error}", scenario.frame);
+            self.code = 1;
+          }
+        }
+        event_loop.exit();
+        return;
+      }
+    }
     if app.quit {
       event_loop.exit();
       return;
@@ -250,8 +305,11 @@ impl Shell {
         return;
       }
     }
-    if let Err(error) = gl.surface.swap_buffers(&gl.context) {
-      eprintln!("swap_buffers: {error}");
+    // Невидимому окну показывать нечего: кадр готов в буфере, а ожидание синхронизации только тормозит прогон.
+    if self.visible {
+      if let Err(error) = gl.surface.swap_buffers(&gl.context) {
+        eprintln!("swap_buffers: {error}");
+      }
     }
     self.input.end_frame();
   }

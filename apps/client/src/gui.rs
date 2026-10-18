@@ -922,6 +922,25 @@ impl Gui {
     self.hits.iter().find(|(hit, ..)| hit == id).map(|hit| hit.1)
   }
 
+  /// Тексты разложенного кадра по порядку рисования: строка, место и номер ближайшего узла с номером — так сценарий
+  /// читает интерфейс и щёлкает по надписи.
+  pub fn texts(&self) -> Vec<(String, Rect, Option<String>)> {
+    fn walk(node: &Node, id: Option<&String>, out: &mut Vec<(String, Rect, Option<String>)>) {
+      let id = node.style.id.as_ref().or(id);
+      if let Some(Leaf::Text { text, .. }) = &node.leaf {
+        out.push((text.clone(), node.rect, id.cloned()));
+      }
+      for child in &node.children {
+        walk(child, id, out);
+      }
+    }
+    let mut out = Vec::new();
+    for node in &self.top {
+      walk(node, None, &mut out);
+    }
+    out
+  }
+
   pub fn now(&self) -> f64 {
     self.now
   }

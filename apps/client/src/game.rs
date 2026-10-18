@@ -274,6 +274,11 @@ impl Game {
     Ok(Self { host, client, state, ctx, ctx_data, camera, panels, controls, atmosphere, effects, sounds, music, signals, looks, look_of, atlas: Some(atlas), land, minimap, audio, walked: HashMap::new(), drift: [0.0; 2], fog_seen: None, ghost_dress: HashMap::new(), land_seen: None, land_colors, editor, bar: 0, next_bar: 0.0, accumulator: 0.0, last: None, pending, palette })
   }
 
+  /// `c` клиентских скриптов партии — для функций сценария (`s:client`).
+  pub fn script_ctx(&self) -> &AnyUserData {
+    &self.ctx_data
+  }
+
   /// Новый мир той же партии с новыми настройками (`c.app:reset`): хост — заново, а клиентская машина, её панели и
   /// звук остаются. Так витрина меню меняет сценку под окнами меню, не трогая их.
   pub fn reset(&mut self, mods: Vec<Mod>, options: &serde_json::Value, player: u32) -> Result<(), String> {

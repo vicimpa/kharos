@@ -14,6 +14,8 @@ mod lang;
 mod loading;
 mod render;
 mod saves;
+#[cfg(not(target_arch = "wasm32"))]
+mod scenario;
 mod script;
 mod store;
 #[cfg(not(target_arch = "wasm32"))]
@@ -53,6 +55,19 @@ pub struct App {
   pub quit: bool,
   /// Когда партию слота сохраняли в последний раз, секунды запуска.
   saved_at: f64,
+  /// Сколько партий запущено: по нему сценарий узнаёт, что новая партия появилась.
+  pub generation: u64,
+}
+
+/// Как запускать приложение: со звуком ли (в режиме сценария звука нет).
+pub struct AppOptions {
+  pub sound: bool,
+}
+
+impl Default for AppOptions {
+  fn default() -> Self {
+    Self { sound: true }
+  }
 }
 
 /// Как часто пишется партия слота, секунд (SAVE_INTERVAL в packages/host/src/local.ts).
@@ -126,11 +141,15 @@ fn menu_of(mods: &[Mod]) -> Result<Option<String>, String> {
 
 impl App {
   pub fn new(gl: glow::Context) -> Result<Self, String> {
+    Self::with(gl, AppOptions::default())
+  }
+
+  pub fn with(gl: glow::Context, options: AppOptions) -> Result<Self, String> {
     let mut renderer = Renderer::new(gl)?;
     renderer.load_skin(&gui::skin_pixels(), gui::SKIN_SIZE);
     let mods = mods()?;
-    let sound = audio::Engine::new();
-    if sound.is_none() {
+    let sound = if options.sound { audio::Engine::new() } else { None };
+    if sound.is_none() && options.sound {
       eprintln!("звука нет: некуда выводить");
     }
     let menu = menu_of(&mods)?;
@@ -147,7 +166,7 @@ impl App {
       }
       None => None,
     };
-    let mut app = Self { renderer, game: None, loading, first, mods, sound, link, quit: false, saved_at: 0.0 };
+    let mut app = Self { renderer, game: None, loading, first, mods, sound, link, quit: false, saved_at: 0.0, generation: 0 };
     if app.loading.is_none() {
       app.begin()?;
     }
@@ -159,6 +178,7 @@ impl App {
     self.loading = None;
     let game = Self::launch(&mut self.renderer, &self.mods, self.first.as_deref(), &serde_json::Value::Object(Default::default()), None, self.sound.clone(), self.link.clone())?;
     self.game = Some(game);
+    self.generation += 1;
     Ok(())
   }
 
@@ -276,6 +296,7 @@ impl App {
         self.save();
         self.link.borrow_mut().editing = editor;
         self.game = Some(Self::launch(&mut self.renderer, &self.mods, Some(&game), &options, slot, self.sound.clone(), self.link.clone())?);
+        self.generation += 1;
         self.saved_at = input.time;
       }
       Some(AppRequest::Save) => self.store(),
@@ -308,6 +329,29 @@ impl App {
   pub fn fps_limit(&self) -> Option<f64> {
     let state = self.link.borrow();
     state.prefs.get("graphics").and_then(|value| value.get("fps")).and_then(serde_json::Value::as_f64).filter(|fps| *fps > 0.0)
+  }
+
+  /// Идущая партия.
+  pub fn game(&self) -> Option<&Game> {
+    self.game.as_ref()
+  }
+
+  pub fn game_mut(&mut self) -> Option<&mut Game> {
+    self.game.as_mut()
+  }
+
+  /// Новая партия сразу, мимо просьб скриптов (их, как витрина меню, кладут каждый кадр): для сценария.
+  pub fn start(&mut self, game: &str, options: &serde_json::Value) -> Result<(), String> {
+    self.link.borrow_mut().request = None;
+    self.link.borrow_mut().editing = false;
+    self.game = Some(Self::launch(&mut self.renderer, &self.mods, Some(game), options, None, self.sound.clone(), self.link.clone())?);
+    self.generation += 1;
+    Ok(())
+  }
+
+  /// Язык интерфейса: строки словаря берутся на нём с этого кадра.
+  pub fn set_language(&self, language: &str) {
+    self.link.borrow_mut().language = Some(language.to_string());
   }
 
   pub fn shot(&self, path: &str, size: [u32; 2]) {

@@ -288,6 +288,16 @@ impl Host {
     self.settle(&format!("{label}.commands.{name}"))
   }
 
+  /// Зовёт функцию машины хоста с `ctx` и аргументом, потом применяет её изменения и раздаёт события, как после приказа:
+  /// так сценарий (режим сценария клиента) читает и правит мир. Возвращает, что вернула функция, значением JSON.
+  pub fn call(&mut self, function: &Function, args: &Json, label: &str) -> Result<Json, Error> {
+    let lua = self.lua().clone();
+    let args = kharos_content::vm::to_lua(&lua, args).map_err(lua_error(label))?;
+    let result = function.call::<Value>((&self.ctx, args)).map_err(lua_error(label))?;
+    self.settle(label)?;
+    lua.from_value::<Json>(result).map_err(lua_error(format!("{label}: результат")))
+  }
+
   /// Один тик длиной dt секунд.
   pub fn tick(&mut self, dt: f64) -> Result<(), Error> {
     {
