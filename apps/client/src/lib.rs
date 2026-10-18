@@ -10,6 +10,7 @@ mod gl;
 mod gui;
 mod input;
 mod render;
+mod saves;
 mod script;
 #[cfg(not(target_arch = "wasm32"))]
 mod shell;
@@ -36,7 +37,12 @@ pub struct App {
   link: AppLink,
   /// Пора закрыть игру.
   pub quit: bool,
+  /// Когда партию слота сохраняли в последний раз, секунды запуска.
+  saved_at: f64,
 }
+
+/// Как часто пишется партия слота, секунд (SAVE_INTERVAL в packages/host/src/local.ts).
+const SAVE_INTERVAL: f64 = 5.0;
 
 /// Моды: из KHAROS_MODS или папки `mods` в текущей папке и выше.
 fn mods() -> Result<Vec<Mod>, String> {
@@ -79,20 +85,48 @@ impl App {
     let menu = menu_of(&mods)?;
     // KHAROS_GAME — сразу в партию (проверки, снимки); иначе — в меню, а без меню — в партию по умолчанию.
     let first = std::env::var("KHAROS_GAME").ok().or_else(|| menu.clone());
-    let link: AppLink = Rc::new(RefCell::new(AppState { menu, prefs: script::Prefs::load(), ..Default::default() }));
-    let game = Self::launch(&mut renderer, &mods, first.as_deref(), &serde_json::Value::Object(Default::default()), sound.clone(), link.clone())?;
-    Ok(Self { renderer, game, mods, sound, link, quit: false })
+    let link: AppLink = Rc::new(RefCell::new(AppState { menu, prefs: script::Prefs::load(), saves: Some(saves::Saves::load()), ..Default::default() }));
+    let game = Self::launch(&mut renderer, &mods, first.as_deref(), &serde_json::Value::Object(Default::default()), None, sound.clone(), link.clone())?;
+    Ok(Self { renderer, game, mods, sound, link, quit: false, saved_at: 0.0 })
+  }
+
+  /// Пишет партию в её слот, если он есть.
+  pub fn save(&mut self) {
+    let Some(slot) = self.link.borrow().slot.clone() else { return };
+    match self.game.save() {
+      Ok((world, camera, tick)) => {
+        if let Some(saves) = self.link.borrow_mut().saves.as_mut() {
+          saves.store(&slot, tick, camera, &world);
+        }
+      }
+      Err(error) => eprintln!("сохранение: {error}"),
+    }
   }
 
   /// Новая партия: хост, клиентская машина, атлас, земля и мини-карта — в рендер.
-  fn launch(renderer: &mut Renderer, mods: &[Mod], game: Option<&str>, options: &serde_json::Value, sound: Option<Rc<audio::Engine>>, link: AppLink) -> Result<Game, String> {
+  fn launch(renderer: &mut Renderer, mods: &[Mod], game: Option<&str>, options: &serde_json::Value, slot: Option<String>, sound: Option<Rc<audio::Engine>>, link: AppLink) -> Result<Game, String> {
     let fonts = gui::Fonts::new(&FONTS)?;
     renderer.reset_font();
-    let mut game = Game::new(mods.to_vec(), game, options, 1, fonts, sound, link.clone())?;
+    // Мир слота — из сохранения; пустой слот заводит новый мир по настройкам.
+    let (world, camera) = {
+      let state = link.borrow();
+      let saves = state.saves.as_ref();
+      let world = slot.as_ref().and_then(|id| saves.and_then(|saves| saves.world(id)));
+      let camera = slot.as_ref().and_then(|id| saves.and_then(|saves| saves.get(id)).and_then(|meta| meta.get("camera").cloned()));
+      (world, camera)
+    };
+    let mut game = Game::new(mods.to_vec(), game, options, world.as_ref(), 1, fonts, sound, link.clone())?;
+    if let Some(camera) = camera.filter(|_| world.is_some()) {
+      game.set_camera(&camera);
+    }
     {
       let mut state = link.borrow_mut();
       state.game = game.host.game.clone();
       state.options = options.clone();
+      state.slot = slot.clone();
+      if let Some(id) = &slot {
+        state.prefs.set("last", serde_json::Value::from(id.as_str()));
+      }
     }
     if let Some((pixels, size)) = game.atlas.take() {
       renderer.load_atlas(&pixels, size);
@@ -125,12 +159,22 @@ impl App {
       }
     }
     // Просьбы скриптов к приложению — после кадра: партия, которая просит, дорисована.
+    // Партия слота пишется сама раз в SAVE_INTERVAL и перед уходом из неё.
+    if input.time - self.saved_at >= SAVE_INTERVAL {
+      self.saved_at = input.time;
+      self.save();
+    }
     let request = self.link.borrow_mut().request.take();
     match request {
-      Some(AppRequest::Start { game, options }) => {
-        self.game = Self::launch(&mut self.renderer, &self.mods, Some(&game), &options, self.sound.clone(), self.link.clone())?;
+      Some(AppRequest::Start { game, options, slot }) => {
+        self.save();
+        self.game = Self::launch(&mut self.renderer, &self.mods, Some(&game), &options, slot, self.sound.clone(), self.link.clone())?;
+        self.saved_at = input.time;
       }
-      Some(AppRequest::Quit) => self.quit = true,
+      Some(AppRequest::Quit) => {
+        self.save();
+        self.quit = true;
+      }
       None => {}
     }
     Ok(())

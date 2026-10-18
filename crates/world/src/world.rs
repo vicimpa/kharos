@@ -138,6 +138,16 @@ impl World {
     entity
   }
 
+  /// Следующий номер сущности — для сохранения.
+  pub fn next_id(&self) -> Entity {
+    self.next
+  }
+
+  /// Номера дальше этого свободны — после загрузки сохранения.
+  pub fn set_next(&mut self, next: Entity) {
+    self.next = self.next.max(next);
+  }
+
   /// Оживляет заранее выданный номер.
   pub fn revive(&mut self, entity: Entity) {
     self.alive.insert(entity, ());

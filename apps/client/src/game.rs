@@ -89,13 +89,20 @@ fn named(content: &Content, section: &str, name: &str) -> Result<Table, String> 
 impl Game {
   /// Партия game (None — по умолчанию) с настройками options (`Content::apply_options`); звук — в общий синтезатор
   /// sound, если он есть. app — просьбы скриптов к приложению (`c.app`).
-  pub fn new(mods: Vec<Mod>, game: Option<&str>, options: &serde_json::Value, player: u32, fonts: Fonts, sound: Option<Rc<Engine>>, app: crate::script::AppLink) -> Result<Self, String> {
+  /// save — снимок партии из сохранения (`Host::snapshot`): тогда она продолжается, а не начинается.
+  #[allow(clippy::too_many_arguments)]
+  pub fn new(mods: Vec<Mod>, game: Option<&str>, options: &serde_json::Value, save: Option<&serde_json::Value>, player: u32, fonts: Fonts, sound: Option<Rc<Engine>>, app: crate::script::AppLink) -> Result<Self, String> {
     let seed = options.get("seed").and_then(serde_json::Value::as_f64).map_or(1, |seed| seed as u64);
     let mut host = Host::new(mods.clone(), game, seed, options)?;
     let game = host.game.clone();
     let game = game.as_str();
-    host.start()?;
-    host.join(player)?;
+    match save {
+      Some(snapshot) => host.restore(snapshot)?,
+      None => {
+        host.start()?;
+        host.join(player)?;
+      }
+    }
     let client = Content::load(Side::Client, mods).map_err(|error| error.to_string())?;
     client.apply_options(game, options)?;
     if client.checksum() != host.content.checksum() {
@@ -577,6 +584,24 @@ impl Game {
       frame.decals.extend_from_slice(&[decal.line[0], decal.line[1], decal.line[2], decal.line[3], decal.width, 0.0, 0.0, 0.0, 0.0, r, g, b, decal.opacity, left, decal.density, decal.seed]);
       true
     });
+  }
+
+  /// Снимок партии для слота: мир, камера и тик.
+  pub fn save(&self) -> Result<(serde_json::Value, serde_json::Value, u64), String> {
+    let world = self.host.snapshot()?;
+    let camera = &self.ctx.camera;
+    let get = |key: &str| camera.get::<f64>(key).unwrap_or(0.0);
+    let tick = self.host.state.borrow().tick;
+    Ok((world, serde_json::json!({ "x": get("x"), "y": get("y"), "zoom": get("zoom") }), tick))
+  }
+
+  /// Камера из сохранения.
+  pub fn set_camera(&mut self, saved: &serde_json::Value) {
+    for key in ["x", "y", "zoom"] {
+      if let Some(value) = saved.get(key).and_then(serde_json::Value::as_f64) {
+        let _ = self.ctx.camera.set(key, value);
+      }
+    }
   }
 
   pub fn palette(&self) -> &[f32] {

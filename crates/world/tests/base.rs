@@ -74,3 +74,27 @@ fn ordered_buggies_spread_around_the_point_and_stop() {
   }
   assert!(all(&host, "Drive").iter().all(|(_, drive)| drive["moving"] == json!(false)));
 }
+
+#[test]
+fn snapshot_restores_the_same_game_and_it_goes_on_the_same() {
+  let mut host = host();
+  let factory = all(&host, "Producer")[0].0;
+  host.send(1, "produce", json!({ "building": factory, "unit": "buggy" }));
+  let buggies: Vec<u32> = all(&host, "Drive").into_iter().map(|(entity, _)| entity).collect();
+  host.send(1, "move", json!({ "units": buggies, "x": 10, "y": 6 }));
+  for _ in 0..60 {
+    host.tick(0.05).unwrap();
+  }
+  let snapshot = host.snapshot().unwrap();
+  let mods = discover(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods")).unwrap();
+  let mut copy = Host::new(mods, None, 7, &serde_json::Value::Null).unwrap();
+  copy.restore(&snapshot).unwrap();
+  assert_eq!(copy.snapshot().unwrap(), snapshot);
+  // Дальше обе партии идут одинаково: производство доделывает багги, приказ доезжает.
+  for _ in 0..140 {
+    host.tick(0.05).unwrap();
+    copy.tick(0.05).unwrap();
+  }
+  assert_eq!(copy.snapshot().unwrap(), host.snapshot().unwrap());
+  assert_eq!(all(&copy, "Drive").len(), 4);
+}

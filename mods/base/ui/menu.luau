@@ -108,6 +108,30 @@ end
 local screen = "main"
 local game: any = nil
 local seeds = 0
+-- Сохранения: подтверждение удаления, переименование.
+local confirming: string? = nil
+local renaming: { id: string, name: string }? = nil
+
+-- Симуляция идёт 20 тиков в секунду: время игры по тику слота.
+local function playtime(tick: number): string
+	local minutes = math.floor(tick / 20 / 60)
+	if minutes < 60 then
+		return string.format("%d мин", minutes)
+	end
+	return string.format("%d ч %d мин", math.floor(minutes / 60), minutes % 60)
+end
+
+local function slotOf(c, id: string?)
+	if not id then
+		return nil
+	end
+	for _, slot in c.app:saves() do
+		if slot.id == id then
+			return slot
+		end
+	end
+	return nil
+end
 
 local function randomSeed(c): number
 	seeds += 1
@@ -123,7 +147,7 @@ end
 local function fresh(c)
 	local generator = table.clone(defaults(c))
 	generator.seed = randomSeed(c)
-	return { name = "Игра 1", size = menu.data.size, weather = table.clone(menu.data.weather), generator = generator, fine = false }
+	return { name = string.format("Игра %d", #c.app:saves() + 1), size = menu.data.size, weather = table.clone(menu.data.weather), generator = generator, fine = false }
 end
 
 -- Отличия местности от генератора по умолчанию, без зерна: их и получает партия.
@@ -149,6 +173,10 @@ local function open(c, nextScreen: string)
 	screen = nextScreen
 	if nextScreen == "new" then
 		game = fresh(c)
+	end
+	if nextScreen == "saves" then
+		confirming = nil
+		renaming = nil
 	end
 end
 
@@ -177,8 +205,16 @@ local function mainWindow(c)
 	local width = if ui.width < NARROW then math.min(280, ui.width - 32) else 300
 	form.window(ui, { id = "menu:main", title = "Главное меню", width = width, anchor = place(ui) }, function()
 		ui:box({ direction = "column", align = "stretch", gap = 6 }, function()
+			-- Продолжать нечего — кнопки нет, а не мёртвая серая. Есть что — это и есть главное действие.
+			local last = slotOf(c, c.app.last)
+			if last and form.button(ui, "menu:resume", "Продолжить", { primary = true, tip = last.name .. " — " .. playtime(last.tick) }) then
+				c.app:play(last.id)
+			end
 			if form.button(ui, "menu:new", "Новая игра") then
 				open(c, "new")
+			end
+			if form.button(ui, "menu:saves", "Сохранения") then
+				open(c, "saves")
 			end
 			if form.button(ui, "menu:settings", "Настройки") then
 				open(c, "settings")
@@ -365,14 +401,79 @@ local function newGameWindow(c)
 	end
 	if start then
 		local name = string.gsub(game.name, "^%s*(.-)%s*$", "%1")
-		c.app:start(menu.data.game, {
-			name = if name ~= "" then name else "Игра 1",
+		if name == "" then
+			name = string.format("Игра %d", #c.app:saves() + 1)
+		end
+		-- Новая игра — новый слот сохранений: мир заведётся по этим настройкам и дальше пишется сам.
+		local slot = c.app:create(name, menu.data.game, {
 			seed = game.generator.seed,
 			-- Карта партии — от −size до size по обеим осям.
 			size = game.size / 2,
 			generator = generatorChanges(c, game.generator),
 			weather = game.weather,
 		})
+		if slot then
+			c.app:play(slot)
+		end
+	end
+end
+
+local function saveRow(c, slot, width: number)
+	local ui = c.ui
+	local id = "save:" .. slot.id
+	local options = slot.options or {}
+	ui:box({ skin = "well", padding = 12, direction = "column", gap = 8 }, function()
+		ui:box({ direction = "column", gap = 2 }, function()
+			if renaming and renaming.id == slot.id then
+				local field = form.textField(ui, id .. ":name", renaming.name, { width = width - 24, maxLength = 40, focus = true })
+				renaming.name = field.value
+				local trimmed = string.gsub(renaming.name, "^%s*(.-)%s*$", "%1")
+				if table.find(field.keys, "Enter") and trimmed ~= "" then
+					c.app:rename(slot.id, trimmed)
+					renaming = nil
+				elseif table.find(field.keys, "Escape") or table.find(field.keys, "Blur") then
+					renaming = nil
+				end
+			else
+				ui:text(slot.name, { color = COLORS.bright, wrap = true })
+			end
+			local size = (options.size or 0) * 2
+			ui:text(string.format("%s · %s · карта %d · зерно %d", c.app:date(slot.updated), playtime(slot.tick), size, options.seed or 0), { font = "small", color = COLORS.muted, wrap = true })
+		end)
+		ui:box({ direction = "row", gap = 6, wrap = true }, function()
+			if form.button(ui, id .. ":play", "Играть", { primary = true }) then
+				c.app:play(slot.id)
+			end
+			if form.button(ui, id .. ":rename", "Имя") then
+				renaming = { id = slot.id, name = slot.name }
+			end
+			if confirming == slot.id then
+				if form.button(ui, id .. ":sure", "Точно?", { danger = true }) then
+					c.app:remove(slot.id)
+					confirming = nil
+				end
+			elseif form.button(ui, id .. ":remove", "Удалить") then
+				confirming = slot.id
+			end
+		end)
+	end)
+end
+
+local function savesWindow(c)
+	local ui = c.ui
+	local width = math.min(560, ui.width - 32)
+	local inner = width - 36
+	local saves = c.app:saves()
+	local back = form.window(ui, { id = "menu:saves", title = "Сохранения", width = width, anchor = place(ui), back = "Назад" }, function()
+		if #saves == 0 then
+			ui:text("Сохранений нет. Начните новую игру.", { color = COLORS.muted, wrap = true })
+		end
+		for _, slot in saves do
+			saveRow(c, slot, inner)
+		end
+	end)
+	if back then
+		screen = "main"
 	end
 end
 
@@ -402,6 +503,8 @@ function menu.draw(c)
 		newGameWindow(c)
 	elseif screen == "about" then
 		aboutWindow(c)
+	elseif screen == "saves" then
+		savesWindow(c)
 	elseif screen == "settings" then
 		local ui = c.ui
 		if settings.window(c, place(ui)) then

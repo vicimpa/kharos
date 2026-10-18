@@ -259,8 +259,8 @@ pub struct Ctx {
 /// Просьба скриптов к приложению — исполняется после кадра.
 #[derive(Clone, Debug)]
 pub enum AppRequest {
-  /// Начать партию games/<game> с настройками (ложатся в её data).
-  Start { game: String, options: Json },
+  /// Начать партию games/<game> с настройками (ложатся в её data); slot — слот сохранений, куда она пишется.
+  Start { game: String, options: Json, slot: Option<String> },
   /// Закрыть игру.
   Quit,
 }
@@ -276,6 +276,9 @@ pub struct AppState {
   pub options: Json,
   /// Настройки игрока на диске — `c.app:get` и `c.app:set` (как localStorage у страницы).
   pub prefs: Prefs,
+  /// Слоты сохранений и слот идущей партии.
+  pub saves: Option<crate::saves::Saves>,
+  pub slot: Option<String>,
 }
 
 /// Настройки игрока: объект JSON в файле. На десктопе — `~/.config/kharos/client.json` (Windows — `%APPDATA%\Kharos`).
@@ -287,14 +290,7 @@ pub struct Prefs {
 
 impl Prefs {
   pub fn load() -> Self {
-    let dir = std::env::var_os("KHAROS_CONFIG").map(std::path::PathBuf::from).or_else(|| {
-      if cfg!(windows) {
-        std::env::var_os("APPDATA").map(|dir| std::path::PathBuf::from(dir).join("Kharos"))
-      } else {
-        std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".config").join("kharos"))
-      }
-    });
-    let path = dir.map(|dir| dir.join("client.json"));
+    let path = crate::saves::config_dir().map(|dir| dir.join("client.json"));
     let values = path.as_ref().and_then(|path| std::fs::read_to_string(path).ok()).and_then(|text| serde_json::from_str::<Json>(&text).ok()).and_then(|value| match value {
       Json::Object(map) => Some(map),
       _ => None,
@@ -334,20 +330,27 @@ impl UserData for AppApi {
     fields.add_field_method_get("game", |_, app| Ok(app.0.borrow().game.clone()));
     fields.add_field_method_get("menu", |_, app| Ok(app.0.borrow().menu.clone()));
     fields.add_field_method_get("options", |lua, app| kharos_content::vm::to_lua(lua, &app.0.borrow().options));
+    // Слот идущей партии и последний, в который играли (для «Продолжить»), если он ещё есть.
+    fields.add_field_method_get("slot", |_, app| Ok(app.0.borrow().slot.clone()));
+    fields.add_field_method_get("last", |_, app| {
+      let state = app.0.borrow();
+      let last = state.prefs.get("last").and_then(Json::as_str).map(str::to_string);
+      Ok(last.filter(|id| state.saves.as_ref().is_some_and(|saves| saves.get(id).is_some())))
+    });
   }
 
   fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
     // c.app:start("skirmish", { seed, size, generator, weather, name }) — новая партия после этого кадра.
     methods.add_method("start", |lua, app, (game, options): (String, Option<Value>)| {
       let options: Json = lua.from_value(options.unwrap_or(Value::Nil))?;
-      app.0.borrow_mut().request = Some(AppRequest::Start { game, options: if options.is_null() { Json::Object(Default::default()) } else { options } });
+      app.0.borrow_mut().request = Some(AppRequest::Start { game, options: if options.is_null() { Json::Object(Default::default()) } else { options }, slot: None });
       Ok(())
     });
     // В главное меню — партию меню.
     methods.add_method("to_menu", |_, app, ()| {
       let mut state = app.0.borrow_mut();
       if let Some(menu) = state.menu.clone() {
-        state.request = Some(AppRequest::Start { game: menu, options: Json::Object(Default::default()) });
+        state.request = Some(AppRequest::Start { game: menu, options: Json::Object(Default::default()), slot: None });
       }
       Ok(())
     });
@@ -361,6 +364,40 @@ impl UserData for AppApi {
       app.0.borrow_mut().prefs.set(&key, value);
       Ok(())
     });
+    // Сохранения: список слотов (свежие первыми) — { id, name, created, updated, tick, game, options }.
+    methods.add_method("saves", |lua, app, ()| {
+      let list = app.0.borrow().saves.as_ref().map(|saves| saves.list()).unwrap_or_default();
+      kharos_content::vm::to_lua(lua, &Json::Array(list.into_iter().map(Json::Object).collect()))
+    });
+    // Новый слот: партия и её настройки — мир заведётся при первом запуске. → номер слота.
+    methods.add_method("create", |lua, app, (name, game, options): (String, String, Option<Value>)| {
+      let options: Json = lua.from_value(options.unwrap_or(Value::Nil))?;
+      let mut state = app.0.borrow_mut();
+      Ok(state.saves.as_mut().map(|saves| saves.create(&name, &game, options)))
+    });
+    // Играть в слот: его мир, а если он ещё пуст — новый по партии и настройкам слота.
+    methods.add_method("play", |_, app, id: String| {
+      let mut state = app.0.borrow_mut();
+      let Some(slot) = state.saves.as_ref().and_then(|saves| saves.get(&id)).cloned() else { return Ok(false) };
+      let game = slot.get("game").and_then(Json::as_str).unwrap_or_default().to_string();
+      let options = slot.get("options").cloned().unwrap_or(Json::Object(Default::default()));
+      state.request = Some(AppRequest::Start { game, options, slot: Some(id) });
+      Ok(true)
+    });
+    methods.add_method("rename", |_, app, (id, name): (String, String)| {
+      if let Some(saves) = app.0.borrow_mut().saves.as_mut() {
+        saves.rename(&id, &name);
+      }
+      Ok(())
+    });
+    methods.add_method("remove", |_, app, id: String| {
+      if let Some(saves) = app.0.borrow_mut().saves.as_mut() {
+        saves.remove(&id);
+      }
+      Ok(())
+    });
+    // Дата из миллисекунд эпохи, как у страницы: «18 окт., 06:41».
+    methods.add_function("date", |_, (_, millis): (Value, f64)| Ok(crate::saves::date(millis)));
     // Открыть адрес в системном браузере.
     methods.add_method("open", |_, _, url: String| {
       if !(url.starts_with("https://") || url.starts_with("http://")) {

@@ -40,7 +40,8 @@ function pause.draw(c)
 			if form.button(ui, "pause:settings", "Настройки") then
 				settingsOpen = true
 			end
-			if c.app.menu and form.button(ui, "pause:exit", "Выйти в главное меню") then
+			-- Партия слота пишется сама; выход её ещё раз сохраняет.
+			if c.app.menu and form.button(ui, "pause:exit", if c.app.slot then "Сохранить и выйти" else "Выйти в главное меню") then
 				c.app:to_menu()
 			end
 		end)

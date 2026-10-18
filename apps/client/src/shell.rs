@@ -102,8 +102,19 @@ impl ApplicationHandler for Shell {
     let Some(gl) = &self.gl else { return };
     let scale = gl.window.scale_factor() as f32;
     let input = &mut self.input;
+    // Снимок со сценарием указателя: настоящая мышь и клавиатура не вмешиваются — окно открыто на чужом экране.
+    let scripted = self.shot.is_some() && (std::env::var_os("KHAROS_SHOT_CLICKS").is_some() || std::env::var_os("KHAROS_SHOT_POINTER").is_some());
+    if scripted && matches!(event, WindowEvent::CursorMoved { .. } | WindowEvent::CursorLeft { .. } | WindowEvent::MouseInput { .. } | WindowEvent::MouseWheel { .. } | WindowEvent::Touch(_) | WindowEvent::KeyboardInput { .. } | WindowEvent::ModifiersChanged(_)) {
+      return;
+    }
     match event {
-      WindowEvent::CloseRequested => event_loop.exit(),
+      WindowEvent::CloseRequested => {
+        // Закрыли окно — партия слота успевает записаться.
+        if let Some(app) = &mut self.app {
+          app.save();
+        }
+        event_loop.exit();
+      }
       WindowEvent::Resized(size) => {
         if let (Some(width), Some(height)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) {
           gl.surface.resize(&gl.context, width, height);

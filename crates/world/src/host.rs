@@ -326,6 +326,161 @@ impl Host {
   pub fn storage(&self) -> Result<Json, Error> {
     self.lua().from_value(Value::Table(self.storage.clone())).map_err(lua_error("storage"))
   }
+
+  /// Снимок партии для сохранения: тик, случай, сущности (компоненты по именам, вид — «раздел/имя», чтобы
+  /// сохранение пережило правку модов), обзор игроков и память модов (`ctx.storage`).
+  pub fn snapshot(&self) -> Result<Json, Error> {
+    let state = self.state.borrow();
+    let world = &state.world;
+    let proto = world.schema.id("Proto");
+    let mut entities = Vec::new();
+    for entity in world.entities() {
+      let mut components = Map::new();
+      for (id, component) in world.schema.components.iter().enumerate() {
+        let Some(mut values) = world.get(entity, id) else { continue };
+        if Some(id) == proto {
+          let number = values.get("id").and_then(Json::as_f64).unwrap_or(-1.0);
+          let name = self.content.list.get(number as usize).map(|proto| format!("{}/{}", proto.section, proto.name));
+          values.insert("id".into(), name.map_or(Json::Null, Json::from));
+        }
+        components.insert(component.name.clone(), Json::Object(values));
+      }
+      entities.push(serde_json::json!({ "id": entity, "components": components }));
+    }
+    let vision = state.vision.as_ref().map(|vision| vision.cells.iter().map(|(player, cells)| (player.to_string(), Json::from(run_length(cells)))).collect::<Map<String, Json>>());
+    Ok(serde_json::json!({
+      "game": self.game,
+      "tick": state.tick,
+      "rng": state.rng,
+      "next": world.next_id(),
+      "entities": entities,
+      "vision": vision,
+      "storage": saved(&Value::Table(self.storage.clone()))?,
+    }))
+  }
+
+  /// Партия из снимка (`snapshot`) — вместо `start` и `join`: хост уже создан с теми же модами и настройками.
+  pub fn restore(&mut self, snapshot: &Json) -> Result<(), Error> {
+    let get = |key: &str| snapshot.get(key).ok_or_else(|| format!("в сохранении нет {key}"));
+    {
+      let mut state = self.state.borrow_mut();
+      state.tick = get("tick")?.as_u64().unwrap_or(0);
+      state.rng = get("rng")?.as_u64().unwrap_or(1).max(1);
+      let schema = state.world.schema.clone();
+      let mut world = World::new(schema.clone());
+      // Номера строк — те же: фильтры систем запомнили их, когда хост собирался.
+      world.strings = state.world.strings.clone();
+      for item in get("entities")?.as_array().ok_or("entities — список")? {
+        let entity = item.get("id").and_then(Json::as_u64).ok_or("сущность без номера")? as Entity;
+        world.revive(entity);
+        let Some(Json::Object(components)) = item.get("components") else { continue };
+        for (name, values) in components {
+          // Компонента больше нет в модах — его поля теряются, сущность остаётся.
+          let Some(id) = schema.id(name) else { continue };
+          let Json::Object(values) = values else { continue };
+          let mut values = values.clone();
+          if name == "Proto" {
+            let number = values.get("id").and_then(Json::as_str).and_then(|path| path.split_once('/')).and_then(|(section, name)| self.content.id(section, name));
+            match number {
+              Some(number) => values.insert("id".into(), Json::from(number)),
+              // Вида больше нет — и сущности нет.
+              None => {
+                world.destroy(entity);
+                break;
+              }
+            };
+          }
+          world.add(entity, id, &values).map_err(|problem| format!("сущность {entity}, {name}: {problem}"))?;
+        }
+      }
+      world.set_next(get("next")?.as_u64().unwrap_or(1) as Entity);
+      state.world = world;
+      if let (Some(vision), Some(Json::Object(saved))) = (state.vision.as_mut(), snapshot.get("vision")) {
+        for (player, cells) in saved {
+          let (Ok(player), Some(cells)) = (player.parse::<u32>(), cells.as_array()) else { continue };
+          vision.cells.insert(player, run_length_decode(cells));
+          *vision.changed.entry(player).or_default() += 1;
+        }
+      }
+    }
+    let lua = self.lua().clone();
+    let storage = restored(&lua, snapshot.get("storage").unwrap_or(&Json::Null))?;
+    if let Value::Table(saved) = storage {
+      for pair in saved.pairs::<Value, Value>() {
+        let (key, value) = pair.map_err(lua_error("storage"))?;
+        self.storage.set(key, value).map_err(lua_error("storage"))?;
+      }
+    }
+    Ok(())
+  }
+}
+
+/// Клетки обзора — парами «значение, сколько подряд»: разведанное лежит большими пятнами.
+fn run_length(cells: &[u8]) -> Vec<u32> {
+  let mut runs = Vec::new();
+  let mut iter = cells.iter().peekable();
+  while let Some(&cell) = iter.next() {
+    // Видимое в сохранении — разведанное: что видно сейчас, обзор пересчитает сам.
+    let value = cell.min(1);
+    let mut count = 1;
+    while iter.peek().is_some_and(|&&next| next.min(1) == value) {
+      iter.next();
+      count += 1;
+    }
+    runs.push(value as u32);
+    runs.push(count);
+  }
+  runs
+}
+
+fn run_length_decode(runs: &[Json]) -> Vec<u8> {
+  let mut cells = Vec::new();
+  for pair in runs.chunks(2) {
+    let (Some(value), Some(count)) = (pair.first().and_then(Json::as_u64), pair.get(1).and_then(Json::as_u64)) else { continue };
+    cells.extend(std::iter::repeat_n(value as u8, count as usize));
+  }
+  cells
+}
+
+/// Значение Luau для сохранения: таблица — списком пар [ключ, значение], чтобы числовые ключи не стали строками.
+fn saved(value: &Value) -> Result<Json, Error> {
+  Ok(match value {
+    Value::Nil => Json::Null,
+    Value::Boolean(flag) => Json::from(*flag),
+    Value::Integer(number) => Json::from(*number),
+    Value::Number(number) => Json::from(*number),
+    Value::String(text) => Json::from(text.to_str().map_err(lua_error("storage"))?.to_string()),
+    Value::Table(table) => {
+      let mut pairs = Vec::new();
+      for pair in table.pairs::<Value, Value>() {
+        let (key, value) = pair.map_err(lua_error("storage"))?;
+        pairs.push(Json::Array(vec![saved(&key)?, saved(&value)?]));
+      }
+      serde_json::json!({ "table": pairs })
+    }
+    other => return Err(format!("в ctx.storage не сохраняется {}", other.type_name())),
+  })
+}
+
+fn restored(lua: &Lua, value: &Json) -> Result<Value, Error> {
+  Ok(match value {
+    Json::Null => Value::Nil,
+    Json::Bool(flag) => Value::Boolean(*flag),
+    Json::Number(number) => match number.as_i64() {
+      Some(integer) => Value::Integer(integer),
+      None => Value::Number(number.as_f64().unwrap_or(0.0)),
+    },
+    Json::String(text) => Value::String(lua.create_string(text).map_err(lua_error("storage"))?),
+    Json::Object(map) => {
+      let table = lua.create_table().map_err(lua_error("storage"))?;
+      for pair in map.get("table").and_then(Json::as_array).into_iter().flatten() {
+        let (Some(key), Some(value)) = (pair.get(0), pair.get(1)) else { continue };
+        table.set(restored(lua, key)?, restored(lua, value)?).map_err(lua_error("storage"))?;
+      }
+      Value::Table(table)
+    }
+    Json::Array(_) => Value::Nil,
+  })
 }
 
 /// Секунды от произвольного начала — для замеров.

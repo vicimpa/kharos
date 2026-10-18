@@ -1634,6 +1634,7 @@ dependencies = [
  "kharos-content",
  "kharos-engine",
  "kharos-world",
+ "libc",
  "mlua",
  "png",
  "raw-window-handle",
