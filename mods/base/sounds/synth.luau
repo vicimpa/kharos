@@ -352,5 +352,9 @@ return {
 		reverb = { bus = "world", variants = 1, render = function(rate)
 			return dsp.reverbImpulse(rate, 4, 1)
 		end },
+		-- Эхо музыки меню — длиннее (MUSIC_REVERB_KEY).
+		["reverb:music"] = { bus = "music", variants = 1, render = function(rate)
+			return dsp.reverbImpulse(rate, 5, 3)
+		end },
 	},
 }

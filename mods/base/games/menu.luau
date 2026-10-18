@@ -58,7 +58,7 @@ menu.client = {
 	ui = { "showcase", "menu" },
 	atmosphere = { "weather" },
 	effects = { "traces", "power", "logistics", "connections", "flow", "combat" },
-	audio = { "levels", "interface" },
+	audio = { "levels", "interface", "music" },
 }
 
 return menu
