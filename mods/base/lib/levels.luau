@@ -70,12 +70,12 @@ end
 
 -- Как это называется в строке «Уровень 2 из 3: … ×1,5» (levelGains в ru.json).
 levels.GAINS = {
-	extract = "добыча",
-	refine = "скорость переработки",
-	store = "ёмкость",
-	trade = "трюм и скорость рейсов",
-	power = "выработка",
-	scan = "радиус разведки (и потребление)",
+	extract = "levelGains.extract",
+	refine = "levelGains.refine",
+	store = "levelGains.store",
+	trade = "levelGains.trade",
+	power = "levelGains.power",
+	scan = "levelGains.scan",
 }
 
 -- Во сколько раз уровни дороже и дольше, чем в матче (Rules.upgradeScale).

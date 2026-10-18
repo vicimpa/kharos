@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Боеприпасы",
-		info = "Завод боеприпасов и пулемётная турель",
+		title = "research.ammo",
+		info = "researchInfo.ammo",
 		-- Место в списке тем (TOPICS).
 		order = 20,
 		-- Темы, без которых эту не начать.

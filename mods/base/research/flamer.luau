@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Огнемёты",
-		info = "Огнемётчики — против пехоты и зданий",
+		title = "research.flamer",
+		info = "researchInfo.flamer",
 		-- Место в списке тем (TOPICS).
 		order = 27,
 		-- Темы, без которых эту не начать.

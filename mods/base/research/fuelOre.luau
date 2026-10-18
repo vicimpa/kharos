@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Перегонка нефти",
-		info = "Как перегнать нефть в топливо. Изучается на нефти",
+		title = "research.fuelOre",
+		info = "researchInfo.fuelOre",
 		-- Место в списке тем (TOPICS).
 		order = 15,
 		-- Темы, без которых эту не начать.

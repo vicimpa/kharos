@@ -31,15 +31,15 @@ alerts.data = {
 
 -- Что сказать: вид уведомления → строка.
 alerts.TEXTS = {
-	spotted = "Замечен противник",
-	baseAttacked = "Атакована база",
-	unitsAttacked = "Атакованы наши юниты",
-	oreFound = "Найдено месторождение",
-	nukeLaunched = "Ядерный пуск",
-	nukeIncoming = "Ядерный удар по нам",
-	nukeImminent = "Ядерный удар вот-вот",
-	nukeIntercepted = "Ракета перехвачена",
-	nukeDowned = "Нашу ракету сбили",
+	spotted = "hud.alerts.spotted",
+	baseAttacked = "hud.alerts.baseAttacked",
+	unitsAttacked = "hud.alerts.unitsAttacked",
+	oreFound = "hud.alerts.oreFound",
+	nukeLaunched = "hud.alerts.nukeLaunched",
+	nukeIncoming = "hud.alerts.nukeIncoming",
+	nukeImminent = "hud.alerts.nukeImminent",
+	nukeIntercepted = "hud.alerts.nukeIntercepted",
+	nukeDowned = "hud.alerts.nukeDowned",
 }
 
 export type Alert = { kind: string, text: string, x: number, y: number, at: number }

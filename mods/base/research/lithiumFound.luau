@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Литий найден",
-		info = "Месторождение лития найдено: можно изучать его выпарку",
+		title = "research.lithiumFound",
+		info = "researchInfo.lithiumFound",
 		-- Место в списке тем (TOPICS).
 		order = 7,
 		-- Тема-открытие: открывается сама, когда это случилось с игроком.

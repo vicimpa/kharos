@@ -4,21 +4,22 @@
 
 local stats = {}
 
+-- Подписи и классы — ключи словаря (lang).
 stats.LABELS = {
-	hp = "Прочность",
-	class = "Класс",
-	speed = "Скорость",
-	sight = "Обзор",
-	cargo = "Груз",
-	repair = "Радиус ремонта",
+	hp = "stats.hp",
+	class = "stats.class",
+	speed = "stats.speed",
+	sight = "stats.sight",
+	cargo = "stats.cargo",
+	repair = "stats.repair",
 }
 
 stats.CLASSES = {
-	infantry = "пехота",
-	vehicle = "лёгкая техника",
-	heavy = "тяжёлая техника",
-	air = "авиация",
-	building = "здания",
+	infantry = "stats.vs.infantry",
+	vehicle = "stats.vs.vehicle",
+	heavy = "stats.vs.heavy",
+	air = "stats.vs.air",
+	building = "stats.vs.building",
 }
 
 -- До одного знака после запятой, без хвостового нуля.
@@ -30,17 +31,17 @@ end
 export type Row = { key: string, label: string, value: string }
 
 -- Строки параметров вида: прочность, класс, скорость, обзор, груз, ремонт.
-function stats.unit(kind): { Row }
+function stats.unit(c, kind): { Row }
 	local d = kind.data or {}
 	local rows: { Row } = {}
 	local function row(key: string, value: string)
-		table.insert(rows, { key = key, label = stats.LABELS[key], value = value })
+		table.insert(rows, { key = key, label = c:t(stats.LABELS[key]), value = value })
 	end
 	if d.hp then
 		row("hp", tostring(d.hp))
 	end
 	if d.kind then
-		row("class", stats.CLASSES[d.kind] or d.kind)
+		row("class", if stats.CLASSES[d.kind] then c:t(stats.CLASSES[d.kind]) else d.kind)
 	end
 	if d.speed then
 		row("speed", tidy(d.speed))
@@ -58,19 +59,19 @@ function stats.unit(kind): { Row }
 end
 
 -- Параметры одним текстом, строка на параметр: для всплывающей подсказки (unitStatsText).
-function stats.text(kind): string
+function stats.text(c, kind): string
 	local lines = {}
-	for _, row in stats.unit(kind) do
+	for _, row in stats.unit(c, kind) do
 		table.insert(lines, row.label .. ": " .. row.value)
 	end
 	return table.concat(lines, "\n")
 end
 
 -- Главное одной строкой — для панели выбранного (unitStatsLine).
-function stats.line(kind): string
+function stats.line(c, kind): string
 	local brief = { hp = true, speed = true, sight = true, cargo = true, damage = true, range = true }
 	local parts = {}
-	for _, row in stats.unit(kind) do
+	for _, row in stats.unit(c, kind) do
 		if brief[row.key] then
 			table.insert(parts, row.label .. " " .. row.value)
 		end

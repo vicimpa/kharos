@@ -7,9 +7,9 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "Топливные баки",
+	title = "buildings.fuelTank",
 	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "Хранят топливо зоны",
+	info = "buildingInfo.fuelTank",
 	width = 2,
 	height = 2,
 	cost = 200,

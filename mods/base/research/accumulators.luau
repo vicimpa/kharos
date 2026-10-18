@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Накопители",
-		info = "Накопитель: копит излишек энергии на случай нехватки",
+		title = "research.accumulators",
+		info = "researchInfo.accumulators",
 		-- Место в списке тем (TOPICS).
 		order = 25,
 		-- Темы, без которых эту не начать.

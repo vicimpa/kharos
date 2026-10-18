@@ -91,24 +91,23 @@ impl Saves {
   }
 }
 
-const MONTHS: [&str; 12] = ["янв.", "февр.", "мар.", "апр.", "мая", "июн.", "июл.", "авг.", "сент.", "окт.", "нояб.", "дек."];
-
-/// Дата как у страницы (`toLocaleString` с днём, коротким месяцем, часами и минутами): «18 окт., 06:41».
-pub fn date(millis: f64) -> String {
+/// Местное время отметки: день месяца, месяц (1–12), часы и минуты. Слова и порядок — у мода (`menu.date` в словаре):
+/// как toLocaleString страницы, только язык решает словарь, а не браузер.
+pub fn date(millis: f64) -> [i64; 4] {
   let seconds = (millis / 1000.0) as i64;
   #[cfg(unix)]
   {
     let time = seconds as libc::time_t;
     let mut parts: libc::tm = unsafe { std::mem::zeroed() };
     if !unsafe { libc::localtime_r(&time, &mut parts) }.is_null() {
-      return format!("{} {}, {:02}:{:02}", parts.tm_mday, MONTHS[parts.tm_mon.clamp(0, 11) as usize], parts.tm_hour, parts.tm_min);
+      return [parts.tm_mday as i64, parts.tm_mon.clamp(0, 11) as i64 + 1, parts.tm_hour as i64, parts.tm_min as i64];
     }
   }
   // Без часового пояса — по Гринвичу.
   let days = seconds.div_euclid(86_400);
   let rest = seconds.rem_euclid(86_400);
-  let (year_day, month) = civil(days);
-  format!("{year_day} {}, {:02}:{:02}", MONTHS[month], rest / 3600, rest % 3600 / 60)
+  let (day, month) = civil(days);
+  [day, month as i64 + 1, rest / 3600, rest % 3600 / 60]
 }
 
 /// День месяца и месяц (с нуля) по дням от эпохи.

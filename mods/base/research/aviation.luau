@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Авиация",
-		info = "Аэродром, летающий грузовик и дрон",
+		title = "research.aviation",
+		info = "researchInfo.aviation",
 		-- Место в списке тем (TOPICS).
 		order = 31,
 		-- Темы, без которых эту не начать.

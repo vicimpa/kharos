@@ -26,21 +26,21 @@ local STATUS_COLORS = {
 }
 local TEXT_COLORS = { available = COLORS.good, soon = COLORS.gold, locked = COLORS.bad, done = COLORS.dim }
 local STATUS_TEXT = {
-	done = "Исследовано",
-	available = "Можно исследовать сейчас",
-	soon = "Станет можно, когда очередь дойдёт до нужного",
-	locked = "Пока нельзя: нужное ещё не открыто и не в очереди",
+	done = "tech.researched",
+	available = "tech.status.available",
+	soon = "tech.status.soon",
+	locked = "tech.status.locked",
 }
 local TRIGGERS = {
-	lab = "Построить лабораторию",
-	deposit = "Найти любое месторождение",
-	metal = "Найти месторождение металла",
-	silicon = "Найти месторождение кремния",
-	fuel = "Найти месторождение нефти",
-	kharite = "Найти месторождение харита",
-	lithium = "Найти месторождение лития",
-	uranium = "Найти месторождение урана",
-	refined = "Получить первый готовый ресурс",
+	lab = "tech.triggers.lab",
+	deposit = "tech.triggers.deposit",
+	metal = "tech.triggers.metal",
+	silicon = "tech.triggers.silicon",
+	fuel = "tech.triggers.fuel",
+	kharite = "tech.triggers.kharite",
+	lithium = "tech.triggers.lithium",
+	uranium = "tech.triggers.uranium",
+	refined = "tech.triggers.refined",
 }
 
 local clockOf = widgets.clock
@@ -110,7 +110,7 @@ local function line(c, view)
 	local ui = c.ui
 	ui:box({ direction = "row", align = "center", gap = 4 }, function()
 		ui:image(iconOf(c, view), SMALL, SMALL)
-		ui:text(view.kind.data.title, { color = TEXT_COLORS[view.status] })
+		ui:text(c:t(view.kind.data.title), { color = TEXT_COLORS[view.status] })
 	end)
 end
 
@@ -142,42 +142,42 @@ local function card(c, view, byTopic, children)
 	local ui = c.ui
 	local inner = CARD_WIDTH - 20
 	ui:box({ direction = "column", gap = 6, width = inner }, function()
-		ui:text(view.kind.data.title, { font = "title", color = COLORS.bright, wrap = inner })
-		ui:text(if view.trigger and view.status ~= "done" then "Открытие: случается само, исследовать не надо" else STATUS_TEXT[view.status], { color = TEXT_COLORS[view.status] })
-		if view.kind.data.info then
-			ui:text(view.kind.data.info, { wrap = inner })
+		ui:text(c:t(view.kind.data.title), { font = "title", color = COLORS.bright, wrap = inner })
+		ui:text(if view.trigger and view.status ~= "done" then c:t("tech.triggerTopic") else c:t(STATUS_TEXT[view.status]), { color = TEXT_COLORS[view.status] })
+		if c:t(view.kind.data.info) then
+			ui:text(c:t(view.kind.data.info), { wrap = inner })
 		end
 		for _, kind in view.buildings do
 			ui:box({ direction = "row", align = "center", gap = 4 }, function()
 				ui:image(kind, SMALL, SMALL)
-				ui:text(kind.data.title)
+				ui:text(c:t(kind.data.title))
 			end)
 		end
 		for _, kind in view.units do
 			ui:box({ direction = "row", align = "center", gap = 4 }, function()
 				ui:image(kind, SMALL, SMALL)
-				ui:text(kind.data.title)
+				ui:text(c:t(kind.data.title))
 			end)
 		end
 		for _, kind in paving.opens(view.topic) do
 			ui:box({ direction = "row", align = "center", gap = 4 }, function()
 				ui:image(c.protos.icons[paving.ICONS[kind]], SMALL, SMALL)
-				ui:text(paving.TITLES[kind])
+				ui:text(c:t(paving.TITLES[kind]))
 			end)
 		end
 		if view.trigger then
 			if view.status ~= "done" then
-				ui:text(TRIGGERS[view.trigger] or view.trigger, { color = COLORS.power, wrap = inner })
+				ui:text(c:t(TRIGGERS[view.trigger] or view.trigger), { color = COLORS.power, wrap = inner })
 			end
 		elseif view.status ~= "done" then
 			priceRow(c, view, function()
 				ui:space(0, 0, 1)
-				ui:text("срок " .. clockOf(view.seconds), { color = COLORS.dim })
+				ui:text(c:t("tech.time", { time = clockOf(view.seconds) }), { color = COLORS.dim })
 			end)
 		end
 		if #view.after > 0 then
 			ui:box({ direction = "column", gap = 2 }, function()
-				ui:text("Нужно раньше:", { color = COLORS.dim })
+				ui:text(c:t("tech.before"), { color = COLORS.dim })
 				for _, before in view.after do
 					line(c, byTopic[before])
 				end
@@ -185,7 +185,7 @@ local function card(c, view, byTopic, children)
 		end
 		if children[view.topic] and #children[view.topic] > 0 then
 			ui:box({ direction = "column", gap = 2 }, function()
-				ui:text("Открывает путь к:", { color = COLORS.dim })
+				ui:text(c:t("tech.leadsTo"), { color = COLORS.dim })
 				-- Каждая тема — один раз, там, где встретилась впервые; вложенность — отступом.
 				local seen = { [view.topic] = true }
 				local function walk(topic: string, depth: number)
@@ -236,7 +236,7 @@ local function tile(c, view, width: number, byTopic, children)
 			end
 		end)
 		ui:box({ minHeight = 28, padding = { 0, 2 } }, function()
-			ui:text(view.kind.data.title, shadow({ color = COLORS.bright, wrap = width - 16 }))
+			ui:text(c:t(view.kind.data.title), shadow({ color = COLORS.bright, wrap = width - 16 }))
 		end)
 		if view.status ~= "done" and not view.trigger then
 			ui:box({ direction = "row", align = "center", gap = 6, padding = { 0, 2 } }, function()
@@ -250,7 +250,7 @@ local function tile(c, view, width: number, byTopic, children)
 		end
 		if view.trigger and view.status ~= "done" then
 			ui:box({ padding = { 0, 2 } }, function()
-				ui:text(TRIGGERS[view.trigger] or view.trigger, { color = COLORS.power, wrap = width - 16 })
+				ui:text(c:t(TRIGGERS[view.trigger] or view.trigger), { color = COLORS.power, wrap = width - 16 })
 			end)
 		end
 	end)
@@ -305,14 +305,14 @@ end
 -- Почему лаборатории стоят: «кредитов», «энергии», «включения» или название груза.
 local function lackName(c, lack: string): string
 	if lack == "credits" then
-		return "кредитов"
+		return c:t("tech.lackCredits")
 	elseif lack == "off" then
-		return "включения"
+		return c:t("tech.lackOff")
 	elseif lack == "power" or lack == "idle" then
-		return "энергии"
+		return c:t("tech.lackPower")
 	end
 	local kind = c.protos.goods[lack]
-	return if kind then kind.data.title else lack
+	return if kind then c:t(kind.data.title) else lack
 end
 
 -- Открыто ли окно; клавиша R и Esc — открыть и закрыть.
@@ -384,21 +384,21 @@ function tech.draw(c)
 
 	ui:box({ id = "tech", anchor = { centerX = 0, top = TOP + 8 }, width = width, height = height, skin = "panel", padding = { 16, 20 }, direction = "column", align = "stretch", gap = 8 }, function()
 		ui:box({ direction = "row", align = "center", gap = 16 }, function()
-			ui:text("Исследования", { font = "title", color = COLORS.bright, shadow = COLORS.ink, lift = 2 })
-			ui:text(if labs.count == 0 then "Лабораторий нет: постройте лабораторию — без неё исследования стоят" else "Лабораторий: " .. labs.count .. ", работают: " .. labs.working .. ", скорость ×" .. labs.speed, { color = COLORS.dim })
+			ui:text(c:t("tech.title"), { font = "title", color = COLORS.bright, shadow = COLORS.ink, lift = 2 })
+			ui:text(if labs.count == 0 then c:t("tech.noLabs") else c:t("tech.labs", { count = labs.count, working = labs.working, speed = labs.speed }), { color = COLORS.dim })
 			ui:space(0, 0, 1)
 			if ui:button("tech:close", { padding = { 2, 8 } }, function()
 				ui:text("✕", shadow())
 			end) then
 				c.shared.techOpen = false
 			end
-			ui:tip("tech:close", "Закрыть (R или Esc)")
+			ui:tip("tech:close", c:t("tech.closeTip"))
 		end)
 
 		ui:box({ direction = "row", align = "center", gap = 6, minHeight = 36, clip = true }, function()
-			ui:text("Очередь:", { color = COLORS.dim })
+			ui:text(c:t("tech.queue"), { color = COLORS.dim })
 			if #plan == 0 then
-				ui:text("пусто — щёлкни по теме ниже", { color = COLORS.dim })
+				ui:text(c:t("tech.queueEmpty"), { color = COLORS.dim })
 			end
 			for i, topic in plan do
 				local view = byTopic[topic]
@@ -408,12 +408,12 @@ function tech.draw(c)
 				local id = "tech:queued:" .. topic
 				local click = ui:button(id, { padding = { 2, 6, 2, 2 }, gap = 4, active = topic == current }, function()
 					ui:image(iconOf(c, view), SMALL, SMALL)
-					ui:text(view.kind.data.title, shadow())
+					ui:text(c:t(view.kind.data.title), shadow())
 					if i == 1 then
 						ui:text(math.round(view.progress * 100) .. "%" .. (if left then " · " .. left else ""), { color = COLORS.team })
 					end
 				end)
-				ui:tip(id, "Убрать из очереди вместе с темами, которым она нужна")
+				ui:tip(id, c:t("tech.dequeueTip"))
 				if click then
 					c:send("dequeue", { topic = topic })
 				end
@@ -421,16 +421,16 @@ function tech.draw(c)
 			if #plan > 0 then
 				ui:space(0, 0, 1)
 				if ui:button("tech:clear", { padding = { 2, 10 } }, function()
-					ui:text("Очистить", shadow())
+					ui:text(c:t("tech.cancel"), shadow())
 				end) then
 					c:send("cancelResearch", {})
 				end
-				ui:tip("tech:clear", "Очистить план: начатое не пропадёт, к нему можно вернуться")
+				ui:tip("tech:clear", c:t("tech.cancelTip"))
 			end
 		end)
 		if current and #labs.order > 0 then
 			ui:box({ direction = "row", align = "center", gap = 12 }, function()
-				ui:text("Лабораториям не хватает:", { color = COLORS.warn })
+				ui:text(c:t("tech.lacks"), { color = COLORS.warn })
 				for _, lack in labs.order do
 					ui:box({ direction = "row", align = "center", gap = 2 }, function()
 						local kind = c.protos.goods[lack]
@@ -438,7 +438,7 @@ function tech.draw(c)
 							ui:image(kind, 20, 20)
 						end
 						ui:text(lackName(c, lack), { color = COLORS.warn })
-						ui:text(" (лабораторий: " .. labs.lacks[lack] .. ")", { color = COLORS.dim })
+						ui:text(" " .. c:t("tech.labCount", { count = labs.lacks[lack] }), { color = COLORS.dim })
 					end)
 				end
 			end)
@@ -448,18 +448,18 @@ function tech.draw(c)
 			grid(open)
 			if #later > 0 then
 				ui:box({ padding = { 6, 0, 0, 0 } }, function()
-					ui:text("Пока закрыто", { color = COLORS.muted })
+					ui:text(c:t("tech.later"), { color = COLORS.muted })
 				end)
 				grid(later)
 			end
 			if #done > 0 then
 				ui:box({ padding = { 6, 0, 0, 0 } }, function()
-					ui:text("Исследовано", { color = COLORS.muted })
+					ui:text(c:t("tech.researched"), { color = COLORS.muted })
 				end)
 				grid(done)
 			end
 		end)
-		ui:text("Щелчок — в конец очереди вместе с нужными до неё, Shift+щелчок — в начало. Зелёные можно исследовать сейчас, жёлтые — когда очередь дойдёт до нужных им, красные — пока нельзя. Лаборатории тратят кредиты и сырьё своей сети по ходу работы; несколько работают вместе быстрее", { color = COLORS.muted, wrap = inner })
+		ui:text(c:t("tech.hint"), { color = COLORS.muted, wrap = inner })
 	end)
 end
 

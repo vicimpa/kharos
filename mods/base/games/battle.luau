@@ -8,7 +8,7 @@ local battle = require("lib/battle")
 
 local game = table.clone(skirmish)
 game.data = table.clone(skirmish.data)
-game.data.title = "Показательный бой"
+game.data.title = "games.battle"
 game.data.rules = table.clone(skirmish.data.rules)
 game.data.rules.unitAmmo = false
 

@@ -7,9 +7,9 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "Склад лития",
+	title = "buildings.lithiumStore",
 	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "Хранит литий зоны",
+	info = "buildingInfo.lithiumStore",
 	width = 2,
 	height = 1,
 	cost = 200,

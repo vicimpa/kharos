@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Бомбардировка",
-		info = "Бомбардировщик: сносит здания и колонны с воздуха",
+		title = "research.bombing",
+		info = "researchInfo.bombing",
 		-- Место в списке тем (TOPICS).
 		order = 39,
 		-- Темы, без которых эту не начать.

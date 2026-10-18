@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Глубокая модернизация",
-		info = "Третий уровень зданий",
+		title = "research.levels3",
+		info = "researchInfo.levels3",
 		-- Место в списке тем (TOPICS).
 		order = 40,
 		-- Темы, без которых эту не начать.

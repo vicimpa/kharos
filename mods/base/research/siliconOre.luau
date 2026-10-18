@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Обработка кремния",
-		info = "Как получить кремний из руды. Изучается на кремниевой руде",
+		title = "research.siliconOre",
+		info = "researchInfo.siliconOre",
 		-- Место в списке тем (TOPICS).
 		order = 14,
 		-- Темы, без которых эту не начать.

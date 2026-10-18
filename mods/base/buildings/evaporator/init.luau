@@ -7,10 +7,10 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "Выпарка лития",
+	title = "buildings.evaporator",
 	about = "Выпарка лития из рассола солончаков и урановая фабрика: второй слой, база работает и без них.",
 	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "Выпаривает литиевую руду в литий. Литий лежит в основном на солончаках",
+	info = "buildingInfo.evaporator",
 	width = 3,
 	height = 2,
 	cost = 500,

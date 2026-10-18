@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Мосты",
-		info = "Мост — дорога по болоту",
+		title = "research.bridges",
+		info = "researchInfo.bridges",
 		-- Место в списке тем (TOPICS).
 		order = 22,
 		-- Темы, без которых эту не начать.

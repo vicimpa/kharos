@@ -29,6 +29,8 @@ libc = "0.2"
 glutin = "0.32"
 glutin-winit = "0.5"
 raw-window-handle = "0.6"
+# Язык системы — языку интерфейса по умолчанию; в браузере — navigator.languages.
+sys-locale = "0.3"
 web-audio-api = { version = "1.7", default-features = false, features = ["cpal"] }
 winit = "0.30"
 
@@ -66,6 +68,7 @@ web-sys = { version = "0.3", features = [
   "HtmlCanvasElement",
   "HtmlElement",
   "KeyboardEvent",
+  "Navigator",
   "Location",
   "OscillatorNode",
   "OscillatorType",

@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Радиолокация",
-		info = "Радар видит далеко и разведывает вспышками; за ним — армия и турели",
+		title = "research.radar",
+		info = "researchInfo.radar",
 		-- Место в списке тем (TOPICS).
 		order = 11,
 		-- Темы, без которых эту не начать.

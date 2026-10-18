@@ -36,7 +36,7 @@ paving.RESEARCH = { foundation = "foundation", road = "roads", bridge = "bridges
 
 -- Что открывают темы покрытия — названия (grid.tools) и значки по порядку PAVE_RESEARCH.
 paving.OPENS = { "foundation", "road", "bridge", "peak", "cliff" }
-paving.TITLES = { foundation = "Фундамент", road = "Дорога", bridge = "Мост", remove = "Разобрать", peak = "Срыть гору", cliff = "Сгладить обрыв" }
+paving.TITLES = { foundation = "grid.tools.foundation", road = "grid.tools.road", bridge = "grid.tools.bridge", remove = "grid.remove", peak = "grid.tools.peak", cliff = "grid.tools.cliff" }
 paving.ICONS = { foundation = "foundation", road = "roads", bridge = "bridges", remove = "remove", peak = "peak", cliff = "cliff" }
 
 -- Что из покрытия открывает тема: foundation, road, bridge (paves у вида темы в hud.ts).

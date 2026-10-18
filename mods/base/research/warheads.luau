@@ -4,8 +4,8 @@
 return {
 	data = {
 		-- Ярус 6: ракетная шахта.
-		title = "Боеголовки",
-		info = "Ракетная шахта: ядерный удар в любую точку карты",
+		title = "research.warheads",
+		info = "researchInfo.warheads",
 		-- Место в списке тем (TOPICS).
 		order = 46,
 		-- Темы, без которых эту не начать.

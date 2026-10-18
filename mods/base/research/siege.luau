@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Осадное дело",
-		info = "Артиллерия и носитель",
+		title = "research.siege",
+		info = "researchInfo.siege",
 		-- Место в списке тем (TOPICS).
 		order = 44,
 		-- Темы, без которых эту не начать.

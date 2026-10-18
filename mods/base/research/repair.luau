@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Ремонт",
-		info = "Ремонтная станция: чинит технику и здания вокруг",
+		title = "research.repair",
+		info = "researchInfo.repair",
 		-- Место в списке тем (TOPICS).
 		order = 33,
 		-- Темы, без которых эту не начать.

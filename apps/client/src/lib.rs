@@ -10,6 +10,7 @@ mod game;
 mod gl;
 mod gui;
 mod input;
+mod lang;
 mod loading;
 mod render;
 mod saves;
@@ -136,10 +137,14 @@ impl App {
     // KHAROS_GAME (в браузере — ?game=) — сразу в партию (проверки, снимки); иначе — в меню, а без меню — в партию
     // по умолчанию.
     let first = setting("KHAROS_GAME", "game").or_else(|| menu.clone());
-    let link: AppLink = Rc::new(RefCell::new(AppState { menu, prefs: script::Prefs::load(), saves: Some(saves::Saves::load()), ..Default::default() }));
+    let prefs = script::Prefs::load();
+    let link: AppLink = Rc::new(RefCell::new(AppState { menu, language: prefs.get("lang").and_then(serde_json::Value::as_str).map(str::to_string), system_languages: lang::system(), prefs, saves: Some(saves::Saves::load()), ..Default::default() }));
     // Звуки считаются под экраном загрузки, партия начинается, когда они готовы.
     let loading = match &sound {
-      Some(engine) => loading::Loading::new(&mods, engine.clone(), gui::Fonts::new(&FONTS)?)?,
+      Some(engine) => {
+        let state = link.borrow();
+        loading::Loading::new(&mods, engine.clone(), gui::Fonts::new(&FONTS)?, state.language.as_deref(), &state.system_languages)?
+      }
       None => None,
     };
     let mut app = Self { renderer, game: None, loading, first, mods, sound, link, quit: false, saved_at: 0.0 };

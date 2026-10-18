@@ -7,9 +7,9 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "Обогатитель харита",
+	title = "buildings.enricher",
 	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "Обогащает харитовую руду в харит — самый дорогой ресурс",
+	info = "buildingInfo.enricher",
 	width = 2,
 	height = 2,
 	cost = 650,

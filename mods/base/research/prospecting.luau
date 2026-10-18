@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Разведка недр",
-		info = "Шахта: добывает руду из найденного месторождения",
+		title = "research.prospecting",
+		info = "researchInfo.prospecting",
 		-- Место в списке тем (TOPICS).
 		order = 2,
 		-- Тема-открытие: открывается сама, когда это случилось с игроком.

@@ -7,9 +7,9 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "Сейф харита",
+	title = "buildings.khariteVault",
 	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "Хранит харит зоны",
+	info = "buildingInfo.khariteVault",
 	width = 1,
 	height = 1,
 	cost = 250,

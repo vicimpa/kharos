@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Компоненты",
-		info = "Завод компонентов: в них харит, и на них держится вся верхняя техника",
+		title = "research.parts",
+		info = "researchInfo.parts",
 		-- Место в списке тем (TOPICS).
 		order = 29,
 		-- Темы, без которых эту не начать.

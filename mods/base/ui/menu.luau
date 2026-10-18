@@ -29,68 +29,68 @@ menu.data = {
 -- Уже скольких пикселей экран узкий: окна по центру, схема над полями.
 local NARROW = 760
 
--- Готовые местности: отличия от генератора по умолчанию.
+-- Готовые местности: отличия от генератора по умолчанию. Подписи здесь и ниже — ключи словаря (lang).
 local PRESETS = {
-	{ label = "Обычная", generator = {} },
-	{ label = "Скалистая", generator = { rockLevel = 0.5, swampLevel = 0.3, peakChance = 0.5 } },
-	{ label = "Пустыня", generator = { rockLevel = 0.68, swampLevel = 0.25, zoneScale = 80 } },
-	{ label = "Болота", generator = { rockLevel = 0.62, swampLevel = 0.46, zoneWarp = 50 } },
-	{ label = "Острова", generator = { rockLevel = 0.6, swampLevel = 0.5, zoneScale = 40, zoneWarp = 10 } },
+	{ label = "menu.presets.normal", generator = {} },
+	{ label = "menu.presets.rocky", generator = { rockLevel = 0.5, swampLevel = 0.3, peakChance = 0.5 } },
+	{ label = "menu.presets.desert", generator = { rockLevel = 0.68, swampLevel = 0.25, zoneScale = 80 } },
+	{ label = "menu.presets.swamps", generator = { rockLevel = 0.62, swampLevel = 0.46, zoneWarp = 50 } },
+	{ label = "menu.presets.islands", generator = { rockLevel = 0.6, swampLevel = 0.5, zoneScale = 40, zoneWarp = 10 } },
 }
 
 -- Ползунки местности для человека: доля от 0 до 1 переводится в параметр генератора и обратно.
 local KNOBS = {
 	-- Чем ниже уровень скал, тем их больше: ползунок «больше» вправо.
-	{ key = "rockLevel", from = 0.75, to = 0.45, label = "Скалы", tip = "Сколько скал: на них строят, на них лежит руда" },
-	{ key = "swampLevel", from = 0.2, to = 0.5, label = "Болота", tip = "Сколько болот: по ним не проехать" },
-	{ key = "zoneScale", from = 24, to = 120, label = "Размер зон", tip = "Крупные плато и пустыни или мелкая мозаика" },
-	{ key = "zoneWarp", from = 0, to = 80, label = "Изрезанность", tip = "Округлые пятна или рваные края" },
-	{ key = "biomeScale", from = 80, to = 600, label = "Размер биомов", tip = "Как далеко тянутся солончаки, красные пустоши и топи" },
-	{ key = "peakChance", from = 0, to = 1, label = "Горы", tip = "Сколько гор на скалах: сквозь них не проехать и не построить" },
+	{ key = "rockLevel", from = 0.75, to = 0.45, label = "menu.knobs.rockLevel", tip = "menu.knobTips.rockLevel" },
+	{ key = "swampLevel", from = 0.2, to = 0.5, label = "menu.knobs.swampLevel", tip = "menu.knobTips.swampLevel" },
+	{ key = "zoneScale", from = 24, to = 120, label = "menu.knobs.zoneScale", tip = "menu.knobTips.zoneScale" },
+	{ key = "zoneWarp", from = 0, to = 80, label = "menu.knobs.zoneWarp", tip = "menu.knobTips.zoneWarp" },
+	{ key = "biomeScale", from = 80, to = 600, label = "menu.knobs.biomeScale", tip = "menu.knobTips.biomeScale" },
+	{ key = "peakChance", from = 0, to = 1, label = "menu.knobs.peakChance", tip = "menu.knobTips.peakChance" },
 }
 
 local PEAK_RADIUS_LIMIT = 2
 
 local function biomeFields(prefix: string)
 	return {
-		{ key = prefix .. "SwampShift", label = "Больше болот", min = -0.2, max = 0.2, step = 0.005 },
-		{ key = prefix .. "RockShift", label = "Меньше скал", min = -0.2, max = 0.2, step = 0.005 },
-		{ key = prefix .. "PeakFactor", label = "Гор, раз", min = 0, max = 4, step = 0.1 },
+		{ key = prefix .. "SwampShift", label = "generator.fields.swampShift", min = -0.2, max = 0.2, step = 0.005 },
+		{ key = prefix .. "RockShift", label = "generator.fields.rockShift", min = -0.2, max = 0.2, step = 0.005 },
+		{ key = prefix .. "PeakFactor", label = "generator.fields.peakFactor", min = 0, max = 4, step = 0.1 },
 	}
 end
 
 -- Группы тонкой настройки генератора.
 local GROUPS = {
 	{
-		title = "Зоны",
+		title = "generator.groups.zones",
 		fields = {
-			{ key = "biomeScale", label = "Размер биомов", min = 40, max = 600, step = 10 },
-			{ key = "zoneScale", label = "Размер зон", min = 16, max = 160, step = 1 },
-			{ key = "zoneWarp", label = "Изрезанность", min = 0, max = 80, step = 1 },
-			{ key = "swampLevel", label = "Уровень болот", min = 0, max = 1, step = 0.005 },
-			{ key = "rockLevel", label = "Уровень скал", min = 0, max = 1, step = 0.005 },
+			{ key = "biomeScale", label = "menu.knobs.biomeScale", min = 40, max = 600, step = 10 },
+			{ key = "zoneScale", label = "menu.knobs.zoneScale", min = 16, max = 160, step = 1 },
+			{ key = "zoneWarp", label = "menu.knobs.zoneWarp", min = 0, max = 80, step = 1 },
+			{ key = "swampLevel", label = "generator.fields.swampLevel", min = 0, max = 1, step = 0.005 },
+			{ key = "rockLevel", label = "generator.fields.rockLevel", min = 0, max = 1, step = 0.005 },
 		},
 	},
 	{
-		title = "Горы",
+		title = "generator.groups.peaks",
 		fields = {
-			{ key = "peakChance", label = "Частота", min = 0, max = 1, step = 0.01 },
-			{ key = "peakMinRadius", label = "Мин. радиус", min = 0.5, max = PEAK_RADIUS_LIMIT, step = 0.05 },
-			{ key = "peakMaxRadius", label = "Макс. радиус", min = 0.5, max = PEAK_RADIUS_LIMIT, step = 0.05 },
-			{ key = "doubleChance", label = "Доля двойных", min = 0, max = 1, step = 0.01 },
-			{ key = "tripleChance", label = "Доля тройных", min = 0, max = 1, step = 0.01 },
+			{ key = "peakChance", label = "generator.fields.chance", min = 0, max = 1, step = 0.01 },
+			{ key = "peakMinRadius", label = "generator.fields.peakMinRadius", min = 0.5, max = PEAK_RADIUS_LIMIT, step = 0.05 },
+			{ key = "peakMaxRadius", label = "generator.fields.peakMaxRadius", min = 0.5, max = PEAK_RADIUS_LIMIT, step = 0.05 },
+			{ key = "doubleChance", label = "generator.fields.doubleChance", min = 0, max = 1, step = 0.01 },
+			{ key = "tripleChance", label = "generator.fields.tripleChance", min = 0, max = 1, step = 0.01 },
 		},
 	},
 	{
-		title = "Месторождения",
+		title = "generator.groups.deposits",
 		fields = {
-			{ key = "depositChance", label = "Частота", min = 0, max = 1, step = 0.01 },
-			{ key = "depositRichness", label = "Запас, раз", min = 0.1, max = 5, step = 0.1 },
+			{ key = "depositChance", label = "generator.fields.chance", min = 0, max = 1, step = 0.01 },
+			{ key = "depositRichness", label = "generator.fields.depositRichness", min = 0.1, max = 5, step = 0.1 },
 		},
 	},
-	{ title = "Биом: солончаки", fields = biomeFields("salt") },
-	{ title = "Биом: красные пустоши", fields = biomeFields("red") },
-	{ title = "Биом: топи", fields = biomeFields("marsh") },
+	{ title = "generator.groups.salt", fields = biomeFields("salt") },
+	{ title = "generator.groups.red", fields = biomeFields("red") },
+	{ title = "generator.groups.marsh", fields = biomeFields("marsh") },
 }
 
 local function clock(hour: number): string
@@ -113,12 +113,19 @@ local confirming: string? = nil
 local renaming: { id: string, name: string }? = nil
 
 -- Симуляция идёт 20 тиков в секунду: время игры по тику слота.
-local function playtime(tick: number): string
+local function playtime(c, tick: number): string
 	local minutes = math.floor(tick / 20 / 60)
 	if minutes < 60 then
-		return string.format("%d мин", minutes)
+		return c:t("menu.minutes", { minutes = minutes })
 	end
-	return string.format("%d ч %d мин", math.floor(minutes / 60), minutes % 60)
+	return c:t("menu.hours", { hours = math.floor(minutes / 60), minutes = minutes % 60 })
+end
+
+-- Когда слот писали: «18 окт., 06:41» — месяц и порядок из словаря (toLocaleString в menu.ts).
+local function dateOf(c, millis: number): string
+	local parts = c.app:date(millis)
+	local months = string.split(c:t("menu.months"), ",")
+	return c:t("menu.date", { day = parts.day, month = months[parts.month] or tostring(parts.month), time = string.format("%02d:%02d", parts.hour, parts.minute) })
 end
 
 local function slotOf(c, id: string?)
@@ -147,7 +154,7 @@ end
 local function fresh(c)
 	local generator = table.clone(defaults(c))
 	generator.seed = randomSeed(c)
-	return { name = string.format("Игра %d", #c.app:saves() + 1), size = menu.data.size, weather = table.clone(menu.data.weather), generator = generator, fine = false }
+	return { name = c:t("menu.gameName", { number = #c.app:saves() + 1 }), size = menu.data.size, weather = table.clone(menu.data.weather), generator = generator, fine = false }
 end
 
 -- Отличия местности от генератора по умолчанию, без зерна: их и получает партия.
@@ -203,23 +210,23 @@ end
 local function mainWindow(c)
 	local ui = c.ui
 	local width = if ui.width < NARROW then math.min(280, ui.width - 32) else 300
-	form.window(ui, { id = "menu:main", title = "Главное меню", width = width, anchor = place(ui) }, function()
+	form.window(ui, { id = "menu:main", title = c:t("menu.title"), width = width, anchor = place(ui) }, function()
 		ui:box({ direction = "column", align = "stretch", gap = 6 }, function()
 			-- Продолжать нечего — кнопки нет, а не мёртвая серая. Есть что — это и есть главное действие.
 			local last = slotOf(c, c.app.last)
-			if last and form.button(ui, "menu:resume", "Продолжить", { primary = true, tip = last.name .. " — " .. playtime(last.tick) }) then
+			if last and form.button(ui, "menu:resume", c:t("common.resume"), { primary = true, tip = last.name .. " — " .. playtime(c, last.tick) }) then
 				c.app:play(last.id)
 			end
-			if form.button(ui, "menu:new", "Новая игра") then
+			if form.button(ui, "menu:new", c:t("menu.newGame")) then
 				open(c, "new")
 			end
-			if form.button(ui, "menu:saves", "Сохранения") then
+			if form.button(ui, "menu:saves", c:t("menu.saves")) then
 				open(c, "saves")
 			end
-			if form.button(ui, "menu:settings", "Настройки") then
+			if form.button(ui, "menu:settings", c:t("common.settings")) then
 				open(c, "settings")
 			end
-			if form.button(ui, "menu:about", "Об игре") then
+			if form.button(ui, "menu:about", c:t("menu.about")) then
 				open(c, "about")
 			end
 		end)
@@ -228,14 +235,14 @@ local function mainWindow(c)
 end
 
 -- Ползунки тонкой настройки по группам: каждая — в утопленной рамке. Возвращает новые значения или nil.
-local function generatorGroups(ui, values, width: number)
+local function generatorGroups(c, ui, values, width: number)
 	local nextValues = nil
 	for _, group in GROUPS do
 		ui:box({ skin = "well", padding = { 8, 10 }, direction = "column", gap = 6, width = width }, function()
-			ui:text(group.title, { color = COLORS.dim })
+			ui:text(c:t(group.title), { color = COLORS.dim })
 			for _, field in group.fields do
 				local value = (nextValues or values)[field.key]
-				form.row(ui, field.label, 96, function()
+				form.row(ui, c:t(field.label), 96, function()
 					local moved = form.slider(ui, "gen:" .. field.key, value, { min = field.min, max = field.max, step = field.step, width = width - 20 - 96 - 48 - 16 })
 					if moved ~= value then
 						nextValues = table.clone(nextValues or values)
@@ -259,9 +266,9 @@ local function previewBox(c, side: number)
 		ui:box({ skin = "well", padding = 4 }, function()
 			result = ui:preview(c.protos.lands[menu.data.land], generatorChanges(c, game.generator), game.generator.seed, game.size, side, side)
 		end)
-		local text = string.format("%d×%d тайлов", game.size, game.size)
+		local text = c:t("menu.previewSize", { width = game.size, height = game.size })
 		if result.ready then
-			text ..= string.format(" · скалы %d%% · болота %d%%", math.round(result.rock * 100), math.round(result.swamp * 100))
+			text ..= " · " .. c:t("menu.previewShares", { rock = math.round(result.rock * 100), swamp = math.round(result.swamp * 100) })
 		end
 		ui:text(text, { color = COLORS.muted, wrap = side })
 	end)
@@ -292,40 +299,40 @@ local function newGameWindow(c)
 	local edit = false
 	local back = form.window(ui, {
 		id = "menu:new",
-		title = "Новая игра",
+		title = c:t("menu.newGame"),
 		width = width,
 		anchor = place(ui),
-		back = "Назад",
+		back = c:t("common.back"),
 		actions = function()
-			if form.button(ui, "menu:new:edit", "В редактор", { tip = "Править карту, базы, юнитов, деньги и склады до начала игры" }) then
+			if form.button(ui, "menu:new:edit", c:t("menu.toEditor"), { tip = c:t("menu.toEditorTip") }) then
 				start, edit = true, true
 			end
-			if form.button(ui, "menu:new:start", "Начать", { primary = true }) then
+			if form.button(ui, "menu:new:start", c:t("menu.start"), { primary = true }) then
 				start = true
 			end
 		end,
 	}, function()
 		local function fields()
 			ui:box({ direction = "column", align = "stretch", gap = 10, width = formWidth }, function()
-				form.above(ui, "Название", function()
+				form.above(ui, c:t("menu.name"), function()
 					local name = form.textField(ui, "menu:new:name", game.name, { maxLength = 40 })
 					game.name = name.value
 					if table.find(name.keys, "Enter") then
 						start = true
 					end
 				end)
-				form.above(ui, "Зерно карты", function()
+				form.above(ui, c:t("menu.seed"), function()
 					ui:box({ direction = "row", align = "center", gap = 6 }, function()
 						local seed = form.numberField(ui, "menu:new:seed", game.generator.seed, {})
 						if seed then
 							game.generator.seed = math.floor(seed)
 						end
-						if form.button(ui, "menu:new:random", "Случайно", { tip = "Другая случайная местность с теми же настройками" }) then
+						if form.button(ui, "menu:new:random", c:t("menu.random"), { tip = c:t("menu.randomTip") }) then
 							game.generator.seed = randomSeed(c)
 						end
 					end)
 				end)
-				form.above(ui, "Размер карты", function()
+				form.above(ui, c:t("menu.mapSize"), function()
 					local options = {}
 					for _, size in menu.data.sizes do
 						table.insert(options, { size, tostring(size) })
@@ -335,10 +342,10 @@ local function newGameWindow(c)
 						game.size = size
 					end
 				end)
-				form.above(ui, "Местность", function()
+				form.above(ui, c:t("menu.terrain"), function()
 					local options = {}
 					for _, option in PRESETS do
-						table.insert(options, { option, option.label })
+						table.insert(options, { option, c:t(option.label) })
 					end
 					local picked = form.chips(ui, "menu:new:preset", options, preset, formWidth)
 					if picked then
@@ -352,7 +359,7 @@ local function newGameWindow(c)
 				end)
 				for _, knob in KNOBS do
 					local share = math.clamp((game.generator[knob.key] - knob.from) / (knob.to - knob.from), 0, 1)
-					form.row(ui, knob.label, 150, function()
+					form.row(ui, c:t(knob.label), 150, function()
 						local moved = form.slider(ui, "menu:new:knob:" .. knob.key, share, { min = 0, max = 1, step = 0.01, width = formWidth - 158 - 56 })
 						if moved ~= share then
 							game.generator[knob.key] = math.round((knob.from + moved * (knob.to - knob.from)) * 1000) / 1000
@@ -360,32 +367,32 @@ local function newGameWindow(c)
 						ui:box({ width = 48, direction = "row", justify = "end" }, function()
 							ui:text(tostring(math.round(share * 100)))
 						end)
-					end, knob.tip, "menu:new:knobLabel:" .. knob.key)
+					end, c:t(knob.tip), "menu:new:knobLabel:" .. knob.key)
 				end
-				game.fine = form.details(ui, "menu:new:fine", "Тонкая настройка местности", game.fine, function()
-					local tuned = generatorGroups(ui, game.generator, formWidth)
+				game.fine = form.details(ui, "menu:new:fine", c:t("menu.fineTuning"), game.fine, function()
+					local tuned = generatorGroups(c, ui, game.generator, formWidth)
 					if tuned then
 						game.generator = tuned
 					end
 				end)
-				form.above(ui, "Сутки длятся", function()
+				form.above(ui, c:t("menu.dayLasts"), function()
 					local options = {}
 					for _, seconds in menu.data.days do
-						table.insert(options, { seconds, if seconds > 0 then string.format("%d мин", seconds / 60) else "Стоят" })
+						table.insert(options, { seconds, if seconds > 0 then c:t("menu.minutes", { minutes = seconds / 60 }) else c:t("menu.dayStands") })
 					end
 					local day = form.chips(ui, "menu:new:day", options, game.weather.dayLength, formWidth)
 					if day then
 						game.weather.dayLength = day
 					end
 				end)
-				form.row(ui, "Начальное время", 150, function()
+				form.row(ui, c:t("menu.startHour"), 150, function()
 					local hour = form.slider(ui, "menu:new:hour", game.weather.startHour, { min = 0, max = 23.5, step = 0.5, width = formWidth - 158 - 56 })
 					game.weather.startHour = hour
 					ui:box({ width = 48, direction = "row", justify = "end" }, function()
 						ui:text(clock(game.weather.startHour))
 					end)
 				end)
-				game.weather.changes = form.checkbox(ui, "menu:new:weather", game.weather.changes, "Погода меняется: ветер, дожди и бури")
+				game.weather.changes = form.checkbox(ui, "menu:new:weather", game.weather.changes, c:t("menu.weatherChanges"))
 			end)
 		end
 		local function side()
@@ -407,7 +414,7 @@ local function newGameWindow(c)
 	if start then
 		local name = string.gsub(game.name, "^%s*(.-)%s*$", "%1")
 		if name == "" then
-			name = string.format("Игра %d", #c.app:saves() + 1)
+			name = c:t("menu.gameName", { number = #c.app:saves() + 1 })
 		end
 		-- Новая игра — новый слот сохранений: мир заведётся по этим настройкам и дальше пишется сам.
 		local slot = c.app:create(name, menu.data.game, {
@@ -445,25 +452,25 @@ local function saveRow(c, slot, width: number)
 				ui:text(slot.name, { color = COLORS.bright, wrap = true })
 			end
 			local size = (options.size or 0) * 2
-			ui:text(string.format("%s · %s · карта %d · зерно %d", c.app:date(slot.updated), playtime(slot.tick), size, options.seed or 0), { font = "small", color = COLORS.muted, wrap = true })
+			ui:text(dateOf(c, slot.updated) .. " · " .. playtime(c, slot.tick) .. " · " .. c:t("menu.mapOf", { size = size }) .. " · " .. c:t("menu.seedOf", { seed = options.seed or 0 }), { font = "small", color = COLORS.muted, wrap = true })
 		end)
 		ui:box({ direction = "row", gap = 6, wrap = true }, function()
-			if form.button(ui, id .. ":play", "Играть", { primary = true }) then
+			if form.button(ui, id .. ":play", c:t("common.play"), { primary = true }) then
 				c.app:play(slot.id)
 			end
 			-- Редактор — когда у слота есть мир: в него уже играли или его сохранил редактор.
-			if form.button(ui, id .. ":editor", "Редактор", { disabled = slot.updated == slot.created, tip = "Править мир: карту, базы, юнитов, деньги и склады" }) and slot.updated ~= slot.created then
+			if form.button(ui, id .. ":editor", c:t("menu.editor"), { disabled = slot.updated == slot.created, tip = c:t("menu.editorTip") }) and slot.updated ~= slot.created then
 				c.app:edit(slot.id)
 			end
-			if form.button(ui, id .. ":rename", "Имя") then
+			if form.button(ui, id .. ":rename", c:t("menu.rename")) then
 				renaming = { id = slot.id, name = slot.name }
 			end
 			if confirming == slot.id then
-				if form.button(ui, id .. ":sure", "Точно?", { danger = true }) then
+				if form.button(ui, id .. ":sure", c:t("menu.sure"), { danger = true }) then
 					c.app:remove(slot.id)
 					confirming = nil
 				end
-			elseif form.button(ui, id .. ":remove", "Удалить") then
+			elseif form.button(ui, id .. ":remove", c:t("menu.remove")) then
 				confirming = slot.id
 			end
 		end)
@@ -475,9 +482,9 @@ local function savesWindow(c)
 	local width = math.min(560, ui.width - 32)
 	local inner = width - 36
 	local saves = c.app:saves()
-	local back = form.window(ui, { id = "menu:saves", title = "Сохранения", width = width, anchor = place(ui), back = "Назад" }, function()
+	local back = form.window(ui, { id = "menu:saves", title = c:t("menu.saves"), width = width, anchor = place(ui), back = c:t("common.back") }, function()
 		if #saves == 0 then
-			ui:text("Сохранений нет. Начните новую игру.", { color = COLORS.muted, wrap = true })
+			ui:text(c:t("menu.noSavesLocal"), { color = COLORS.muted, wrap = true })
 		end
 		for _, slot in saves do
 			saveRow(c, slot, inner)
@@ -491,15 +498,15 @@ end
 local function aboutWindow(c)
 	local ui = c.ui
 	local width = if ui.width < NARROW then math.min(280, ui.width - 32) else 300
-	local back = form.window(ui, { id = "menu:about", title = "Об игре", width = width, anchor = place(ui), back = "Назад" }, function()
-		ui:text("Многопользовательская браузерная RTS: машина-основатель, процедурная карта, добыча и переработка руды, грузовая логистика и оборона базы.", { wrap = true })
-		ui:text(ui:upper("Авторы"), { color = COLORS.muted })
+	local back = form.window(ui, { id = "menu:about", title = c:t("menu.about"), width = width, anchor = place(ui), back = c:t("common.back") }, function()
+		ui:text(c:t("menu.aboutText"), { wrap = true })
+		ui:text(ui:upper(c:t("menu.authors")), { color = COLORS.muted })
 		for _, author in menu.data.authors do
 			form.link(ui, c.app, "about:" .. author.name, author.name, author.url)
 		end
-		ui:text(ui:upper("Исходный код"), { color = COLORS.muted })
+		ui:text(ui:upper(c:t("menu.sourceCode")), { color = COLORS.muted })
 		form.link(ui, c.app, "about:repo", "github.com/vicimpa/kharos", menu.data.repository)
-		ui:text(string.format("Версия протокола %d", menu.data.protocol), { color = COLORS.muted })
+		ui:text(c:t("menu.protocolVersion", { version = menu.data.protocol }), { color = COLORS.muted })
 	end)
 	if back then
 		screen = "main"

@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Лазеры",
-		info = "Лазерная машина и лазерная турель — против тяжёлой брони",
+		title = "research.lasers",
+		info = "researchInfo.lasers",
 		-- Место в списке тем (TOPICS).
 		order = 36,
 		-- Темы, без которых эту не начать.

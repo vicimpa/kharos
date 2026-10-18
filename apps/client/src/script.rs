@@ -322,6 +322,16 @@ pub struct Ctx {
   pub protos: Table,
   pub game: Table,
   pub app: AppLink,
+  /// Словари языков модов (`lang`).
+  pub strings: Rc<crate::lang::Strings>,
+}
+
+impl Ctx {
+  /// Язык, которым говорит интерфейс.
+  fn language(&self) -> Option<&crate::lang::Language> {
+    let app = self.app.borrow();
+    self.strings.pick(app.language.as_deref(), &app.system_languages)
+  }
 }
 
 /// Просьба скриптов к приложению — исполняется после кадра.
@@ -353,6 +363,9 @@ pub struct AppState {
   pub slot: Option<String>,
   /// Идущая партия — редактор: мир стоит, сам он не пишется.
   pub editing: bool,
+  /// Язык, выбранный игроком (`lang` в настройках), и языки системы — кому говорить, если не выбран.
+  pub language: Option<String>,
+  pub system_languages: Vec<String>,
 }
 
 /// Настройки игрока: объект JSON под ключом `client.json` (store.rs): на десктопе — `~/.config/kharos/client.json`
@@ -402,6 +415,8 @@ impl UserData for AppApi {
     fields.add_field_method_get("slot", |_, app| Ok(app.0.borrow().slot.clone()));
     // Идущая партия — редактор.
     fields.add_field_method_get("editing", |_, app| Ok(app.0.borrow().editing));
+    // Язык, который выбрал игрок (nil — как у системы).
+    fields.add_field_method_get("language", |_, app| Ok(app.0.borrow().language.clone()));
     fields.add_field_method_get("last", |_, app| {
       let state = app.0.borrow();
       let last = state.prefs.get("last").and_then(Json::as_str).map(str::to_string);
@@ -488,7 +503,16 @@ impl UserData for AppApi {
       Ok(())
     });
     // Дата из миллисекунд эпохи, как у страницы: «18 окт., 06:41».
-    methods.add_function("date", |_, (_, millis): (Value, f64)| Ok(crate::saves::date(millis)));
+    // Местное время отметки (мс от эпохи): { day, month = 1–12, hour, minute } — подпись собирает мод.
+    methods.add_function("date", |lua, (_, millis): (Value, f64)| {
+      let [day, month, hour, minute] = crate::saves::date(millis);
+      let parts = lua.create_table();
+      parts.set("day", day)?;
+      parts.set("month", month)?;
+      parts.set("hour", hour)?;
+      parts.set("minute", minute)?;
+      Ok(parts)
+    });
     // Открыть адрес в системном браузере.
     methods.add_method("open", |_, _, url: String| {
       if !(url.starts_with("https://") || url.starts_with("http://")) {
@@ -506,6 +530,13 @@ impl UserData for AppApi {
       if let Err(error) = command {
         eprintln!("{url}: {error}");
       }
+      Ok(())
+    });
+    // Язык интерфейса: запоминается в настройках, строки меняются со следующего кадра; nil — как у системы.
+    methods.add_method("set_language", |_, app, id: Option<String>| {
+      let mut state = app.0.borrow_mut();
+      state.prefs.set("lang", id.clone().map_or(Json::Null, Json::String));
+      state.language = id;
       Ok(())
     });
     methods.add_method("quit", |_, app, ()| {
@@ -550,6 +581,8 @@ impl UserData for Ctx {
     // Доля тика, прошедшая с последнего, — для сглаживания между тиками.
     fields.add_field_method_get("alpha", |_, c| Ok(c.state.borrow().alpha));
     fields.add_field_method_get("app", |_, c| Ok(AppApi(c.app.clone())));
+    // Код языка интерфейса: «ru», «en».
+    fields.add_field_method_get("lang", |_, c| Ok(c.language().map(|language| language.id.clone())));
     fields.add_field_method_get("ui", |_, c| Ok(UiApi(c.state.clone())));
     fields.add_field_method_get("audio", |_, c| Ok(c.state.borrow().audio.clone().map(AudioApi)));
     fields.add_field_method_get("screen", |lua, c| {
@@ -562,6 +595,31 @@ impl UserData for Ctx {
   }
 
   fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+    // Строка словаря на языке игрока с подстановками: c:t("hud.depositTip", { name = "Металл" }). Ключа нет — сам
+    // текст, тоже с подстановками; nil — nil (`c:t(kind.data.title) or kind.name`).
+    methods.add_method("t", |_, c, (key, params): (Option<String>, Option<Table>)| {
+      let Some(key) = key else { return Ok(None) };
+      let text = c.language().map_or(key.as_str(), |language| language.text(&key));
+      let Some(params) = params else { return Ok(Some(text.to_string())) };
+      Ok(Some(crate::lang::substitute(text, |name| match params.raw_get::<Value>(name).ok()? {
+        Value::String(text) => Some(text.to_string_lossy()),
+        Value::Integer(number) => Some(number.to_string()),
+        Value::Number(number) if number.fract() == 0.0 && number.abs() < 1e15 => Some((number as i64).to_string()),
+        Value::Number(number) => Some(number.to_string()),
+        _ => None,
+      })))
+    });
+    // Языки модов по месту в списке: { id = "ru", name = "Русский" }.
+    methods.add_method("languages", |lua, c, ()| {
+      let list = lua.create_table();
+      for language in &c.strings.languages {
+        let entry = lua.create_table();
+        entry.set("id", language.id.as_str())?;
+        entry.set("name", language.name.as_str())?;
+        list.push(entry)?;
+      }
+      Ok(list)
+    });
     methods.add_method("send", |lua, c, (name, args): (String, Option<Value>)| {
       let args: Json = lua.from_value(args.unwrap_or(Value::Nil))?;
       c.state.borrow_mut().outbox.push((name, args));

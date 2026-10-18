@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Ворота",
-		info = "Ворота: плиты, что поднимаются стеной перед чужими",
+		title = "research.gates",
+		info = "researchInfo.gates",
 		-- Место в списке тем (TOPICS).
 		order = 21,
 		-- Темы, без которых эту не начать.

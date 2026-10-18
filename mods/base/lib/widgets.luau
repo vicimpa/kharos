@@ -70,6 +70,33 @@ function widgets.key(ui, label: string, color: string?)
 	ui:text(label, widgets.shadow({ color = color or COLORS.gold }))
 end
 
+-- Строка словаря вокруг подстановки, на месте которой рисуется не текст (значки грузов — rich в TS): что до «{name}»
+-- и что после. Подстановки нет — всё до.
+function widgets.split(text: string, name: string): (string, string)
+	local from, to = string.find(text, "{" .. name .. "}", 1, true)
+	if not from then
+		return text, ""
+	end
+	return string.sub(text, 1, from - 1), string.sub(text, to + 1)
+end
+
+-- С заглавной первой буквы: латиница, латиница с надстрочными, кириллица (и украинские і, ї, є, ґ).
+function widgets.capital(text: string): string
+	local first = utf8.codepoint(text, 1, 1)
+	if not first then
+		return text
+	end
+	local upper = first
+	if (first >= 0x61 and first <= 0x7A) or (first >= 0xE0 and first <= 0xFE and first ~= 0xF7) or (first >= 0x430 and first <= 0x44F) then
+		upper = first - 0x20
+	elseif first >= 0x450 and first <= 0x45F then
+		upper = first - 0x50
+	elseif first == 0x491 then
+		upper = 0x490
+	end
+	return utf8.char(upper) .. string.sub(text, utf8.offset(text, 2) or #text + 1)
+end
+
 -- Строчными, с кириллицей (toLowerCase в TS): string.lower меняет только латиницу.
 function widgets.lower(text: string): string
 	local out = {}

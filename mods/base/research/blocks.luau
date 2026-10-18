@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Стройблоки",
-		info = "Завод стройблоков: на них стоят заводы и военные здания",
+		title = "research.blocks",
+		info = "researchInfo.blocks",
 		-- Место в списке тем (TOPICS).
 		order = 19,
 		-- Темы, без которых эту не начать.

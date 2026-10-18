@@ -7,7 +7,7 @@ local units = require("lib/units")
 local kind = {}
 
 kind.data = {
-	title = "Зенитка",
+	title = "units.flak",
 	about = "Зенитка: быстрая машина со спаренной автопушкой, бьёт только по воздуху — далеко и сильно.",
 	speed = 5,
 	turn = 4.5,

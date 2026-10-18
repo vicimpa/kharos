@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Атом",
-		info = "Реактор: шесть электростанций на одном месте, жжёт стержни",
+		title = "research.atom",
+		info = "researchInfo.atom",
 		-- Место в списке тем (TOPICS).
 		order = 45,
 		-- Темы, без которых эту не начать.

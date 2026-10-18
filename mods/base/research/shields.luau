@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Щиты",
-		info = "Генератор щита: купол гасит огонь издалека",
+		title = "research.shields",
+		info = "researchInfo.shields",
 		-- Место в списке тем (TOPICS).
 		order = 43,
 		-- Темы, без которых эту не начать.

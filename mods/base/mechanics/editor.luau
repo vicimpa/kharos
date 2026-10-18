@@ -444,19 +444,19 @@ mechanic.commands = {
 	end,
 }
 
--- Почему правка не удалась — строкой панели (раздел host словаря TS).
+-- Почему правка не удалась — строкой панели: ключи раздела host словаря (lang).
 local REASONS = {
-	building = "Здание сюда не встанет",
-	unit = "Юнит здесь не встанет",
-	deposit = "Месторождение ложится на скалу не у подножия обрыва и не внахлёст с другим",
-	move = "Сюда не сдвинуть",
-	order = "Приказ не принят",
+	building = "host.building",
+	unit = "host.unit",
+	deposit = "host.deposit",
+	move = "host.move",
+	order = "host.order",
 }
 
 -- На клиенте: ответ правки — в строку состояния панели редактора (ui/editor).
 mechanic.signals = {
 	edit_failed = function(c, signal)
-		c.shared.editorStatus = REASONS[signal.reason] or signal.reason
+		c.shared.editorStatus = c:t(REASONS[signal.reason] or signal.reason)
 	end,
 }
 

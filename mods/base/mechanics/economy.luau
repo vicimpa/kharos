@@ -41,15 +41,15 @@ mechanic.data = {
 		metalYard = 50,
 		sale = 100,
 	},
-	-- Что сказать игроку о награде (rewards в ru.json).
+	-- Что сказать игроку о награде: ключи словаря (rewards в lang).
 	rewardTitles = {
-		deploy = "Главное здание развёрнуто",
-		unit = "Первый юнит произведён",
-		generator = "Первая электростанция",
-		matter = "Первый генератор материи",
-		mine = "Первая шахта",
-		metalYard = "Первый склад металла",
-		sale = "Первая продажа",
+		deploy = "rewards.deploy",
+		unit = "rewards.unit",
+		generator = "rewards.generator",
+		matter = "rewards.matter",
+		mine = "rewards.mine",
+		metalYard = "rewards.metalYard",
+		sale = "rewards.sale",
 	},
 }
 
@@ -381,7 +381,7 @@ mechanic.signals = {
 		end
 		local toasts = c.shared.rewards or {}
 		c.shared.rewards = toasts
-		table.insert(toasts, { title = mechanic.data.rewardTitles[signal.key] or signal.key, credits = signal.credits, time = c.time })
+		table.insert(toasts, { title = c:t(mechanic.data.rewardTitles[signal.key] or signal.key), credits = signal.credits, time = c.time })
 	end,
 }
 

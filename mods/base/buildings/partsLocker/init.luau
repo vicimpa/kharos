@@ -7,9 +7,9 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "Шкаф компонентов",
+	title = "buildings.partsLocker",
 	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "Хранит компоненты зоны",
+	info = "buildingInfo.partsLocker",
 	width = 1,
 	height = 1,
 	cost = 200,

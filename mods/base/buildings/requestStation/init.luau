@@ -7,10 +7,10 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "Станция запроса",
+	title = "buildings.requestStation",
 	about = "Станция запроса: держит заказанный игроком груз там, где он нужен, — у дальней стройки, у турелей, у армии.",
 	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "Держит у себя груз, который вы закажете: грузовики и трубы довозят недостающее, лишнее увозят в хранилища. Запас отдаёт нуждам своей сети — стройке, турелям, армии",
+	info = "buildingInfo.requestStation",
 	width = 2,
 	height = 2,
 	cost = 250,

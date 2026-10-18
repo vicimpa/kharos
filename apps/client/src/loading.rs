@@ -33,6 +33,8 @@ fn kinds_of(content: &Content) -> Vec<(String, Table)> {
 pub struct Loading {
   gui: Gui,
   title: String,
+  /// Подпись хода на языке игрока (`game.loadingAssets`), с «{percent}».
+  progress: String,
   engine: Rc<Engine>,
   /// Что считать: имя записи, номер варианта (в браузере — по порядку, на нативе их разбирают потоки).
   #[cfg(target_arch = "wasm32")]
@@ -50,8 +52,10 @@ pub struct Loading {
 
 impl Loading {
   /// Экран для модов mods и синтезатора engine; None — считать нечего.
-  pub fn new(mods: &[Mod], engine: Rc<Engine>, fonts: Fonts) -> Result<Option<Self>, String> {
+  pub fn new(mods: &[Mod], engine: Rc<Engine>, fonts: Fonts, language: Option<&str>, system: &[String]) -> Result<Option<Self>, String> {
     let content = Content::load(Side::Client, mods.to_vec()).map_err(|error| error.to_string())?;
+    let strings = crate::lang::Strings::load(&content.protos);
+    let progress = strings.pick(language, system).map_or("{percent}%", |language| language.text("game.loadingAssets")).to_string();
     let title = content.manifests.iter().rev().find_map(|manifest| manifest.get::<Option<String>>("title").ok().flatten()).unwrap_or_default();
     let kinds = kinds_of(&content);
     let records = audio::bank_records(&kinds).map_err(|error| format!("звуки sounds/: {error}"))?;
@@ -71,11 +75,11 @@ impl Loading {
     #[cfg(not(target_arch = "wasm32"))]
     {
       let results = spawn(mods, engine.sample_rate(), jobs);
-      Ok(Some(Self { gui: Gui::new(fonts), title, engine, parts, total, done: 0, results }))
+      Ok(Some(Self { gui: Gui::new(fonts), title, progress, engine, parts, total, done: 0, results }))
     }
     #[cfg(target_arch = "wasm32")]
     {
-      Ok(Some(Self { gui: Gui::new(fonts), title, engine, jobs, parts, total, done: 0, inline: (content, kinds, 0) }))
+      Ok(Some(Self { gui: Gui::new(fonts), title, progress, engine, jobs, parts, total, done: 0, inline: (content, kinds, 0) }))
     }
   }
 
@@ -150,7 +154,7 @@ impl Loading {
     gui.close();
     gui.close();
     gui.open(Style { height: Some(40.0), direction: Direction::Row, align: Align::Center, ..Default::default() }, None);
-    gui.leaf(Style::default(), text(format!("Готовим графику и звук… {}%", (share * 100.0).floor()), FontName::Body, SOFT, true));
+    gui.leaf(Style::default(), text(crate::lang::substitute(&self.progress, |name| (name == "percent").then(|| (share * 100.0).floor().to_string())), FontName::Body, SOFT, true));
     gui.close();
     gui.close();
     gui.finish();

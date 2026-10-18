@@ -7,9 +7,9 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "Урановая фабрика",
+	title = "buildings.uraniumMill",
 	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "Перерабатывает урановую руду в уран. Уран лежит в основном в рыжих пустошах; с орбиты его не купить",
+	info = "buildingInfo.uraniumMill",
 	width = 2,
 	height = 2,
 	cost = 800,

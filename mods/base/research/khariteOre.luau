@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Обогащение харита",
-		info = "Как обогатить харит. Изучается на харитовой руде",
+		title = "research.khariteOre",
+		info = "researchInfo.khariteOre",
 		-- Место в списке тем (TOPICS).
 		order = 17,
 		-- Темы, без которых эту не начать.

@@ -51,14 +51,15 @@ local CONVERT, CANCEL, DEMOLISH, BACK = 9, 10, 11, 12
 local UPGRADE = 8
 local SWITCH = BACK
 -- Названия инструментов протяжки: стена и ворота — как здание (toolName).
-local TOOL_NAMES = { pipe = "Труба", well = "Колодцы", foundation = paving.TITLES.foundation, road = paving.TITLES.road, remove = paving.TITLES.remove, peak = paving.TITLES.peak, cliff = paving.TITLES.cliff }
--- Инструменты раздела «Покрытие» и их подсказки (PAVE_TOOLS, grid.toolTips в commands.ts).
+local TOOL_NAMES = { pipe = "grid.tools.pipe", well = "grid.tools.well", foundation = paving.TITLES.foundation, road = paving.TITLES.road, remove = paving.TITLES.remove, peak = paving.TITLES.peak, cliff = paving.TITLES.cliff }
+-- Инструменты раздела «Покрытие» и их подсказки (PAVE_TOOLS, grid.toolTips в commands.ts): цена тайла — {cost},
+-- моста — {bridge}.
 local PAVE_TOOLS = { "foundation", "road", "peak", "cliff" }
 local PAVE_TIPS = {
-	foundation = "Здания на нём строятся вдвое быстрее, на песке он разрешает стройку. Кладётся и под свои здания, и вместо своей дороги. Взрывы его разбивают. Тяни мышью прямоугольник",
-	road = "Наземные едут быстрее; по болоту — мост за " .. paving.BRIDGE_COST .. " за тайл. На дороге не строят; кладётся и вместо своего фундамента. Тяни мышью линию",
-	peak = "Строители срывают гору целиком, на её месте — скала. " .. earthworks.PEAK_COST .. " за тайл горы. Тяни мышью рамку по горе",
-	cliff = "Строители сглаживают кромку обрыва: подножие под ней становится проездом для техники. " .. earthworks.CLIFF_COST .. " за тайл кромки. Тяни мышью рамку по обрыву",
+	foundation = "grid.toolTips.foundation",
+	road = "grid.toolTips.road",
+	peak = "grid.toolTips.peak",
+	cliff = "grid.toolTips.cliff",
 }
 -- Цена тайла инструмента «Покрытия».
 local PAVE_COSTS = { foundation = paving.FOUNDATION_COST, road = paving.ROAD_COST, peak = earthworks.PEAK_COST, cliff = earthworks.CLIFF_COST }
@@ -67,20 +68,20 @@ local GRID_TIGHT = 0.8
 -- Разделы строителя: в какой странице какое здание; остальное — хозяйство (SECTIONS в commands.ts). Раздел — с
 -- картинкой здания, по порядку кнопок.
 local SECTIONS = {
-	{ page = "economy", label = "Хозяйство", tip = "Энергия, добыча, лаборатория и торговля", picture = "generator" },
-	{ page = "storage", label = "Склады", tip = "Хранилища ресурсов и изделий", picture = "metalYard", list = { "metalYard", "siliconStore", "fuelTank", "khariteVault", "lithiumStore", "uraniumCask", "blockYard", "ammoBunker", "partsLocker", "rodRack", "requestStation" } },
-	{ page = "industry", label = "Переработка", tip = "Переработка руды в ресурсы", picture = "smelter", list = { "smelter", "siliconWorks", "distillery", "enricher", "evaporator", "uraniumMill" } },
-	{ page = "production", label = "Производство", tip = "Заводы изделий: стройблоки, боеприпасы, компоненты и стержни", picture = "blockPlant", list = { "blockPlant", "ammoPlant", "partsPlant", "rodPlant" } },
-	{ page = "military", label = "Военное", tip = "Казармы, машинный завод, аэродром, ремонтная станция, станция поставки и ракетная шахта", picture = "factory", list = { "barracks", "factory", "airfield", "repairStation", "supplyDepot", "silo" } },
-	{ page = "defense", label = "Оборона", tip = "Стены, турели, щит, перехватчик ядерных ракет и радар", picture = "wall", list = { "wall", "gate", "turret", "rocketTurret", "cannonTurret", "laserTurret", "arcTurret", "shieldGenerator", "interceptor", "radar" } },
+	{ page = "economy", label = "grid.sections.economy", tip = "grid.sectionTips.economy", picture = "generator" },
+	{ page = "storage", label = "grid.sections.storage", tip = "grid.sectionTips.storage", picture = "metalYard", list = { "metalYard", "siliconStore", "fuelTank", "khariteVault", "lithiumStore", "uraniumCask", "blockYard", "ammoBunker", "partsLocker", "rodRack", "requestStation" } },
+	{ page = "industry", label = "grid.sections.industry", tip = "grid.sectionTips.industry", picture = "smelter", list = { "smelter", "siliconWorks", "distillery", "enricher", "evaporator", "uraniumMill" } },
+	{ page = "production", label = "grid.sections.production", tip = "grid.sectionTips.production", picture = "blockPlant", list = { "blockPlant", "ammoPlant", "partsPlant", "rodPlant" } },
+	{ page = "military", label = "grid.sections.military", tip = "grid.sectionTips.military", picture = "factory", list = { "barracks", "factory", "airfield", "repairStation", "supplyDepot", "silo" } },
+	{ page = "defense", label = "grid.sections.defense", tip = "grid.sectionTips.defense", picture = "wall", list = { "wall", "gate", "turret", "rocketTurret", "cannonTurret", "laserTurret", "arcTurret", "shieldGenerator", "interceptor", "radar" } },
 }
 
 -- Стойки бойцов: подпись и подсказка (grid.stances и grid.stanceTips в ru.json).
 local STANCES = {
-	aggressive = { label = "Агрессивно", tip = "Идти на любого врага, которого видно, и гнаться за ним; посланные идти бьют по дороге тех, кто опасен, и идут дальше" },
-	defensive = { label = "Оборона", tip = "Бить тех, кого достаёт; на огонь отвечать погоней не дальше {leash} тайлов и возвращаться на место" },
-	hold = { label = "Держать позицию", tip = "С места не сходить: бить только тех, кого достаёт, и под огнём тоже" },
-	passive = { label = "Не стрелять", tip = "Огонь не открывать и не отвечать: стрелять только по приказу атаки" },
+	aggressive = { label = "grid.stances.aggressive", tip = "grid.stanceTips.aggressive" },
+	defensive = { label = "grid.stances.defensive", tip = "grid.stanceTips.defensive" },
+	hold = { label = "grid.stances.hold", tip = "grid.stanceTips.hold" },
+	passive = { label = "grid.stances.passive", tip = "grid.stanceTips.passive" },
 }
 
 -- Пульс подсказки «Первых шагов» (pulse в hud.ts и bar.ts): обводка огнями команды разгорается и гаснет раз в
@@ -135,11 +136,11 @@ local function gridState(e: economy.Economy)
 end
 
 -- Подпись энергии сети (gridText).
-local function gridText(grid): string
-	return "⚡ Энергия зоны: потребляется " .. number(grid.demand) .. " из " .. number(grid.produced)
-		.. (if grid.stored > 0 then ", из них " .. number(grid.stored) .. " — из накопителей" else "")
-		.. (if grid.peak > grid.demand then ", при полной нагрузке — " .. number(grid.peak) else "")
-		.. (if grid.overload then " — перегруз, станции разрушаются" else "")
+local function gridText(c, grid): string
+	return c:t("hud.zonePower", { demand = number(grid.demand), produced = number(grid.produced) })
+		.. (if grid.stored > 0 then c:t("hud.zoneStored", { stored = number(grid.stored) }) else "")
+		.. (if grid.peak > grid.demand then c:t("hud.zonePeak", { peak = number(grid.peak) }) else "")
+		.. (if grid.overload then c:t("hud.overloaded") else "")
 end
 
 -- Сеть, которую показывает полоса: выбранного своего здания, а без него — первая (с главным зданием).
@@ -191,7 +192,8 @@ local function stockHint(c, label: string, good: string, have: number, capacity:
 		ui:text(label .. ":", { color = tone })
 		goodWith(c, good, have, 20, capacity)
 	end)
-	ui:text(note, { color = tone, wrap = width })
+	-- Пояснение в словаре продолжает строку с запасом («. Расстреляет…», « — пусто…»): здесь оно со своей строки.
+	ui:text(widgets.capital((string.gsub(note, "^[%s%.—]+", ""))), { color = tone, wrap = width })
 end
 
 -- Груз списком значков: что лежит, по порядку грузов.
@@ -220,52 +222,52 @@ local function topBar(c)
 			ui:text(tostring(math.floor(credits(c))), { font = "title", color = COLORS.gold, shadow = COLORS.ink, lift = 2 })
 			local income = math.round(economy.of(c, c.player).income * 100) / 100
 			if income > 0 then
-				ui:text("+" .. number(income) .. "/с", { color = COLORS.good })
+				ui:text(c:t("hud.perSecond", { amount = number(income) }), { color = COLORS.good })
 			end
 		end)
-		ui:tip("credits", "Кредиты")
+		ui:tip("credits", c:t("common.credits"))
 		local grid = shownGrid(c)
 		if grid then
 			local color = if grid.demand > grid.produced or grid.overload then COLORS.bad elseif grid.peak > grid.produced * GRID_TIGHT then COLORS.warn else COLORS.power
 			ui:box({ id = "grid" }, function()
 				ui:text("⚡ " .. number(grid.demand) .. " / " .. number(grid.produced), { color = color })
 			end)
-			ui:tip("grid", gridText(grid) .. "\nСеть выбранного здания; ничего не выбрано — сеть главного здания")
+			ui:tip("grid", gridText(c, grid) .. "\n" .. c:t("hud.gridTip"))
 		end
 		-- Запас в хранилищах.
 		local items, capacity = logistics.stockOf(c, c.player)
 		if capacity > 0 then
 			ui:box({ id = "stock" }, function()
-				goodsRow(c, items, "хранилища пусты")
+				goodsRow(c, items, c:t("hud.storesEmpty"))
 			end)
-			ui:tip("stock", "Запас в хранилищах; всего помещается " .. capacity)
+			ui:tip("stock", c:t("hud.stockTip", { capacity = capacity }))
 		end
 		ui:space(0, 0, 1)
 		local hour = c.atmosphere.hour or 0
 		ui:box({ id = "clock", direction = "row", gap = 4 }, function()
 			ui:text(string.format("%02d:%02d", math.floor(hour), math.floor(hour * 60) % 60), { color = COLORS.dim })
 		end)
-		ui:tip("clock", "Время суток")
+		ui:tip("clock", c:t("hud.clock"))
 		-- Кнопка исследований: открывает дерево технологий, с процентом нынешней темы.
 		local current = research.current(c, c.player)
 		local state = research.player(c, c.player)
 		-- Подсказка «Первых шагов»: следующий шаг — исследовать тему.
 		local hint = (currentStep(c) or {}).research
 		if ui:button("tech", { active = c.shared.techOpen == true, padding = { 2, 10 }, height = 30, outline = if hint then pulse(ui, 0.3, 1) else nil }, function()
-			ui:text("Исследования", shadow())
+			ui:text(c:t("grid.techTree"), shadow())
 			if current and state then
 				ui:text(math.round(((state.progress or {})[current] or 0) * 100) .. "%", shadow({ color = COLORS.team }))
 			end
 		end) then
 			c.shared.techOpen = not c.shared.techOpen
 		end
-		ui:tip("tech", "Дерево технологий (R)")
+		ui:tip("tech", c:t("tech.openTip"))
 		if ui:button("menu", { padding = { 2, 10 }, height = 30 }, function()
-			ui:text("Меню", shadow())
+			ui:text(c:t("game.menu"), shadow())
 		end) then
 			c.shared.paused = true
 		end
-		ui:tip("menu", "Меню игры")
+		ui:tip("menu", c:t("game.menuTip"))
 	end)
 end
 
@@ -302,14 +304,14 @@ end
 
 -- Описание здания для карточки: что делает и какие здания открывает (aboutOf).
 local function aboutOf(c, kind): string
-	local info = kind.data.info or kind.data.about or ""
+	local info = c:t(kind.data.info) or kind.data.about or ""
 	local opens = {}
 	for _, other in construction.menu(c) do
 		if other.data.requires and table.find(other.data.requires, kind.name) then
-			table.insert(opens, other.data.title or other.name)
+			table.insert(opens, c:t(other.data.title) or other.name)
 		end
 	end
-	return if #opens > 0 then info .. ". Открывает: " .. table.concat(opens, ", ") else info
+	return if #opens > 0 then c:t("grid.unlocks", { info = info, list = table.concat(opens, ", ") }) else info
 end
 
 -- Страница сетки строителя: корень с разделами или здания раздела; сменилось выделение — снова корень.
@@ -364,9 +366,9 @@ local function constructionSlots(c, list, selection)
 			-- Раздел появляется, когда в нём открыто хоть одно здание; закрытый оставляет пустую ячейку.
 			if count > 0 then
 				list[i] = {
-					label = section.label,
+					label = c:t(section.label),
 					picture = c.protos.buildings[section.picture],
-					title = section.tip,
+					title = c:t(section.tip),
 					count = count,
 					hint = hint,
 					fresh = fresh,
@@ -378,9 +380,9 @@ local function constructionSlots(c, list, selection)
 		end
 		if #surfaces > 0 then
 			list[#SECTIONS + 1] = {
-				label = "Покрытие",
+				label = c:t("grid.sections.paving"),
 				picture = c.protos.icons.roads,
-				title = "Фундамент, дороги и мосты",
+				title = c:t("grid.sectionTips.paving"),
 				count = #surfaces,
 				fresh = (function()
 					for _, tool in surfaces do
@@ -399,10 +401,10 @@ local function constructionSlots(c, list, selection)
 		if paving.enabled(c) then
 			local active = stroking == "remove"
 			list[DEMOLISH] = {
-				label = paving.TITLES.remove,
+				label = c:t(paving.TITLES.remove),
 				picture = c.protos.icons.remove,
 				active = active,
-				title = "Строители разберут своё в рамке: покрытие, трубы с колодцами и здания, целиком попавшие в неё (за трубы и здания вернут половину цены); недостроенное отменится с возвратом кредитов. Тяни мышью прямоугольник",
+				title = c:t("grid.removeTip"),
 				run = function()
 					c.shared.mode = if active then nil else { kind = "paving", tool = "remove" }
 				end,
@@ -410,9 +412,9 @@ local function constructionSlots(c, list, selection)
 		end
 		if #tools > 0 then
 			list[#SECTIONS + 2] = {
-				label = "Логистика",
+				label = c:t("grid.sections.logistics"),
 				picture = c.protos.buildings.pipe,
-				title = "Трубы и колодцы: связывают в сеть здания, стоящие поодаль; здания вплотную связаны и так, но только одинаковые",
+				title = c:t("grid.sectionTips.logistics"),
 				count = #tools,
 				fresh = (function()
 					for _, kind in tools do
@@ -439,10 +441,10 @@ local function constructionSlots(c, list, selection)
 			local shown = c.shared.paving
 			local cost = PAVE_COSTS[tool]
 			list[i] = {
-				label = paving.TITLES[tool],
+				label = c:t(paving.TITLES[tool]),
 				picture = c.protos.icons[paving.ICONS[tool]],
 				cost = if active and shown and shown.tiles > 1 then shown.cost else cost,
-				title = PAVE_TIPS[tool],
+				title = c:t(PAVE_TIPS[tool], { cost = PAVE_COSTS[tool], bridge = paving.BRIDGE_COST }),
 				active = active,
 				fresh = not seenLib.is(c, tool),
 				seen = tool,
@@ -453,8 +455,8 @@ local function constructionSlots(c, list, selection)
 			}
 		end
 		list[BACK] = {
-			label = "Назад",
-			title = "К разделам; Esc отменяет выбор места",
+			label = c:t("common.back"),
+			title = c:t("grid.backFromPlacing"),
 			run = function()
 				if stroking then
 					c.shared.mode = nil
@@ -466,14 +468,14 @@ local function constructionSlots(c, list, selection)
 	end
 	if page.name == "logistics" then
 		local tips = {
-			pipe = "Связывает в сеть здания, стоящие поодаль (одинаковые здания вплотную связаны и без трубы): по трубам идут груз и энергия, они расширяют зону. Перекрывает проезд — под проездом веди колодцами. Своя зона не нужна. Тяни мышью линию",
-			well = "Колодцы — концы подземной трубы: щелчок ставит один (свяжется с колодцем по прямой), протяжка — пару, до 10 тайлов. Над ней ездят и строят, уязвимы только колодцы. Своя зона не нужна",
+			pipe = c:t("grid.toolTips.pipe"),
+			well = c:t("grid.toolTips.well", { reach = 10 }),
 		}
 		for i, kind in tools do
 			local active = stroking == kind.name
 			local shown = c.shared.paving
 			list[i] = {
-				label = TOOL_NAMES[kind.name] or kind.data.title,
+				label = c:t(TOOL_NAMES[kind.name] or kind.data.title),
 				picture = kind,
 				cost = if active and shown and shown.tiles > 1 then shown.cost else kind.data.cost,
 				short = free < kind.data.cost,
@@ -489,8 +491,8 @@ local function constructionSlots(c, list, selection)
 			}
 		end
 		list[BACK] = {
-			label = "Назад",
-			title = "К разделам; Esc отменяет выбор места",
+			label = c:t("common.back"),
+			title = c:t("grid.backFromPlacing"),
 			run = function()
 				if stroking then
 					c.shared.mode = nil
@@ -512,7 +514,7 @@ local function constructionSlots(c, list, selection)
 		local power = economy.powerOf(kind, zone)
 		local idle = economy.idlePowerOf(kind, zone)
 		list[index] = {
-			label = kind.data.title or kind.name,
+			label = c:t(kind.data.title) or kind.name,
 			picture = kind,
 			cost = kind.data.cost,
 			materials = kind.data.materials,
@@ -522,7 +524,7 @@ local function constructionSlots(c, list, selection)
 			idle = if idle ~= power then idle else nil,
 			short = not affordable,
 			about = aboutOf(c, kind),
-			title = if affordable then nil else "Сейчас кредитов на всю цену нет — заложить можно: платят по ходу стройки, и она подождёт, пока их прибавится",
+			title = if affordable then nil else c:t("grid.shortCredits"),
 			active = placing == kind.name,
 			zones = true,
 			hint = step ~= nil and step.building == kind.name,
@@ -540,7 +542,7 @@ local function constructionSlots(c, list, selection)
 			local shown = c.shared.paving
 			slot.active = active
 			slot.cost = if active and shown and shown.tiles > 1 then shown.cost else kind.data.cost
-			slot.title = if affordable then "Тяни мышью линию; щелчок ставит одну" else "Тяни мышью линию; щелчок ставит одну. Сейчас кредитов на всю цену нет — заложить можно: платят по ходу стройки, и она подождёт, пока их прибавится"
+			slot.title = if affordable then c:t("grid.wallTip") else c:t("grid.wallTip") .. ". " .. c:t("grid.shortCredits")
 			slot.run = function()
 				seenLib.mark(c, kind.name)
 				c.shared.mode = if active then nil else { kind = "paving", tool = kind.name }
@@ -548,8 +550,8 @@ local function constructionSlots(c, list, selection)
 		end
 	end
 	list[BACK] = {
-		label = "Назад",
-		title = "К разделам; Esc отменяет выбор места",
+		label = c:t("common.back"),
+		title = c:t("grid.backFromPlacing"),
 		run = function()
 			if placing or stroking then
 				c.shared.mode = nil
@@ -631,20 +633,20 @@ local function tradeSlots(c, list, port: number)
 	end
 	if market.page == "root" then
 		list[CONVERT] = {
-			label = "Продажа",
+			label = c:t("grid.sell"),
 			picture = c.protos.buildings.spaceport,
 			active = order ~= nil,
-			title = if order then "Идёт продажа: открыть заявку" else "Продать ресурсы с орбиты",
+			title = if order then c:t("grid.sellingTip") else c:t("grid.sellTip"),
 			hint = order == nil and (currentStep(c) or {}).sell == true,
 			run = function()
 				open("sell")
 			end,
 		}
 		list[CANCEL] = {
-			label = "Закупка",
+			label = c:t("grid.buy"),
 			picture = c.protos.buildings.spaceport,
 			disabled = order ~= nil,
-			title = if order then "Космопорт занят продажей" else "Заказать ресурсы с орбиты втрое дороже цены продажи",
+			title = if order then c:t("grid.buyBusyTip") else c:t("grid.buyTip"),
 			run = function()
 				open("buy")
 			end,
@@ -660,25 +662,25 @@ local function tradeSlots(c, list, port: number)
 					break
 				end
 				local limit = dealOf(c, port, buying, { resource = item.resource, amount = DEAL_START })
-				local title = c.protos.goods[item.resource].data.title
+				local title = c:t(c.protos.goods[item.resource].data.title)
 				local topic = item.research and research.topic(c, item.research)
 				list[i] = {
 					label = if buying then title else title .. " ×" .. limit.max,
 					picture = c.protos.goods[item.resource],
 					disabled = limit.max < 1 or item.research ~= nil,
-					title = if topic then "Нужно исследование: " .. topic.data.title
-						elseif limit.max >= 1 then (if buying then "По " .. item.price .. " за единицу, корабль прилетит через 20 с"
-							elseif item.here and item.here < limit.max then "По " .. item.price .. " за единицу. В сети космопорта " .. item.here .. ", остальное привезут грузовики из других сетей"
-							else "По " .. item.price .. " за единицу")
-						elseif limit.room < 1 and buying then "Не помещается в склад космопорта"
-						else "Не хватает кредитов",
+					title = if topic then c:t("grid.needsResearch", { name = c:t(topic.data.title) })
+						elseif limit.max >= 1 then (if buying then c:t("grid.buyPrice", { price = item.price })
+							elseif item.here and item.here < limit.max then c:t("grid.sellFar", { price = item.price, here = item.here })
+							else c:t("grid.sellPrice", { price = item.price }))
+						elseif limit.room < 1 and buying then c:t("grid.noRoom")
+						else c:t("grid.noCredits"),
 					run = function()
 						market.deal = { resource = item.resource, amount = limit.amount }
 					end,
 				}
 			end
 			list[BACK] = {
-				label = "Назад",
+				label = c:t("common.back"),
 				run = function()
 					open("root")
 				end,
@@ -698,23 +700,23 @@ local function tradeSlots(c, list, port: number)
 					set(amount - step)
 				end }
 			end
-			list[#DEAL_STEPS + 1] = { label = "Всё", active = amount >= max, title = "×" .. max, run = function()
+			list[#DEAL_STEPS + 1] = { label = c:t("grid.all"), active = amount >= max, title = "×" .. max, run = function()
 				set(max)
 			end }
 			list[CONVERT] = {
-				label = (if buying then "Закупка" else "Продажа") .. " ×" .. amount,
+				label = (if buying then c:t("grid.buy") else c:t("grid.sell")) .. " ×" .. amount,
 				picture = c.protos.goods[resource],
 				cost = amount * price,
 				gain = not buying,
 				disabled = amount < 1,
-				title = if buying then "По " .. price .. " за единицу, корабль прилетит через 20 с" else "По " .. price .. " за единицу",
+				title = if buying then c:t("grid.buyPrice", { price = price }) else c:t("grid.sellPrice", { price = price }),
 				run = function()
 					c:send(if buying then "buy" else "sell", { port = port, resource = resource, amount = amount })
 					market.deal = nil
 				end,
 			}
 			list[BACK] = {
-				label = "Назад",
+				label = c:t("common.back"),
 				run = function()
 					market.deal = nil
 				end,
@@ -724,15 +726,15 @@ local function tradeSlots(c, list, port: number)
 		if order.total <= 0 and not order.buy then
 			local delivered = math.floor(trade.delivered(c, port))
 			list[CANCEL] = {
-				label = if delivered > 0 then "Отправить" else "Снять заявку",
-				title = if delivered > 0 then "Корабль улетит с тем, что уже привезли" else nil,
+				label = if delivered > 0 then c:t("grid.send") else c:t("grid.dropSale"),
+				title = if delivered > 0 then c:t("grid.sendTip") else nil,
 				run = function()
 					c:send("closeSale", { port = port })
 				end,
 			}
 		end
 		list[BACK] = {
-			label = "Назад",
+			label = c:t("common.back"),
 			run = function()
 				open("root")
 			end,
@@ -757,15 +759,15 @@ local function scuttleSlots(c, selection): { any }?
 	end
 	local list = {}
 	list[1] = {
-		label = "Уничтожить: " .. #gift,
-		title = "Подтвердить: юниты взорвутся сразу, отменить нельзя",
+		label = c:t("grid.scuttleConfirm", { count = #gift }),
+		title = c:t("grid.scuttleConfirmTip"),
 		run = function()
 			c:send("scuttle", { units = gift })
 			scuttling.key = ""
 		end,
 	}
 	list[BACK] = {
-		label = "Назад",
+		label = c:t("common.back"),
 		run = function()
 			scuttling.key = ""
 		end,
@@ -861,8 +863,8 @@ local function cargoPage(selection, name: string?)
 	return cargo.page
 end
 
-local function back(list, run: () -> ())
-	list[BACK] = { label = "Назад", run = run }
+local function back(c, list, run: () -> ())
+	list[BACK] = { label = c:t("common.back"), run = run }
 end
 
 -- Сетка выбранных грузовиков (haul в commands.ts): верхний ряд — режим работы, подсвечен тот, в котором грузовик;
@@ -880,49 +882,49 @@ local function truckSlots(c, list, selection, units: { number })
 	local kind = mode and mode.kind
 	if page == "root" then
 		list[1] = {
-			label = "Сам",
+			label = c:t("grid.truckAuto"),
 			active = job == "auto",
-			title = "Работает сам: возит то, что заказывают здания, с учётом «Что возить». Снимает приказ, маршрут и обслуживание",
+			title = c:t("grid.truckAutoTip"),
 			run = function()
 				c:send("serve", { units = units, buildings = {} })
 			end,
 		}
 		local carrying = kind == "carrySource" or kind == "carryTarget"
 		list[2] = {
-			label = "Перевезти",
+			label = c:t("grid.carry"),
 			active = job == "carry" or carrying,
-			title = "Взять груз здесь и отвезти туда: щёлкни по складу, выбери груз и сколько, потом — по получателю. Быстрее — правым щелчком грузовиками по зданию",
+			title = c:t("grid.carryTip"),
 			run = function()
 				c.shared.truckMenu = nil
 				c.shared.mode = if carrying then nil else { kind = "carrySource" }
 			end,
 		}
 		list[3] = {
-			label = if kind == "routing" then "Маршрут: " .. #mode.stops else "Маршрут",
+			label = if kind == "routing" then c:t("grid.routeStops", { stops = #mode.stops }) else c:t("grid.route"),
 			active = job == "route" or kind == "routing",
-			title = "Возить по кругу: щёлкай по своим зданиям со складом по порядку — на каждой остановке грузовик сгружает, что там примут, и берёт для следующей. Правая кнопка или Enter — готово, Esc — отмена",
+			title = c:t("grid.routeTip"),
 			run = function()
 				c.shared.mode = if kind == "routing" then nil else { kind = "routing", stops = {} }
 			end,
 		}
 		list[4] = {
-			label = if kind == "serving" then "Обслуживать: " .. #mode.buildings else "Обслуживать",
+			label = if kind == "serving" then c:t("grid.serveCount", { count = #mode.buildings }) else c:t("grid.serve"),
 			active = job == "serve" or kind == "serving",
-			title = "Возить только для выбранных зданий: щёлкай по ним — грузовики повезут им, чего не хватает, из любого вашего склада. Правая кнопка или Enter — готово, Esc — отмена",
+			title = c:t("grid.serveTip"),
 			run = function()
 				c.shared.mode = if kind == "serving" then nil else { kind = "serving", buildings = {} }
 			end,
 		}
 		list[5] = {
-			label = if #filter > 0 then "Что возить: " .. #filter else "Что возить",
+			label = if #filter > 0 then c:t("grid.filterCount", { count = #filter }) else c:t("grid.filter"),
 			active = #filter > 0,
-			title = "Какие грузы грузовик берёт в режимах «Сам» и «Маршрут»; ничего не отмечено — любые",
+			title = c:t("grid.filterTip"),
 			run = function()
 				cargoPage(selection, "filter")
 			end,
 		}
 		if #filter > 0 then
-			list[6] = { label = "Всё", title = "Снять фильтр: возить любые грузы", run = function()
+			list[6] = { label = c:t("grid.all"), title = c:t("grid.allTip"), run = function()
 				c:send("filter", { units = units, goods = {} })
 			end }
 		end
@@ -959,16 +961,16 @@ local function truckSlots(c, list, selection, units: { number })
 			if i >= BACK - 1 then
 				break
 			end
-			list[i] = { label = c.protos.goods[ware].data.title, picture = c.protos.goods[ware], active = has({ ware }), title = "Возить или нет", run = function()
+			list[i] = { label = c:t(c.protos.goods[ware].data.title), picture = c.protos.goods[ware], active = has({ ware }), title = c:t("grid.carryOrNot"), run = function()
 				toggle({ ware })
 			end }
 		end
 		if #ores > 0 then
-			list[math.min(#wares + 1, BACK - 1)] = { label = "Руда", picture = c.protos.goods[ores[1]], active = has(ores), title = "Возить руду или нет", run = function()
+			list[math.min(#wares + 1, BACK - 1)] = { label = c:t("grid.ore"), picture = c.protos.goods[ores[1]], active = has(ores), title = c:t("grid.oreTip"), run = function()
 				toggle(ores)
 			end }
 		end
-		back(list, function()
+		back(c, list, function()
 			cargoPage(selection, "root")
 		end)
 	end
@@ -997,9 +999,9 @@ local function reserveSlots(c, list, selection)
 	end
 	if page == "root" then
 		list[1] = {
-			label = if amount > 0 then "Резерв: " .. amount else "Резерв",
+			label = if amount > 0 then c:t("grid.reserveCount", { amount = amount }) else c:t("grid.reserve"),
 			active = amount > 0,
-			title = "Сколько груза хранилище не выдаёт стройке, производству и турелям. Продажа берёт и резерв",
+			title = c:t("grid.reserveTip"),
 			run = function()
 				cargoPage(selection, "reserve")
 			end,
@@ -1007,20 +1009,20 @@ local function reserveSlots(c, list, selection)
 	elseif page == "reserve" then
 		-- Верхний ряд — прибавить, второй — убавить: по 10 и по 50.
 		for i, step in { 10, 50 } do
-			list[i] = { label = "+" .. step, disabled = amount >= capacity, title = "Резерв: " .. amount, run = function()
+			list[i] = { label = "+" .. step, disabled = amount >= capacity, title = c:t("grid.reserveCount", { amount = amount }), run = function()
 				set(amount + step)
 			end }
-			list[i + 4] = { label = "−" .. step, disabled = amount <= 0, title = "Резерв: " .. amount, run = function()
+			list[i + 4] = { label = "−" .. step, disabled = amount <= 0, title = c:t("grid.reserveCount", { amount = amount }), run = function()
 				set(amount - step)
 			end }
 		end
-		list[3] = { label = "Всё", active = amount >= capacity, title = "Не выдавать ничего: хранилище только копит", run = function()
+		list[3] = { label = c:t("grid.all"), active = amount >= capacity, title = c:t("grid.reserveAllTip"), run = function()
 			set(capacity)
 		end }
-		list[CANCEL] = { label = "Снять", active = amount <= 0, title = "Снять резерв: выдавать всё", run = function()
+		list[CANCEL] = { label = c:t("grid.reserveNone"), active = amount <= 0, title = c:t("grid.reserveNoneTip"), run = function()
 			set(0)
 		end }
-		back(list, function()
+		back(c, list, function()
 			cargoPage(selection, "root")
 		end)
 	end
@@ -1052,9 +1054,9 @@ local function requestSlots(c, list, selection)
 			count += 1
 		end
 		list[1] = {
-			label = if count > 0 then "Заказ: " .. count else "Заказ",
+			label = if count > 0 then c:t("grid.requestCount", { count = count }) else c:t("grid.request"),
 			active = count > 0,
-			title = "Какой груз и сколько держать на станции: грузовики и трубы будут держать её полной",
+			title = c:t("grid.requestTip"),
 			run = function()
 				cargoPage(selection, "request")
 			end,
@@ -1066,12 +1068,12 @@ local function requestSlots(c, list, selection)
 				break
 			end
 			local amount = wanted[ware] or 0
-			local title = c.protos.goods[ware].data.title
-			list[i] = { label = if amount > 0 then title .. " ×" .. amount else title, picture = c.protos.goods[ware], active = amount > 0, title = "Сколько этого груза держать", run = function()
+			local title = c:t(c.protos.goods[ware].data.title)
+			list[i] = { label = if amount > 0 then title .. " ×" .. amount else title, picture = c.protos.goods[ware], active = amount > 0, title = c:t("grid.requestGoodTip"), run = function()
 				cargo.deal = ware
 			end }
 		end
-		back(list, function()
+		back(c, list, function()
 			cargoPage(selection, "root")
 		end)
 	elseif page == "request" then
@@ -1088,7 +1090,7 @@ local function requestSlots(c, list, selection)
 		local function set(value: number)
 			c:send("want", { buildings = buildings, resource = resource, amount = math.max(0, math.min(max, value)) })
 		end
-		local title = c.protos.goods[resource].data.title .. ": держать " .. amount
+		local title = c:t("grid.requestAmount", { good = c:t(c.protos.goods[resource].data.title), amount = amount })
 		local picture = c.protos.goods[resource]
 		for i, step in { 10, 50 } do
 			list[i] = { label = "+" .. step, picture = picture, disabled = amount >= max, title = title, run = function()
@@ -1098,13 +1100,13 @@ local function requestSlots(c, list, selection)
 				set(amount - step)
 			end }
 		end
-		list[3] = { label = "Всё", active = amount >= max, title = "×" .. max, run = function()
+		list[3] = { label = c:t("grid.all"), active = amount >= max, title = "×" .. max, run = function()
 			set(max)
 		end }
-		list[CANCEL] = { label = "Не заказывать", active = amount <= 0, title = "Не держать этот груз: лишнее увезут в хранилища", run = function()
+		list[CANCEL] = { label = c:t("grid.requestNone"), active = amount <= 0, title = c:t("grid.requestNoneTip"), run = function()
 			set(0)
 		end }
-		back(list, function()
+		back(c, list, function()
 			cargo.deal = nil
 		end)
 	end
@@ -1128,10 +1130,10 @@ local function slots(c, selection)
 		if not state.progress then
 			local building = conversion.building(c)
 			list[CONVERT] = {
-				label = if state.unit then "Развернуть" else "Свернуть в MCV",
+				label = if state.unit then c:t("grid.deploy") else c:t("grid.pack"),
 				picture = building,
-				about = if state.unit then building.data.info else nil,
-				title = if state.unit then "Выбрать место: MCV доедет и развернётся там. Нужна свободная скала или фундамент 3×3" else nil,
+				about = if state.unit then c:t(building.data.info) else nil,
+				title = if state.unit then c:t("grid.deployTip") else nil,
 				disabled = not state.possible,
 				active = state.choosing,
 				hint = state.unit and not state.traveling and (currentStep(c) or {}).deploy == true,
@@ -1148,7 +1150,7 @@ local function slots(c, selection)
 		end
 		if (state.progress or state.traveling) and state.cancel then
 			list[CANCEL] = {
-				label = "Отменить",
+				label = c:t("grid.cancel"),
 				run = function()
 					c:send("cancelDeploy", { unit = e })
 				end,
@@ -1173,8 +1175,8 @@ local function slots(c, selection)
 		if #units > 0 then
 			for i, name in tactics.stances do
 				list[i] = {
-					label = STANCES[name].label,
-					title = (string.gsub(STANCES[name].tip, "{leash}", tostring(tactics.leash))),
+					label = c:t(STANCES[name].label),
+					title = c:t(STANCES[name].tip, { leash = tactics.leash }),
 					active = stance == name,
 					run = function()
 						c:send("stance", { units = units, stance = name })
@@ -1183,8 +1185,8 @@ local function slots(c, selection)
 			end
 			local picking = c.shared.mode ~= nil and c.shared.mode.kind == "patrolling"
 			list[5] = {
-				label = "Патруль",
-				title = "P, потом щелчок по карте — бойцы ходят между своим местом и точкой; Shift+щелчок — ещё точка к патрулю",
+				label = c:t("grid.patrol"),
+				title = c:t("grid.patrolTip"),
 				active = picking or patrolling > 0,
 				run = function()
 					c.shared.mode = if picking then nil else { kind = "patrolling", selects = true }
@@ -1245,26 +1247,25 @@ local function slots(c, selection)
 				local titles = {}
 				for _, needed in missing do
 					local other = c.protos.buildings[needed]
-					table.insert(titles, if other then other.data.title else needed)
+					table.insert(titles, if other then c:t(other.data.title) else needed)
 				end
 				local affordable = money >= unit.data.cost
 				local capped = limit > 0 and army + (unit.data.supply or 0) > limit
 				table.insert(list, {
-					label = unit.data.title or name,
+					label = c:t(unit.data.title) or name,
 					picture = unit,
 					cost = unit.data.cost,
 					materials = unit.data.materials,
 					c = c,
 					stock = (logistics.stockOf(c, c.player)),
 					short = not affordable,
-					about = unit.data.about,
 					unit = unit,
 					disabled = not affordable or full or #missing > 0 or topic ~= nil or capped,
-					title = if #missing > 0 then "Нужно построить: " .. table.concat(titles, ", ")
-						elseif topic then "Нужно исследование: " .. topic.data.title
-						elseif full then "Очередь заполнена"
-						elseif capped then "Лимит армии: занято " .. army .. " из " .. limit .. ", этому юниту нужно " .. (unit.data.supply or 0)
-						elseif not affordable then "Не хватает кредитов"
+					title = if #missing > 0 then c:t("grid.needs", { list = table.concat(titles, ", ") })
+						elseif topic then c:t("grid.needsResearch", { name = c:t(topic.data.title) })
+						elseif full then c:t("grid.queueFull")
+						elseif capped then c:t("grid.armyLimit", { used = army, limit = limit, supply = unit.data.supply or 0 })
+						elseif not affordable then c:t("grid.noCredits")
 						else nil,
 					hint = (currentStep(c) or {}).unit == name,
 					run = function()
@@ -1275,8 +1276,8 @@ local function slots(c, selection)
 		end
 		if orders > 0 and not list[CANCEL] then
 			list[CANCEL] = {
-				label = "Отменить заказ",
-				title = "Последний в очереди; кредиты вернутся",
+				label = c:t("grid.cancelOrder"),
+				title = c:t("grid.cancelOrderTip"),
 				run = function()
 					c:send("cancel", { building = busiest })
 				end,
@@ -1292,41 +1293,41 @@ local function slots(c, selection)
 		local lack = silos.warheadLack(c, c.player, silo)
 		local aiming = c.shared.mode ~= nil and c.shared.mode.kind == "aiming" and c.shared.mode.silo == silo
 		list[1] = {
-			label = "Боеголовка",
+			label = c:t("grid.warhead"),
 			picture = c.protos.goods.rods,
 			cost = if stage == "empty" then warhead.cost else nil,
 			materials = if stage == "empty" then warhead.materials else nil,
 			c = c,
 			stock = (logistics.stockOf(c, c.player)),
-			about = "Ядерная боеголовка для пуска. Шахта держит одну",
+			about = c:t("grid.warheadAbout"),
 			active = stage ~= "empty",
 			disabled = lack ~= nil,
-			title = if stage ~= "empty" then "В шахте уже есть боеголовка — готовая или в сборке"
-				elseif lack == "credits" then "Не хватает кредитов"
-				elseif lack == "materials" then "В сети шахты не хватает стержней или компонентов"
-				else "Сборка идёт " .. clockOf(warhead.seconds) .. " при полной энергии. Цена списывается сразу, стержни и компоненты — из сети шахты",
+			title = if stage ~= "empty" then c:t("grid.warheadBusy")
+				elseif lack == "credits" then c:t("grid.noCredits")
+				elseif lack == "materials" then c:t("grid.warheadNoMaterials")
+				else c:t("grid.warheadTip", { time = clockOf(warhead.seconds) }),
 			run = function()
 				c:send("warhead", { silo = silo })
 			end,
 		}
 		list[2] = {
-			label = "Пуск",
-			about = "Навести боеголовку на точку карты и пустить ракету",
+			label = c:t("grid.launch"),
+			about = c:t("grid.launchAbout"),
 			active = aiming,
 			disabled = stage ~= "ready" and stage ~= "launching",
-			title = if stage == "launching" then "Пуск идёт: щёлкни по карте, чтобы навести ракету заново"
-				elseif stage == "ready" then "Щёлкни по карте — туда придёт удар. Ракета стартует через " .. warhead.launch .. " с, о пуске узнают все"
-				else "Сначала собери боеголовку",
+			title = if stage == "launching" then c:t("grid.launchRetarget")
+				elseif stage == "ready" then c:t("grid.launchTip", { seconds = warhead.launch })
+				else c:t("grid.launchNoWarhead"),
 			run = function()
 				c.shared.mode = if aiming then nil else { kind = "aiming", silo = silo }
 			end,
 		}
 		if stage == "assembling" then
-			list[CANCEL] = { label = "Отменить", title = "Бросить сборку: её цена вернётся целиком", run = function()
+			list[CANCEL] = { label = c:t("grid.cancel"), title = c:t("grid.cancelWarheadTip"), run = function()
 				c:send("cancelWarhead", { silo = silo })
 			end }
 		elseif stage == "launching" then
-			list[CANCEL] = { label = "Отменить пуск", title = "Ракета не стартует, боеголовка останется в шахте", run = function()
+			list[CANCEL] = { label = c:t("grid.abortLaunch"), title = c:t("grid.abortLaunchTip"), run = function()
 				c:send("abortLaunch", { silo = silo })
 			end }
 		end
@@ -1346,7 +1347,7 @@ local function slots(c, selection)
 	if upcoming then
 		local topic = research.topic(c, upcoming.topic)
 		list[UPGRADE] = {
-			label = "Уровень " .. upcoming.level,
+			label = c:t("grid.upgrade", { level = upcoming.level }),
 			picture = c:proto(upcoming.buildings[1]),
 			cost = upcoming.cost,
 			materials = upcoming.materials,
@@ -1354,10 +1355,10 @@ local function slots(c, selection)
 			stock = (logistics.stockOf(c, c.player)),
 			short = upcoming.lack == "credits",
 			disabled = upcoming.lack ~= nil,
-			title = if upcoming.lack == "research" then "Нужно исследование: " .. (if topic then topic.data.title else upcoming.topic)
-				elseif upcoming.lack == "credits" then "Не хватает кредитов"
-				elseif upcoming.lack then "В зоне здания не хватает готового на улучшение"
-				else "Поднять уровень: " .. levels.GAINS[raise.gain] .. " ×" .. number(upcoming.factor) .. ". Цена списывается сразу, готовое берётся из сети здания; работу делают строители, здание при этом работает",
+			title = if upcoming.lack == "research" then c:t("grid.needsResearch", { name = if topic then c:t(topic.data.title) else upcoming.topic })
+				elseif upcoming.lack == "credits" then c:t("grid.noCredits")
+				elseif upcoming.lack then c:t("grid.upgradeNoMaterials")
+				else c:t("grid.upgradeTip", { gain = c:t(levels.GAINS[raise.gain]), factor = number(upcoming.factor) }),
 			run = function()
 				for _, e in upcoming.buildings do
 					c:send("upgrade", { building = e, builders = {} })
@@ -1367,8 +1368,8 @@ local function slots(c, selection)
 	elseif raise and raise.raising then
 		local raising = raise.raising.buildings
 		list[UPGRADE] = {
-			label = "Отменить",
-			title = "Отменить улучшение: его цена вернётся целиком",
+			label = c:t("grid.cancel"),
+			title = c:t("grid.cancelUpgradeTip"),
 			run = function()
 				for _, e in raising do
 					c:send("cancelUpgrade", { building = e })
@@ -1381,7 +1382,7 @@ local function slots(c, selection)
 	if site and not site.undo then
 		local e = selection[1]
 		list[DEMOLISH] = {
-			label = if site.demolish then "Отменить разбор" else "Отменить стройку",
+			label = if site.demolish then c:t("grid.cancelDemolish") else c:t("grid.cancelBuild"),
 			run = function()
 				c:send("cancelBuild", { site = e })
 			end,
@@ -1409,10 +1410,10 @@ local function slots(c, selection)
 	if plant then
 		local e = selection[1]
 		list[1] = {
-			label = if plant.on then "Выключить" else "Включить",
+			label = if plant.on then c:t("common.turnOff") else c:t("common.turnOn"),
 			picture = c.protos.goods[plant.recipe],
 			lamp = plant.on,
-			title = if plant.on then "Завод встанет и перестанет брать энергию; начатая сборка подождёт включения, сырьё увезут в хранилища" else "Завод начнёт заказывать сырьё у зоны и собирать до нормы",
+			title = if plant.on then c:t("grid.plantOffTip") else c:t("grid.plantOnTip"),
 			run = function()
 				c:send("work", { building = e, on = not plant.on })
 			end,
@@ -1420,9 +1421,9 @@ local function slots(c, selection)
 	end
 	if #switchable > 0 and root and not list[SWITCH] then
 		list[SWITCH] = {
-			label = if on then "Выключить" else "Включить",
+			label = if on then c:t("common.turnOff") else c:t("common.turnOn"),
 			lamp = on,
-			title = if on then "Перестанет брать энергию у зоны и работать" else "Снова возьмёт энергию у зоны и заработает",
+			title = if on then c:t("grid.switchOffTip") else c:t("grid.switchOnTip"),
 			run = function()
 				for _, e in switchable do
 					c:send("work", { building = e, on = not on })
@@ -1433,8 +1434,8 @@ local function slots(c, selection)
 	-- Свои юниты среди выбранных — уничтожить; место отмены занято, только пока разворачивается MCV.
 	if root and not list[CANCEL] and #defeat.giftable(c, c.player, selection) > 0 then
 		list[CANCEL] = {
-			label = "Уничтожить",
-			title = "Выбранные юниты взорвутся на месте: кредиты не вернутся, место в лимите освободится",
+			label = c:t("grid.scuttle"),
+			title = c:t("grid.scuttleTip"),
 			run = function()
 				scuttling.key = table.concat(selection, ",")
 			end,
@@ -1442,10 +1443,10 @@ local function slots(c, selection)
 	end
 	if #demolish > 0 and root then
 		list[DEMOLISH] = {
-			label = "Разобрать",
+			label = c:t("grid.remove"),
 			cost = refund,
 			gain = true,
-			title = "Здание разберут строители; когда закончат, вернётся половина цены",
+			title = c:t("grid.demolishTip"),
 			run = function()
 				for _, e in demolish do
 					c:send("demolish", { building = e, builders = {} })
@@ -1457,7 +1458,7 @@ local function slots(c, selection)
 end
 
 -- Карточка ячейки (slotCard в bar.ts): название с клавишей, пояснение, параметры юнита, цена.
-local function card(ui, slot, hotkey: string)
+local function card(ui, c, slot, hotkey: string)
 	local WIDTH = 264
 	ui:box({ direction = "column", gap = 4, width = WIDTH, align = "stretch" }, function()
 		ui:box({ direction = "row", justify = "between", align = "end", gap = 12 }, function()
@@ -1471,7 +1472,7 @@ local function card(ui, slot, hotkey: string)
 			ui:text(slot.title, { color = if slot.about and slot.disabled then COLORS.warn else COLORS.dim, wrap = WIDTH })
 		end
 		if slot.unit then
-			for _, row in stats.unit(slot.unit) do
+			for _, row in stats.unit(c, slot.unit) do
 				ui:box({ direction = "row", gap = 10 }, function()
 					ui:box({ width = 90 }, function()
 						ui:text(row.label, { color = COLORS.dim })
@@ -1491,23 +1492,23 @@ local function card(ui, slot, hotkey: string)
 				if slot.power then
 					ui:text("⚡" .. (if slot.power > 0 then "+" .. number(slot.power) else number(slot.power)), { color = COLORS.power })
 					if slot.idle then
-						ui:text("без дела " .. number(slot.idle), { color = COLORS.dim })
+						ui:text(c:t("grid.idlePower", { idle = number(slot.idle) }), { color = COLORS.dim })
 					end
 				end
 			end)
 		end
 		-- Материалы: значок, название и сколько нужно; не хватает в хранилищах — сколько есть из нужного.
 		if slot.materials then
-			for _, name in goods.names(slot.c) do
+			for _, name in goods.names(c) do
 				local amount = slot.materials[name]
-				local kind = slot.c.protos.goods[name]
+				local kind = c.protos.goods[name]
 				if amount and kind then
 					local stored = math.floor(slot.stock[name] or 0)
 					local short = stored < amount
 					ui:box({ direction = "row", align = "center", gap = 6 }, function()
 						ui:image(kind, 16, 16)
 						ui:box({ grow = 1 }, function()
-							ui:text(kind.data.title, { ellipsis = true })
+							ui:text(c:t(kind.data.title), { ellipsis = true })
 						end)
 						ui:text(if short then stored .. "/" .. amount else tostring(amount), { color = if short then COLORS.warn else COLORS.text })
 					end)
@@ -1571,7 +1572,7 @@ local function commandGrid(c, list, width: number, height: number)
 					-- Подсказка — карточкой над сеткой, правым краем у указателя.
 					local grid = ui:rect("commands")
 					ui:tip(id, function()
-						card(ui, slot, hotkey)
+						card(ui, c, slot, hotkey)
 					end, if grid then { right = math.max(8, c.screen.w - c.input.x - 40), bottom = c.screen.h - grid.y + 12 } else nil)
 					-- Пока смотрят кнопку здания, на карте видны границы зон (controls/build).
 					if slot.zones and ui:hovered(id) then
@@ -1596,16 +1597,16 @@ local function info(c, selection, width: number, height: number)
 	local many = #selection > 1
 	local first = selection[1]
 	local kind = c:proto(first)
-	local title = if kind and kind.data then kind.data.title or kind.name else "?"
+	local title = if kind and kind.data then c:t(kind.data.title) or kind.name else "?"
 	local site = not many and c:get(first, "Site")
 	if site then
-		title = (if site.undo then "Отмена стройки: " elseif site.demolish then "Разбор: " else "Стройка: ") .. title
+		title = c:t(if site.undo then "hud.undoing" elseif site.demolish then "hud.demolition" else "hud.construction", { name = title })
 	end
 	if many then
 		local counts, order = {}, {}
 		for _, e in selection do
 			local k = c:proto(e)
-			local name = k and k.data.title or "?"
+			local name = k and c:t(k.data.title) or "?"
 			if not counts[name] then
 				counts[name] = 0
 				table.insert(order, name)
@@ -1644,7 +1645,7 @@ local function info(c, selection, width: number, height: number)
 				end)
 				ui:box({ self = { "start", "end" }, width = 104, height = 6, background = "#4fd07a" })
 			end)
-			ui:tip("portrait", "Показать на карте")
+			ui:tip("portrait", c:t("hud.showOnMap"))
 		end
 		ui:box({ id = "info:details", direction = "column", gap = 4, grow = 1, maxHeight = height - 20, scroll = true }, function()
 			ui:box({ id = "info:title", width = text }, function()
@@ -1652,12 +1653,12 @@ local function info(c, selection, width: number, height: number)
 			end)
 			-- Параметры юнита — строкой, целиком — в подсказке.
 			local unitKind = if not many and c:has(first, "Unit") then kind else nil
-			ui:tip("info:title", if many then title elseif unitKind then stats.text(unitKind) else "")
+			ui:tip("info:title", if many then title elseif unitKind then stats.text(c, unitKind) else "")
 			if unitKind then
 				ui:box({ id = "info:stats", width = text }, function()
-					ui:text(stats.line(unitKind), { color = COLORS.dim, ellipsis = true })
+					ui:text(stats.line(c, unitKind), { color = COLORS.dim, ellipsis = true })
 				end)
-				ui:tip("info:stats", stats.text(unitKind))
+				ui:tip("info:stats", stats.text(c, unitKind))
 			end
 			-- Боеприпасы своих выбранных юнитов с магазинами: сколько в среднем осталось (army.ammo в hud.ts).
 			if supply.enabled(c) then
@@ -1671,7 +1672,7 @@ local function info(c, selection, width: number, height: number)
 					end
 				end
 				if magazines > 0 and filled / magazines < 1 then
-					ui:text("Боеприпасы: " .. percent(filled / magazines) .. ". Магазины пополняются в своей сети из хранилищ и у машины снабжения, авиация — над аэродромом", { color = COLORS.soft, wrap = text })
+					ui:text(c:t("hud.armyAmmo", { percent = percent(filled / magazines) }), { color = COLORS.soft, wrap = text })
 				end
 			end
 			-- Машины снабжения: что в отсеках и на какой радиус раздают.
@@ -1687,17 +1688,17 @@ local function info(c, selection, width: number, height: number)
 			end
 			if serves then
 				local tone = if bays <= 0 then COLORS.warn else COLORS.soft
-				stockHint(c, "Боеприпасы", "ammo", bays, bayCapacity, if bays <= 0 then "Пусто: ждёт грузовики, хранилища сети или станцию поставки" else "Раздаёт своим в радиусе " .. serves.radius .. " тайлов; потратит четверть — грузовики привезут в поле, в сети грузится из хранилищ, у станции поставки — вчетверо быстрее", tone, text)
+				stockHint(c, c:t("hud.ammo"), "ammo", bays, bayCapacity, if bays <= 0 then c:t("hud.suppliesEmpty") else c:t("hud.suppliesTip", { radius = serves.radius }), tone, text)
 			end
 			if site then
 				local progress = math.min(1, site.progress / site.total)
 				local label
 				if site.demolish then
-					label = if progress < 1 then "Разбирается — осталось " .. percent(progress) else "Ждёт строителя: выбери его и щёлкни по зданию правой кнопкой"
+					label = if progress < 1 then c:t("hud.demolishing", { percent = percent(progress) }) else c:t("hud.waitsToDemolish")
 				elseif c:has(first, "Footprint") then
-					label = if c:mine(first) and construction.short(c, c.player)[first] then "Ждёт кредитов — готово " .. percent(progress) .. ": стройку оплачивают по ходу" else "Строится — " .. percent(progress)
+					label = if c:mine(first) and construction.short(c, c.player)[first] then c:t("hud.buildingBroke", { percent = percent(progress) }) else c:t("hud.building", { percent = percent(progress) })
 				else
-					label = if site.blocked then "Место занято юнитами" else "Ждёт строителя"
+					label = if site.blocked then c:t("hud.blocked") else c:t("hud.waitsBuilder")
 				end
 				widgets.bar(ui, progress, label, text)
 			end
@@ -1708,14 +1709,14 @@ local function info(c, selection, width: number, height: number)
 				local _, zone = economy.gridOf(c, first)
 				if zone then
 					local grid = gridState(zone)
-					ui:text(gridText(grid), { color = if grid.demand > grid.produced or grid.overload then COLORS.bad else COLORS.power, wrap = text })
+					ui:text(gridText(c, grid), { color = if grid.demand > grid.produced or grid.overload then COLORS.bad else COLORS.power, wrap = text })
 				end
 			end
 			if built and economy.coreless(c)[first] then
-				ui:text("Денег не приносит: в зоне нет главного здания", { color = COLORS.warn, wrap = text })
+				ui:text(c:t("hud.coreless"), { color = COLORS.warn, wrap = text })
 			end
 			if built and c:mine(first) and kind.name == economy.CORE and credits(c) < economy.RELIEF_BELOW then
-				ui:text("Подмога: пока кредитов меньше " .. economy.RELIEF_BELOW .. ", главное здание даёт " .. economy.RELIEF_INCOME .. " в секунду", { color = COLORS.soft, wrap = text })
+				ui:text(c:t("hud.relief", { below = economy.RELIEF_BELOW, income = economy.RELIEF_INCOME }), { color = COLORS.soft, wrap = text })
 			end
 			local starved, off = false, false
 			for _, e in selection do
@@ -1725,7 +1726,7 @@ local function info(c, selection, width: number, height: number)
 				end
 			end
 			if starved then
-				ui:text("⚡ Не хватает энергии: здание работает медленнее или стоит", { color = COLORS.bad, wrap = text })
+				ui:text(c:t("hud.starved"), { color = COLORS.bad, wrap = text })
 			end
 			local switchedOn = false
 			for _, e in selection do
@@ -1734,86 +1735,87 @@ local function info(c, selection, width: number, height: number)
 				end
 			end
 			if off and not switchedOn then
-				ui:text("Выключено: энергию не берёт и не работает; включи в сетке справа", { color = COLORS.warn, wrap = text })
+				ui:text(c:t("hud.switchedOff"), { color = COLORS.warn, wrap = text })
 			end
 			-- Своё повреждённое: сколько стоит починка (у стройки прочность — та же доля, что полоса стройки).
 			local health = not many and not site and c:mine(first) and c:get(first, "Health")
 			if health and health.value < health.max and construction.isRepairable(c, first) then
 				local repair = construction.repairCostOf(kind.data.cost, health.value, construction.rules(c).repairCost, health.max)
-				ui:text("Прочность: " .. percent(health.value / health.max) .. ". Починка стоит " .. repair .. ": выбери строителей и щёлкни по зданию правой кнопкой", { color = COLORS.soft, wrap = text })
+				ui:text(c:t("hud.health", { percent = percent(health.value / health.max), repair = repair }), { color = COLORS.soft, wrap = text })
 			end
 			-- Генератор щита: запас купола или когда он поднимется.
 			local dome = not many and built and kind.data.shield
 			local shield = dome and c:get(first, "Shield")
 			if shield then
 				local down = math.max(0, math.ceil((shield.down - c.tick) * c.step))
-				ui:text(if down > 0 then "Щит пробит: поднимется через " .. down .. " с" else "Щит: " .. math.floor(shield.charge) .. " из " .. dome.capacity, { color = COLORS.soft, wrap = text })
+				ui:text(if down > 0 then c:t("hud.shieldDown", { seconds = down }) else c:t("hud.shield", { charge = math.floor(shield.charge), capacity = dome.capacity }), { color = COLORS.soft, wrap = text })
 			end
 			-- Склад здания, кузов грузовика и его работа, остаток месторождения под шахтой.
 			local stock = not many and c:mine(first) and c:get(first, "Inventory")
 			local hauler = not many and c:get(first, "Hauler")
 			if stock and hauler then
 				ui:box({ direction = "row", align = "center", gap = 6, width = text }, function()
-					ui:text("Груз:")
-					goodsRow(c, stock.items, "пусто")
-					ui:text("из " .. stock.capacity)
+					local before, after = widgets.split(c:t("hud.cargo", { capacity = stock.capacity }), "items")
+					ui:text((string.gsub(before, "%s+$", "")))
+					goodsRow(c, stock.items, c:t("common.empty"))
+					ui:text((string.gsub(after, "^%s*(.-)[%s%.]*$", "%1")))
 				end)
 				local job
 				local order = c:get(first, "Carry")
 				local function titleOf(e: number): string
 					local kind = c:alive(e) and c:proto(e)
-					return if kind then kind.data.title else "?"
+					return if kind then c:t(kind.data.title) else "?"
 				end
 				local function goodName(name: string): string
 					local kind = c.protos.goods[name]
-					return widgets.lower(if kind then kind.data.title else name)
+					return if kind then c:t(kind.data.title) else name
 				end
 				if order then
 					local left = math.ceil(order.left - 1e-6)
 					job = if order.from >= 0
-						then "Работа: перевозит " .. goodName(order.resource) .. " из «" .. titleOf(order.from) .. "» в «" .. titleOf(order.to) .. "», осталось " .. left
-						else "Работа: везёт " .. goodName(order.resource) .. " в «" .. titleOf(order.to) .. "», осталось " .. left
+						then c:t("hud.job.carry", { name = goodName(order.resource), from = titleOf(order.from), to = titleOf(order.to), left = left })
+						else c:t("hud.job.unload", { name = goodName(order.resource), to = titleOf(order.to), left = left })
 				elseif #hauler.route > 0 then
 					local names = {}
 					for _, stop in hauler.route do
 						table.insert(names, titleOf(stop))
 					end
-					job = "Работа: маршрут " .. table.concat(names, " → ")
+					job = c:t("hud.job.route", { stops = table.concat(names, " → ") })
 				elseif #hauler.serve > 0 then
 					local names = {}
 					for _, building in hauler.serve do
 						table.insert(names, titleOf(building))
 					end
-					job = "Работа: возит только для: " .. table.concat(names, ", ")
+					job = c:t("hud.job.serve", { list = table.concat(names, ", ") })
 				elseif hauler.supply >= 0 then
-					job = "Работа: обеспечивает «" .. titleOf(hauler.supply) .. "» — везёт, чего ему не хватает"
+					job = c:t("hud.job.supply", { name = titleOf(hauler.supply) })
 				elseif hauler.mine >= 0 then
-					job = "Работа: возит руду из шахты на переработку"
+					job = c:t("hud.job.mine")
 				elseif hauler.pickup >= 0 then
-					job = "Работа: вывозит груз с земли"
+					job = c:t("hud.job.pickup")
 				elseif hauler.to >= 0 and c:alive(hauler.to) then
 					local kind = c.protos.goods[hauler.resource]
-					local name = widgets.lower(if kind then kind.data.title else hauler.resource)
+					local name = if kind then c:t(kind.data.title) else hauler.resource
 					local left = math.floor(math.max(0, if hauler.full then goods.amount(stock, hauler.resource) else hauler.amount))
 					local toKind = c:proto(hauler.to)
 					local fromKind = hauler.from >= 0 and c:alive(hauler.from) and c:proto(hauler.from)
 					job = if fromKind and not hauler.full
-						then "Работа: перевозит " .. name .. " из «" .. fromKind.data.title .. "» в «" .. toKind.data.title .. "», осталось " .. left
-						else "Работа: везёт " .. name .. " в «" .. toKind.data.title .. "», осталось " .. left
+						then c:t("hud.job.carry", { name = name, from = c:t(fromKind.data.title), to = c:t(toKind.data.title), left = left })
+						else c:t("hud.job.unload", { name = name, to = c:t(toKind.data.title), left = left })
 				else
-					job = "Работа: сам — возит то, что заказывают здания. Правый щелчок по зданию — приказ"
+					job = c:t("hud.job.auto")
 				end
 				ui:text(job, { color = COLORS.soft, wrap = text })
 			elseif stock and built and kind.data.ammo then
 				-- У турели на складе только боеприпасы.
 				local have = math.floor(goods.amount(stock, "ammo"))
 				local tone = if have <= 0 then COLORS.warn else COLORS.soft
-				stockHint(c, "Боеприпасы", "ammo", have, stock.capacity, if have <= 0 then "Пусто: турель молчит, пока не подвезут" else "Расстреляет четверть — грузовики подвезут из хранилищ зоны", tone, text)
+				stockHint(c, c:t("hud.ammo"), "ammo", have, stock.capacity, if have <= 0 then c:t("hud.ammoEmpty") else c:t("hud.ammoTip"), tone, text)
 			elseif stock and built then
 				ui:box({ direction = "row", align = "center", gap = 6, width = text }, function()
-					ui:text((if kind.data.stores then "Хранилище" else "Склад") .. ":")
-					goodsRow(c, stock.items, "пусто")
-					ui:text("— вмещает " .. stock.capacity .. (if (stock.reserve or 0) > 0 then ", резерв " .. stock.reserve else ""), { color = COLORS.dim })
+					ui:text((if kind.data.stores then c:t("hud.storage") else c:t("hud.stock")) .. ":")
+					goodsRow(c, stock.items, c:t("common.empty"))
+					ui:text((string.gsub(c:t("hud.holds", { capacity = stock.capacity }), "^%s+", "")) .. (if (stock.reserve or 0) > 0 then c:t("hud.reserve", { amount = stock.reserve }) else ""), { color = COLORS.dim })
 				end)
 			end
 			-- Реактор: сколько стержней и горит ли стержень.
@@ -1822,15 +1824,15 @@ local function info(c, selection, width: number, height: number)
 				local have = math.floor(goods.amount(stock, burns.good))
 				local burning = economy.burning(c, first)
 				local tone = if have <= 0 and not burning then COLORS.warn else COLORS.soft
-				stockHint(c, "Стержни", burns.good, have, stock.capacity, if burning then "Стержень горит минуту; грузовики подвозят новые из хранилищ зоны" else "Стержня в работе нет: реактор не вырабатывает", tone, text)
+				stockHint(c, c:t("hud.rods"), burns.good, have, stock.capacity, if burning then c:t("hud.rodsTip") else c:t("hud.rodsEmpty"), tone, text)
 			end
 			-- Уровень здания и как идёт улучшение.
 			local raise = built and levelState(c, selection)
 			if raise then
-				ui:text(if raise.level > 1 then "Уровень " .. raise.level .. " из " .. levels.MAX_LEVEL .. ": " .. levels.GAINS[raise.gain] .. " ×" .. number(raise.factor) else "Уровень " .. raise.level .. " из " .. levels.MAX_LEVEL, { color = COLORS.soft, wrap = text })
+				ui:text(if raise.level > 1 then c:t("hud.level", { level = raise.level, max = levels.MAX_LEVEL, gain = c:t(levels.GAINS[raise.gain]), factor = number(raise.factor) }) else c:t("hud.levelBase", { level = raise.level, max = levels.MAX_LEVEL }), { color = COLORS.soft, wrap = text })
 				if raise.raising then
 					local progress = raise.raising.progress
-					widgets.bar(ui, progress, if progress > 0 then "Улучшается — готово " .. percent(progress) else "Улучшение ждёт строителя: выбери его и щёлкни по зданию правой кнопкой", text)
+					widgets.bar(ui, progress, if progress > 0 then c:t("hud.upgrading", { percent = percent(progress) }) else c:t("hud.waitsToUpgrade"), text)
 				end
 			end
 			-- Ракетная шахта: сборка боеголовки, готова, пуск.
@@ -1838,12 +1840,12 @@ local function info(c, selection, width: number, height: number)
 			if silo then
 				if silo.start >= 0 then
 					local left = math.max(0, silo.start + math.floor(kind.data.warhead.launch / c.step + 0.5) - c.tick)
-					ui:text("Пуск: старт через " .. math.ceil(left * c.step) .. " с", { color = COLORS.warn, wrap = text })
+					ui:text(c:t("hud.launching", { seconds = math.ceil(left * c.step) }), { color = COLORS.warn, wrap = text })
 				elseif silo.ticks > 0 and not silo.ready then
 					local progress = math.min(1, silo.progress / silo.ticks)
-					widgets.bar(ui, progress, "Боеголовка — собрано " .. percent(progress), text)
+					widgets.bar(ui, progress, c:t("hud.warheadAssembling", { percent = percent(progress) }), text)
 				else
-					ui:text(if silo.ready then "Боеголовка готова: «Пуск» — навести на цель" else "Боеголовки нет: собери её, чтобы пустить ракету", { color = COLORS.soft, wrap = text })
+					ui:text(if silo.ready then c:t("hud.warheadReady") else c:t("hud.warheadEmpty"), { color = COLORS.soft, wrap = text })
 				end
 			end
 			-- Перехватчик: сколько ракет, собирает ли следующую и что мешает.
@@ -1853,39 +1855,39 @@ local function info(c, selection, width: number, height: number)
 				local count, capacity = charge.missiles, guard.capacity
 				if charge.ticks > 0 then
 					local progress = math.min(1, charge.progress / charge.ticks)
-					widgets.bar(ui, progress, "Ракет " .. count .. " из " .. capacity .. "; следующая — собрано " .. percent(progress), text)
+					widgets.bar(ui, progress, c:t("hud.interceptorAssembling", { count = count, capacity = capacity, percent = percent(progress) }), text)
 				else
 					local lack = silos.interceptorLack(c, first)
 					local list = {}
 					for _, name in goods.names(c) do
 						local amount = guard.materials[name]
 						if amount then
-							table.insert(list, amount .. " " .. widgets.lower(c.protos.goods[name].data.title))
+							table.insert(list, amount .. " " .. c:t(c.protos.goods[name].data.title))
 						end
 					end
-					ui:text(if lack == "off" then "Выключен: ракет " .. count .. " из " .. capacity .. ", новые не собирает и не стреляет"
-						elseif lack == "credits" then "Ракет " .. count .. " из " .. capacity .. ": на сборку следующей нужно " .. guard.cost .. " кредитов"
-						elseif lack == "materials" then "Ракет " .. count .. " из " .. capacity .. ": в сети не хватает — нужно " .. table.concat(list, ", ")
-						else "Ракет " .. count .. " из " .. capacity .. ": собьют ядерные, что метят ближе " .. guard.radius .. " тайлов", { color = COLORS.soft, wrap = text })
+					ui:text(if lack == "off" then c:t("hud.interceptorOff", { count = count, capacity = capacity })
+						elseif lack == "credits" then c:t("hud.interceptorNoCredits", { count = count, capacity = capacity, cost = guard.cost })
+						elseif lack == "materials" then c:t("hud.interceptorNoMaterials", { count = count, capacity = capacity, materials = table.concat(list, ", ") })
+						else c:t("hud.interceptorReady", { count = count, capacity = capacity, radius = guard.radius }), { color = COLORS.soft, wrap = text })
 				end
 			end
 			-- Космопорт: рейс, набираемая сделка или что тут можно (trade в bar.ts).
 			if built and c:mine(first) and trade.isPort(c, c.player, first) then
 				local order = c:get(first, "Trade")
 				if order then
-					local name = widgets.lower(c.protos.goods[order.resource].data.title)
+					local name = c:t(c.protos.goods[order.resource].data.title)
 					local wanted = math.floor(order.wanted + 0.5)
 					local label, progress
 					if order.buy then
 						progress = 1 - order.left / order.total
-						label = "Закупка летит: " .. name .. " ×" .. wanted .. ", оплачено " .. wanted * trade.buyPrice(c, order.resource)
+						label = c:t("hud.buying", { name = name, wanted = wanted, paid = wanted * trade.buyPrice(c, order.resource) })
 					elseif order.total > 0 then
 						progress = 1 - order.left / order.total
-						label = "Корабль в пути: " .. name .. " ×" .. wanted .. " за " .. wanted * trade.price(c, order.resource)
+						label = c:t("hud.shipping", { name = name, wanted = wanted, total = wanted * trade.price(c, order.resource) })
 					else
 						local delivered = math.floor(trade.delivered(c, first))
 						progress = delivered / order.wanted
-						label = "Грузовики везут " .. name .. ": " .. delivered .. " из " .. wanted
+						label = c:t("hud.hauling", { name = name, delivered = delivered, wanted = wanted })
 					end
 					widgets.bar(ui, progress, label, text)
 				else
@@ -1893,7 +1895,7 @@ local function info(c, selection, width: number, height: number)
 					local deal = market.port == first and (market.page == "sell" or buying) and market.deal and dealOf(c, first, buying, market.deal)
 					if deal then
 						ui:box({ direction = "row", align = "center", gap = 6 }, function()
-							ui:text((if buying then "Закупка" else "Продажа") .. ":", { color = COLORS.soft })
+							ui:text((if buying then c:t("grid.buy") else c:t("grid.sell")) .. ":", { color = COLORS.soft })
 							goodWith(c, deal.resource, deal.amount, 20)
 							local field = ui:input("deal", tostring(deal.amount), { width = 72, digits = true, maxLength = 6 })
 							local amount = math.max(0, math.min(deal.max, math.floor(tonumber(field.value) or 0)))
@@ -1905,13 +1907,15 @@ local function info(c, selection, width: number, height: number)
 								market.deal = nil
 							end
 						end)
-						ui:text(if buying
-							then "Цена " .. deal.amount * deal.price .. ", в трюме останется место на " .. deal.room - deal.amount
-							else "Выручка " .. deal.amount * deal.price .. ", в запасе останется " .. deal.max - deal.amount, { color = COLORS.soft, wrap = text })
+						-- В словаре это продолжение строки сделки (« — цена …»): здесь оно со своей строки.
+						local note = if buying
+							then c:t("hud.dealBuy", { total = deal.amount * deal.price, room = deal.room - deal.amount })
+							else c:t("hud.dealSell", { total = deal.amount * deal.price, left = deal.max - deal.amount })
+						ui:text(widgets.capital((string.gsub(note, "^[%s—]+", ""))), { color = COLORS.soft, wrap = text })
 					else
 						ui:text((if #offersOf(c, first) > 0
-							then "Продажа из всех ваших хранилищ: выберите ресурс, потом количество. Что лежит не в сети космопорта, привезут грузовики"
-							else "Продавать нечего: хранилища пусты") .. ". Закупка с орбиты — втрое дороже продажи, привезённое грузовики развезут по хранилищам", { color = COLORS.soft, wrap = text })
+							then c:t("hud.sellHint")
+							else c:t("hud.nothingToSell")) .. c:t("hud.buyHint"), { color = COLORS.soft, wrap = text })
 					end
 				end
 			end
@@ -1923,7 +1927,9 @@ local function info(c, selection, width: number, height: number)
 					local left = c:get(deposit, "Deposit").reserve
 					ui:box({ direction = "row", align = "center", gap = 6, width = text }, function()
 						goodWith(c, ore.name, nil, 20)
-						ui:text(ore.data.title .. ": " .. (if left > 0 then "осталось " .. math.floor(left) else "месторождение выработано"), { color = COLORS.soft })
+						local line = c:t("hud.depositLeft", { name = c:t(ore.data.title), left = if left > 0 then c:t("hud.left", { amount = math.floor(left) }) else c:t("hud.depositDepleted") })
+						local _, after = widgets.split(line, "icon")
+						ui:text((string.gsub(after, "^%s+", "")), { color = COLORS.soft })
 					end)
 				end
 			end
@@ -1933,16 +1939,16 @@ local function info(c, selection, width: number, height: number)
 				local topic = research.current(c, c.player)
 				local state = research.player(c, c.player)
 				if not topic then
-					ui:text("Лаборатория ждёт: выбери тему в дереве технологий (R)", { color = COLORS.soft, wrap = text })
+					ui:text(c:t("hud.researchIdle"), { color = COLORS.soft, wrap = text })
 				else
 					local progress = (state and state.progress or {})[topic] or 0
-					widgets.bar(ui, progress, research.topic(c, topic).data.title .. " — исследовано " .. percent(progress), text)
+					widgets.bar(ui, progress, c:t("hud.researching", { name = c:t(research.topic(c, topic).data.title), percent = percent(progress) }), text)
 					if lab.lack ~= "off" then
 						local goodKind = c.protos.goods[lab.lack]
-						local message = if lab.lack == "power" then "Не хватает энергии: лаборатория работает медленнее"
-							elseif lab.lack == "credits" then "Не хватает кредитов: лаборатория стоит"
-							elseif goodKind then "В сети лаборатории нет: " .. goodKind.data.title
-							else "Скорость выбранных лабораторий: ×" .. lab.speed
+						local message = if lab.lack == "power" then c:t("hud.labNoPower")
+							elseif lab.lack == "credits" then c:t("hud.labNoCredits")
+							elseif goodKind then c:t("hud.labLacks", { name = c:t(goodKind.data.title) })
+							else c:t("hud.labSpeed", { speed = lab.speed })
 						ui:text(message, { color = if lab.lack ~= "" and lab.lack ~= "idle" then COLORS.warn else COLORS.soft, wrap = text })
 					end
 				end
@@ -1953,7 +1959,7 @@ local function info(c, selection, width: number, height: number)
 				local have = c:get(first, "Inventory")
 				local waiting = if site then construction.awaitsMaterials(c, first) else next(logistics.missing(c, first)) ~= nil
 				ui:box({ direction = "row", align = "center", gap = 6, width = text }, function()
-					ui:text("Материалы:", { color = if waiting then COLORS.warn else COLORS.soft })
+					ui:text(c:t("hud.materials") .. ":", { color = if waiting then COLORS.warn else COLORS.soft })
 					for _, name in goods.names(c) do
 						if materials[name] then
 							goodWith(c, name, if have then goods.amount(have, name) else 0, 20, materials[name])
@@ -1961,7 +1967,7 @@ local function info(c, selection, width: number, height: number)
 					end
 				end)
 				if waiting then
-					ui:text("Ждёт подвоза: по трубам, грузовиком или своим строителем со склада", { color = COLORS.warn, wrap = text })
+					ui:text(widgets.capital((string.gsub(c:t("hud.materialsWaiting"), "^[%s—]+", ""))), { color = COLORS.warn, wrap = text })
 				end
 			end
 			-- Цех: рецепт, сколько изделия у зоны и что он делает.
@@ -1971,15 +1977,23 @@ local function info(c, selection, width: number, height: number)
 				local seconds = 0
 				ui:box({ direction = "row", align = "center", gap = 6, width = text }, function()
 					for _, name in goods.names(c) do
+						seconds += product.data.recipe[name] or 0
+					end
+					-- «{inputs} → {output} за {seconds} с»: на месте подстановок — значки (rich в TS).
+					local before, rest = widgets.split(c:t("hud.recipe", { seconds = seconds }), "inputs")
+					local middle, after = widgets.split(rest, "output")
+					if string.find(before, "%S") then
+						ui:text((string.gsub(before, "^%s*(.-)%s*$", "%1")), { color = COLORS.dim })
+					end
+					for _, name in goods.names(c) do
 						local amount = product.data.recipe[name]
 						if amount then
 							goodWith(c, name, amount, 20)
-							seconds += amount
 						end
 					end
-					ui:text("→")
+					ui:text((string.gsub(middle, "^%s*(.-)%s*$", "%1")))
 					goodWith(c, product.name, product.data.yield, 20)
-					ui:text("за " .. seconds .. " с", { color = COLORS.dim })
+					ui:text((string.gsub(after, "^%s*(.-)%s*$", "%1")), { color = COLORS.dim })
 				end)
 				local zoneStock = 0
 				local network = logistics.networkOf(c, first)
@@ -1996,28 +2010,28 @@ local function info(c, selection, width: number, height: number)
 				end
 				local held = c:get(first, "Inventory")
 				local full = held and goods.room(held, product.name) < product.data.yield
-				local phase = if not assembly.on then (if assembly.progress > 0 then "выключен, доделывает сборку" else "выключен") elseif assembly.progress > 0 then "собирает" elseif full then "хранилища полны, ждёт" else "ждёт сырья"
-				widgets.bar(ui, assembly.progress / math.max(seconds, 1e-9), product.data.title .. " в зоне: " .. math.floor(zoneStock) .. " — " .. phase, text)
+				local phase = if not assembly.on then (if assembly.progress > 0 then c:t("hud.assemblyStates.offFinishing") else c:t("hud.assemblyStates.off")) elseif assembly.progress > 0 then c:t("hud.assemblyStates.working") elseif full then c:t("hud.assemblyStates.full") else c:t("hud.assemblyStates.waiting")
+				widgets.bar(ui, assembly.progress / math.max(seconds, 1e-9), c:t("hud.assembly", { name = c:t(product.data.title), have = math.floor(zoneStock), state = phase }), text)
 				if not assembly.on then
-					ui:text("Завод выключен: включи его в сетке справа", { color = COLORS.warn, wrap = text })
+					ui:text(c:t("hud.plantOff"), { color = COLORS.warn, wrap = text })
 				end
 			end
 			local cell = built and c:get(first, "Accumulator")
 			if cell and kind.data.battery then
 				local flow = math.round(cell.flow * 100) / 100
 				local charge, capacity = math.floor(cell.charge), kind.data.battery.capacity
-				ui:text("Заряд: " .. charge .. " из " .. capacity .. (if flow > 0 then ", отдаёт " .. number(flow) .. " ⚡" elseif flow < 0 then ", копит " .. number(-flow) .. " ⚡" else ""), { color = COLORS.soft, wrap = text })
+				ui:text(if flow > 0 then c:t("hud.batteryGiving", { charge = charge, capacity = capacity, flow = number(flow) }) elseif flow < 0 then c:t("hud.batteryCharging", { charge = charge, capacity = capacity, flow = number(-flow) }) else c:t("hud.battery", { charge = charge, capacity = capacity }), { color = COLORS.soft, wrap = text })
 			end
 			local state = not many and c:mine(first) and conversionOf(c, first)
 			if state and state.progress then
-				widgets.bar(ui, state.progress, if state.blocked then "Место занято юнитами" elseif state.unit then "Разворачивается" else "Сворачивается", text)
+				widgets.bar(ui, state.progress, if state.blocked then c:t("hud.blocked") elseif state.unit then c:t("hud.deploying") else c:t("hud.packing"), text)
 			end
 			local producer = not many and c:get(first, "Producer")
 			local packed = producer and c:has(first, "Unit")
 			if producer then
 				if producer.unit ~= "" then
 					local unit = c.protos.units[producer.unit]
-					widgets.bar(ui, producer.progress / (unit.data.buildTime or 1), unit.data.title or producer.unit, text)
+					widgets.bar(ui, producer.progress / (unit.data.buildTime or 1), c:t(unit.data.title) or producer.unit, text)
 					ui:box({ direction = "row", gap = 4 }, function()
 						for i, name in { producer.unit, table.unpack(producer.queue) } do
 							ui:box({ id = "queue:" .. i, width = 32, height = 32, skin = "well", padding = 4 }, function()
@@ -2027,34 +2041,39 @@ local function info(c, selection, width: number, height: number)
 					end)
 				end
 				if packed and producer.unit ~= "" then
-					ui:text("База свёрнута: очередь стоит и продолжится, когда MCV развернётся", { color = COLORS.soft, wrap = text })
+					ui:text(c:t("hud.packedQueue"), { color = COLORS.soft, wrap = text })
 				end
 				-- Армия: сколько места в лимите занято (hud.army).
 				local productionLib = c.protos.mechanics.production
 				local limit = productionLib.limit(c)
 				if limit > 0 then
-					ui:text("Армия: " .. productionLib.army(c, c.player) .. " из " .. limit, { color = COLORS.soft, wrap = text })
+					ui:text(c:t("hud.army", { used = productionLib.army(c, c.player), limit = limit }), { color = COLORS.soft, wrap = text })
 				end
 				if not packed then
-					ui:text(if producer.rally then "Готовые едут к флажку; правый щелчок по карте — перенести" else "Правый щелчок по карте — точка сбора готовых", { color = COLORS.soft, wrap = text })
+					ui:text(if producer.rally then c:t("hud.rallySet") else c:t("hud.rallyTip"), { color = COLORS.soft, wrap = text })
 				end
 			end
 			local mode = c.shared.mode
 			if #buildersOf(c, selection) > 0 and not (mode and mode.kind == "placing") then
-				ui:text("Строит здания и чинит своё: правый щелчок по стройке или повреждённому. Здания — в сетке справа", { color = COLORS.soft, wrap = text })
+				ui:text(c:t("hud.builderTip"), { color = COLORS.soft, wrap = text })
 			end
 			if state and state.unit and not state.progress and not state.choosing then
-				ui:text(if state.traveling then "Едет к месту, чтобы развернуться" else "Передвижная база. Нажми «Развернуть» и выбери место на свободной скале или фундаменте 3×3 — лучше у месторождения: MCV доедет и станет главным зданием, которое заказывает строителей и задаёт зону стройки", { color = COLORS.soft, wrap = text })
+				ui:text(if state.traveling then c:t("hud.deployTravel") else c:t("hud.mcvTip"), { color = COLORS.soft, wrap = text })
 			end
 		end)
 	end)
 end
 
 -- Ничего не выбрано: подсказка по управлению.
-local function nothing(ui, width: number, height: number)
+local function nothing(c, width: number, height: number)
+	local ui = c.ui
 	ui:box({ width = width, height = height, skin = "well", padding = { 10, 12 }, direction = "column", justify = "center", gap = 4, clip = true }, function()
-		for _, line in { "Ничего не выбрано.", "Левая кнопка — выбрать, рамка — несколько юнитов, правая — приказ." } do
-			ui:text(line, { color = COLORS.muted, wrap = true })
+		-- По предложению в строке.
+		local rest = c:t("hud.nothingSelected")
+		while rest ~= "" do
+			local stop, after = string.find(rest, "%.%s+")
+			ui:text(if stop then string.sub(rest, 1, stop) else rest, { color = COLORS.muted, wrap = true })
+			rest = if after then string.sub(rest, after + 1) else ""
 		end
 	end)
 end
@@ -2226,7 +2245,7 @@ local function bottomBar(c)
 			if selected then
 				info(c, selection, infoWidth, INNER)
 			else
-				nothing(ui, infoWidth, INNER)
+				nothing(c, infoWidth, INNER)
 			end
 			commandGrid(c, if selected then slots(c, selection) else {}, GRID_WIDTH, INNER)
 		end)
@@ -2271,26 +2290,26 @@ local function stepsPanel(c)
 	ui:box({ anchor = { right = 12, top = TOP_HEIGHT + 6 }, width = width, skin = "panel", padding = { 8, 10, 10, 10 }, direction = "column", align = "stretch", gap = 6 }, function()
 		ui:box({ direction = "row", gap = 4 }, function()
 			if ui:button("steps:toggle", { height = 28, padding = { 0, 8 }, justify = "start" }, function()
-				ui:text("Первые шаги", shadow())
+				ui:text(c:t("steps.title"), shadow())
 				ui:text(count .. "/" .. #stepsLib.LIST, shadow({ font = "small", color = COLORS.gold }))
 				ui:text(if shown == "open" then "▾" else "▸", shadow({ font = "small" }))
 			end) then
 				settings.setPref(c, "steps", if shown == "open" then "folded" else "open")
 			end
-			ui:tip("steps:toggle", if shown == "open" then "Свернуть список" else "Развернуть список")
+			ui:tip("steps:toggle", if shown == "open" then c:t("steps.foldTip") else c:t("steps.unfoldTip"))
 			if ui:button("steps:close", { height = 28, padding = { 0, 8 } }, function()
 				ui:text("×", shadow())
 			end) then
 				settings.setPref(c, "steps", "off")
 			end
-			ui:tip("steps:close", "Скрыть: вернуть можно в меню, «Настройки»")
+			ui:tip("steps:close", c:t("steps.closeTip"))
 		end)
 		if shown ~= "open" then
 			return
 		end
 		if not current then
 			ui:box({ padding = { 0, 2 } }, function()
-				ui:text("Первые шаги пройдены! Дальше — больше добычи и переработки, новые исследования и оборона базы.", { color = COLORS.good, wrap = width - 24 })
+				ui:text(c:t("steps.finished"), { color = COLORS.good, wrap = width - 24 })
 			end)
 			return
 		end
@@ -2308,19 +2327,19 @@ local function stepsPanel(c)
 						ui:text(if done[i] then "✓" else tostring(i), { color = if done[i] then COLORS.good elseif i == current then COLORS.team else color })
 					end)
 					ui:box({ direction = "column", gap = 2, grow = 1 }, function()
-						ui:text(step.title, { color = color, wrap = width - 46 })
+						ui:text(c:t(step.title), { color = color, wrap = width - 46 })
 						if i ~= current then
 							return
 						end
-						ui:text(step.tip, { font = "small", color = COLORS.soft, wrap = width - 46 })
+						ui:text(c:t(step.tip), { font = "small", color = COLORS.soft, wrap = width - 46 })
 						if target then
 							ui:space(0, 2)
 							if ui:button("steps:show", { height = 28, padding = { 0, 10 } }, function()
-								ui:text("Показать", shadow())
+								ui:text(c:t("steps.show"), shadow())
 							end) then
 								c.shared.flyTo = { x = target.x + target.width / 2, y = target.y + target.height / 2 }
 							end
-							ui:tip("steps:show", "Камера — к месту, где сделать этот шаг; на карте оно обведено")
+							ui:tip("steps:show", c:t("steps.showTip"))
 						end
 					end)
 				end)
@@ -2329,17 +2348,17 @@ local function stepsPanel(c)
 	end)
 end
 
--- Режимы наведения: название и что делать (mode в hud.ts).
+-- Режимы наведения: название и что делать (mode в hud.ts) — ключи словаря; у покрытия название — сам инструмент.
 local MODES = {
-	deploying = { name = "Разворачивание MCV", tip = "Щёлкни, где развернуть: на зелёном можно, MCV доедет сам" },
-	patrolling = { name = "Патруль", tip = "Щёлкни, докуда патрулировать; с Shift — ещё точка" },
-	aiming = { name = "Ядерный удар", tip = "Щёлкни по карте — туда придётся удар" },
-	placing = { name = "Стройка: {name}", tip = "Щёлкни, где заложить, — можно ещё и ещё" },
-	paving = { name = "{name}", tip = "Зажми кнопку и тяни по карте" },
-	routing = { name = "Маршрут грузовиков", tip = "Щёлкай по своим зданиям со складом по порядку; остановок: {count}", done = true },
-	serving = { name = "Обслуживание зданий", tip = "Щёлкай по своим зданиям, повторный щелчок убирает; отмечено: {count}", done = true },
-	carrySource = { name = "Перевезти: откуда", tip = "Щёлкни по зданию, откуда взять груз" },
-	carryTarget = { name = "Перевезти: куда", tip = "Щёлкни по зданию, куда отвезти: {name} ×{count}" },
+	deploying = { name = "mode.deploying", tip = "mode.tips.deploying" },
+	patrolling = { name = "mode.patrolling", tip = "mode.tips.patrolling" },
+	aiming = { name = "mode.aiming", tip = "mode.tips.aiming" },
+	placing = { name = "mode.placing", tip = "mode.tips.placing" },
+	paving = { name = "{name}", tip = "mode.tips.pavingStart" },
+	routing = { name = "mode.routing", tip = "mode.tips.routing", done = true },
+	serving = { name = "mode.serving", tip = "mode.tips.serving", done = true },
+	carrySource = { name = "mode.carrySource", tip = "mode.tips.carrySource" },
+	carryTarget = { name = "mode.carryTarget", tip = "mode.tips.carryTarget" },
 }
 
 
@@ -2357,44 +2376,46 @@ local function modeBar(c)
 	ui:box({ anchor = { centerX = 0, top = TOP_HEIGHT + 6 } }, function()
 		ui:box({ id = "mode", skin = "panel", padding = { 10, 12, 10, 16 }, direction = "row", align = "center", gap = 12, maxWidth = room }, function()
 			local building = mode.building and c.protos.buildings[mode.building]
-			local name = building and building.data.title or ""
-			local tip = spec.tip
+			local name = building and c:t(building.data.title) or ""
+			local tip = c:t(spec.tip)
 			if mode.kind == "paving" then
 				local tool = c.protos.buildings[mode.tool]
-				name = TOOL_NAMES[mode.tool] or (tool and tool.data.title) or mode.tool
+				name = c:t(TOOL_NAMES[mode.tool]) or (tool and c:t(tool.data.title)) or mode.tool
 				local shown = c.shared.paving
 				if shown and shown.tiles > 0 then
-					tip = "Тяни по карте: " .. shown.tiles .. " тайл., " .. shown.cost .. " кредитов"
+					tip = c:t("mode.tips.paving", { tiles = shown.tiles, cost = shown.cost })
 					if (shown.short or 0) > 0 then
-						tip ..= "; на " .. shown.short .. " тайл. не хватает кредитов — они жёлтые"
+						tip ..= c:t("mode.tips.pavingShort", { short = shown.short })
 					end
 				elseif mode.tool == "remove" then
-					tip = "Тяни рамку по тому, что разобрать"
+					tip = c:t("mode.tips.remove")
 				end
 			end
-			if mode.kind == "routing" or mode.kind == "serving" then
-				tip = (string.gsub(tip, "{count}", tostring(#(mode.stops or mode.buildings))))
+			if mode.kind == "routing" then
+				tip = c:t(spec.tip, { stops = #mode.stops })
+			elseif mode.kind == "serving" then
+				tip = c:t(spec.tip, { count = #mode.buildings })
 			elseif mode.kind == "carryTarget" then
 				local good = c.protos.goods[mode.resource]
-				tip = (string.gsub((string.gsub(tip, "{name}", widgets.lower(if good then good.data.title else mode.resource))), "{count}", tostring(mode.amount)))
+				tip = c:t(spec.tip, { name = if good then c:t(good.data.title) else mode.resource, amount = mode.amount })
 			end
-			ui:text((string.gsub(spec.name, "{name}", name)), { color = COLORS.team })
+			ui:text(c:t(spec.name, { name = name }), { color = COLORS.team })
 			ui:text(tip, { color = COLORS.soft, wrap = math.max(160, room - 320) })
 			-- Набор маршрута и обслуживания кончается «Готово»: набранное уходит грузовикам.
 			if spec.done then
 				if ui:button("mode:done", { height = 32, padding = { 2, 14 }, skin = "button-primary" }, function()
-					ui:text("Готово", shadow())
+					ui:text(c:t("mode.done"), shadow())
 				end) then
 					truckControls.finish(c)
 				end
-				ui:tip("mode:done", "То же — правая кнопка мыши или Enter")
+				ui:tip("mode:done", c:t("mode.doneTip"))
 			end
 			if ui:button("mode:cancel", { height = 32, padding = { 2, 14 } }, function()
-				ui:text("Отмена", shadow())
+				ui:text(c:t("mode.cancel"), shadow())
 			end) then
 				c.shared.mode = nil
 			end
-			ui:tip("mode:cancel", "То же — правая кнопка мыши или Esc")
+			ui:tip("mode:cancel", c:t("mode.endTip"))
 		end)
 	end)
 end
@@ -2443,27 +2464,27 @@ local function rewards(c)
 			local buildings, units = research.unlocks(c, toast.topic)
 			local opens = {}
 			for _, other in buildings do
-				table.insert(opens, other.data.title)
+				table.insert(opens, c:t(other.data.title))
 			end
 			for _, other in units do
-				table.insert(opens, other.data.title)
+				table.insert(opens, c:t(other.data.title))
 			end
 			for _, kind in paving.opens(toast.topic) do
-				table.insert(opens, paving.TITLES[kind])
+				table.insert(opens, c:t(paving.TITLES[kind]))
 			end
 			local id = "learned:" .. i
 			if ui:button(id, { skin = "panel", direction = "column", align = "center", gap = 2, padding = { 10, 16 }, alpha = if left > 0.2 then 1 else math.round((0.3 + (left / 0.2) * 0.7) * 8) / 8 }, function()
 				ui:box({ direction = "row", gap = 6 }, function()
-					ui:text(if toast.trigger then "Открытие:" else "Исследовано:")
-					ui:text(kind.data.title, { color = COLORS.team })
+					ui:text(if toast.trigger then c:t("hud.discovered") else c:t("hud.researched"))
+					ui:text(c:t(kind.data.title), { color = COLORS.team })
 				end)
 				if #opens > 0 then
-					ui:text("Теперь можно: " .. table.concat(opens, ", "), { color = COLORS.soft, wrap = room - 32 })
+					ui:text(c:t("hud.opens", { list = table.concat(opens, ", ") }), { color = COLORS.soft, wrap = room - 32 })
 				end
 			end) then
 				c.shared.techOpen = true
 			end
-			ui:tip(id, "Дерево технологий (R)")
+			ui:tip(id, c:t("tech.openTip"))
 		end
 	end)
 end
@@ -2487,9 +2508,9 @@ local function alertList(c)
 			local color = ALERT_COLORS[alert.kind] or COLORS.text
 			ui:box({ id = id, direction = "row", align = "center", gap = 8, padding = { 2, 4 }, alpha = math.round(fade * 8) / 8 }, function()
 				ui:box({ width = 6, height = 6, background = color })
-				ui:text(alertsLib.TEXTS[alert.text] or alert.text, { color = color, shadow = COLORS.ink })
+				ui:text(c:t(alertsLib.TEXTS[alert.text] or alert.text), { color = color, shadow = COLORS.ink })
 			end)
-			ui:tip(id, "Показать место")
+			ui:tip(id, c:t("hud.showPlace"))
 			if ui:clicked(id) then
 				c.shared.flyTo = { x = alert.x, y = alert.y }
 			end
@@ -2520,13 +2541,13 @@ local function chainOf(c, resource: string): string
 	local refinery = "?"
 	for _, kind in construction.menu(c) do
 		if ore and kind.data.refines == ore then
-			refinery = kind.data.title
+			refinery = c:t(kind.data.title)
 			break
 		end
 	end
 	local function title(name: string?): string
 		local kind = name and c.protos.goods[name]
-		return if kind then kind.data.title else "?"
+		return if kind then c:t(kind.data.title) else "?"
 	end
 	return title(ore) .. " → " .. refinery .. " → " .. title(resource)
 end
@@ -2557,8 +2578,8 @@ local function hoverTips(c)
 			ui:box({ anchor = anchor, skin = "panel", padding = { 8, 12 }, direction = "column", gap = 2, passive = true }, function()
 				ui:box({ direction = "row", align = "center", gap = 6 }, function()
 					ui:image(good, 20, 20)
-					ui:text("Месторождение: " .. widgets.lower(good.data.title))
-					ui:text(if left == nil then "остаток неизвестен" elseif left > 0 then "осталось " .. math.floor(left) else "выработано", { color = COLORS.dim })
+					ui:text(c:t("hud.depositTip", { name = c:t(good.data.title) }))
+					ui:text(if left == nil then c:t("hud.leftUnknown") elseif left > 0 then c:t("hud.left", { amount = math.floor(left) }) else c:t("hud.depleted"), { color = COLORS.dim })
 				end)
 				ui:text(chainOf(c, resource), { color = COLORS.dim, wrap = 300 })
 			end)
@@ -2591,8 +2612,8 @@ local function hoverTips(c)
 		end
 	end
 	ui:box({ anchor = anchor, skin = "panel", padding = { 8, 12 }, direction = "row", align = "center", gap = 6, passive = true }, function()
-		ui:text("Сеть: зданий " .. buildings)
-		goodsRow(c, items, if capacity > 0 then "хранилища пусты" else "хранилищ нет")
+		ui:text(c:t("hud.network", { buildings = buildings }))
+		goodsRow(c, items, if capacity > 0 then c:t("hud.storesEmpty") else c:t("hud.noStores"))
 	end)
 end
 
@@ -2678,7 +2699,7 @@ local function truckMenu(c)
 			for _, item in items do
 				if ui:button(prefix .. ":" .. item.resource, { height = 36, padding = { 0, 10 }, justify = "start", gap = 8, active = active == item.resource }, function()
 					goodWith(c, item.resource, item.amount)
-					ui:text(c.protos.goods[item.resource].data.title, shadow())
+					ui:text(c:t(c.protos.goods[item.resource].data.title), shadow())
 				end) then
 					pick(item.resource, item.amount)
 				end
@@ -2688,18 +2709,18 @@ local function truckMenu(c)
 	ui:box({ id = "truck", anchor = { centerX = 0, centerY = 0 }, width = width, maxHeight = ui.height - 24, skin = "panel", padding = { 16, 18 }, direction = "column", gap = 10, align = "stretch" }, function()
 		ui:box({ direction = "row", align = "center", gap = 8 }, function()
 			ui:box({ grow = 1 }, function()
-				ui:text("Приказ грузовикам: " .. (if kind then kind.data.title else ""), { color = COLORS.bright, wrap = width - 90 })
+				ui:text(c:t("truck.title", { name = if kind then c:t(kind.data.title) else "" }), { color = COLORS.bright, wrap = width - 90 })
 			end)
 			if ui:button("truck:close", { height = 36, padding = { 0, 10 } }, function()
 				ui:text("✕", shadow())
 			end) then
 				close()
 			end
-			ui:tip("truck:close", "Закрыть (Esc)")
+			ui:tip("truck:close", c:t("truck.closeTip"))
 		end)
 		if #take > 0 then
 			ui:box({ direction = "column", gap = 6, align = "stretch" }, function()
-				ui:text("Взять отсюда — выбери груз и сколько:", { color = COLORS.soft })
+				ui:text(c:t("truck.take"), { color = COLORS.soft })
 				list(take, "truck:take", function(resource: string, have: number)
 					picked = { building = building, resource = resource, amount = have }
 				end, chosen and chosen.resource)
@@ -2719,24 +2740,24 @@ local function truckMenu(c)
 							picked = { building = building, resource = chosen.resource, amount = math.min(available, amount + CARRY_STEP) }
 						end
 						if ui:button("truck:all", { height = 36, padding = { 0, 10 }, active = amount >= available }, function()
-							ui:text("Всё", shadow())
+							ui:text(c:t("grid.all"), shadow())
 						end) then
 							picked = { building = building, resource = chosen.resource, amount = available }
 						end
 						if ui:button("truck:where", { height = 36, padding = { 0, 10 }, skin = "button-primary" }, function()
-							ui:text("Куда отвезти →", shadow())
+							ui:text(c:t("truck.where"), shadow())
 						end) then
 							c.shared.mode = { kind = "carryTarget", from = building, resource = chosen.resource, amount = amount }
 							close()
 						end
-						ui:tip("truck:where", "Потом щёлкни по зданию-получателю. Грузовики возят рейсами — по " .. capacity .. " за раз, — пока не перевезут всё")
+						ui:tip("truck:where", c:t("truck.whereTip", { capacity = capacity }))
 					end)
 				end
 			end)
 		end
 		if #unload > 0 then
 			ui:box({ direction = "column", gap = 6, align = "stretch" }, function()
-				ui:text("Выгрузить сюда из кузова:", { color = COLORS.soft })
+				ui:text(c:t("truck.unload"), { color = COLORS.soft })
 				list(unload, "truck:unload", function(resource: string, have: number)
 					order("carry", { units = units, from = -1, to = building, resource = resource, amount = have })
 				end)
@@ -2745,19 +2766,19 @@ local function truckMenu(c)
 		if mine or needy then
 			ui:box({ direction = "column", gap = 6, align = "stretch" }, function()
 				if mine and ui:button("truck:mine", { height = 36, padding = { 0, 10 }, justify = "start" }, function()
-					ui:text("Возить руду отсюда на переработку", shadow())
+					ui:text(c:t("truck.mine"), shadow())
 				end) then
 					order("haul", { units = units, mine = building })
 				end
 				if needy and ui:button("truck:supply", { height = 36, padding = { 0, 10 }, justify = "start" }, function()
-					ui:text("Обеспечивать: возить сюда, чего не хватает", shadow())
+					ui:text(c:t("truck.supply"), shadow())
 				end) then
 					order("supply", { units = units, target = building })
 				end
 			end)
 		end
 		if #take == 0 and #unload == 0 and not mine and not needy then
-			ui:text("Здесь нечего взять, и сюда нечего выгрузить", { color = COLORS.soft, wrap = width - 36 })
+			ui:text(c:t("truck.nothing"), { color = COLORS.soft, wrap = width - 36 })
 		end
 	end)
 end

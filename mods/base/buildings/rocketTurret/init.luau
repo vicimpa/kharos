@@ -7,9 +7,9 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "Ракетная турель",
+	title = "buildings.rocketTurret",
 	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "Ракеты против техники и авиации. Стреляет боеприпасами со своего склада",
+	info = "buildingInfo.rocketTurret",
 	width = 1,
 	height = 1,
 	cost = 300,

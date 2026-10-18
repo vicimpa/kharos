@@ -8,7 +8,7 @@ local units = require("lib/units")
 local kind = {}
 
 kind.data = {
-	title = "Разрядник",
+	title = "units.tesla",
 	about = "Разрядник: тяжёлое шасси с разрядной башней. Катушку собирают из компонентов: в них харит, и без цеха её не сделать.",
 	speed = 2,
 	turn = 2.5,

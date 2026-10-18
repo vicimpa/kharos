@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Колодцы",
-		info = "Колодцы ведут трубу под землёй: под ней ездят и строят",
+		title = "research.wells",
+		info = "researchInfo.wells",
 		-- Место в списке тем (TOPICS).
 		order = 24,
 		-- Темы, без которых эту не начать.

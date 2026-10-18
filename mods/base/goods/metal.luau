@@ -6,7 +6,7 @@ local goods = require("lib/goods")
 
 return {
 	data = {
-		title = "Металл",
+		title = "goods.metal",
 		kind = "resource",
 		-- Место в списке грузов (GOODS): ресурсы, изделия, руда.
 		order = 1,

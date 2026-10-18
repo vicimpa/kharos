@@ -7,9 +7,9 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "Ворота",
+	title = "buildings.gate",
 	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "Плиты, выезжающие из земли: опущены, пока рядом нет чужих, и поднимаются стеной, когда враг подходит. Тянутся линией любой ширины. Ставятся и вне зоны",
+	info = "buildingInfo.gate",
 	width = 1,
 	height = 1,
 	cost = 90,

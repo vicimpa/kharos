@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Дороги",
-		info = "Дороги ускоряют юнитов",
+		title = "research.roads",
+		info = "researchInfo.roads",
 		-- Место в списке тем (TOPICS).
 		order = 12,
 		-- Темы, без которых эту не начать.

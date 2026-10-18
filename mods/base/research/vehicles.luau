@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Машины",
-		info = "Машинный завод, багги и зенитка",
+		title = "research.vehicles",
+		info = "researchInfo.vehicles",
 		-- Место в списке тем (TOPICS).
 		order = 30,
 		-- Темы, без которых эту не начать.

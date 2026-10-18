@@ -4,8 +4,8 @@
 return {
 	data = {
 		-- Ярус 4: ракеты и огонь пехоте.
-		title = "Ракеты",
-		info = "Ракетчики и ракетная турель — против брони",
+		title = "research.rockets",
+		info = "researchInfo.rockets",
 		-- Место в списке тем (TOPICS).
 		order = 26,
 		-- Темы, без которых эту не начать.

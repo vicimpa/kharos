@@ -19,7 +19,7 @@ earthworks.PEAK_COST = 40
 earthworks.CLIFF_COST = 25
 -- Какое исследование открывает землеройные работы (DIG_RESEARCH).
 earthworks.RESEARCH = "earthworks"
-earthworks.TITLES = { peak = "Срыть гору", cliff = "Сгладить обрыв" }
+earthworks.TITLES = { peak = "grid.tools.peak", cliff = "grid.tools.cliff" }
 
 local ROCK, MOUNTAIN = 2, 3
 local CLIFF_BIT = 4

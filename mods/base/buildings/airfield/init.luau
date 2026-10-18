@@ -7,10 +7,10 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "Аэродром",
+	title = "buildings.airfield",
 	about = "Аэродром выпускает летающих: им нужно топливо, бомбардировщику ещё и техцентр.",
 	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "Выпускает авиацию: летающие грузовики, дроны, штурмовики и бомбардировщики. Над ним авиация пополняет боеприпасы из хранилищ его сети",
+	info = "buildingInfo.airfield",
 	width = 4,
 	height = 3,
 	cost = 500,

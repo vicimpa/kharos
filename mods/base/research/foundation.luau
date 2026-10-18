@@ -3,8 +3,8 @@
 
 return {
 	data = {
-		title = "Фундамент",
-		info = "Фундамент делает песок пригодным для любого здания и ускоряет стройку",
+		title = "research.foundation",
+		info = "researchInfo.foundation",
 		-- Место в списке тем (TOPICS).
 		order = 34,
 		-- Темы, без которых эту не начать.

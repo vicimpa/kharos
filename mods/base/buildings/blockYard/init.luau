@@ -7,9 +7,9 @@ local buildings = require("lib/buildings")
 local kind = {}
 
 kind.data = {
-	title = "Склад стройблоков",
+	title = "buildings.blockYard",
 	-- Кратко — в карточке кнопки стройки (buildingInfo).
-	info = "Хранит стройблоки зоны",
+	info = "buildingInfo.blockYard",
 	width = 2,
 	height = 2,
 	cost = 150,

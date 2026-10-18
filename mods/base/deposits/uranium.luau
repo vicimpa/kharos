@@ -6,7 +6,7 @@ local deposits = require("lib/deposits")
 
 return {
 	data = {
-		title = "Уран",
+		title = "goods.uranium",
 		min = 300,
 		max = 600,
 		-- Цвет ресурса: значок, груз на луче, точка на мини-карте (resourceColors.ts).
