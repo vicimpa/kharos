@@ -2,9 +2,13 @@
 -- Энергия на экране — перенос из buildingsPass.ts и powerPass.ts: электростанция под нагрузкой работает (огни бегут,
 -- по трубам идёт топливо), лишняя стоит в запасе; своё выключенное стоит темнее, без огней и со значком; над
 -- потребителями, которым не хватает энергии, мигает молния на красном круге, по перегруженным станциям бьют молнии; над
--- повреждёнными зданиями — полоска прочности, над генератором щита — запас; над своими зданиями, к которым не подъехать грузовикам, — «въезд запрещён».
+-- повреждёнными зданиями — полоска прочности, над генератором щита — запас; над своими зданиями и стройками, которые
+-- стоят без груза или кредитов, — значок груза (lib/lacks), у турелей и реакторов на исходе — он же бледный; над
+-- своими зданиями, к которым не подъехать грузовикам, — «въезд запрещён»; над своими юнитами с пустым магазином —
+-- значок боеприпасов.
 
 local economy = require("lib/economy")
+local lacks = require("lib/lacks")
 local supply = require("lib/supply")
 local noise = require("lib/noise").of
 
@@ -30,6 +34,8 @@ power.data = {
 	-- Значок над юнитом: насколько выше его края, в тайлах (UNIT_ICON_GAP); запас на исходе — бледный значок такой
 	-- непрозрачности (LOW_ALPHA), с какой доли магазина (LOW_SHARE = AMMO_REORDER).
 	unitGap = 0.45,
+	-- Раз во сколько тиков пересчитывается, каким своим зданиям чего не хватает (LACK_TICKS).
+	lackTicks = 10,
 	lowAlpha = 0.5,
 	lowShare = 0.25,
 	-- Полоса прочности: высота и промежуток в пикселях экрана, отступ над крышей в тайлах (STATUS_BAR, STATUS_STACK,
@@ -44,6 +50,11 @@ local BAR_GOOD = rgb(0.45, 0.9, 0.55)
 local BAR_BAD = rgb(1, 0.35, 0.25)
 local BAR_SHIELD = rgb(0.3, 0.55, 1)
 
+-- Чего ждут свои здания, у каких запас на исходе и в каком тике это считали.
+local lacking: { [number]: string } = {}
+local low: { [number]: string } = {}
+local lacksAt = -math.huge
+
 -- Станции под нагрузкой и когда их считали.
 local plants: { [number]: boolean } = {}
 local plantsAt = -math.huge
@@ -54,6 +65,12 @@ function power.update(c)
 	if math.abs(time - plantsAt) >= d.plantsEvery then
 		plants = economy.loadedPlants(c)
 		plantsAt = time
+	end
+	-- Чего ждут свои здания: обход складов и сетей — раз в lackTicks тиков, а не каждый кадр.
+	if math.abs(c.tick - lacksAt) >= d.lackTicks then
+		lacking = lacks.of(c, c.player)
+		low = lacks.low(c, c.player)
+		lacksAt = c.tick
 	end
 	local states = economy.states(c)
 	local bolt, alarm = c.protos.sprites.bolt, c.protos.sprites.alarm
@@ -108,23 +125,38 @@ function power.update(c)
 			c.draw:line(left, barTop, left + size.width, barTop, BAR_BACK, d.bar)
 			c.draw:line(left, barTop, left + size.width * bar[1], barTop, bar[2], d.bar)
 		end
-		-- Значки — над полосами, несколько сразу — рядом. Тревожные мигают и держат место, «Выключено» горит ровно.
+		-- Значки — над полосами, несколько сразу — рядом. Тревожные мигают и держат место, «Выключено» горит ровно;
+		-- запас турели или реактора на исходе — бледный значок груза.
 		local icons = {}
 		local mark = c:get(e, "Unreachable")
 		if mark and mark["until"] > c.tick and c:mine(e) then
-			table.insert(icons, { 2, iconOn })
+			table.insert(icons, { phase = 2, shown = iconOn })
 		end
 		if state == "starved" then
-			table.insert(icons, { 0, iconOn })
+			table.insert(icons, { phase = 0, shown = iconOn })
+		end
+		local lack = lacking[e]
+		if lack == "credits" then
+			table.insert(icons, { phase = alarm.data.broke, shown = iconOn })
+		elseif lack then
+			table.insert(icons, { good = c.protos.goods[lack], shown = iconOn })
+		end
+		local short = low[e]
+		if short and not lack then
+			table.insert(icons, { good = c.protos.goods[short], shown = true, alpha = d.lowAlpha })
 		end
 		if off then
-			table.insert(icons, { 1, true })
+			table.insert(icons, { phase = 1, shown = true })
 		end
 		local lifted = top - (if rows > 0 then d.gap + rows * (d.bar + d.stack) / zoom else 0)
 		for i, icon in icons do
-			if icon[2] then
+			if icon.shown then
 				local x = left + size.width / 2 + (i - 1 - #icons / 2) * d.icon + d.icon / 2
-				c.draw:sprite(alarm, icon[1], x, lifted, d.icon)
+				if icon.good then
+					power.lack(c, icon.good, x, lifted, icon.alpha or 1)
+				else
+					c.draw:sprite(alarm, icon.phase, x, lifted, d.icon)
+				end
 			end
 		end
 	end
