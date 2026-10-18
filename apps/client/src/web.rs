@@ -1,129 +1,246 @@
-//! Оболочка в браузере (Emscripten): холст #canvas, WebGL 2 (web/glue.c), события страницы — из web/shell.js через
-//! функции `kharos_*` (их выводит наружу main.rs), кадр — по `requestAnimationFrame` (`emscripten_set_main_loop`).
-//! Моды лежат в /mods (пакет tools/web/build.sh), настройки и сохранения — в IndexedDB.
+//! Оболочка в браузере (wasm32, web-sys): холст `#canvas`, WebGL 2 через glow, события страницы в `Input`, кадр по
+//! `requestAnimationFrame`. Сборка — trunk (apps/client/web/index.html), моды зашиты в неё (build.rs).
 
 use crate::input::Input;
 use crate::App;
 use std::cell::RefCell;
-use std::ffi::{c_char, c_int, c_void, CStr};
-use std::time::Instant;
-
-extern "C" {
-  fn kharos_gl_context() -> c_int;
-  fn kharos_canvas_size(width: *mut f64, height: *mut f64, scale: *mut f64);
-  fn emscripten_webgl_get_proc_address(name: *const c_char) -> *mut c_void;
-  fn emscripten_set_main_loop_arg(func: extern "C" fn(*mut c_void), arg: *mut c_void, fps: c_int, simulate_infinite_loop: c_int);
-  fn emscripten_cancel_main_loop();
-}
+use std::rc::Rc;
+use wasm_bindgen::closure::Closure;
+use wasm_bindgen::JsCast as _;
+use web_sys::{EventTarget, HtmlCanvasElement, KeyboardEvent, PointerEvent, WebGl2RenderingContext, WheelEvent};
 
 struct Shell {
-  start: Instant,
+  canvas: HtmlCanvasElement,
   input: Input,
   app: App,
 }
 
-thread_local! {
-  static SHELL: RefCell<Option<Shell>> = const { RefCell::new(None) };
-}
-
 pub fn run() {
-  if unsafe { kharos_gl_context() } == 0 {
-    eprintln!("нет WebGL 2");
-    return;
+  if let Err(error) = start() {
+    show(&format!("Kharos не запустился: {error}"));
+    web_sys::console::error_1(&error.into());
   }
-  let gl = unsafe { glow::Context::from_loader_function_cstr(|name| emscripten_webgl_get_proc_address(name.as_ptr()) as *const c_void) };
-  let app = match App::new(gl) {
-    Ok(app) => app,
-    Err(error) => {
-      eprintln!("{error}");
-      return;
-    }
+}
+
+/// Сообщение вместо «Загрузка…» на странице.
+fn show(text: &str) {
+  if let Some(status) = web_sys::window().and_then(|window| window.document()).and_then(|document| document.get_element_by_id("status")) {
+    status.set_text_content(Some(text));
+  }
+}
+
+fn start() -> Result<(), String> {
+  let window = web_sys::window().ok_or("нет окна")?;
+  let document = window.document().ok_or("нет документа")?;
+  let canvas: HtmlCanvasElement = document.get_element_by_id("canvas").ok_or("нет <canvas id=\"canvas\">")?.dyn_into().map_err(|_| "#canvas — не холст")?;
+  let options = js_sys::Object::new();
+  for (key, value) in [("alpha", true), ("antialias", false), ("depth", false), ("premultipliedAlpha", true), ("preserveDrawingBuffer", true)] {
+    let _ = js_sys::Reflect::set(&options, &key.into(), &value.into());
+  }
+  let gl: WebGl2RenderingContext = canvas.get_context_with_context_options("webgl2", &options).map_err(|error| format!("{error:?}"))?.ok_or("нет WebGL 2")?.dyn_into().map_err(|_| "не WebGL 2")?;
+  let app = App::new(glow::Context::from_webgl2_context(gl))?;
+  let shell = Rc::new(RefCell::new(Shell { canvas: canvas.clone(), input: Input { focused: true, ..Default::default() }, app }));
+  listen_pointer(&shell, &canvas);
+  listen_keys(&shell, &canvas);
+  listen_window(&shell, &window);
+  if let Some(status) = document.get_element_by_id("status") {
+    status.remove();
+  }
+  let _ = canvas.focus();
+  animate(shell);
+  Ok(())
+}
+
+/// Подписка на событие на всё время страницы.
+fn listen<E: wasm_bindgen::convert::FromWasmAbi + 'static>(target: &EventTarget, event: &str, handler: impl FnMut(E) + 'static) {
+  let closure = Closure::<dyn FnMut(E)>::new(handler);
+  let _ = target.add_event_listener_with_callback(event, closure.as_ref().unchecked_ref());
+  closure.forget();
+}
+
+/// Указатель в пикселях CSS от угла холста.
+fn point(canvas: &HtmlCanvasElement, event: &PointerEvent) -> [f32; 2] {
+  let rect = canvas.get_bounding_client_rect();
+  [(event.client_x() as f64 - rect.left()) as f32, (event.client_y() as f64 - rect.top()) as f32]
+}
+
+/// Кнопка указателя: левая, правая, средняя — как BUTTONS в input.rs.
+fn button(event: &PointerEvent) -> Option<usize> {
+  match event.button() {
+    0 => Some(0),
+    2 => Some(1),
+    1 => Some(2),
+    _ => None,
+  }
+}
+
+fn listen_pointer(shell: &Rc<RefCell<Shell>>, canvas: &HtmlCanvasElement) {
+  let target: &EventTarget = canvas.as_ref();
+  let moved = |shell: &mut Shell, event: &PointerEvent| {
+    shell.input.pointer = Some(point(&shell.canvas, event));
+    shell.input.touch = event.pointer_type() == "touch";
   };
-  SHELL.with(|shell| *shell.borrow_mut() = Some(Shell { start: Instant::now(), input: Input { focused: true, ..Default::default() }, app }));
-  // Без «бесконечного цикла»: main возвращается, рантайм остаётся жить, кадры зовёт браузер.
-  unsafe { emscripten_set_main_loop_arg(frame, std::ptr::null_mut(), 0, 0) };
-}
-
-extern "C" fn frame(_: *mut c_void) {
-  SHELL.with(|shell| {
-    let mut shell = shell.borrow_mut();
-    let Some(shell) = shell.as_mut() else { return };
-    let (mut width, mut height, mut scale) = (0.0, 0.0, 1.0);
-    unsafe { kharos_canvas_size(&mut width, &mut height, &mut scale) };
-    if width <= 0.0 || height <= 0.0 {
-      return;
+  let s = shell.clone();
+  listen(target, "pointermove", move |event: PointerEvent| moved(&mut s.borrow_mut(), &event));
+  let s = shell.clone();
+  listen(target, "pointerdown", move |event: PointerEvent| {
+    let mut shell = s.borrow_mut();
+    let _ = shell.canvas.focus();
+    // Тянут за край холста — события всё равно ему.
+    let _ = shell.canvas.set_pointer_capture(event.pointer_id());
+    moved(&mut shell, &event);
+    if let Some(index) = button(&event) {
+      shell.input.button(index, true);
     }
-    let size = [(width * scale).round() as u32, (height * scale).round() as u32];
-    shell.input.scale = scale as f32;
-    shell.input.screen = [width as f32, height as f32];
-    shell.input.time = shell.start.elapsed().as_secs_f64();
-    if let Err(error) = shell.app.frame(&shell.input, size) {
-      eprintln!("{error}");
-      unsafe { emscripten_cancel_main_loop() };
-      return;
-    }
-    shell.input.end_frame();
+    event.prevent_default();
   });
-}
-
-/// Ввод от страницы: что сделать с оболочкой, если она уже есть.
-fn with(action: impl FnOnce(&mut Shell)) {
-  SHELL.with(|shell| {
-    if let Ok(mut shell) = shell.try_borrow_mut() {
-      if let Some(shell) = shell.as_mut() {
-        action(shell);
-      }
+  let s = shell.clone();
+  listen(target, "pointerup", move |event: PointerEvent| {
+    let mut shell = s.borrow_mut();
+    moved(&mut shell, &event);
+    if let Some(index) = button(&event) {
+      shell.input.button(index, false);
     }
   });
+  let s = shell.clone();
+  listen(target, "pointercancel", move |_: PointerEvent| s.borrow_mut().input.button(0, false));
+  let s = shell.clone();
+  listen(target, "pointerleave", move |event: PointerEvent| {
+    // У касания нет наведения: палец убрали — указателя нет.
+    if event.pointer_type() != "touch" || !s.borrow().input.down[0] {
+      s.borrow_mut().input.pointer = None;
+    }
+  });
+  // Колесо — в строках, вверх больше нуля; щелчок колеса — 40 пикселей, как у нативной оболочки.
+  let s = shell.clone();
+  listen(target, "wheel", move |event: WheelEvent| {
+    event.prevent_default();
+    let lines = match event.delta_mode() {
+      WheelEvent::DOM_DELTA_LINE => -event.delta_y(),
+      WheelEvent::DOM_DELTA_PAGE => -event.delta_y() * 20.0,
+      _ => -event.delta_y() / 40.0,
+    };
+    s.borrow_mut().input.wheel += lines as f32;
+  });
+  listen(target, "contextmenu", move |event: web_sys::Event| event.prevent_default());
 }
 
-fn text(value: *const c_char) -> String {
-  if value.is_null() {
-    return String::new();
+/// Имя клавиши — как у нативной оболочки (shell.rs, key_name): буквы и цифры по месту на клавиатуре, остальное — по
+/// смыслу.
+fn key_name(event: &KeyboardEvent) -> Option<String> {
+  let code = event.code();
+  if let Some(letter) = code.strip_prefix("Key") {
+    return Some(letter.to_lowercase());
   }
-  unsafe { CStr::from_ptr(value) }.to_string_lossy().into_owned()
+  if let Some(digit) = code.strip_prefix("Digit") {
+    return Some(digit.to_string());
+  }
+  let named = match code.as_str() {
+    "ArrowLeft" => "left",
+    "ArrowRight" => "right",
+    "ArrowUp" => "up",
+    "ArrowDown" => "down",
+    "Space" => "space",
+    "Escape" => "escape",
+    "Enter" | "NumpadEnter" => "enter",
+    "Tab" => "tab",
+    "Backspace" => "backspace",
+    "Delete" => "delete",
+    "Home" => "home",
+    "End" => "end",
+    "ShiftLeft" | "ShiftRight" => "shift",
+    "ControlLeft" | "ControlRight" => "ctrl",
+    "AltLeft" | "AltRight" => "alt",
+    "MetaLeft" | "MetaRight" => "meta",
+    "Minus" => "-",
+    "Equal" => "=",
+    _ => "",
+  };
+  if !named.is_empty() {
+    return Some(named.to_string());
+  }
+  if let Some(number) = code.strip_prefix('F').and_then(|rest| rest.parse::<u8>().ok()) {
+    return Some(format!("f{number}"));
+  }
+  let key = event.key();
+  (!key.is_empty()).then(|| key.to_lowercase())
 }
 
-pub fn pointer(x: f64, y: f64, touch: c_int) {
-  with(|shell| {
-    shell.input.pointer = Some([x as f32, y as f32]);
-    shell.input.touch = touch != 0;
+fn listen_keys(shell: &Rc<RefCell<Shell>>, canvas: &HtmlCanvasElement) {
+  let target: &EventTarget = canvas.as_ref();
+  for (name, down) in [("keydown", true), ("keyup", false)] {
+    let s = shell.clone();
+    listen(target, name, move |event: KeyboardEvent| {
+      let mut shell = s.borrow_mut();
+      if let Some(key) = key_name(&event) {
+        shell.input.key(&key, down, event.repeat());
+      }
+      let typed = event.key();
+      if down && typed.chars().count() == 1 && !event.ctrl_key() && !event.meta_key() {
+        shell.input.text.extend(typed.chars().filter(|char| !char.is_control()));
+      }
+      // Клавиши игры странице не нужны (прокрутка пробелом и стрелками, Tab), а сочетания браузера — его.
+      if !event.ctrl_key() && !event.meta_key() {
+        event.prevent_default();
+      }
+    });
+  }
+}
+
+fn listen_window(shell: &Rc<RefCell<Shell>>, window: &web_sys::Window) {
+  let target: &EventTarget = window.as_ref();
+  let s = shell.clone();
+  listen(target, "focus", move |_: web_sys::FocusEvent| s.borrow_mut().input.focused = true);
+  let s = shell.clone();
+  listen(target, "blur", move |_: web_sys::FocusEvent| {
+    // Ушли со страницы — зажатые клавиши и кнопки здесь уже не отпустят.
+    let mut shell = s.borrow_mut();
+    shell.input.focused = false;
+    shell.input.keys.clear();
+    shell.input.down = [false; 3];
   });
+  // Уходят со страницы — партия слота записывается.
+  let s = shell.clone();
+  listen(target, "pagehide", move |_: web_sys::Event| s.borrow_mut().app.save());
 }
 
-pub fn leave() {
-  with(|shell| shell.input.pointer = None);
-}
-
-pub fn button(index: c_int, down: c_int) {
-  with(|shell| shell.input.button((index as usize).min(2), down != 0));
-}
-
-pub fn wheel(lines: f64) {
-  with(|shell| shell.input.wheel += lines as f32);
-}
-
-pub fn key(name: *const c_char, down: c_int, repeat: c_int) {
-  let name = text(name);
-  with(|shell| shell.input.key(&name, down != 0, repeat != 0));
-}
-
-pub fn typed(value: *const c_char) {
-  let value = text(value);
-  with(|shell| shell.input.text.extend(value.chars().filter(|char| !char.is_control())));
-}
-
-pub fn focus(focused: c_int) {
-  with(|shell| {
-    shell.input.focused = focused != 0;
-    // Ушли со страницы — зажатые клавиши уже не отпустят здесь.
-    if focused == 0 {
-      shell.input.keys.clear();
-      shell.input.down = [false; 3];
+/// Кадр за кадром по `requestAnimationFrame`.
+fn animate(shell: Rc<RefCell<Shell>>) {
+  type Frame = Rc<RefCell<Option<Closure<dyn FnMut(f64)>>>>;
+  let frame: Frame = Rc::new(RefCell::new(None));
+  let next = frame.clone();
+  *frame.borrow_mut() = Some(Closure::new(move |_: f64| {
+    if let Err(error) = shell.borrow_mut().frame() {
+      show(&format!("Kharos остановился: {error}"));
+      web_sys::console::error_1(&error.into());
+      return;
     }
-  });
+    if let (Some(window), Some(callback)) = (web_sys::window(), next.borrow().as_ref()) {
+      let _ = window.request_animation_frame(callback.as_ref().unchecked_ref());
+    }
+  }));
+  let first = frame.borrow();
+  if let (Some(window), Some(callback)) = (web_sys::window(), first.as_ref()) {
+    let _ = window.request_animation_frame(callback.as_ref().unchecked_ref());
+  }
 }
 
-pub fn save() {
-  with(|shell| shell.app.save());
+impl Shell {
+  fn frame(&mut self) -> Result<(), String> {
+    let window = web_sys::window().ok_or("нет окна")?;
+    let scale = window.device_pixel_ratio() as f32;
+    // Буфер холста — в пикселях экрана: размер на странице на их число в пикселе CSS.
+    let (width, height) = (self.canvas.client_width().max(1) as f32, self.canvas.client_height().max(1) as f32);
+    let size = [(width * scale).round() as u32, (height * scale).round() as u32];
+    if self.canvas.width() != size[0] || self.canvas.height() != size[1] {
+      self.canvas.set_width(size[0]);
+      self.canvas.set_height(size[1]);
+    }
+    self.input.scale = scale;
+    self.input.screen = [width, height];
+    self.input.time = crate::clock::seconds();
+    self.app.frame(&self.input, size)?;
+    self.input.end_frame();
+    Ok(())
+  }
 }

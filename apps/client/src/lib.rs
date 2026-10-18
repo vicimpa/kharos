@@ -4,6 +4,7 @@
 //! KHAROS_MODS — папки с модами через `:` (по умолчанию `mods` рядом или выше по дереву), KHAROS_GAME — партия.
 
 pub mod atlas;
+mod clock;
 #[cfg_attr(target_arch = "wasm32", path = "audio_silent.rs")]
 mod audio;
 mod game;
@@ -15,16 +16,19 @@ mod saves;
 mod script;
 #[cfg(not(target_arch = "wasm32"))]
 mod shell;
-#[cfg(target_os = "emscripten")]
-pub mod web;
+#[cfg(target_arch = "wasm32")]
+mod web;
 mod ui;
 
 use game::Game;
 use input::Input;
-use kharos_content::{discover, Mod};
+#[cfg(not(target_arch = "wasm32"))]
+use kharos_content::discover;
+use kharos_content::Mod;
 use render::Renderer;
 use script::{AppLink, AppRequest, AppState};
 use std::cell::RefCell;
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -47,7 +51,30 @@ pub struct App {
 /// Как часто пишется партия слота, секунд (SAVE_INTERVAL в packages/host/src/local.ts).
 const SAVE_INTERVAL: f64 = 5.0;
 
+/// Моды, зашитые в сборку для браузера (build.rs): имя мода, файлы — путь от корня мода и содержимое.
+#[cfg(target_arch = "wasm32")]
+const BUNDLED: &[(&str, &[(&str, &[u8])])] = include!(concat!(env!("OUT_DIR"), "/mods.rs"));
+
+/// Моды в браузере — из сборки: те же файлы, что на диске.
+#[cfg(target_arch = "wasm32")]
+fn mods() -> Result<Vec<Mod>, String> {
+  let mut all = Vec::new();
+  for (name, list) in BUNDLED {
+    let mut files = kharos_content::Files::default();
+    for (path, bytes) in *list {
+      if path.ends_with(".luau") {
+        files.files.insert(path.to_string(), String::from_utf8_lossy(bytes).into_owned());
+      } else {
+        files.assets.insert(path.to_string(), bytes.to_vec());
+      }
+    }
+    all.push(Mod { name: name.to_string(), files: Rc::new(files), dir: None });
+  }
+  Ok(all)
+}
+
 /// Моды: из KHAROS_MODS или папки `mods` в текущей папке и выше.
+#[cfg(not(target_arch = "wasm32"))]
 fn mods() -> Result<Vec<Mod>, String> {
   let roots: Vec<PathBuf> = match std::env::var("KHAROS_MODS") {
     Ok(list) => std::env::split_paths(&list).collect(),
@@ -204,7 +231,7 @@ pub fn run() {
   shell::run();
 }
 
-#[cfg(target_os = "emscripten")]
+#[cfg(target_arch = "wasm32")]
 pub fn run() {
   web::run();
 }

@@ -15,7 +15,6 @@ use glutin::surface::{GlSurface as _, Surface, SwapInterval, WindowSurface};
 use glutin_winit::{DisplayBuilder, GlWindow as _};
 use raw_window_handle::HasWindowHandle as _;
 use std::num::NonZeroU32;
-use std::time::Instant;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
@@ -30,7 +29,6 @@ struct Gl {
 }
 
 struct Shell {
-  start: Instant,
   input: Input,
   gl: Option<Gl>,
   app: Option<App>,
@@ -41,7 +39,7 @@ struct Shell {
 
 pub fn run() {
   let shot = std::env::var("KHAROS_SHOT").ok().map(|path| (path, std::env::var("KHAROS_SHOT_FRAMES").ok().and_then(|frames| frames.parse().ok()).unwrap_or(120)));
-  let mut shell = Shell { start: Instant::now(), input: Input { focused: true, ..Default::default() }, gl: None, app: None, shot, frames: 0 };
+  let mut shell = Shell { input: Input { focused: true, ..Default::default() }, gl: None, app: None, shot, frames: 0 };
   let event_loop = EventLoop::new().expect("цикл событий");
   if let Err(error) = event_loop.run_app(&mut shell) {
     eprintln!("цикл событий: {error}");
@@ -192,7 +190,7 @@ impl Shell {
     let scale = gl.window.scale_factor() as f32;
     self.input.scale = scale;
     self.input.screen = [size.width as f32 / scale, size.height as f32 / scale];
-    self.input.time = self.start.elapsed().as_secs_f64();
+    self.input.time = crate::clock::seconds();
     if self.shot.is_some() {
       if let Some([x, y]) = std::env::var("KHAROS_SHOT_POINTER").ok().and_then(|value| value.split_once(',').and_then(|(x, y)| Some([x.trim().parse().ok()?, y.trim().parse().ok()?]))) {
         self.input.pointer = Some([x, y]);

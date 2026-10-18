@@ -1,0 +1,8 @@
+# Браузерная сборка клиента: trunk build --release apps/client/web/index.html (или trunk serve — с раздачей).
+[build]
+target = "index.html"
+dist = "../../../target/web"
+
+[serve]
+addresses = ["127.0.0.1"]
+port = 8090

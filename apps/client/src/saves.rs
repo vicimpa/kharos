@@ -12,7 +12,7 @@ pub fn config_dir() -> Option<PathBuf> {
 
 /// Миллисекунды эпохи.
 pub fn now() -> f64 {
-  std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |time| time.as_secs_f64() * 1000.0)
+  crate::clock::epoch_millis()
 }
 
 /// Слоты: список — объекты JSON `{ id, name, created, updated, tick, game, options, camera? }`.

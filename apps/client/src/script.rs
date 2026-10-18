@@ -106,9 +106,9 @@ impl Preview {
     if self.row >= PREVIEW_SIZE || now - self.changed < PREVIEW_SETTLE {
       return;
     }
-    let started = std::time::Instant::now();
+    let started = crate::clock::seconds();
     let scale = self.side / PREVIEW_SIZE as f64;
-    while self.row < PREVIEW_SIZE && started.elapsed().as_secs_f64() < PREVIEW_BUDGET {
+    while self.row < PREVIEW_SIZE && crate::clock::seconds() - started < PREVIEW_BUDGET {
       let y = (self.row as f64 + 0.5 - PREVIEW_SIZE as f64 / 2.0) * scale;
       for column in 0..PREVIEW_SIZE {
         let x = (column as f64 + 0.5 - PREVIEW_SIZE as f64 / 2.0) * scale;
@@ -437,6 +437,9 @@ impl UserData for AppApi {
       let command = std::process::Command::new("cmd").args(["/C", "start", "", &url]).spawn();
       #[cfg(all(unix, not(target_os = "macos")))]
       let command = std::process::Command::new("xdg-open").arg(&url).spawn();
+      // В браузере — новая вкладка.
+      #[cfg(target_arch = "wasm32")]
+      let command = web_sys::window().ok_or("нет окна").and_then(|window| window.open_with_url_and_target(&url, "_blank").map_err(|_| "окно не открылось"));
       if let Err(error) = command {
         eprintln!("{url}: {error}");
       }

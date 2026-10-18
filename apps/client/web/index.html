@@ -4,6 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
   <title>Kharos</title>
+  <!-- Клиент на Rust: trunk собирает его под wasm32-unknown-unknown (trunk serve apps/client/web/index.html). -->
+  <link data-trunk rel="rust" href="../Cargo.toml" data-bin="kharos" data-wasm-opt="z"
+    data-wasm-opt-params="--enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals --enable-reference-types --enable-multivalue">
   <style>
     html, body { margin: 0; height: 100%; background: #08111c; overflow: hidden; }
     canvas { display: block; width: 100vw; height: 100vh; outline: none; touch-action: none; }
@@ -13,16 +16,5 @@
 <body>
   <canvas id="canvas" tabindex="0"></canvas>
   <div id="status">Загрузка…</div>
-  <script>
-    var Module = {
-      canvas: document.getElementById('canvas'),
-      print: (text) => console.log(text),
-      printErr: (text) => console.warn(text),
-      setStatus: (text) => { const status = document.getElementById('status'); if (status) status.textContent = text },
-      onRuntimeInitialized: () => { document.getElementById('status').remove() },
-    }
-  </script>
-  <script src="mods.js"></script>
-  <script src="kharos.js"></script>
 </body>
 </html>

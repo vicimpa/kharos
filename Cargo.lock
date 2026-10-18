@@ -1712,11 +1712,11 @@ name = "kharos-client"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
- "cc",
  "fontdue",
  "glow",
  "glutin",
  "glutin-winit",
+ "js-sys",
  "kharos-content",
  "kharos-engine",
  "kharos-world",
@@ -1725,7 +1725,9 @@ dependencies = [
  "raw-window-handle",
  "serde_json",
  "ulua-rt",
+ "wasm-bindgen",
  "web-audio-api",
+ "web-sys",
  "winit",
 ]
 

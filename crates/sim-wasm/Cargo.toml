@@ -9,6 +9,6 @@ description = "Симуляция Kharos в wasm для хоста на TS: пл
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-kharos-engine = { path = "../engine" }
+kharos-engine = { path = "../engine", features = ["host-math"] }
 kharos-sim = { path = "../sim" }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }

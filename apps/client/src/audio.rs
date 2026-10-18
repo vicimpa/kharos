@@ -588,7 +588,7 @@ impl Engine {
       compressor.connect(&analyser);
       RefCell::new(analyser)
     });
-    let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |time| time.subsec_nanos() | 1);
+    let seed = (crate::clock::epoch_millis() as u64 as u32).wrapping_mul(1_000_003) | 1;
     Some(Rc::new(Engine { ctx, master, _compressor: compressor, buses, noise, bank: RefCell::new(HashMap::new()), voices: Arc::new(AtomicUsize::new(0)), seed: std::cell::Cell::new(seed), meter }))
   }
 

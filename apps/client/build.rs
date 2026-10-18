@@ -1,27 +1,42 @@
-// Сборка клиента: под Emscripten (браузер, tools/web/build.sh) — склейка с html5.h и настройки компоновщика.
+// Сборка клиента. В браузере (wasm32) дисков нет: моды из папки `mods` зашиваются в сборку — build.rs пишет их список
+// с `include_bytes!` в OUT_DIR/mods.rs, а клиент собирает из него те же `Mod`, что прочитал бы с диска.
+use std::path::{Path, PathBuf};
+
 fn main() {
   println!("cargo:rerun-if-changed=build.rs");
-  println!("cargo:rerun-if-changed=web/glue.c");
-  println!("cargo:rerun-if-changed=web/shell.js");
-  if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("emscripten") {
-    return;
+  let out = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("mods.rs");
+  let mut code = String::from("&[\n");
+  if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("wasm32") {
+    let root = Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../../mods").canonicalize().expect("папка mods");
+    println!("cargo:rerun-if-changed={}", root.display());
+    let mut mods: Vec<PathBuf> = std::fs::read_dir(&root).unwrap().filter_map(|entry| entry.ok().map(|entry| entry.path())).filter(|path| path.join("mod.luau").is_file()).collect();
+    mods.sort();
+    for dir in mods {
+      let name = dir.file_name().unwrap().to_string_lossy().to_string();
+      code.push_str(&format!("  ({name:?}, &[\n"));
+      let mut files = Vec::new();
+      walk(&dir, &mut files);
+      files.sort();
+      for file in files {
+        let relative = file.strip_prefix(&dir).unwrap().components().map(|part| part.as_os_str().to_string_lossy().to_string()).collect::<Vec<_>>().join("/");
+        code.push_str(&format!("    ({relative:?}, include_bytes!({:?})),\n", file.display().to_string()));
+      }
+      code.push_str("  ]),\n");
+    }
   }
-  cc::Build::new().file("web/glue.c").compile("kharos_glue");
-  let shell = std::path::Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("web/shell.js");
-  for arg in [
-    "-sMIN_WEBGL_VERSION=2",
-    "-sMAX_WEBGL_VERSION=2",
-    "-sALLOW_MEMORY_GROWTH=1",
-    // Luau и мир глубоко рекурсивны: стек побольше.
-    "-sSTACK_SIZE=8388608",
-    "-sFORCE_FILESYSTEM=1",
-    // Luau — на C++: его рантайм и исключения.
-    "-sDEFAULT_TO_CXX",
-    "-sEXPORTED_FUNCTIONS=_main,_kharos_pointer,_kharos_leave,_kharos_button,_kharos_wheel,_kharos_key,_kharos_text,_kharos_focus,_kharos_save",
-    "-sEXPORTED_RUNTIME_METHODS=ccall,FS",
-    "-lidbfs.js",
-  ] {
-    println!("cargo:rustc-link-arg={arg}");
+  code.push(']');
+  std::fs::write(out, code).unwrap();
+}
+
+/// Файлы модов, которые читает клиент: тексты Luau и картинки.
+fn walk(dir: &Path, files: &mut Vec<PathBuf>) {
+  for entry in std::fs::read_dir(dir).unwrap().filter_map(Result::ok) {
+    let path = entry.path();
+    if path.is_dir() {
+      walk(&path, files);
+    } else if path.extension().is_some_and(|ext| ext == "luau" || ext == "png") {
+      println!("cargo:rerun-if-changed={}", path.display());
+      files.push(path);
+    }
   }
-  println!("cargo:rustc-link-arg=--pre-js={}", shell.display());
 }

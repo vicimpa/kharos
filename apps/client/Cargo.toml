@@ -22,9 +22,6 @@ mlua = { package = "ulua-rt", version = "0.1.7", features = ["serde"] }
 png = "0.17"
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 
-[build-dependencies]
-cc = "1"
-
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
@@ -34,3 +31,29 @@ glutin-winit = "0.5"
 raw-window-handle = "0.6"
 web-audio-api = { version = "1.7", default-features = false, features = ["cpal"] }
 winit = "0.30"
+
+# Браузер: холст, WebGL 2 (glow поверх web-sys), события страницы, Web Audio — всё из web-sys; собирается trunk
+# (apps/client/web/index.html).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = [
+  "AudioContext",
+  "console",
+  "CssStyleDeclaration",
+  "Document",
+  "DomRect",
+  "Element",
+  "Event",
+  "EventTarget",
+  "FocusEvent",
+  "HtmlCanvasElement",
+  "HtmlElement",
+  "KeyboardEvent",
+  "Performance",
+  "PointerEvent",
+  "Storage",
+  "WebGl2RenderingContext",
+  "WheelEvent",
+  "Window",
+] }

@@ -205,9 +205,9 @@ impl Game {
     let audio = match sound {
       Some(engine) => {
         let kinds: Vec<(String, Table)> = client.section("sounds").map(|proto| (proto.name.clone(), client.by_id(proto.id).expect("вид"))).collect();
-        let started = std::time::Instant::now();
+        let started = crate::clock::seconds();
         engine.bake(&kinds).map_err(error("звуки sounds/"))?;
-        let elapsed = started.elapsed().as_secs_f64() * 1000.0;
+        let elapsed = (crate::clock::seconds() - started) * 1000.0;
         if elapsed > 50.0 {
           eprintln!("звуки посчитаны за {elapsed:.0} мс");
         }
