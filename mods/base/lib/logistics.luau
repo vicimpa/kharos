@@ -5,11 +5,12 @@
 -- важную заявку и везут груз из хранилищ, переработки и цехов зоны; когда заявок нет, развозят готовое по хранилищам.
 -- Руду без переработки никто не возит: она копится в шахте. Как ездят грузовики — mechanics/hauling.
 --
--- Пока нет: лабораторий, патронов турелям, станций запроса, продажи, дропов, маршрутов и ручных приказов — их заявки
+-- Пока нет: патронов турелям, станций запроса, продажи, дропов, маршрутов и ручных приказов — их заявки
 -- придут с их механиками; трубы ещё не везут груз (В5в), поэтому грузовик везёт и внутри сети.
 
 local goods = require("lib/goods")
 local kinds = require("lib/kinds")
+local research = require("lib/research")
 
 local logistics = {}
 
@@ -22,6 +23,8 @@ logistics.PUSH_MIN = 10
 logistics.PUSH_SHARE = 0.5
 -- Заявки меньше этого не возят (MIN_JOB).
 logistics.MIN_JOB = 0.5
+-- Сколько каждого сырья нынешней темы лаборатория держит про запас (LAB_STOCK).
+logistics.LAB_STOCK = 10
 
 local EPSILON = goods.EPSILON
 local NONE = -1
@@ -221,6 +224,18 @@ function logistics.offers(w, e: number): { string }
 		end
 		return list
 	end
+	-- Лаборатория отдаёт всё, что не нужно ни нынешней теме, ни головной: остатки прежних увозят обратно.
+	if data.researches then
+		local owner = w:get(e, "Owner")
+		local needs = research.needs(w, if owner then owner.player else 0)
+		local list = {}
+		for _, name in goods.names(w) do
+			if not needs[name] then
+				table.insert(list, name)
+			end
+		end
+		return list
+	end
 	if data.extract then
 		local ore = logistics.mineOre(w, e)
 		return if ore then { ore } else {}
@@ -312,6 +327,22 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 		local room = goods.room(w:get(e, "Inventory"), ore)
 		if room > 0 then
 			need(e, ore, room, logistics.PRIORITY.refine, "mines")
+		end
+	end
+	-- Лаборатории: сырьё нынешней темы и головной, по LAB_STOCK каждого, но не больше своей доли того, что осталось
+	-- потратить. Руду — из своих шахт, где бы они ни стояли.
+	local labs = {}
+	for _, e in w:each({ "Building", "Owner", "Inventory" }) do
+		if dataOf(w, e).researches and logistics.isReady(w, player, e) and not w:has(e, "Off") then
+			table.insert(labs, e)
+		end
+	end
+	if #labs > 0 then
+		for good, left in research.needs(w, player) do
+			local share = math.min(logistics.LAB_STOCK, math.ceil(left / #labs - 1e-6))
+			for _, lab in labs do
+				need(lab, good, share - goods.amount(w:get(lab, "Inventory"), good), logistics.PRIORITY.production, if goods.isOre(w, good) then "mines" else "zone")
+			end
 		end
 	end
 	-- Включённые цеха: сырьё рецепта, сколько его держат про запас.
@@ -427,6 +458,10 @@ function logistics.accepts(w, player: number, to: number, good: string): boolean
 		return true
 	end
 	if table.find(logistics.inputs(w, to), good) then
+		return true
+	end
+	-- Лаборатория — сырьё своей нынешней темы.
+	if dataOf(w, to).researches and research.needs(w, player)[good] then
 		return true
 	end
 	return dataOf(w, to).refines == good

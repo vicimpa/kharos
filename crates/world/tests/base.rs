@@ -831,3 +831,52 @@ fn builder_fetches_materials_and_plant_assembles_blocks_from_delivered_goods() {
   assert!(assembled, "блоки не доехали: цех {:?} {:?}", get(&host, plant, "Inventory"), get(&host, plant, "Assembly"));
   assert!(stocked(&host, yard, "metal") < 40.0);
 }
+
+/// Список строк поля игрока: пустой список хранится и как {}.
+fn player_list(host: &Host, field: &str) -> Vec<String> {
+  all(host, "Player")[0].1[field].as_array().map_or(Vec::new(), |list| list.iter().filter_map(|topic| topic.as_str().map(String::from)).collect())
+}
+
+/// Открытые игроку темы.
+fn researched(host: &Host) -> Vec<String> {
+  player_list(host, "research")
+}
+
+#[test]
+fn lab_opens_science_and_researches_the_planned_topic_for_credits() {
+  let mut host = host();
+  let (_, site, builder) = base_with_builder(&mut host);
+  let generator = {
+    let spot = free_spot(&host, site, 2);
+    raise(&mut host, "generator", spot, builder)
+  };
+  assert!(get(&host, generator, "Footprint").is_some());
+  // Без открытия «Научный метод» тему в план не поставить: её предшественник не случился.
+  host.send(1, "research", json!({ "topic": "walls" }));
+  host.tick(0.05).unwrap();
+  assert!(player_list(&host, "plan").is_empty());
+  let lab = {
+    let spot = free_spot(&host, site, 2);
+    raise(&mut host, "lab", spot, builder)
+  };
+  ticks(&mut host, 25);
+  assert!(researched(&host).contains(&"science".to_string()), "открытия: {:?}", researched(&host));
+  let before = worth(&host);
+  let from = tick_now(&host);
+  host.send(1, "research", json!({ "topic": "walls" }));
+  host.tick(0.05).unwrap();
+  assert_eq!(player_list(&host, "plan"), vec!["walls".to_string()]);
+  // Тема первого яруса: 100 кредитов и 20 секунд одной лаборатории на полной энергии.
+  for _ in 0..20 * 30 {
+    host.tick(0.05).unwrap();
+    if researched(&host).contains(&"walls".to_string()) {
+      break;
+    }
+  }
+  assert!(researched(&host).contains(&"walls".to_string()), "не исследовано: {:?}, лаборатория {:?}", all(&host, "Player")[0].1, get(&host, lab, "Research"));
+  let spent = tick_now(&host) - from;
+  assert!((spent as i64 - 400).abs() <= 2, "исследовалось {spent} тиков");
+  let paid = before + income_between(from, tick_now(&host)) - worth(&host);
+  assert!((paid - 100.0).abs() < 1e-6, "уплачено {paid}");
+  assert!(player_list(&host, "plan").is_empty());
+}

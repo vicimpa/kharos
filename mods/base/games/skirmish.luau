@@ -75,7 +75,7 @@ skirmish.client = {
 	camera = "rts",
 	-- Выбор места — первым: его Esc и щелчки не достаются выделению.
 	controls = { "deploy", "build", "select", "orders" },
-	ui = { "hud", "pause" },
+	ui = { "hud", "tech", "pause" },
 	atmosphere = { "weather" },
 	effects = { "traces", "construction", "power", "logistics", "combat", "conversion" },
 	-- Звук — как в TS: интерфейс, моторы, работа зданий, фон с подложкой и эхом, ветер полёта.

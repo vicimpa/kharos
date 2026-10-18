@@ -7,6 +7,7 @@ local wallet = require("lib/wallet")
 local economy = require("lib/economy")
 local goods = require("lib/goods")
 local logistics = require("lib/logistics")
+local construction = require("lib/construction")
 
 local readf64, writef64 = buffer.readf64, buffer.writef64
 
@@ -74,6 +75,10 @@ production.commands = {
 			return
 		end
 		local unit = ctx.protos.units[args.unit]
+		-- Юнит, чьё исследование не открыто или чьих зданий нет, не заказать (missingRequirements, missingResearch).
+		if not construction.researched(ctx, player, unit.data.research) or (construction.rules(ctx).techTree and #construction.missing(ctx, player, unit.data.requires) > 0) then
+			return
+		end
 		if not wallet.pay(ctx, player, unit.data.cost) then
 			ctx:signal("refused", { player = player, reason = "credits" })
 			return

@@ -81,10 +81,15 @@ local function turretsByCarrier(ctx): { [number]: { number } }
 	return found
 end
 
--- Есть ли у готового включённого потребителя дело (working). Механики, которых ещё нет (исследования, ракеты, торговля,
--- щиты), дела не дают.
+-- Есть ли у готового включённого потребителя дело (working). Механики, которых ещё нет (ракеты, торговля, щиты), дела
+-- не дают.
 local function working(ctx, e: number, data, turrets): boolean
-	if data.researches or data.warhead or data.intercept or data.trades or data.shield then
+	-- Лаборатория: ведёт тему или вела бы, будь энергия.
+	if data.researches then
+		local lab = ctx:get(e, "Research")
+		return lab ~= nil and (lab.speed > 0 or lab.lack == "power")
+	end
+	if data.warhead or data.intercept or data.trades or data.shield then
 		return false
 	end
 	-- Переработка: есть руда и место под готовое.

@@ -220,6 +220,11 @@ function select.update(c)
 	if not input.down.left then
 		start = nil
 	end
+	-- Открыто окно исследований (ui/tech) — Escape закрывает его, и только.
+	if input.hits.escape and shared.techOpen then
+		shared.techOpen = false
+		shared.modeClosedAt = c.time
+	end
 	-- Этот Escape уже снял режим (controls/deploy): выделение — следующим нажатием.
 	if input.hits.escape and shared.modeClosedAt ~= c.time then
 		-- Отменять нечего — Escape открывает меню партии (ui/pause), если тот же Escape его не закрыл.

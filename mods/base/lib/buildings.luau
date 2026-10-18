@@ -198,6 +198,10 @@ function buildings.entity(kind, protos)
 	if data.assembles then
 		entity.Assembly = { recipe = data.assembles }
 	end
+	-- Лаборатория сообщает, как идёт работа (mechanics/research).
+	if data.researches then
+		entity.Research = {}
+	end
 	if data.battery then
 		entity.Accumulator = {}
 	end

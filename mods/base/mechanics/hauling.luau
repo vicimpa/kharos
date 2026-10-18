@@ -254,7 +254,7 @@ local function dispatch(w)
 				continue
 			end
 			local data = logistics.dataOf(w, e)
-			if data.refines or data.assembles then
+			if data.refines or data.assembles or data.researches then
 				table.insert(outlets, e)
 			elseif data.extract then
 				table.insert(mines, e)
@@ -344,7 +344,7 @@ local function dispatch(w)
 						-- Вставшая переработка — руды нет и её не везут — увозит и крошки; цех — остатки прежнего сырья.
 						local incoming = flows.incoming[source]
 						local stopped = data.refines ~= nil and goods.amount(stock, data.refines) <= EPSILON and (if incoming then incoming[data.refines] or 0 else 0) <= 0
-						local leftover = stopped or (data.assembles ~= nil and not goods.isProduct(w, good))
+						local leftover = stopped or data.researches == true or (data.assembles ~= nil and not goods.isProduct(w, good))
 						if available < (if leftover then EPSILON else math.min(d.PUSH_MIN, room, holds * d.PUSH_SHARE)) then
 							continue
 						end

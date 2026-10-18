@@ -10,6 +10,7 @@ local kinds = require("lib/kinds")
 local economy = require("lib/economy")
 local goods = require("lib/goods")
 local logistics = require("lib/logistics")
+local research = require("lib/research")
 local COLORS, shadow = widgets.COLORS, widgets.shadow
 
 local hud = {}
@@ -183,6 +184,18 @@ local function topBar(c)
 			ui:text(string.format("%02d:%02d", math.floor(hour), math.floor(hour * 60) % 60), { color = COLORS.dim })
 		end)
 		ui:tip("clock", "Время суток")
+		-- Кнопка исследований: открывает дерево технологий, с процентом нынешней темы.
+		local current = research.current(c, c.player)
+		local state = research.player(c, c.player)
+		if ui:button("tech", { active = c.shared.techOpen == true, padding = { 2, 10 }, height = 30 }, function()
+			ui:text("Исследования", shadow())
+			if current and state then
+				ui:text(math.round(((state.progress or {})[current] or 0) * 100) .. "%", shadow({ color = COLORS.team }))
+			end
+		end) then
+			c.shared.techOpen = not c.shared.techOpen
+		end
+		ui:tip("tech", "Дерево технологий (R)")
 		if ui:button("menu", { padding = { 2, 10 }, height = 30 }, function()
 			ui:text("Меню", shadow())
 		end) then
@@ -749,6 +762,26 @@ local function info(c, selection, width: number, height: number)
 					end)
 				end
 			end
+			-- Лаборатория: что ведут и почему стоит.
+			local lab = built and c:mine(first) and c:get(first, "Research")
+			if lab then
+				local topic = research.current(c, c.player)
+				local state = research.player(c, c.player)
+				if not topic then
+					ui:text("Лаборатория ждёт: выбери тему в дереве технологий (R)", { color = COLORS.soft, wrap = text })
+				else
+					local progress = (state and state.progress or {})[topic] or 0
+					widgets.bar(ui, progress, research.topic(c, topic).data.title .. " — исследовано " .. percent(progress), text)
+					if lab.lack ~= "off" then
+						local goodKind = c.protos.goods[lab.lack]
+						local message = if lab.lack == "power" then "Не хватает энергии: лаборатория работает медленнее"
+							elseif lab.lack == "credits" then "Не хватает кредитов: лаборатория стоит"
+							elseif goodKind then "В сети лаборатории нет: " .. goodKind.data.title
+							else "Скорость выбранных лабораторий: ×" .. lab.speed
+						ui:text(message, { color = if lab.lack ~= "" and lab.lack ~= "idle" then COLORS.warn else COLORS.soft, wrap = text })
+					end
+				end
+			end
 			-- Материалы стройки и первого заказа: сколько есть из нужного; ждут — подвоз.
 			local materials = not many and c:mine(first) and logistics.materials(c, first)
 			if materials then
@@ -1001,31 +1034,63 @@ local TOAST_SECONDS = 5
 -- Награды под полосой режима (toastColumn в hud.ts): монета, сумма и за что; mechanics/economy кладёт их в
 -- c.shared.rewards.
 local function rewards(c)
-	local list = c.shared.rewards
-	if not list then
-		return
-	end
-	for i = #list, 1, -1 do
-		if c.time - list[i].time > TOAST_SECONDS then
-			table.remove(list, i)
+	local list = c.shared.rewards or {}
+	local learned = c.shared.learned or {}
+	for _, items in { list, learned } do
+		for i = #items, 1, -1 do
+			if c.time - items[i].time > TOAST_SECONDS then
+				table.remove(items, i)
+			end
 		end
 	end
-	if #list == 0 then
+	if #list == 0 and #learned == 0 then
 		return
 	end
 	local ui = c.ui
 	local mode = ui:rect("mode")
 	local top = TOP_HEIGHT + 6 + (if mode and c.shared.mode then mode.height + 6 else 0)
 	ui:box({ anchor = { centerX = 0, top = top }, direction = "column", align = "center", gap = 6 }, function()
-		ui:box({ skin = "gold", padding = { 10, 14 }, direction = "column", gap = 4 }, function()
-			for _, toast in list do
-				ui:box({ direction = "row", align = "center", gap = 6 }, function()
-					widgets.coin(ui)
-					ui:text("+" .. toast.credits, { color = COLORS.gold })
-					ui:text(toast.title)
-				end)
+		if #list > 0 then
+			ui:box({ skin = "gold", padding = { 10, 14 }, direction = "column", gap = 4 }, function()
+				for _, toast in list do
+					ui:box({ direction = "row", align = "center", gap = 6 }, function()
+						widgets.coin(ui)
+						ui:text("+" .. toast.credits, { color = COLORS.gold })
+						ui:text(toast.title)
+					end)
+				end
+			end)
+		end
+		-- Исследованное и открытое: что тема дала; щелчок — дерево технологий.
+		local room = math.min(ui.width - 24, 640)
+		for i, toast in learned do
+			local kind = research.topic(c, toast.topic)
+			if not kind then
+				continue
 			end
-		end)
+			local left = (TOAST_SECONDS - (c.time - toast.time)) / TOAST_SECONDS
+			local buildings, units = research.unlocks(c, toast.topic)
+			local opens = {}
+			for _, other in buildings do
+				table.insert(opens, other.data.title)
+			end
+			for _, other in units do
+				table.insert(opens, other.data.title)
+			end
+			local id = "learned:" .. i
+			if ui:button(id, { skin = "panel", direction = "column", align = "center", gap = 2, padding = { 10, 16 }, alpha = if left > 0.2 then 1 else math.round((0.3 + (left / 0.2) * 0.7) * 8) / 8 }, function()
+				ui:box({ direction = "row", gap = 6 }, function()
+					ui:text(if toast.trigger then "Открытие:" else "Исследовано:")
+					ui:text(kind.data.title, { color = COLORS.team })
+				end)
+				if #opens > 0 then
+					ui:text("Теперь можно: " .. table.concat(opens, ", "), { color = COLORS.soft, wrap = room - 32 })
+				end
+			end) then
+				c.shared.techOpen = true
+			end
+			ui:tip(id, "Дерево технологий (R)")
+		end
 	end)
 end
 
