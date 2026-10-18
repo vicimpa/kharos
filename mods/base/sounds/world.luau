@@ -1,7 +1,7 @@
 --!strict
 --!native
 -- Звуки зданий и мира — перенос packages/client/src/audio/worldSynth.ts: то, что уже есть в игре, — стройка,
--- разворачивание, выезд из завода, ворота, груз на земле, радар, щиты, реактор, корабль космопорта, монеты, ядерный пуск и взрыв, перегруз сети, отсчёт, уведомления, поражение и сдача. Остальное переедет вместе с механиками.
+-- разворачивание, выезд из завода, петли стройки, сварки, луча, турелей, накопителей, труб и перегруза, ворота, груз на земле, радар, щиты, реактор, корабль космопорта, монеты, ядерный пуск и взрыв, перегруз сети, отсчёт, уведомления, поражение и сдача. Остальное переедет вместе с механиками.
 
 local dsp = require("lib/dsp")
 
@@ -110,6 +110,93 @@ local function radar(rate: number, variant: number)
 		phase += 2 * PI * 1320 * (1 - 0.03 * t) * (1 + variant * 0.008) / rate
 		local echo = if t > 0.4 then decay(t - 0.4, 0.3) * 0.3 else 0
 		return sin(phase) * (attack(t, 0.003) * decay(t, 0.15) + echo)
+	end)
+end
+
+-- Перегрузка электростанции: треск дуг — шум, рвущийся на вспышки, — поверх надсадного гудения сети (overload).
+local function overload(rate: number)
+	local next = random(2001)
+	local crackle = highpass(rate, 1800)
+	local snap = bandpass(rate, 900, 2)
+	local gate, untilAt = 0, 0
+	return loop(rate, 3, function(t, noise)
+		if t >= untilAt then
+			-- Разряды идут пачками: то густо, то пусто.
+			local burst = sin(2 * PI * 0.7 * t) > -0.3
+			gate = if burst and next() < 0.45 then 0.3 + next() * 0.7 else 0
+			untilAt = t + 0.002 + next() * 0.01
+		end
+		local n = noise()
+		local strain = sign(sin(2 * PI * 100 * t)) * 0.12 + sin(2 * PI * 150 * t) * 0.1
+		return crackle(n) * gate * 1.3 + snap(n) * gate * 0.8 + strain * (0.8 + 0.2 * sin(2 * PI * 3 * t))
+	end)
+end
+
+-- Стройка: удары молота, трещотка гайковёрта и шипение сварки — вразнобой (construct).
+local function construct(rate: number)
+	local hammer = clangAt(rate, 0, 380, 0.5, 2101)
+	local ratchet = bandpass(rate, 3200, 5)
+	local hiss = highpass(rate, 3000)
+	return loop(rate, 4, function(t, noise)
+		local n = noise()
+		local knock = hammer(((t % 0.7) + 0.7) % 0.7, n) * (if t % 2.8 < 2.1 then 1 else 0)
+		local drive = if t > 2.2 and t < 3.2 then ratchet(n * pulse(t, 0.03, 0.002)) * 2 else ratchet(0)
+		local spark = hiss(n) * (0.2 + 0.2 * sin(2 * PI * 0.6 * t)) * 0.4
+		return knock + drive + spark
+	end)
+end
+
+-- Сварка ремонта: треск дуги — рваное шипение — и гул аппарата (weld).
+local function weld(rate: number)
+	local next = random(2201)
+	local hiss = highpass(rate, 2500)
+	local level, untilAt = 0, 0
+	return loop(rate, 2, function(t, noise)
+		if t >= untilAt then
+			level = 0.4 + next() * 0.6
+			untilAt = t + 0.01 + next() * 0.05
+		end
+		return hiss(noise()) * level + sign(sin(2 * PI * 100 * t)) * 0.08
+	end)
+end
+
+-- Луч грузовика: переливчатый гул, который дышит, — груз течёт по лучу (tractor).
+local function tractor(rate: number)
+	return loop(rate, 2, function(t)
+		local wobble = sin(2 * PI * 3 * t)
+		return (sin(2 * PI * 220 * t + wobble * 2) * 0.6 + sin(2 * PI * 331 * t + wobble) * 0.3 + sin(2 * PI * 660 * t) * 0.1) * (0.7 + 0.3 * sin(2 * PI * 1.5 * t))
+	end)
+end
+
+-- Поворот турели: зуд моторчика и скрип шестерён (servo).
+local function servo(rate: number)
+	local gear = bandpass(rate, 1800, 6)
+	return loop(rate, 2, function(t, noise)
+		local phase = (t * 240) % 1
+		return (phase * 2 - 1) * 0.4 + gear(noise()) * 0.6 + sin(2 * PI * 480 * t) * 0.15
+	end)
+end
+
+-- Накопитель заряжается или отдаёт: тонкий писк, который дышит (charge).
+local function charge(rate: number)
+	return loop(rate, 2, function(t)
+		return sin(2 * PI * 3200 * t) * 0.3 + sin(2 * PI * 1600 * t) * 0.3 * (0.6 + 0.4 * sin(2 * PI * 2 * t))
+	end)
+end
+
+-- Груз в трубах: бульканье и ровный шум потока (flow).
+local function flow(rate: number)
+	local gurgle = bandpass(rate, 350, 4)
+	local rush = lowpass(rate, 700)
+	local swirl = random(2401)
+	local level, untilAt = 0.5, 0
+	return loop(rate, 3, function(t, noise)
+		if t >= untilAt then
+			level = 0.3 + swirl() * 0.7
+			untilAt = t + 0.03 + swirl() * 0.08
+		end
+		local n = noise()
+		return gurgle(n) * level * 2 + rush(n) * 0.8
 	end)
 end
 
@@ -413,6 +500,13 @@ return {
 		shieldUp = sound("world", shieldUp),
 		-- Петли.
 		reactor = loopSound(reactor),
+		overload = loopSound(overload),
+		construct = loopSound(construct),
+		weld = loopSound(weld),
+		tractor = loopSound(tractor),
+		servo = loopSound(servo),
+		charge = loopSound(charge),
+		flow = loopSound(flow),
 		dome = loopSound(dome),
 		hydraulic = loopSound(hydraulic),
 		steam = loopSound(steam),

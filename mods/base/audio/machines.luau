@@ -2,6 +2,9 @@
 -- Звук работы зданий — перенос packages/client/src/game/machines.ts. Каждый вид звука — одна петля, сколько бы ни
 -- звучало источников: громкость — по тому, сколько их и насколько они близки к середине экрана, сторона — по тому, где
 -- они. Звучит только своё работающее: цех стучит, пока движется его работа; горящий реактор, купол щита, шахта в пуске, MCV в превращении и ракеты — и чужие.
+-- Петли мира из worldSounds.ts: перегруженная станция трещит, стройка стучит, пока движется, ремонт шипит сваркой на
+-- цели, луч грузовика гудит, пока переносит груз, турель зудит, пока поворачивается, накопитель пищит, пока через
+-- него идёт ток, груз в трубах булькает там, докуда дотёк.
 
 local economy = require("lib/economy")
 local missiles = require("lib/missiles")
@@ -10,16 +13,20 @@ local missiles = require("lib/missiles")
 local DOORS, STEAM, RISE = 0.35, 0.45, 0.6
 
 local PERIOD = 0.2
-local LEVELS = { hum = 0.22, machinery = 0.25, drill = 0.2, reactor = 0.3, dome = 0.06, hydraulic = 0.3, steam = 0.4, rocket = 0.6 }
+local LEVELS = { hum = 0.22, machinery = 0.25, drill = 0.2, reactor = 0.3, dome = 0.06, hydraulic = 0.3, steam = 0.4, rocket = 0.6, flow = 0.12, overload = 0.4, construct = 0.28, weld = 0.16, tractor = 0.1, servo = 0.12, charge = 0.05 }
 local SATURATE = 3
 -- Петли мира (worldSounds.ts) набирают громкость быстрее.
-local SATURATES = { reactor = 2, dome = 2, hydraulic = 2, steam = 2, rocket = 2 }
+local SATURATES = { reactor = 2, dome = 2, hydraulic = 2, steam = 2, rocket = 2, flow = 2, overload = 2, construct = 2, weld = 2, tractor = 2, servo = 2, charge = 2 }
+-- Поворот турели меньше этого за проверку — не поворот (SERVO_MIN).
+local SERVO_MIN = 0.01
 local WORK_HOLD = 0.6
 local HEARING = 0.6
 
 local since = PERIOD
 local clock = 0
 local activity = {}
+-- Куда смотрела каждая турель при прошлой проверке.
+local facings: { [number]: number } = {}
 
 -- Работает ли здание: то, что в нём меняется, менялось не раньше WORK_HOLD секунд назад.
 local function busy(entity: number, value: number): boolean
@@ -111,6 +118,76 @@ return {
 			local producer = c:get(e, "Producer")
 			if producer and producer.unit ~= "" and busy(e, producer.progress) then
 				add("machinery", at.x, at.y)
+			end
+		end
+		-- Перегруженные электростанции трещат.
+		for e, state in economy.states(c) do
+			local at = state == "overload" and c:get(e, "Position")
+			if at then
+				add("overload", at.x, at.y)
+			end
+		end
+		-- Стройка стучит, пока движется: без материалов молчит.
+		for _, e in c:each({ "Site", "Position" }) do
+			seen[e] = true
+			if busy(e, c:get(e, "Site").progress) then
+				local at = c:get(e, "Position")
+				add("construct", at.x, at.y)
+			end
+		end
+		-- Ремонт шипит сваркой там, где работает.
+		for _, e in c:each({ "Repair", "Position" }) do
+			local repair = c:get(e, "Repair")
+			local at = repair.working and repair.target >= 0 and c:alive(repair.target) and c:get(repair.target, "Position")
+			if at then
+				add("weld", at.x, at.y)
+			end
+		end
+		-- Луч грузовика гудит, пока переносит груз.
+		for _, e in c:each({ "Beam", "Position" }) do
+			if #c:get(e, "Beam").links > 0 then
+				local at = c:get(e, "Position")
+				add("tractor", at.x, at.y)
+			end
+		end
+		-- Турель зудит, пока поворачивается.
+		local turned = {}
+		for _, e in c:each({ "Attached", "Armed", "Facing" }) do
+			local angle = c:get(e, "Facing").angle
+			local before = facings[e]
+			turned[e] = angle
+			local delta = before and math.abs((angle - before + math.pi) % (2 * math.pi) - math.pi)
+			if delta and delta > SERVO_MIN then
+				local at = c:get(e, "Position")
+				if at then
+					add("servo", at.x, at.y)
+				end
+			end
+		end
+		facings = turned
+		-- Накопитель пищит, пока через него идёт ток.
+		for _, e in c:each({ "Accumulator", "Position" }) do
+			if math.abs(c:get(e, "Accumulator").flow) > 1e-9 then
+				local at = c:get(e, "Position")
+				add("charge", at.x, at.y)
+			end
+		end
+		-- Груз в трубах звучит там, докуда дотёк.
+		for _, e in c:each({ "Batch" }) do
+			local batch = c:get(e, "Batch")
+			local share = (clock - batch.sent) / math.max(1, batch.arrive - batch.sent)
+			if share >= 0 and share <= 1 then
+				local points = {}
+				for _, node in batch.path do
+					local at = c:alive(node) and c:get(node, "Position")
+					if at then
+						table.insert(points, at)
+					end
+				end
+				if #points > 0 then
+					local at = points[math.min(#points, math.floor(share * #points) + 1)]
+					add("flow", at.x, at.y)
+				end
 			end
 		end
 		for e in activity do
