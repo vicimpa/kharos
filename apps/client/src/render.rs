@@ -397,6 +397,10 @@ void main() {
     color = vec4(vColor.rgb, vColor.a * texture(uAtlas, vUv).r);
     return;
   }
+  if (uKind == 3) {
+    color = texture(uAtlas, vUv) * vColor;
+    return;
+  }
   vec4 texel = texture(uAtlas, vUv);
   if (texel.a < 0.5) discard;
   float tone = floor((1.0 - texel.a) * 255.0 + 0.5);
@@ -446,6 +450,7 @@ pub struct Renderer {
   skin: Option<glow::Texture>,
   fog: Option<(glow::Texture, [i32; 2])>,
   minimap: Option<glow::Texture>,
+  preview: Option<glow::Texture>,
   land: Option<LandWindow>,
   occluders: Option<Target>,
   lightmap: Option<Target>,
@@ -495,7 +500,7 @@ impl Renderer {
       let font = gl.texture([ATLAS_SIZE as i32; 2], glow::R8, glow::RED, None);
       raw.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
       raw.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
-      Ok(Self { gl, programs, sprite_vao, sprite_data, spot_vao, spot_data, decal_vao, decal_data, beam_vao, beam_data, empty_vao, batch_vao, batch_vertices, batch_indices, font, font_generation: 0, atlas: None, skin: None, fog: None, minimap: None, land: None, occluders: None, lightmap: None, size: [0, 0] })
+      Ok(Self { gl, programs, sprite_vao, sprite_data, spot_vao, spot_data, decal_vao, decal_data, beam_vao, beam_data, empty_vao, batch_vao, batch_vertices, batch_indices, font, font_generation: 0, atlas: None, skin: None, fog: None, minimap: None, preview: None, land: None, occluders: None, lightmap: None, size: [0, 0] })
     }
   }
 
@@ -507,8 +512,21 @@ impl Renderer {
     self.atlas = Some(self.gl.texture([size[0] as i32, size[1] as i32], glow::RGBA8, glow::RGBA, Some(pixels)));
   }
 
+  /// Шрифт новой партии: её атлас букв заливается заново, даже если его номер совпал с прежним.
+  pub fn reset_font(&mut self) {
+    self.font_generation = u64::MAX;
+  }
+
+  /// Партия без земли.
+  pub fn clear_land(&mut self) {
+    if let Some(window) = self.land.take() {
+      unsafe { self.gl.gl.delete_texture(window.texture) };
+    }
+  }
+
   /// Земля, по которой рисовать.
   pub fn set_land(&mut self, land: Land) {
+    self.clear_land();
     let texture = self.gl.texture([WINDOW, WINDOW], glow::RGBA8, glow::RGBA, None);
     self.land = Some(LandWindow { land, texture, slots: vec![None; (WINDOW_CHUNKS * WINDOW_CHUNKS) as usize] });
   }
@@ -822,6 +840,17 @@ impl Renderer {
             gl.uniform_2_f32(uniform("uInset").as_ref(), 1.0 / size[0] as f32, 1.0 / size[1] as f32);
             gl.bind_texture(glow::TEXTURE_2D, Some(*fog));
           }
+          Paint::Picture => {
+            let Some(atlas) = self.atlas else { continue };
+            gl.uniform_1_i32(uniform("uKind").as_ref(), 3);
+            gl.bind_texture(glow::TEXTURE_2D, Some(atlas));
+          }
+          Paint::Preview => {
+            let Some(preview) = self.preview else { continue };
+            gl.uniform_1_i32(uniform("uKind").as_ref(), 1);
+            gl.uniform_1_i32(uniform("uTeam").as_ref(), 0);
+            gl.bind_texture(glow::TEXTURE_2D, Some(preview));
+          }
           Paint::Minimap => {
             let Some(minimap) = self.minimap else { continue };
             gl.uniform_1_i32(uniform("uKind").as_ref(), 1);
@@ -860,6 +889,23 @@ impl Renderer {
       self.gl.gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
     }
     self.minimap = Some(texture);
+  }
+
+  /// Схема карты новой игры: та же текстура, перезаливается по мере счёта.
+  pub fn load_preview(&mut self, pixels: &[u8], side: usize) {
+    let gl = &self.gl.gl;
+    match self.preview {
+      Some(texture) => unsafe {
+        gl.bind_texture(glow::TEXTURE_2D, Some(texture));
+        gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
+        gl.tex_sub_image_2d(glow::TEXTURE_2D, 0, 0, 0, side as i32, side as i32, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(Some(pixels)));
+      },
+      None => {
+        let texture = self.gl.texture([side as i32, side as i32], glow::RGBA8, glow::RGBA, Some(pixels));
+        unsafe { gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32) };
+        self.preview = Some(texture);
+      }
+    }
   }
 
   /// Скин интерфейса (`gui::skin_pixels`).

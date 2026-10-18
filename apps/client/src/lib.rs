@@ -19,7 +19,10 @@ use game::Game;
 use input::Input;
 use kharos_content::{discover, Mod};
 use render::Renderer;
+use script::{AppLink, AppRequest, AppState};
+use std::cell::RefCell;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 /// Шрифты интерфейса — Ark Pixel 12 и 10 px (OFL), как у TS-клиента, обрезанные до алфавитов (tools/fonts.py).
 const FONTS: [&[u8]; 2] = [include_bytes!("../fonts/ark-pixel-12px.otf"), include_bytes!("../fonts/ark-pixel-10px.otf")];
@@ -27,6 +30,12 @@ const FONTS: [&[u8]; 2] = [include_bytes!("../fonts/ark-pixel-12px.otf"), includ
 pub struct App {
   renderer: Renderer,
   game: Game,
+  mods: Vec<Mod>,
+  /// Общий синтезатор: банк записей считается один раз на запуск.
+  sound: Option<Rc<audio::Engine>>,
+  link: AppLink,
+  /// Пора закрыть игру.
+  pub quit: bool,
 }
 
 /// Моды: из KHAROS_MODS или папки `mods` в текущей папке и выше.
@@ -52,32 +61,78 @@ fn mods() -> Result<Vec<Mod>, String> {
   Ok(all)
 }
 
+/// Партия меню — `menu` в манифестах модов, последний мод главнее.
+fn menu_of(mods: &[Mod]) -> Result<Option<String>, String> {
+  let content = kharos_content::Content::load(kharos_content::Side::Client, mods.to_vec()).map_err(|error| error.to_string())?;
+  Ok(content.manifests.iter().rev().find_map(|manifest| manifest.get::<Option<String>>("menu").ok().flatten()))
+}
+
 impl App {
   pub fn new(gl: glow::Context) -> Result<Self, String> {
     let mut renderer = Renderer::new(gl)?;
-    let fonts = gui::Fonts::new(&FONTS)?;
     renderer.load_skin(&gui::skin_pixels(), gui::SKIN_SIZE);
-    let game = std::env::var("KHAROS_GAME").ok();
-    let mut game = Game::new(mods()?, game.as_deref(), 1, fonts)?;
+    let mods = mods()?;
+    let sound = audio::Engine::new();
+    if sound.is_none() {
+      eprintln!("звука нет: некуда выводить");
+    }
+    let menu = menu_of(&mods)?;
+    // KHAROS_GAME — сразу в партию (проверки, снимки); иначе — в меню, а без меню — в партию по умолчанию.
+    let first = std::env::var("KHAROS_GAME").ok().or_else(|| menu.clone());
+    let link: AppLink = Rc::new(RefCell::new(AppState { menu, ..Default::default() }));
+    let game = Self::launch(&mut renderer, &mods, first.as_deref(), &serde_json::Value::Object(Default::default()), sound.clone(), link.clone())?;
+    Ok(Self { renderer, game, mods, sound, link, quit: false })
+  }
+
+  /// Новая партия: хост, клиентская машина, атлас, земля и мини-карта — в рендер.
+  fn launch(renderer: &mut Renderer, mods: &[Mod], game: Option<&str>, options: &serde_json::Value, sound: Option<Rc<audio::Engine>>, link: AppLink) -> Result<Game, String> {
+    let fonts = gui::Fonts::new(&FONTS)?;
+    renderer.reset_font();
+    let mut game = Game::new(mods.to_vec(), game, options, 1, fonts, sound, link.clone())?;
+    {
+      let mut state = link.borrow_mut();
+      state.game = game.host.game.clone();
+      state.options = options.clone();
+    }
     if let Some((pixels, size)) = game.atlas.take() {
       renderer.load_atlas(&pixels, size);
     }
     if let Some((pixels, size)) = game.minimap.take() {
       renderer.load_minimap(&pixels, size);
     }
-    if let Some(land) = game.land.take() {
-      renderer.set_land(land);
+    match game.land.take() {
+      Some(land) => renderer.set_land(land),
+      None => renderer.clear_land(),
     }
-    Ok(Self { renderer, game })
+    Ok(game)
   }
 
   pub fn frame(&mut self, input: &Input, size: [u32; 2]) -> Result<(), String> {
     let (frame, view) = self.game.frame(input)?;
     let size = [size[0] as i32, size[1] as i32];
     self.renderer.draw_world(&view, &frame, size);
-    let state = self.game.state.borrow();
-    self.renderer.draw_batch(&state.draw, &state.gui.fonts.atlas, &view, true, self.game.palette());
-    self.renderer.draw_batch(&state.gui.batch, &state.gui.fonts.atlas, &view, false, self.game.palette());
+    {
+      let state = self.game.state.borrow();
+      self.renderer.draw_batch(&state.draw, &state.gui.fonts.atlas, &view, true, self.game.palette());
+      self.renderer.draw_batch(&state.gui.batch, &state.gui.fonts.atlas, &view, false, self.game.palette());
+    }
+    // Схема карты новой игры досчитала ряды — в текстуру.
+    {
+      let mut state = self.game.state.borrow_mut();
+      if state.preview.dirty {
+        state.preview.dirty = false;
+        self.renderer.load_preview(&state.preview.pixels, script::PREVIEW_SIZE);
+      }
+    }
+    // Просьбы скриптов к приложению — после кадра: партия, которая просит, дорисована.
+    let request = self.link.borrow_mut().request.take();
+    match request {
+      Some(AppRequest::Start { game, options }) => {
+        self.game = Self::launch(&mut self.renderer, &self.mods, Some(&game), &options, self.sound.clone(), self.link.clone())?;
+      }
+      Some(AppRequest::Quit) => self.quit = true,
+      None => {}
+    }
     Ok(())
   }
 

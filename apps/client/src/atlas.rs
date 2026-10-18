@@ -172,6 +172,8 @@ pub struct Look {
   pub portrait: Option<(Vec<u8>, [usize; 2])>,
   pub portrait_uv: Option<[f32; 4]>,
   pub portrait_size: [f32; 2],
+  /// Картинка из файла мода, а не чертёж: рисуется гладко, с прозрачностью, без цвета стороны.
+  pub picture: bool,
 }
 
 impl Look {
@@ -269,7 +271,60 @@ pub fn build(lua: &Lua, proto: u32, look: Table) -> mlua::Result<Look> {
     None => None,
   };
   let portrait_size = portrait.as_ref().map_or([width as f32, height as f32], |(_, [w, h])| [*w as f32, *h as f32]);
-  Ok(Look { proto, size: [width, height], offset, directions, phases, images, cells: Vec::new(), frame_lights, fps: look.get::<Option<f32>>("fps")?.unwrap_or(8.0), step: look.get::<Option<f32>>("step")?, layer, shadow, memory, lights, table: look, icon, portrait, portrait_uv: None, portrait_size })
+  Ok(Look { proto, size: [width, height], offset, directions, phases, images, cells: Vec::new(), frame_lights, fps: look.get::<Option<f32>>("fps")?.unwrap_or(8.0), step: look.get::<Option<f32>>("step")?, layer, shadow, memory, lights, table: look, icon, portrait, portrait_uv: None, portrait_size, picture: false })
+}
+
+/// Облик-картинка: PNG из мода (`image = "images/logo.png"`), уменьшенный до size усреднением — как картинка на холсте
+/// у TS. Для интерфейса: логотип, значки.
+pub fn picture(proto: u32, look: Table, png: &[u8]) -> Result<Look, String> {
+  let mut decoder = png::Decoder::new(std::io::Cursor::new(png));
+  decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+  let mut reader = decoder.read_info().map_err(|error| error.to_string())?;
+  let mut buffer = vec![0; reader.output_buffer_size()];
+  let info = reader.next_frame(&mut buffer).map_err(|error| error.to_string())?;
+  let (width, height) = (info.width as usize, info.height as usize);
+  let channels = match info.color_type {
+    png::ColorType::Rgba => 4,
+    png::ColorType::Rgb => 3,
+    png::ColorType::GrayscaleAlpha => 2,
+    _ => 1,
+  };
+  let source = |x: usize, y: usize| -> [f32; 4] {
+    let at = (y * width + x) * channels;
+    let pixel = &buffer[at..at + channels];
+    let [r, g, b, a] = match channels {
+      4 => [pixel[0], pixel[1], pixel[2], pixel[3]],
+      3 => [pixel[0], pixel[1], pixel[2], 255],
+      2 => [pixel[0], pixel[0], pixel[0], pixel[1]],
+      _ => [pixel[0], pixel[0], pixel[0], 255],
+    };
+    [r as f32, g as f32, b as f32, a as f32]
+  };
+  let [w, h] = pair(&look, "size", [width as f64, height as f64]).map_err(|error| error.to_string())?.map(|value| (value as usize).max(1));
+  // Усреднение по площади, с весом прозрачности: края не темнеют.
+  let mut pixels = vec![0u8; w * h * 4];
+  for y in 0..h {
+    for x in 0..w {
+      let (x0, x1) = (x * width / w, ((x + 1) * width / w).max(x * width / w + 1));
+      let (y0, y1) = (y * height / h, ((y + 1) * height / h).max(y * height / h + 1));
+      let mut sum = [0.0f32; 4];
+      for sy in y0..y1.min(height) {
+        for sx in x0..x1.min(width) {
+          let [r, g, b, a] = source(sx, sy);
+          sum[0] += r * a;
+          sum[1] += g * a;
+          sum[2] += b * a;
+          sum[3] += a;
+        }
+      }
+      let count = ((x1 - x0) * (y1 - y0)) as f32;
+      let at = (y * w + x) * 4;
+      if sum[3] > 0.0 {
+        pixels[at..at + 4].copy_from_slice(&[(sum[0] / sum[3]).round() as u8, (sum[1] / sum[3]).round() as u8, (sum[2] / sum[3]).round() as u8, (sum[3] / count).round() as u8]);
+      }
+    }
+  }
+  Ok(Look { proto, size: [w, h], offset: [-(w as f32) / 32.0, -(h as f32) / 32.0], directions: 1, phases: 1, images: vec![pixels.clone()], cells: Vec::new(), frame_lights: vec![Vec::new()], fps: 8.0, step: None, layer: Layer::Ground, shadow: [0.0, 0.0], memory: false, lights: Lights::default(), table: look, icon: 0, portrait: Some((pixels, [w, h])), portrait_uv: None, portrait_size: [w as f32, h as f32], picture: true })
 }
 
 /// Портрет: `{ size, origin, draw = function(canvas) }` — рисуется один раз и обрезается по закрашенному (toCanvas).

@@ -174,6 +174,15 @@ fn classify(elevation: f64, (swamp, rock): (f64, f64)) -> u8 {
   }
 }
 
+/// Вид местности и биом точки по генератору, без гор (`sampleTerrain` в TS): для схемы карты, где горы мельче пикселя.
+pub fn sample_terrain(config: &GeneratorConfig, x: f64, y: f64) -> (u8, u8) {
+  if config.blank {
+    return (1, 0);
+  }
+  let weights = biome_weights(x, y, config);
+  (classify(elevation_at(x, y, config), zone_levels(&weights, config)), pack_biome(&weights) >> 6)
+}
+
 fn tier_of(elevation: f64, rock: f64, config: &GeneratorConfig) -> i32 {
   if elevation <= rock {
     return 0;

@@ -25,6 +25,8 @@ pub struct Input {
   pub keys: BTreeSet<String>,
   /// Нажатые с прошлого кадра.
   pub hits: Vec<String>,
+  /// Нажатия с прошлого кадра вместе с повторами зажатой клавиши — для правки текста.
+  pub presses: Vec<String>,
   pub text: String,
   /// Окно в фокусе: без него края экрана камеру не двигают.
   pub focused: bool,
@@ -45,6 +47,7 @@ impl Input {
 
   pub fn key(&mut self, name: &str, down: bool, repeat: bool) {
     if down {
+      self.presses.push(name.to_string());
       if !repeat {
         self.hits.push(name.to_string());
       }
@@ -60,6 +63,7 @@ impl Input {
     self.released = [false; 3];
     self.wheel = 0.0;
     self.hits.clear();
+    self.presses.clear();
     self.text.clear();
   }
 }

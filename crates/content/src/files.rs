@@ -8,12 +8,15 @@ use std::path::Path;
 #[derive(Clone, Debug, Default)]
 pub struct Files {
   pub files: BTreeMap<String, String>,
+  /// Картинки мода (`.png`): облик может взять картинку вместо чертежа.
+  pub assets: BTreeMap<String, Vec<u8>>,
 }
 
 impl Files {
-  /// Все `.luau` из папки мода, с подпапками.
+  /// Все `.luau` и `.png` из папки мода, с подпапками.
   pub fn read_dir(root: &Path) -> std::io::Result<Self> {
     let mut files = BTreeMap::new();
+    let mut assets = BTreeMap::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
       for entry in std::fs::read_dir(&dir)? {
@@ -23,10 +26,13 @@ impl Files {
         } else if path.extension().is_some_and(|ext| ext == "luau") {
           let relative = path.strip_prefix(root).expect("файл внутри мода").components().map(|part| part.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/");
           files.insert(relative, std::fs::read_to_string(&path)?);
+        } else if path.extension().is_some_and(|ext| ext == "png") {
+          let relative = path.strip_prefix(root).expect("файл внутри мода").components().map(|part| part.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/");
+          assets.insert(relative, std::fs::read(&path)?);
         }
       }
     }
-    Ok(Self { files })
+    Ok(Self { files, assets })
   }
 
   pub fn get(&self, path: &str) -> Option<&str> {
@@ -69,6 +75,11 @@ impl Files {
       hash.write(&[0]);
       hash.write(text.as_bytes());
       hash.write(&[0]);
+    }
+    for (path, bytes) in &self.assets {
+      hash.write(path.as_bytes());
+      hash.write(&[0]);
+      hash.write(bytes);
     }
     hash.0
   }

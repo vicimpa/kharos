@@ -65,6 +65,59 @@ pub struct SoundOrder {
 pub struct LookInfo {
   pub uv: [f32; 4],
   pub size: [f32; 2],
+  pub picture: bool,
+}
+
+/// Схема карты новой игры (preview.ts): сторона, что считается, сколько рядов готово, доли видов местности.
+pub struct Preview {
+  pub key: String,
+  pub config: Option<kharos_engine::terrain::GeneratorConfig>,
+  pub palette: Vec<Vec<Vec<u8>>>,
+  pub side: f64,
+  pub row: usize,
+  pub pixels: Vec<u8>,
+  pub counts: [u32; 4],
+  pub inside: u32,
+  /// Когда правка пришла: считать — после паузы PREVIEW_SETTLE, пока тянут ползунок — нет.
+  pub changed: f64,
+  /// Ряды досчитаны, а в текстуру ещё не залиты.
+  pub dirty: bool,
+}
+
+/// Сторона схемы в пикселях, мс счёта за кадр, пауза после правки в секундах, цвет вне карты.
+pub const PREVIEW_SIZE: usize = 256;
+const PREVIEW_BUDGET: f64 = 0.008;
+const PREVIEW_SETTLE: f64 = 0.12;
+const PREVIEW_OUTSIDE: [u8; 4] = [8, 17, 28, 255];
+
+impl Preview {
+  pub fn new() -> Self {
+    Self { key: String::new(), config: None, palette: Vec::new(), side: 0.0, row: PREVIEW_SIZE, pixels: PREVIEW_OUTSIDE.repeat(PREVIEW_SIZE * PREVIEW_SIZE), counts: [0; 4], inside: 0, changed: 0.0, dirty: true }
+  }
+
+  /// Порция счёта: ряды сверху вниз, пока не вышел бюджет кадра.
+  fn step(&mut self, now: f64) {
+    let Some(config) = &self.config else { return };
+    if self.row >= PREVIEW_SIZE || now - self.changed < PREVIEW_SETTLE {
+      return;
+    }
+    let started = std::time::Instant::now();
+    let scale = self.side / PREVIEW_SIZE as f64;
+    while self.row < PREVIEW_SIZE && started.elapsed().as_secs_f64() < PREVIEW_BUDGET {
+      let y = (self.row as f64 + 0.5 - PREVIEW_SIZE as f64 / 2.0) * scale;
+      for column in 0..PREVIEW_SIZE {
+        let x = (column as f64 + 0.5 - PREVIEW_SIZE as f64 / 2.0) * scale;
+        let (terrain, biome) = kharos_engine::terrain::sample_terrain(config, x, y);
+        self.counts[terrain as usize & 3] += 1;
+        self.inside += 1;
+        let color = self.palette.get(biome as usize).and_then(|row| row.get(terrain as usize)).cloned().unwrap_or(vec![128, 128, 128]);
+        let at = (self.row * PREVIEW_SIZE + column) * 4;
+        self.pixels[at..at + 4].copy_from_slice(&[color[0], color[1], color[2], 255]);
+      }
+      self.row += 1;
+    }
+    self.dirty = true;
+  }
 }
 
 /// Состояние клиента, общее у Rust и `c`.
@@ -92,6 +145,7 @@ pub struct ClientState {
   pub land: Option<RefCell<kharos_engine::terrain::Land>>,
   /// Таблицы видов клиентской машины по номерам.
   pub protos: Vec<Table>,
+  pub preview: Preview,
 }
 
 /// Издалека слышно тише: при таком масштабе громкость полная, при вдвое меньшем — вдвое тише (hearing.ts).
@@ -199,6 +253,77 @@ pub struct Ctx {
   pub music: Table,
   pub protos: Table,
   pub game: Table,
+  pub app: AppLink,
+}
+
+/// Просьба скриптов к приложению — исполняется после кадра.
+#[derive(Clone, Debug)]
+pub enum AppRequest {
+  /// Начать партию games/<game> с настройками (ложатся в её data).
+  Start { game: String, options: Json },
+  /// Закрыть игру.
+  Quit,
+}
+
+/// Что приложение знает и о чём его просят — общее у всех партий запуска.
+#[derive(Default)]
+pub struct AppState {
+  pub request: Option<AppRequest>,
+  /// Партия меню (`menu` в mod.luau): в неё ведёт c.app:menu().
+  pub menu: Option<String>,
+  /// Идущая партия и её настройки.
+  pub game: String,
+  pub options: Json,
+}
+
+pub type AppLink = Rc<RefCell<AppState>>;
+
+/// `c.app` — приложение: начать партию, выйти в меню, закрыть игру.
+pub struct AppApi(AppLink);
+
+impl UserData for AppApi {
+  fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
+    fields.add_field_method_get("game", |_, app| Ok(app.0.borrow().game.clone()));
+    fields.add_field_method_get("menu", |_, app| Ok(app.0.borrow().menu.clone()));
+    fields.add_field_method_get("options", |lua, app| kharos_content::vm::to_lua(lua, &app.0.borrow().options));
+  }
+
+  fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+    // c.app:start("skirmish", { seed, size, generator, weather, name }) — новая партия после этого кадра.
+    methods.add_method("start", |lua, app, (game, options): (String, Option<Value>)| {
+      let options: Json = lua.from_value(options.unwrap_or(Value::Nil))?;
+      app.0.borrow_mut().request = Some(AppRequest::Start { game, options: if options.is_null() { Json::Object(Default::default()) } else { options } });
+      Ok(())
+    });
+    // В главное меню — партию меню.
+    methods.add_method("to_menu", |_, app, ()| {
+      let mut state = app.0.borrow_mut();
+      if let Some(menu) = state.menu.clone() {
+        state.request = Some(AppRequest::Start { game: menu, options: Json::Object(Default::default()) });
+      }
+      Ok(())
+    });
+    // Открыть адрес в системном браузере.
+    methods.add_method("open", |_, _, url: String| {
+      if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err(mlua::Error::runtime(format!("{url}: открываются только адреса http и https")));
+      }
+      #[cfg(target_os = "macos")]
+      let command = std::process::Command::new("open").arg(&url).spawn();
+      #[cfg(target_os = "windows")]
+      let command = std::process::Command::new("cmd").args(["/C", "start", "", &url]).spawn();
+      #[cfg(all(unix, not(target_os = "macos")))]
+      let command = std::process::Command::new("xdg-open").arg(&url).spawn();
+      if let Err(error) = command {
+        eprintln!("{url}: {error}");
+      }
+      Ok(())
+    });
+    methods.add_method("quit", |_, app, ()| {
+      app.0.borrow_mut().request = Some(AppRequest::Quit);
+      Ok(())
+    });
+  }
 }
 
 fn entity(value: f64) -> mlua::Result<Entity> {
@@ -229,6 +354,7 @@ impl UserData for Ctx {
       Ok((tick + state.alpha) * crate::game::STEP)
     });
     fields.add_field_method_get("draw", |_, c| Ok(Draw(c.state.clone())));
+    fields.add_field_method_get("app", |_, c| Ok(AppApi(c.app.clone())));
     fields.add_field_method_get("ui", |_, c| Ok(UiApi(c.state.clone())));
     fields.add_field_method_get("audio", |_, c| Ok(c.state.borrow().audio.clone().map(AudioApi)));
     fields.add_field_method_get("screen", |lua, c| {
@@ -524,7 +650,7 @@ impl UserData for UiApi {
           let fit = (width / w).min(height / h);
           let scale = if fit >= 2.0 { fit.floor() } else { fit };
           let (dw, dh) = ((w * scale).round(), (h * scale).round());
-          let image = crate::gui::Image::Sprite { uv: info.uv, team: team.unwrap_or(0) % crate::render::TEAMS };
+          let image = if info.picture { crate::gui::Image::Picture { uv: info.uv } } else { crate::gui::Image::Sprite { uv: info.uv, team: team.unwrap_or(0) % crate::render::TEAMS } };
           let pad = [((height - dh) / 2.0).floor(), 0.0, 0.0, ((width - dw) / 2.0).floor()];
           state.gui.open(crate::gui::Style { width: Some(width), height: Some(height), padding: pad, ..Default::default() }, None);
           state.gui.leaf(Default::default(), crate::gui::Leaf::Image { image, width: dw, height: dh });
@@ -594,6 +720,68 @@ impl UserData for UiApi {
       table.set("height", rect.h)?;
       Ok(Some(table))
     });
+    // Поле ввода: ui:input(id, значение, { width, placeholder, maxLength, digits, password, focus, color, background,
+    // outline }) → { value, focused, keys } — набранное, в фокусе ли, клавиши, отданные панели ("Enter", "Escape",
+    // "Tab", "ArrowUp", "ArrowDown", "Blur").
+    methods.add_method("input", |lua, ui, (id, value, options): (String, String, Option<Table>)| {
+      let mut parsed = crate::gui::FieldOptions::default();
+      if let Some(table) = &options {
+        parsed.width = table.get("width")?;
+        parsed.placeholder = table.get("placeholder")?;
+        parsed.max_length = table.get("maxLength")?;
+        parsed.digits = table.get::<Option<bool>>("digits")?.unwrap_or(false);
+        parsed.password = table.get::<Option<bool>>("password")?.unwrap_or(false);
+        parsed.focus = table.get::<Option<bool>>("focus")?.unwrap_or(false);
+        parsed.color = crate::gui::color(&table.get("color")?);
+        parsed.background = crate::gui::color(&table.get("background")?);
+        parsed.outline = crate::gui::color(&table.get("outline")?);
+      }
+      let field = ui.0.borrow_mut().gui.input(&id, &value, &parsed);
+      let result = lua.create_table()?;
+      result.set("value", field.value)?;
+      result.set("focused", field.focused)?;
+      result.set("keys", field.keys)?;
+      Ok(result)
+    });
+    // Схема карты новой игры, как preview.ts: ui:preview(местность из lands/, правки генератора, сид, сторона карты в
+    // тайлах, ширина, высота) — считается порциями по кадрам после паузы в правках; → { ready, rock, swamp }.
+    methods.add_method("preview", |lua, ui, (land, changes, seed, side, width, height): (Table, Option<Table>, f64, f64, f32, f32)| {
+      let mut generator: Json = lua.from_value(land.get::<Value>("data")?)?;
+      if let (Json::Object(fields), Some(changes)) = (&mut generator, changes) {
+        if let Json::Object(changes) = lua.from_value::<Json>(Value::Table(changes))? {
+          fields.extend(changes);
+        }
+      }
+      if let Json::Object(fields) = &mut generator {
+        fields.insert("seed".into(), Json::from(seed));
+      }
+      let key = format!("{generator}|{side}");
+      let mut state = ui.0.borrow_mut();
+      let now = state.time;
+      let preview = &mut state.preview;
+      if preview.key != key {
+        preview.key = key;
+        preview.config = Some(serde_json::from_value(generator).map_err(mlua::Error::external)?);
+        preview.palette = land.get::<Option<Vec<Vec<Vec<u8>>>>>("minimap")?.unwrap_or_default();
+        preview.side = side;
+        preview.row = 0;
+        preview.counts = [0; 4];
+        preview.inside = 0;
+        preview.changed = now;
+      }
+      preview.step(now);
+      let ready = preview.row >= PREVIEW_SIZE;
+      let total = preview.inside.max(1) as f64;
+      let (rock, swamp) = (preview.counts[2] as f64 / total, preview.counts[0] as f64 / total);
+      state.gui.leaf(crate::gui::Style { alpha: if ready { None } else { Some(0.6) }, ..Default::default() }, crate::gui::Leaf::Image { image: crate::gui::Image::Preview, width, height });
+      let result = lua.create_table()?;
+      result.set("ready", ready)?;
+      result.set("rock", rock)?;
+      result.set("swamp", swamp)?;
+      Ok(result)
+    });
+    // Прописными — с кириллицей (string.upper у Luau знает только латиницу).
+    methods.add_function("upper", |_, (_, text): (Value, String)| Ok(text.to_uppercase()));
     // Ширина строки шрифтом font.
     methods.add_method("measure", |_, ui, (text, font): (String, Option<String>)| Ok(ui.0.borrow_mut().gui.fonts.width(crate::gui::FontName::parse(font.as_deref().unwrap_or("body")), &text)));
   }
@@ -637,7 +825,7 @@ pub fn fill_input(lua: &Lua, table: &Table, input: &Input, view: &View, over_ui:
 /// Значок облика для `c.ui:image` (после упаковки атласа): портрет, если он есть, иначе кадр значка.
 pub fn look_info(look: &Look) -> LookInfo {
   match look.portrait_uv {
-    Some(uv) => LookInfo { uv, size: look.portrait_size },
-    None => LookInfo { uv: look.cells[look.cell(look.icon as f64 / look.directions.max(1) as f64 * crate::atlas::TURN, 0)], size: [look.size[0] as f32, look.size[1] as f32] },
+    Some(uv) => LookInfo { uv, size: look.portrait_size, picture: look.picture },
+    None => LookInfo { uv: look.cells[look.cell(look.icon as f64 / look.directions.max(1) as f64 * crate::atlas::TURN, 0)], size: [look.size[0] as f32, look.size[1] as f32], picture: look.picture },
   }
 }

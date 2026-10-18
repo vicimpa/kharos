@@ -7,7 +7,7 @@ use std::path::Path;
 
 fn host() -> Host {
   let mods = discover(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods")).unwrap();
-  let mut host = Host::new(mods, None, 7).unwrap();
+  let mut host = Host::new(mods, None, 7, &serde_json::Value::Null).unwrap();
   host.start().unwrap();
   host.join(1).unwrap();
   host

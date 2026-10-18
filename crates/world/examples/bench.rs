@@ -55,7 +55,7 @@ fn main() {
   }
   mods.push(Mod { name: "bench".into(), files: Rc::new(files), dir: None });
   let started = Instant::now();
-  let mut host = Host::new(mods, Some("bench"), 1).unwrap();
+  let mut host = Host::new(mods, Some("bench"), 1, &serde_json::Value::Null).unwrap();
   println!("загрузка модов: {:.1} мс", started.elapsed().as_secs_f64() * 1000.0);
   let started = Instant::now();
   host.start().unwrap();

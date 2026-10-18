@@ -108,10 +108,29 @@ fn lua_error(what: impl std::fmt::Display) -> impl FnOnce(mlua::Error) -> Error 
   move |error| format!("{what}: {error}")
 }
 
+/// Генератор местности партии: вид `lands/<data.land>`, поверх — `data.generator` (поля генератора) и `data.seed`.
+/// None — у партии нет местности. Один и тот же у хоста и клиента.
+pub fn land_config(content: &Content, data: &Table) -> Result<Option<kharos_engine::terrain::GeneratorConfig>, Error> {
+  let Some(name) = data.get::<Option<String>>("land").map_err(lua_error("data.land"))? else { return Ok(None) };
+  let kind = content.get("lands", &name).ok_or_else(|| format!("нет местности lands/{name}"))?;
+  let mut generator: Json = content.lua.from_value(kind.get::<Value>("data").map_err(lua_error(format!("lands/{name}.data")))?).map_err(lua_error(format!("lands/{name}.data")))?;
+  if let (Json::Object(fields), Some(changes)) = (&mut generator, data.get::<Option<Table>>("generator").map_err(lua_error("data.generator"))?) {
+    let changes: Json = content.lua.from_value(Value::Table(changes)).map_err(lua_error("data.generator"))?;
+    if let Json::Object(changes) = changes {
+      fields.extend(changes);
+    }
+  }
+  if let (Json::Object(fields), Some(seed)) = (&mut generator, data.get::<Option<f64>>("seed").map_err(lua_error("data.seed"))?) {
+    fields.insert("seed".into(), Json::from(seed));
+  }
+  serde_json::from_value(generator).map(Some).map_err(|problem| format!("lands/{name}.data: {problem}"))
+}
+
 impl Host {
   /// Загружает моды на стороне хоста и собирает схему, системы, команды и обработчики. game — вид из `games/`: из
   /// партий правила берутся только у неё; None — партия по умолчанию (`game` в манифесте, последний мод главнее).
-  pub fn new(mods: Vec<Mod>, game: Option<&str>, seed: u64) -> Result<Self, Error> {
+  /// options — настройки партии из меню, ложатся в её `data` (`Content::apply_options`).
+  pub fn new(mods: Vec<Mod>, game: Option<&str>, seed: u64, options: &Json) -> Result<Self, Error> {
     let content = Content::load(Side::Host, mods).map_err(|error| error.to_string())?;
     let game = match game {
       Some(game) => game.to_string(),
@@ -121,6 +140,7 @@ impl Host {
     if content.id("games", game).is_none() {
       return Err(format!("нет партии games/{game}"));
     }
+    content.apply_options(game, options)?;
     let schema = Rc::new(schema_of(&content)?);
     let state = Rc::new(RefCell::new(State { world: World::new(schema.clone()), ops: Vec::new(), events: Vec::new(), signals: Vec::new(), tick: 0, dt: 0.05, rng: seed.max(1), grid: None, vision: None, land: None }));
     let lua = &content.lua;
@@ -161,10 +181,7 @@ impl Host {
     if let Some(size) = data.as_ref().and_then(|data| data.get::<Option<i32>>("size").ok().flatten()) {
       let fog = data.as_ref().and_then(|data| data.get::<Option<bool>>("fog").ok().flatten()).unwrap_or(true);
       state.borrow_mut().vision = Some(crate::vision::Vision::new(crate::vision::Bounds { left: -size, top: -size, right: size, bottom: size }, fog));
-      if let Some(name) = data.as_ref().and_then(|data| data.get::<Option<String>>("land").ok().flatten()) {
-        let kind = content.get("lands", &name).ok_or_else(|| format!("нет местности lands/{name}"))?;
-        let generator: Json = content.lua.from_value(kind.get::<Value>("data").map_err(lua_error(format!("lands/{name}.data")))?).map_err(lua_error(format!("lands/{name}.data")))?;
-        let config: kharos_engine::terrain::GeneratorConfig = serde_json::from_value(generator).map_err(|problem| format!("lands/{name}.data: {problem}"))?;
+      if let Some(config) = land_config(&content, data.as_ref().expect("data"))? {
         state.borrow_mut().land = Some(kharos_engine::terrain::Land::new(config, kharos_engine::terrain::LandArea::of(-size, -size, size, size)));
       }
     }

@@ -2,7 +2,7 @@
 //! тики хоста по 50 мс с накоплением, потом скрипты подачи, звук и сборка кадра для рендера.
 
 use crate::atlas::{self, Look};
-use crate::audio::Audio;
+use crate::audio::{Audio, Engine};
 use crate::gui::{Fonts, Gui};
 use crate::input::Input;
 use crate::render::{Frame, View, LAYERS, SPRITE, TEAMS, TEXELS};
@@ -11,7 +11,7 @@ use kharos_content::vm::function;
 use kharos_content::{Content, Mod, Side};
 use kharos_engine::terrain::{GeneratorConfig, Land, LandArea};
 use kharos_world::{Entity, Host, Signal};
-use mlua::{AnyUserData, Function, LuaSerdeExt, Table, Value};
+use mlua::{AnyUserData, Function, Table};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -87,13 +87,17 @@ fn named(content: &Content, section: &str, name: &str) -> Result<Table, String> 
 }
 
 impl Game {
-  pub fn new(mods: Vec<Mod>, game: Option<&str>, player: u32, fonts: Fonts) -> Result<Self, String> {
-    let mut host = Host::new(mods.clone(), game, 1)?;
+  /// Партия game (None — по умолчанию) с настройками options (`Content::apply_options`); звук — в общий синтезатор
+  /// sound, если он есть. app — просьбы скриптов к приложению (`c.app`).
+  pub fn new(mods: Vec<Mod>, game: Option<&str>, options: &serde_json::Value, player: u32, fonts: Fonts, sound: Option<Rc<Engine>>, app: crate::script::AppLink) -> Result<Self, String> {
+    let seed = options.get("seed").and_then(serde_json::Value::as_f64).map_or(1, |seed| seed as u64);
+    let mut host = Host::new(mods.clone(), game, seed, options)?;
     let game = host.game.clone();
     let game = game.as_str();
     host.start()?;
     host.join(player)?;
     let client = Content::load(Side::Client, mods).map_err(|error| error.to_string())?;
+    client.apply_options(game, options)?;
     if client.checksum() != host.content.checksum() {
       return Err("моды хоста и клиента разошлись: суммы данных видов не совпали".into());
     }
@@ -107,6 +111,14 @@ impl Game {
     for proto in &client.list {
       let table = client.by_id(proto.id).expect("вид");
       if let Some(look) = table.get::<Option<Table>>("look").map_err(error(format!("{}/{}.look", proto.section, proto.name)))? {
+        // Картинка из мода вместо чертежа.
+        if let Some(path) = look.get::<Option<String>>("image").map_err(error("look.image"))? {
+          let png = client.asset(&path).ok_or_else(|| format!("{}/{}: нет картинки {path}", proto.section, proto.name))?;
+          let built = atlas::picture(proto.id, look, png).map_err(|problem| format!("{}/{}: {path}: {problem}", proto.section, proto.name))?;
+          look_of.insert(proto.id, looks.len());
+          looks.push(built);
+          continue;
+        }
         if function(&look, "draw").map_err(error("look.draw"))?.is_none() {
           continue;
         }
@@ -117,9 +129,9 @@ impl Game {
     }
     let atlas = atlas::pack(&mut looks);
 
-    let state = Rc::new(RefCell::new(ClientState { world: host.state.clone(), prev: HashMap::new(), alpha: 0.0, view: View { x: 0.0, y: 0.0, zoom: 32.0, screen: [1280.0, 800.0], scale: 1.0 }, input: Input::default(), time: 0.0, dt: 0.0, player, outbox: Vec::new(), sounds: Vec::new(), particles: Vec::new(), decals: Default::default(), draw: Default::default(), gui: Gui::new(fonts), looks: looks.iter().map(|look| (look.proto, look_info(look))).collect(), audio: None, land: None, protos: client.list.iter().map(|proto| client.by_id(proto.id).expect("вид")).collect() }));
+    let state = Rc::new(RefCell::new(ClientState { world: host.state.clone(), prev: HashMap::new(), alpha: 0.0, view: View { x: 0.0, y: 0.0, zoom: 32.0, screen: [1280.0, 800.0], scale: 1.0 }, input: Input::default(), time: 0.0, dt: 0.0, player, outbox: Vec::new(), sounds: Vec::new(), particles: Vec::new(), decals: Default::default(), draw: Default::default(), gui: Gui::new(fonts), looks: looks.iter().map(|look| (look.proto, look_info(look))).collect(), audio: None, land: None, preview: crate::script::Preview::new(), protos: client.list.iter().map(|proto| client.by_id(proto.id).expect("вид")).collect() }));
     let table = || lua.create_table().map_err(error("таблица"));
-    let ctx = Ctx { state: state.clone(), input: table()?, camera: table()?, shared: table()?, atmosphere: table()?, music: table()?, protos: client.protos.clone(), game: game_table.clone() };
+    let ctx = Ctx { state: state.clone(), input: table()?, camera: table()?, shared: table()?, atmosphere: table()?, music: table()?, protos: client.protos.clone(), game: game_table.clone(), app };
     ctx.camera.set("x", 0.0).map_err(error("камера"))?;
     ctx.camera.set("y", 0.0).map_err(error("камера"))?;
     ctx.camera.set("zoom", 32.0).map_err(error("камера"))?;
@@ -154,17 +166,19 @@ impl Game {
     let controls = list("controls", "controls", "update")?;
     let effects = list("effects", "effects", "update")?;
 
-    let mut audio = Audio::new();
-    if audio.is_none() {
-      eprintln!("звука нет: некуда выводить");
-    }
-    if let Some(audio) = &mut audio {
-      let kinds: Vec<(String, Table)> = client.section("sounds").map(|proto| (proto.name.clone(), client.by_id(proto.id).expect("вид"))).collect();
-      let started = std::time::Instant::now();
-      audio.load(kinds).map_err(error("звуки sounds/"))?;
-      eprintln!("звуки посчитаны за {:.0} мс", started.elapsed().as_secs_f64() * 1000.0);
-    }
-    let audio = audio.map(Rc::new);
+    let audio = match sound {
+      Some(engine) => {
+        let kinds: Vec<(String, Table)> = client.section("sounds").map(|proto| (proto.name.clone(), client.by_id(proto.id).expect("вид"))).collect();
+        let started = std::time::Instant::now();
+        engine.bake(&kinds).map_err(error("звуки sounds/"))?;
+        let elapsed = started.elapsed().as_secs_f64() * 1000.0;
+        if elapsed > 50.0 {
+          eprintln!("звуки посчитаны за {elapsed:.0} мс");
+        }
+        Some(Rc::new(Audio::new(engine, &kinds).map_err(error("голоса sounds/"))?))
+      }
+      None => None,
+    };
     state.borrow_mut().audio = audio.clone();
     let atmosphere = list("atmosphere", "atmosphere", "update")?;
     let sounds = list("audio", "audio", "update")?;
@@ -206,8 +220,7 @@ impl Game {
     let land = match land_name {
       Some(name) => {
         let kind = named(&client, "lands", &name)?;
-        let generator: serde_json::Value = lua.from_value(kind.get::<Value>("data").map_err(error(format!("lands/{name}.data")))?).map_err(error(format!("lands/{name}.data")))?;
-        let config: GeneratorConfig = serde_json::from_value(generator).map_err(|problem| format!("lands/{name}.data: {problem}"))?;
+        let config: GeneratorConfig = kharos_world::land_config(&client, data.as_ref().expect("data"))?.expect("местность");
         let size = data.as_ref().and_then(|data| data.get::<Option<i32>>("size").ok().flatten()).unwrap_or(64);
         let mut land = Land::new(config, LandArea::of(-size, -size, size, size));
         // Мини-карта: тайл — пиксель цветом своей местности и биома (палитра — minimap вида, как PALETTE в minimap.ts).
@@ -263,7 +276,22 @@ impl Game {
     }
     let lua = self.client.lua.clone();
     let over_ui = self.state.borrow().gui.covered;
+    // Поле ввода в фокусе забирает клавиши: игра их не видит (держать остаются только Shift, Ctrl, Alt).
+    let typing = self.state.borrow().gui.typing();
+    let filtered;
+    let input = if typing {
+      let mut copy = input.clone();
+      copy.hits.clear();
+      copy.presses.clear();
+      copy.text.clear();
+      copy.keys.retain(|key| matches!(key.as_str(), "shift" | "ctrl" | "alt" | "meta"));
+      filtered = copy;
+      &filtered
+    } else {
+      input
+    };
     fill_input(&lua, &self.ctx.input, input, &self.state.borrow().view, over_ui).map_err(error("ввод"))?;
+    self.ctx.input.set("typing", typing).map_err(error("ввод"))?;
 
     // Сигналы хоста.
     for signal in std::mem::take(&mut self.pending) {

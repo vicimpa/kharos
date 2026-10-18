@@ -14,12 +14,16 @@ return {
 	title = "Ещё юниты",
 	version = "0.1.0",
 	requires = { "base" },        -- раньше этого мода; "?имя" — необязательная зависимость
+	game = "skirmish",            -- партия по умолчанию (games/), последний мод главнее
+	menu = "menu",                -- партия главного меню: в неё приложение приходит при запуске
 	patch = function(protos)      -- после загрузки всех модов, в их порядке
 		protos.units.buggy.data.speed = 5
 		protos.moves.hover = nil
 	end,
 }
 ```
+
+Картинки мода (`.png`) лежат где угодно в его папке; облик берёт их полем `image` (ниже).
 
 Порядок модов — зависимости раньше, при равенстве по имени. Вид с тем же именем из более позднего мода заменяет
 прежний. `patch` правит, добавляет и убирает чужие виды — то, что у Factorio `data-updates`.
@@ -138,8 +142,13 @@ systems = {
 ### Партия
 
 Вид из `games/` — что такое партия. Правила (`systems`, `on`, `commands`) берутся только у идущей партии; `start(ctx,
-партия)` — в начале. `client` — что берёт подача: камера, управление, панели, атмосфера, музыка (имена видов своих
-разделов).
+партия)` — в начале. `client` — что берёт подача: камера, управление, панели, атмосфера, эффекты, звук, музыка (имена
+видов своих разделов).
+
+Главное меню — тоже партия (`menu` в mod.luau): мир под окнами и панель меню. Новую партию начинает
+`c.app:start(партия, настройки)`: настройки ложатся в `data` партии поверх её значений у хоста и у клиента. Движок
+сам читает из `data`: `size` (карта от −size до size), `fog`, `land` (вид `lands/`), `seed` и `generator` (правки
+генератора местности поверх данных вида земли); остальное — для контента (у `base`: `name`, `weather`).
 
 ## Клиент
 
@@ -177,6 +186,7 @@ look = {
 	draw = function(canvas, angle, phase) … end,
 	portrait = { size = 32, draw = function(canvas) … end },  -- для панелей: обрезается и вписывается
 	lights = { lamps = { { вдоль, поперёк, радиус } }, beam = { along, length, near, spread, level } },
+	image = "images/logo.png",    -- картинка из мода вместо чертежа: гладкая, для интерфейса (size — до какого уменьшить)
 	sound = { voice = "motor", gain = 0.5, control = function(knobs, unit, c) … end },
 	traces = { sides = { -4.5, 4.5 }, width = 3, legs = false },  -- колея (effects/traces): где и какой ширины, в пикселях
 }
@@ -235,10 +245,21 @@ end)
 `top`, `bottom`, `centerX`, `centerY`), `passive`. Текст: `font` (`body`, `small`, `title`, `logo`), `color`,
 `shadow`, `lift`, `wrap`, `ellipsis`. Цвет — `"#rrggbb"`, `"rgb(r g b / a)"` или число.
 
-`ui:image(вид | "coin" | "minimap", w, h, сторона?)` — портрет вида, вписанный в w × h; `ui:button(id, стиль, дети)`
+`ui:image(вид | "coin" | "minimap", w, h, сторона?)` — портрет вида, вписанный в w × h (облик-картинка — гладко); `ui:button(id, стиль, дети)`
 → щелчок `{ button, shift, ctrl, alt, long }` или nil (`active`, `disabled` в стиле); `ui:clicked`, `ui:hovered`,
 `ui:within`, `ui:held` (→ `{ u, v }`), `ui:tip(id, текст или функция, { left, right, top, bottom }?)` (функция строит панель узлами — карточка; без привязки — у указателя), `ui:rect(id)`, `ui:measure(текст, шрифт?)`, `ui.width`,
 `ui.height`. Щелчок приходит кадром позже — по местам узлов прошлого кадра; долгое касание — правый щелчок.
+
+`ui:input(id, значение, { width, placeholder, maxLength, digits, password, focus, color, background, outline })` —
+поле ввода (`input` в ui.ts) → `{ value, focused, keys }`: набранное, в фокусе ли, клавиши, которые поле отдало
+панели (`"Enter"`, `"Escape"`, `"Tab"`, `"ArrowUp"`, `"ArrowDown"`, `"Blur"`). Пока поле в фокусе, клавиши
+достаются ему, а не игре (`c.input.typing`). `ui:preview(вид земли, правки генератора, сид, сторона карты, w, h)` —
+схема будущей карты (preview.ts): считается порциями по кадрам → `{ ready, rock, swamp }`. `ui:upper(текст)` —
+прописными с кириллицей. Поля меню (окно, кнопка, ползунок, флажок, варианты, числовое поле, раскрывающийся блок,
+ссылка) — `lib/form.luau` мода `base`, перенос `gui/form.ts`.
+
+`c.app` — приложение: `c.app:start(партия, настройки)`, `c.app:to_menu()`, `c.app:quit()`, `c.app:open(адрес)` —
+ссылка в браузере; `c.app.game`, `c.app.menu`, `c.app.options` — идущая партия, партия меню и настройки партии.
 
 ### Звук
 

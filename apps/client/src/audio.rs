@@ -112,8 +112,6 @@ pub struct Engine {
   pub bank: RefCell<HashMap<String, Record>>,
   /// Сколько разовых звуков звучит.
   voices: Arc<AtomicUsize>,
-  /// Петли банка, которые уже звучат: громкость и сторона.
-  loops: RefCell<HashMap<String, (AudioBufferSourceNode, GainNode, StereoPannerNode)>>,
   /// Случайное для вариантов и разброса высоты.
   seed: std::cell::Cell<u32>,
   /// Замер уровня на выходе (KHAROS_AUDIO_LEVEL=1): проверить, что звук есть, не слушая его.
@@ -493,10 +491,34 @@ impl UserData for Sound {
   }
 }
 
-/// Синтезатор: банк записей, голоса по имени (виды раздела `sounds`), шины.
+/// Звук партии поверх общего синтезатора: голоса по имени (виды раздела `sounds` её машины Luau), свои шины, петли и
+/// звучания. Кончилась партия — её звук стихает и останавливается, а банк записей остаётся на следующую.
 pub struct Audio {
   pub engine: Rc<Engine>,
   voices: HashMap<String, Table>,
+  /// Шины партии — в шины синтезатора (их громкость — настройки игрока).
+  buses: HashMap<&'static str, GainNode>,
+  /// Петли банка, которые уже звучат: громкость и сторона.
+  loops: RefCell<HashMap<String, (AudioBufferSourceNode, GainNode, StereoPannerNode)>>,
+  /// Звучания голосов — чтобы остановить их с концом партии.
+  sounds: RefCell<Vec<std::rc::Weak<RefCell<Nodes>>>>,
+}
+
+impl Drop for Audio {
+  fn drop(&mut self) {
+    let now = self.engine.now();
+    for bus in self.buses.values() {
+      bus.gain().cancel_scheduled_values(now).set_target_at_time(0.0, now, 0.03);
+    }
+    for (source, ..) in self.loops.borrow_mut().values_mut() {
+      source.stop_at(now + 0.2);
+    }
+    for nodes in self.sounds.borrow().iter().filter_map(std::rc::Weak::upgrade) {
+      for node in &mut nodes.borrow_mut().list {
+        node.stop(now + 0.2);
+      }
+    }
+  }
 }
 
 fn noise(ctx: &AudioContext, color: usize) -> AudioBuffer {
@@ -541,9 +563,9 @@ fn channels(value: Value) -> mlua::Result<Vec<Vec<f32>>> {
   }
 }
 
-impl Audio {
+impl Engine {
   /// Синтезатор или None, если звуку некуда выйти.
-  pub fn new() -> Option<Self> {
+  pub fn new() -> Option<Rc<Self>> {
     let ctx = std::panic::catch_unwind(AudioContext::default).ok()?;
     // Компрессор не даёт залпу перегрузить звук.
     let compressor = ctx.create_dynamics_compressor();
@@ -567,21 +589,20 @@ impl Audio {
       RefCell::new(analyser)
     });
     let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |time| time.subsec_nanos() | 1);
-    Some(Self { engine: Rc::new(Engine { ctx, master, _compressor: compressor, buses, noise, bank: RefCell::new(HashMap::new()), voices: Arc::new(AtomicUsize::new(0)), loops: RefCell::new(HashMap::new()), seed: std::cell::Cell::new(seed), meter }), voices: HashMap::new() })
+    Some(Rc::new(Engine { ctx, master, _compressor: compressor, buses, noise, bank: RefCell::new(HashMap::new()), voices: Arc::new(AtomicUsize::new(0)), seed: std::cell::Cell::new(seed), meter }))
   }
 
-  pub fn now(&self) -> f64 {
-    self.engine.now()
-  }
-
-  /// Виды раздела `sounds`: банки записей (`bank = { имя = { variants, bus, render = function(rate, variant) } }`)
-  /// считаются сразу, голоса (`graph`) запоминаются по имени вида.
-  pub fn load(&mut self, kinds: Vec<(String, Table)>) -> mlua::Result<()> {
-    let rate = self.engine.ctx.sample_rate();
-    for (name, kind) in kinds {
+  /// Банки записей видов раздела `sounds` (`bank = { имя = { variants, bus, render = function(rate, variant) } }`):
+  /// считаются один раз на запуск — уже посчитанные пропускаются.
+  pub fn bake(&self, kinds: &[(String, Table)]) -> mlua::Result<()> {
+    let rate = self.ctx.sample_rate();
+    for (_, kind) in kinds {
       if let Some(bank) = kind.get::<Option<Table>>("bank")? {
         for pair in bank.pairs::<String, Table>() {
           let (key, record) = pair?;
+          if self.bank.borrow().contains_key(&key) {
+            continue;
+          }
           let render: Function = record.get("render")?;
           let variants = record.get::<Option<usize>>("variants")?.unwrap_or(1).max(1);
           let bus = record.get::<Option<String>>("bus")?.unwrap_or_else(|| "world".into());
@@ -589,20 +610,52 @@ impl Audio {
           for variant in 0..variants {
             let data = channels(render.call::<Value>((rate, variant)).map_err(|error| mlua::Error::runtime(format!("{key}: {error}")))?)?;
             let length = data.first().map_or(1, Vec::len).max(1);
-            let mut buffer = self.engine.ctx.create_buffer(data.len().max(1), length, rate);
+            let mut buffer = self.ctx.create_buffer(data.len().max(1), length, rate);
             for (channel, samples) in data.iter().enumerate() {
               buffer.copy_to_channel(samples, channel);
             }
             list.push(buffer);
           }
-          self.engine.bank.borrow_mut().insert(key, Record { variants: list, bus });
+          self.bank.borrow_mut().insert(key, Record { variants: list, bus });
         }
-      }
-      if kind.contains_key("graph")? {
-        self.voices.insert(name, kind);
       }
     }
     Ok(())
+  }
+
+  pub fn set_volume(&self, bus: &str, volume: f32) {
+    let node = if bus == "master" { Some(&self.master) } else { self.buses.get(bus) };
+    if let Some(node) = node {
+      let value = if bus == "master" { MASTER * volume } else { volume };
+      node.gain().set_target_at_time(value, self.now(), 0.05);
+    }
+  }
+}
+
+impl Audio {
+  /// Звук партии: голоса (`graph`) видов раздела `sounds` её машины запоминаются по имени вида.
+  pub fn new(engine: Rc<Engine>, kinds: &[(String, Table)]) -> mlua::Result<Self> {
+    let mut voices = HashMap::new();
+    for (name, kind) in kinds {
+      if kind.contains_key("graph")? {
+        voices.insert(name.clone(), kind.clone());
+      }
+    }
+    let mut buses = HashMap::new();
+    for name in BUSES {
+      let bus = engine.ctx.create_gain();
+      bus.connect(&engine.buses[name]);
+      buses.insert(name, bus);
+    }
+    Ok(Self { engine, voices, buses, loops: RefCell::new(HashMap::new()), sounds: RefCell::new(Vec::new()) })
+  }
+
+  pub fn now(&self) -> f64 {
+    self.engine.now()
+  }
+
+  fn bus(&self, name: &str) -> &GainNode {
+    self.buses.get(name).unwrap_or(&self.buses["world"])
   }
 
   /// Звучание голоса voice на шине bus (или в узел into другого голоса): с at на length секунд (None — пока не
@@ -625,13 +678,18 @@ impl Audio {
     match into {
       Some(target) => target.connect(&pan),
       None => {
-        pan.connect(engine.buses.get(bus).unwrap_or(&engine.master));
+        pan.connect(self.bus(bus));
       }
     }
     // Выход голоса — усилитель громкости звучания; узел 0 в списке.
     let out = engine.ctx.create_gain();
     out.connect(&gain);
     let nodes = Rc::new(RefCell::new(Nodes { list: vec![Node::Gain(out)], release: 0.0, engine: engine.clone(), out: 0 }));
+    {
+      let mut sounds = self.sounds.borrow_mut();
+      sounds.retain(|sound| sound.strong_count() > 0);
+      sounds.push(Rc::downgrade(&nodes));
+    }
     let graph: Function = table.get("graph")?;
     let builder = Builder { nodes: nodes.clone(), at, length, note, velocity, args };
     let handles: Value = graph.call(builder)?;
@@ -667,7 +725,7 @@ impl Audio {
     panner.pan().set_value(pan.clamp(-1.0, 1.0));
     source.connect(&gain);
     gain.connect(&panner);
-    panner.connect(engine.buses.get(bus.as_str()).unwrap_or(&engine.master));
+    panner.connect(self.bus(&bus));
     engine.voices.fetch_add(1, Ordering::Relaxed);
     let voices = engine.voices.clone();
     source.set_onended(move |_| {
@@ -679,7 +737,7 @@ impl Audio {
   /// Фоновая петля банка: громкость и сторона меняются плавно; первая просьба заводит её со случайного места.
   pub fn loop_level(&self, name: &str, volume: f32, pan: f32) {
     let engine = &self.engine;
-    let mut loops = engine.loops.borrow_mut();
+    let mut loops = self.loops.borrow_mut();
     if !loops.contains_key(name) {
       if volume <= 0.0 {
         return;
@@ -698,7 +756,7 @@ impl Audio {
       let panner = engine.ctx.create_stereo_panner();
       source.connect(&gain);
       gain.connect(&panner);
-      panner.connect(engine.buses.get(bus.as_str()).unwrap_or(&engine.master));
+      panner.connect(self.bus(&bus));
       source.start_at_with_offset(0.0, engine.random() * duration);
       loops.insert(name.to_string(), (source, gain, panner));
     }
@@ -709,11 +767,7 @@ impl Audio {
   }
 
   pub fn set_volume(&self, bus: &str, volume: f32) {
-    let node = if bus == "master" { Some(&self.engine.master) } else { self.engine.buses.get(bus) };
-    if let Some(node) = node {
-      let value = if bus == "master" { MASTER * volume } else { volume };
-      node.gain().set_target_at_time(value, self.engine.now(), 0.05);
-    }
+    self.engine.set_volume(bus, volume);
   }
 
   pub fn random(&self) -> f64 {

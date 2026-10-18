@@ -6,6 +6,6 @@ pub mod schema;
 pub mod vision;
 pub mod world;
 
-pub use host::{Host, Signal};
+pub use host::{land_config, Host, Signal};
 pub use schema::{ComponentId, Kind, Schema};
 pub use world::{Entity, World};

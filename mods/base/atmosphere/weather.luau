@@ -46,15 +46,31 @@ local function drift(c, t: number, seed: number, channel: number): number
 	return perlin(c, t, seed, channel) * 0.75 + perlin(c, t * 3.1, seed, channel + 7) * 0.25
 end
 
--- Сид мира — у местности партии.
+-- Сид мира — из настроек партии, иначе у её местности.
 local function seedOf(c): number
-	local land = c.game.data and c.game.data.land
-	local kind = land and c.protos.lands[land]
+	local data = c.game.data or {}
+	if data.seed then
+		return data.seed
+	end
+	local kind = data.land and c.protos.lands[data.land]
 	return if kind then kind.data.seed else 0
 end
 
+-- Погода партии: настройки из меню новой игры (data.weather партии) поверх данных вида.
+local function settings(c)
+	local chosen = c.game.data and c.game.data.weather
+	if not chosen then
+		return weather.data
+	end
+	local merged = table.clone(weather.data)
+	for key, value in chosen do
+		merged[key] = value
+	end
+	return merged
+end
+
 function weather.update(a, c)
-	local d = weather.data
+	local d = settings(c)
 	local seconds = c.clock
 	local hour = ((d.startHour + (if d.dayLength > 0 then seconds / d.dayLength * 24 else 0)) % 24 + 24) % 24
 	-- Солнце: выше нуля — день; сумерки мягкие, полдень — ярче всего.

@@ -6,7 +6,7 @@
 
 use crate::input::Input;
 use crate::ui::{Batch, FontAtlas, Paint, ATLAS_SIZE, WHITE_UV};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Через сколько секунд наведения появляется подсказка.
 const TIP_DELAY: f64 = 0.35;
@@ -405,6 +405,9 @@ pub enum Image {
   Sprite { uv: [f32; 4], team: usize },
   Coin,
   Minimap,
+  Preview,
+  /// Картинка из файла мода — гладкая, с прозрачностью.
+  Picture { uv: [f32; 4] },
 }
 
 #[derive(Clone, Debug)]
@@ -433,6 +436,37 @@ pub struct Click {
   pub ctrl: bool,
   pub alt: bool,
   pub long: bool,
+}
+
+/// Правка поля ввода: текст знаками, место курсора и начало выделения (anchor == caret — выделения нет).
+#[derive(Clone, Debug, Default)]
+struct Edit {
+  value: Vec<char>,
+  caret: usize,
+  anchor: usize,
+}
+
+/// Поле ввода (`input` в ui.ts): ширина (без неё — растёт), подсказка в пустом, предел длины, только цифры, звёздочки
+/// вместо букв, фокус сразу, цвет текста, своя заливка и обводка вместо утопленного окна.
+#[derive(Clone, Debug, Default)]
+pub struct FieldOptions {
+  pub width: Option<f32>,
+  pub placeholder: Option<String>,
+  pub max_length: Option<usize>,
+  pub digits: bool,
+  pub password: bool,
+  pub focus: bool,
+  pub color: Option<Color>,
+  pub background: Option<Color>,
+  pub outline: Option<Color>,
+}
+
+/// Что поле отдаёт панели: набранное, в фокусе ли и клавиши, которые оно не взяло себе (Enter, Escape, Tab, стрелки
+/// вверх и вниз, Blur — фокус ушёл).
+pub struct Field {
+  pub value: String,
+  pub focused: bool,
+  pub keys: Vec<String>,
 }
 
 struct Press {
@@ -473,11 +507,19 @@ pub struct Gui {
   pub pressed_button: Option<bool>,
   pub hovered_button: bool,
   buttons: HashMap<String, bool>,
+  /// Поле ввода в фокусе, правки полей, клавиши полей до кадра и за кадр, поля, описанные в этом кадре.
+  focused: Option<String>,
+  edits: HashMap<String, Edit>,
+  field_keys: HashMap<String, Vec<String>>,
+  frame_keys: HashMap<String, Vec<String>>,
+  seen_fields: HashSet<String>,
+  /// Буфер обмена — свой, в памяти, как у оболочки TS.
+  clipboard: String,
 }
 
 impl Gui {
   pub fn new(fonts: Fonts) -> Self {
-    Self { fonts, batch: Batch::default(), width: 0.0, height: 0.0, pointer: None, press: None, clicks: HashMap::new(), frame_clicks: HashMap::new(), hits: Vec::new(), roots: Vec::new(), scrolls: HashMap::new(), over: None, since: 0.0, now: 0.0, top: Vec::new(), stack: Vec::new(), tips: Vec::new(), covered: false, pressed_button: None, hovered_button: false, buttons: HashMap::new() }
+    Self { fonts, batch: Batch::default(), width: 0.0, height: 0.0, pointer: None, press: None, clicks: HashMap::new(), frame_clicks: HashMap::new(), hits: Vec::new(), roots: Vec::new(), scrolls: HashMap::new(), over: None, since: 0.0, now: 0.0, top: Vec::new(), stack: Vec::new(), tips: Vec::new(), covered: false, pressed_button: None, hovered_button: false, buttons: HashMap::new(), focused: None, edits: HashMap::new(), field_keys: HashMap::new(), frame_keys: HashMap::new(), seen_fields: HashSet::new(), clipboard: String::new() }
   }
 
   fn topmost(&self, x: f32, y: f32) -> Option<&(String, Rect, Vec<String>)> {
@@ -509,6 +551,13 @@ impl Gui {
     for (index, button) in [(0usize, 0u8), (1, 2), (2, 1)] {
       if input.pressed[index] {
         let id = self.topmost(px, py).map(|hit| hit.0.clone());
+        // Нажатие мимо поля ввода снимает с него фокус; по полю — ставит.
+        if self.focused.is_some() && id != self.focused {
+          self.blur();
+        }
+        if let Some(id) = id.as_ref().filter(|id| self.edits.contains_key(*id)) {
+          self.focused = Some(id.clone());
+        }
         if let Some(disabled) = id.as_ref().and_then(|id| self.buttons.get(id)) {
           if button == 0 {
             self.pressed_button = Some(*disabled);
@@ -548,6 +597,9 @@ impl Gui {
         }
       }
     }
+    self.type_keys(input);
+    self.frame_keys = std::mem::take(&mut self.field_keys);
+    self.seen_fields.clear();
     self.frame_clicks = std::mem::take(&mut self.clicks);
     let over = if input.pointer.is_some() { self.topmost(px, py).map(|hit| hit.0.clone()) } else { None };
     if over != self.over {
@@ -557,6 +609,171 @@ impl Gui {
       self.over = over;
       self.since = self.now;
     }
+  }
+
+  /// Поле в фокусе есть: клавиши достаются ему, а не игре.
+  pub fn typing(&self) -> bool {
+    self.focused.is_some()
+  }
+
+  fn blur(&mut self) {
+    if let Some(id) = self.focused.take() {
+      self.field_keys.entry(id).or_default().push("Blur".into());
+    }
+  }
+
+  /// Клавиши поля в фокусе: буквы, стирание, стрелки, выделение и буфер обмена. Enter, Escape, Tab, стрелки вверх и
+  /// вниз поле отдаёт панели.
+  fn type_keys(&mut self, input: &Input) {
+    let Some(id) = self.focused.clone() else { return };
+    let Some(edit) = self.edits.get_mut(&id) else { return };
+    let shift = input.keys.contains("shift");
+    let command = input.keys.contains("ctrl") || input.keys.contains("meta");
+    let mut passed = Vec::new();
+    for key in &input.presses {
+      let (from, to) = (edit.caret.min(edit.anchor), edit.caret.max(edit.anchor));
+      let replace = |edit: &mut Edit, text: &[char]| {
+        edit.value.splice(from..to, text.iter().copied());
+        edit.caret = from + text.len();
+        edit.anchor = edit.caret;
+      };
+      let moved = |edit: &mut Edit, caret: usize| {
+        edit.caret = caret.min(edit.value.len());
+        if !shift {
+          edit.anchor = edit.caret;
+        }
+      };
+      match key.as_str() {
+        "enter" => passed.push("Enter".to_string()),
+        "escape" => passed.push("Escape".to_string()),
+        "tab" => passed.push("Tab".to_string()),
+        "up" => passed.push("ArrowUp".to_string()),
+        "down" => passed.push("ArrowDown".to_string()),
+        "backspace" => {
+          if from != to {
+            replace(edit, &[]);
+          } else if from > 0 {
+            edit.value.remove(from - 1);
+            edit.caret = from - 1;
+            edit.anchor = edit.caret;
+          }
+        }
+        "delete" => {
+          if from != to {
+            replace(edit, &[]);
+          } else if from < edit.value.len() {
+            edit.value.remove(from);
+          }
+        }
+        "left" => moved(edit, if !shift && from != to { from } else { edit.caret.saturating_sub(1) }),
+        "right" => moved(edit, if !shift && from != to { to } else { edit.caret + 1 }),
+        "home" => moved(edit, 0),
+        "end" => moved(edit, edit.value.len()),
+        "a" if command => {
+          edit.anchor = 0;
+          edit.caret = edit.value.len();
+        }
+        "c" | "x" if command => {
+          if from != to {
+            self.clipboard = edit.value[from..to].iter().collect();
+          }
+          if key == "x" {
+            replace(edit, &[]);
+          }
+        }
+        "v" if command => {
+          let text: Vec<char> = self.clipboard.chars().map(|char| if char == '\n' || char == '\r' { ' ' } else { char }).collect();
+          replace(edit, &text);
+        }
+        _ => {}
+      }
+    }
+    if !command && !input.text.is_empty() {
+      let (from, to) = (edit.caret.min(edit.anchor), edit.caret.max(edit.anchor));
+      let text: Vec<char> = input.text.chars().collect();
+      edit.value.splice(from..to, text.iter().copied());
+      edit.caret = from + text.len();
+      edit.anchor = edit.caret;
+    }
+    if !passed.is_empty() {
+      self.field_keys.entry(id).or_default().extend(passed);
+    }
+  }
+
+  /// Поле ввода: правка живёт в интерфейсе, панель каждый кадр отдаёт своё значение и получает набранное. Длинный
+  /// текст сдвигается так, чтобы курсор был виден; без фокуса поле показывает начало.
+  pub fn input(&mut self, id: &str, value: &str, options: &FieldOptions) -> Field {
+    self.seen_fields.insert(id.to_string());
+    let focused_here = self.focused.as_deref() == Some(id);
+    let edit = self.edits.entry(id.to_string()).or_insert_with(|| {
+      let value: Vec<char> = value.chars().collect();
+      Edit { caret: value.len(), anchor: value.len(), value }
+    });
+    // Текст поменяли снаружи (отправили, подставили подсказку) — курсор в конец.
+    if !focused_here && edit.value.iter().collect::<String>() != value {
+      edit.value = value.chars().collect();
+      edit.caret = edit.value.len();
+      edit.anchor = edit.caret;
+    }
+    if options.digits {
+      edit.value.retain(|char| char.is_ascii_digit());
+    }
+    if let Some(limit) = options.max_length {
+      edit.value.truncate(limit);
+    }
+    edit.caret = edit.caret.min(edit.value.len());
+    edit.anchor = edit.anchor.min(edit.value.len());
+    let edit = edit.clone();
+    if options.focus && !focused_here {
+      self.focused = Some(id.to_string());
+    }
+    let focused = self.focused.as_deref() == Some(id);
+    let shown: Vec<char> = if options.password { vec!['•'; edit.value.len()] } else { edit.value.clone() };
+    let text = |range: std::ops::Range<usize>| -> String { shown[range].iter().collect() };
+    let room = options.width.or_else(|| self.rect(id).map(|rect| rect.w)).unwrap_or(120.0);
+    let shift = if focused { (self.fonts.width(FontName::Body, &text(0..edit.caret)) - (room - 18.0)).max(0.0) } else { 0.0 };
+    let color = options.color.unwrap_or(hex(0xd6e6f5));
+    let leaf = |text: String, color: Color| Leaf::Text { text, font: FontName::Body, color, shadow: None, lift: 1.0, wrap: None, ellipsis: false, lines: Vec::new() };
+    let (skin, background) = if options.background.is_some() { (None, options.background) } else { (Some(Skin::Well), None) };
+    self.open(Style { id: Some(id.to_string()), width: options.width, grow: if options.width.is_none() { 1.0 } else { 0.0 }, min_width: 40.0, height: Some(28.0), skin, background, outline: options.outline, padding: [6.0, 8.0, 6.0, 8.0], clip: true, ..Default::default() }, None);
+    // Отступ слева отрицательный: строка уезжает влево, и курсор остаётся в поле.
+    self.open(Style { direction: Direction::Row, align: Align::Center, padding: [0.0, 0.0, 0.0, -shift], ..Default::default() }, None);
+    if shown.is_empty() && !focused {
+      if let Some(placeholder) = &options.placeholder {
+        self.leaf(Default::default(), leaf(placeholder.clone(), hex(0x8a8a8a)));
+      }
+    }
+    let (from, to) = (edit.caret.min(edit.anchor), edit.caret.max(edit.anchor));
+    if focused && from != to {
+      if from > 0 {
+        self.leaf(Default::default(), leaf(text(0..from), color));
+      }
+      self.open(Style { background: Some(hex(0x1f63d8)), ..Default::default() }, None);
+      self.leaf(Default::default(), leaf(text(from..to), hex(0xeef6ff)));
+      self.close();
+      if to < shown.len() {
+        self.leaf(Default::default(), leaf(text(to..shown.len()), color));
+      }
+    } else {
+      if edit.caret > 0 {
+        self.leaf(Default::default(), leaf(text(0..edit.caret), color));
+      }
+      // Курсор мигает дважды в секунду, пока поле в фокусе.
+      if focused {
+        let line = FontName::Body.line();
+        if (self.now * 2.0).floor() as i64 % 2 == 0 {
+          self.leaf(Style { width: Some(1.0), height: Some(line), background: Some(hex(0xeef6ff)), ..Default::default() }, Leaf::Space);
+        } else {
+          self.leaf(Style { width: Some(1.0), height: Some(line), ..Default::default() }, Leaf::Space);
+        }
+      }
+      if edit.caret < shown.len() {
+        self.leaf(Default::default(), leaf(text(edit.caret..shown.len()), color));
+      }
+    }
+    self.close();
+    self.close();
+    Field { value: edit.value.iter().collect(), focused, keys: self.frame_keys.get(id).cloned().unwrap_or_default() }
   }
 
   // -------------------------------------------------------------- описание кадра
@@ -672,6 +889,12 @@ impl Gui {
   pub fn finish(&mut self) {
     while !self.stack.is_empty() {
       self.close();
+    }
+    // Поле, которого больше не описывают, теряет и фокус, и правку.
+    let seen = &self.seen_fields;
+    self.edits.retain(|id, _| seen.contains(id));
+    if self.focused.as_ref().is_some_and(|id| !seen.contains(id)) {
+      self.focused = None;
     }
     // Подсказка — своей корневой панелью у указателя (или где ей велено), поверх всего; нажатия сквозь неё идут.
     if let Some(mut node) = self.tips.pop() {
@@ -894,8 +1117,19 @@ fn place(node: &mut Node, rect: Rect, scrolls: &mut HashMap<String, f32>) {
   }
   let room = if row { inner.w } else { inner.h };
   let count = node.children.len();
-  let sizes: Vec<f32> = node.children.iter().map(|child| if row { child.want.0 } else { child.want.1 }).collect();
-  let short = sizes.iter().sum::<f32>() + gap * count.saturating_sub(1) as f32 - room;
+  let mut sizes: Vec<f32> = node.children.iter().map(|child| if row { child.want.0 } else { child.want.1 }).collect();
+  let mut short = sizes.iter().sum::<f32>() + gap * count.saturating_sub(1) as f32 - room;
+  // Столбцу не хватает высоты — прокручиваемые дети отдают свою сверх minHeight.
+  if !row {
+    for (index, child) in node.children.iter().enumerate() {
+      if short <= 0.0 || !child.style.scroll {
+        continue;
+      }
+      let cut = short.min((sizes[index] - child.style.min_height).max(0.0));
+      sizes[index] -= cut;
+      short -= cut;
+    }
+  }
   let slack = -short;
   let free = slack.max(0.0);
   let grows: f32 = node.children.iter().map(|child| child.style.grow).sum();
@@ -1013,6 +1247,12 @@ fn paint(fonts: &mut Fonts, batch: &mut Batch, node: &Node, clip: Option<[f32; 4
     Some(Leaf::Image { image, .. }) => match *image {
       Image::Sprite { uv, team } => batch.quad_clipped([rect.x, rect.y], [rect.x + rect.w, rect.y + rect.h], uv, faded([255; 4], alpha), Paint::Sprite { team }, clip),
       Image::Coin => batch.quad_clipped([rect.x, rect.y], [rect.x + rect.w, rect.y + rect.h], skin_uv(120.0, 0.0, 8.0, 8.0), faded([255; 4], alpha), Paint::Skin, clip),
+      Image::Picture { uv } => {
+        batch.quad_clipped([rect.x, rect.y], [rect.x + rect.w, rect.y + rect.h], uv, faded([255; 4], alpha), Paint::Picture, clip);
+      }
+      Image::Preview => {
+        batch.quad_clipped([rect.x, rect.y], [rect.x + rect.w, rect.y + rect.h], [0.0, 0.0, 1.0, 1.0], faded([255; 4], alpha), Paint::Preview, clip);
+      }
       Image::Minimap => {
         batch.quad_clipped([rect.x, rect.y], [rect.x + rect.w, rect.y + rect.h], [0.0, 0.0, 1.0, 1.0], faded([255; 4], alpha), Paint::Minimap, clip);
         // Туман поверх: та же картинка обзора, что у карты, без её рамки.

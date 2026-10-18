@@ -3,7 +3,8 @@
 //!
 //! KHAROS_SHOT=кадр.png — снять кадр после KHAROS_SHOT_FRAMES кадров (по умолчанию 120) и выйти: так картинку
 //! проверяют без человека у окна. KHAROS_SHOT_POINTER=x,y — указатель там, в логических пикселях (подсказки,
-//! наведение), пока снимается кадр.
+//! наведение), пока снимается кадр. KHAROS_SHOT_CLICKS=кадр:x,y;кадр:x,y — щелчки левой кнопкой на этих кадрах; после
+//! «кадр:текст» вместо места — набор текста (`20:t=Карта`), «кадр:k=enter» — нажатие клавиши.
 
 use crate::input::Input;
 use crate::App;
@@ -185,6 +186,31 @@ impl Shell {
       if let Some([x, y]) = std::env::var("KHAROS_SHOT_POINTER").ok().and_then(|value| value.split_once(',').and_then(|(x, y)| Some([x.trim().parse().ok()?, y.trim().parse().ok()?]))) {
         self.input.pointer = Some([x, y]);
       }
+      // Щелчки и набор по кадрам: нажатие в своём кадре, отпускание — в следующем.
+      let frame = self.frames;
+      for step in std::env::var("KHAROS_SHOT_CLICKS").unwrap_or_default().split(';') {
+        let Some((at, what)) = step.split_once(':') else { continue };
+        let Ok(at) = at.trim().parse::<u32>() else { continue };
+        if let Some(text) = what.strip_prefix("t=") {
+          if at == frame {
+            self.input.text.push_str(text);
+          }
+        } else if let Some(key) = what.strip_prefix("k=") {
+          if at == frame {
+            self.input.key(key, true, false);
+          } else if at + 1 == frame {
+            self.input.key(key, false, false);
+          }
+        } else if let Some((x, y)) = what.split_once(',') {
+          let (Ok(x), Ok(y)) = (x.trim().parse::<f32>(), y.trim().parse::<f32>()) else { continue };
+          if at == frame {
+            self.input.pointer = Some([x, y]);
+            self.input.button(0, true);
+          } else if at + 1 == frame {
+            self.input.button(0, false);
+          }
+        }
+      }
     }
     if let Err(error) = app.frame(&self.input, [size.width, size.height]) {
       eprintln!("{error}");
@@ -192,6 +218,10 @@ impl Shell {
       return;
     }
     self.frames += 1;
+    if app.quit {
+      event_loop.exit();
+      return;
+    }
     if let Some((path, frames)) = &self.shot {
       if self.frames >= *frames {
         app.shot(path, [size.width, size.height]);
@@ -227,6 +257,8 @@ fn key_name(physical: &PhysicalKey, logical: &Key) -> Option<String> {
       KeyCode::Tab => "tab",
       KeyCode::Backspace => "backspace",
       KeyCode::Delete => "delete",
+      KeyCode::Home => "home",
+      KeyCode::End => "end",
       KeyCode::ShiftLeft | KeyCode::ShiftRight => "shift",
       KeyCode::ControlLeft | KeyCode::ControlRight => "ctrl",
       KeyCode::AltLeft | KeyCode::AltRight => "alt",

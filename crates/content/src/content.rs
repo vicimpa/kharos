@@ -12,7 +12,7 @@ use crate::files::Fnv;
 use crate::mods::{order, Mod};
 use crate::vm::{function, load_module, new_vm, run_file, Side, Sources};
 use mlua::{Lua, Table, Value};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Вид после загрузки и правок.
 #[derive(Clone, Debug)]
@@ -38,6 +38,8 @@ pub struct Content {
   /// Виды по номерам.
   pub list: Vec<Proto>,
   index: BTreeMap<(String, String), u32>,
+  /// Файлы модов в порядке загрузки — за картинками.
+  files: Vec<std::rc::Rc<crate::files::Files>>,
 }
 
 /// Ошибка загрузки с тем, где она случилась.
@@ -59,6 +61,7 @@ fn fail(what: impl std::fmt::Display) -> impl FnOnce(mlua::Error) -> LoadError {
 impl Content {
   /// Загружает моды на стороне side.
   pub fn load(side: Side, mods: Vec<Mod>) -> Result<Self, LoadError> {
+    let files_of: HashMap<String, std::rc::Rc<crate::files::Files>> = mods.iter().map(|one| (one.name.clone(), one.files.clone())).collect();
     let mut sources = Sources::default();
     for one in &mods {
       if sources.mods.insert(one.name.clone(), one.files.clone()).is_some() {
@@ -133,12 +136,40 @@ impl Content {
       }
     }
 
-    Ok(Self { lua, side, mods: names, manifests: ordered, protos, list, index })
+    let files = names.iter().filter_map(|name| files_of.get(name).cloned()).collect();
+    Ok(Self { lua, side, mods: names, manifests: ordered, protos, list, index, files })
   }
 
   /// Партия по умолчанию: `game` из манифестов, последний по порядку мод главнее.
   pub fn default_game(&self) -> Option<String> {
     self.manifests.iter().rev().find_map(|manifest| manifest.get::<Option<String>>("game").ok().flatten())
+  }
+
+  /// Настройки партии из меню (сид, размер карты, местность, погода): ключи ложатся в `data` вида `games/<game>`
+  /// поверх его значений. Хост и клиент кладут одно и то же, поэтому и правила, и подача видят одну партию.
+  pub fn apply_options(&self, game: &str, options: &serde_json::Value) -> Result<(), String> {
+    let serde_json::Value::Object(options) = options else { return Ok(()) };
+    if options.is_empty() {
+      return Ok(());
+    }
+    let table = self.get("games", game).ok_or_else(|| format!("нет партии games/{game}"))?;
+    let data = match table.get::<Option<Table>>("data").map_err(|error| error.to_string())? {
+      Some(data) => data,
+      None => {
+        let data = self.lua.create_table().map_err(|error| error.to_string())?;
+        table.set("data", &data).map_err(|error| error.to_string())?;
+        data
+      }
+    };
+    for (key, value) in options {
+      data.set(key.as_str(), crate::vm::to_lua(&self.lua, value).map_err(|error| error.to_string())?).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+  }
+
+  /// Картинка из модов по пути от корня мода (`images/logo.png`); последний по порядку мод главнее.
+  pub fn asset(&self, path: &str) -> Option<&[u8]> {
+    self.files.iter().rev().find_map(|files| files.assets.get(path).map(Vec::as_slice))
   }
 
   /// Номер вида по разделу и имени.
