@@ -24,6 +24,7 @@ local levels = require("lib/levels")
 local paving = require("lib/paving")
 local earthworks = require("lib/earthworks")
 local truckControls = require("controls/trucks")
+local seenLib = require("lib/seen")
 
 local clockOf = widgets.clock
 local COLORS, shadow = widgets.COLORS, widgets.shadow
@@ -84,10 +85,10 @@ local STANCES = {
 
 -- Пульс подсказки «Первых шагов» (pulse в hud.ts и bar.ts): обводка огнями команды разгорается и гаснет раз в
 -- секунду от low до high; восемь ступеней — плавнее не разглядеть.
-local function pulse(ui, low: number, high: number): string
-	local phase = ui.now % 1
+local function pulse(ui, low: number, high: number, color: string?, period: number?): string
+	local phase = (ui.now / (period or 1)) % 1
 	local level = math.round((low + (high - low) * (0.5 - 0.5 * math.cos(phase * math.pi * 2))) * 8) / 8
-	return string.format("rgba(90 169 255 / %g)", level)
+	return string.format("rgba(%s / %g)", color or "90 169 255", level)
 end
 
 -- Текущий первый шаг новичка (lib/steps): его кнопки подсвечены; nil — пройдены все.
@@ -351,11 +352,13 @@ local function constructionSlots(c, list, selection)
 	local step = currentStep(c)
 	if page.name == "root" then
 		for i, section in SECTIONS do
-			local count, hint = 0, false
+			local count, hint, fresh = 0, false, false
 			for _, kind in options do
 				if sectionOf(kind.name) == section.page then
 					count += 1
 					hint = hint or (step ~= nil and step.building == kind.name)
+					-- Раздел подсвечен, пока в нём есть кнопка, которую игрок ещё не нажимал.
+					fresh = fresh or not seenLib.is(c, kind.name)
 				end
 			end
 			-- Раздел появляется, когда в нём открыто хоть одно здание; закрытый оставляет пустую ячейку.
@@ -366,6 +369,7 @@ local function constructionSlots(c, list, selection)
 					title = section.tip,
 					count = count,
 					hint = hint,
+					fresh = fresh,
 					run = function()
 						page.name = section.page
 					end,
@@ -378,6 +382,14 @@ local function constructionSlots(c, list, selection)
 				picture = c.protos.icons.roads,
 				title = "Фундамент, дороги и мосты",
 				count = #surfaces,
+				fresh = (function()
+					for _, tool in surfaces do
+						if not seenLib.is(c, tool) then
+							return true
+						end
+					end
+					return false
+				end)(),
 				run = function()
 					page.name = "paving"
 				end,
@@ -402,6 +414,14 @@ local function constructionSlots(c, list, selection)
 				picture = c.protos.buildings.pipe,
 				title = "Трубы и колодцы: связывают в сеть здания, стоящие поодаль; здания вплотную связаны и так, но только одинаковые",
 				count = #tools,
+				fresh = (function()
+					for _, kind in tools do
+						if not seenLib.is(c, kind.name) then
+							return true
+						end
+					end
+					return false
+				end)(),
 				run = function()
 					page.name = "logistics"
 				end,
@@ -424,7 +444,10 @@ local function constructionSlots(c, list, selection)
 				cost = if active and shown and shown.tiles > 1 then shown.cost else cost,
 				title = PAVE_TIPS[tool],
 				active = active,
+				fresh = not seenLib.is(c, tool),
+				seen = tool,
 				run = function()
+					seenLib.mark(c, tool)
 					c.shared.mode = if active then nil else { kind = "paving", tool = tool }
 				end,
 			}
@@ -457,7 +480,10 @@ local function constructionSlots(c, list, selection)
 				title = tips[kind.name],
 				active = active,
 				zones = true,
+				fresh = not seenLib.is(c, kind.name),
+				seen = kind.name,
 				run = function()
+					seenLib.mark(c, kind.name)
 					c.shared.mode = if active then nil else { kind = "paving", tool = kind.name }
 				end,
 			}
@@ -500,7 +526,10 @@ local function constructionSlots(c, list, selection)
 			active = placing == kind.name,
 			zones = true,
 			hint = step ~= nil and step.building == kind.name,
+			fresh = not seenLib.is(c, kind.name),
+			seen = kind.name,
 			run = function()
+				seenLib.mark(c, kind.name)
 				c.shared.mode = if placing == kind.name then nil else { kind = "placing", building = kind.name }
 			end,
 		}
@@ -513,6 +542,7 @@ local function constructionSlots(c, list, selection)
 			slot.cost = if active and shown and shown.tiles > 1 then shown.cost else kind.data.cost
 			slot.title = if affordable then "Тяни мышью линию; щелчок ставит одну" else "Тяни мышью линию; щелчок ставит одну. Сейчас кредитов на всю цену нет — заложить можно: платят по ходу стройки, и она подождёт, пока их прибавится"
 			slot.run = function()
+				seenLib.mark(c, kind.name)
 				c.shared.mode = if active then nil else { kind = "paving", tool = kind.name }
 			end
 		end
@@ -1503,7 +1533,8 @@ local function commandGrid(c, list, width: number, height: number)
 						continue
 					end
 					local id = "cell:" .. i
-					local outline = if slot.hint and not slot.disabled then pulse(ui, 0.3, 1) else nil
+					-- Подсказка шага — синим, новая кнопка — золотом (fresh в bar.ts).
+					local outline = if slot.hint and not slot.disabled then pulse(ui, 0.3, 1) elseif slot.fresh and not slot.disabled then pulse(ui, 0.2, 0.95, "240 201 90", 1.6) else nil
 					local click = ui:button(id, { width = cellWidth, height = cellHeight, padding = { 0, 6, 0, if slot.picture then 4 else 8 }, gap = 6, justify = "start", active = slot.active, disabled = slot.disabled, outline = outline }, function()
 						if slot.picture then
 							ui:box({ direction = "stack" }, function()
@@ -1545,6 +1576,10 @@ local function commandGrid(c, list, width: number, height: number)
 					-- Пока смотрят кнопку здания, на карте видны границы зон (controls/build).
 					if slot.zones and ui:hovered(id) then
 						c.shared.zonesHover = true
+					end
+					-- Навели на новую кнопку — она знакома.
+					if slot.fresh and slot.seen and ui:hovered(id) then
+						seenLib.mark(c, slot.seen)
 					end
 					if click or (c.input.hits[KEY_NAMES[i]] and not c.input.keys.ctrl and not slot.disabled) then
 						slot.run()
