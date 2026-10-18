@@ -1,24 +1,35 @@
 --!strict
--- Камера стратегии: клавиши и края экрана двигают, средняя кнопка тянет, колесо меняет масштаб вокруг курсора.
--- Масштабы — кратные пикселю спрайта, чтобы пиксель-арт не плыл.
+-- Камера стратегии: клавиши и края экрана двигают, средняя кнопка тянет, колесо меняет масштаб вокруг курсора — как
+-- в TS (controls.ts, cameraMotion.ts): колесо задаёт масштаб, который камера плавно догоняет, держа на месте точку
+-- под курсором.
 
 local rts = {}
 
 rts.data = {
-	-- Логических пикселей на тайл: 16 — пиксель спрайта в пиксель экрана.
-	zooms = { 8, 16, 24, 32, 48, 64 },
-	start = 4,
+	-- Логических пикселей на тайл: 16 — пиксель спрайта в пиксель экрана. Пределы масштаба и начальный.
+	minZoom = 4,
+	maxZoom = 96,
+	start = 32,
+	-- Во сколько раз меняет масштаб пиксель прокрутки: exp(−пиксели × wheel); щелчок колеса — 40 пикселей.
+	wheel = 0.0015,
+	wheelLine = 40,
+	-- Масштаб догоняет колесо: за столько секунд он проходит две трети пути; ближе этого (в логарифме) — встаёт.
+	zoomSmoothing = 0.09,
+	zoomArrived = 0.001,
 	-- Скорость клавиш и краёв — экранов в секунду.
 	pan = 0.9,
 	-- Ширина края экрана, где мышь двигает камеру, в пикселях.
 	edge = 6,
 }
 
-local level = rts.data.start
+-- Масштаб, к которому идёт камера (nil — не меняется), и точка экрана, которая стоит на месте.
+local target: number? = nil
+local anchor = { x = 0, y = 0 }
 local drag: { x: number, y: number }? = nil
 
 function rts.start(cam, c)
-	cam.zoom = rts.data.zooms[level]
+	cam.zoom = rts.data.start
+	target = nil
 	-- Камера — к своей базе: первое своё здание.
 	for _, e in c:each({ "Building", "Owner" }) do
 		if c:mine(e) then
@@ -67,15 +78,24 @@ function rts.update(cam, c)
 	local speed = rts.data.pan * math.max(screen.w, screen.h) / cam.zoom * dt
 	cam.x += dx * speed
 	cam.y += dy * speed
-	-- Колесо: масштаб вокруг точки под курсором.
+	-- Колесо: масштаб в exp(…) раз от того, к которому камера уже идёт; вверх — ближе.
+	local d = rts.data
 	if input.wheel ~= 0 and input.inside and not input.over_ui then
-		local before = cam.zoom
-		level = math.clamp(level + (if input.wheel > 0 then 1 else -1), 1, #rts.data.zooms)
-		cam.zoom = rts.data.zooms[level]
-		if cam.zoom ~= before then
-			local px, py = input.x - screen.w / 2, input.y - screen.h / 2
-			cam.x += px / before - px / cam.zoom
-			cam.y += py / before - py / cam.zoom
+		target = math.clamp((target or cam.zoom) * math.exp(input.wheel * d.wheelLine * d.wheel), d.minZoom, d.maxZoom)
+		anchor.x, anchor.y = input.x, input.y
+	end
+	-- Камера догоняет масштаб; точка под курсором остаётся на месте.
+	if target and dt > 0 then
+		local goal = target :: number
+		local next = cam.zoom * (goal / cam.zoom) ^ (1 - math.exp(-dt / d.zoomSmoothing))
+		local arrived = math.abs(math.log(goal / next)) < d.zoomArrived
+		local zoom = if arrived then goal else next
+		local px, py = anchor.x - screen.w / 2, anchor.y - screen.h / 2
+		cam.x += px / cam.zoom - px / zoom
+		cam.y += py / cam.zoom - py / zoom
+		cam.zoom = zoom
+		if arrived then
+			target = nil
 		end
 	end
 	-- Не дальше края поля.
