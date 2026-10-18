@@ -1030,3 +1030,38 @@ fn gates_rise_before_a_stranger_and_not_under_one_who_stands_in_them() {
   ticks(&mut host, 5);
   assert!(open(&host, left) && open(&host, right), "чужих нет — опущены");
 }
+
+#[test]
+fn radar_flashes_where_it_has_not_looked_and_sees_little_when_switched_off() {
+  let mut host = host_without_tech();
+  let (_, site, builder) = base_with_builder(&mut host);
+  let spot = free_spot(&host, site, 2);
+  raise(&mut host, "generator", spot, builder);
+  let spot = free_spot(&host, site, 2);
+  let radar = raise(&mut host, "radar", spot, builder);
+  // Первая вспышка — через полный срок; глаз вспышки — сущность без вида, гаснет через 30 тиков.
+  let mut flash = None;
+  for _ in 0..20 * 12 {
+    host.tick(0.05).unwrap();
+    if let Some((entity, _)) = all(&host, "Flash").first() {
+      flash = Some(*entity);
+      break;
+    }
+  }
+  let flash = flash.expect("радар не вспыхнул");
+  assert_eq!(get(&host, flash, "Sight").unwrap()["radius"], json!(6.0));
+  assert_eq!(get(&host, flash, "Owner").unwrap()["player"], json!(1.0));
+  let scan = get(&host, radar, "Scan").unwrap();
+  let (rx, ry) = place(&host, radar);
+  let (fx, fy) = place(&host, flash);
+  assert_eq!((scan["x"].as_f64().unwrap(), scan["y"].as_f64().unwrap()), (fx, fy));
+  assert!(((fx - rx).powi(2) + (fy - ry).powi(2)).sqrt() <= 60.0 + 0.1, "в радиусе радара");
+  assert_eq!(get(&host, radar, "Sight").unwrap()["radius"], json!(14.0));
+  ticks(&mut host, 31);
+  assert!(get(&host, flash, "Flash").is_none(), "вспышка погасла");
+  // Выключенный видит как обычное здание и не вспыхивает.
+  host.send(1, "work", json!({ "building": radar, "on": false }));
+  ticks(&mut host, 20 * 15);
+  assert_eq!(get(&host, radar, "Sight").unwrap()["radius"], json!(5.0));
+  assert!(all(&host, "Flash").is_empty());
+}

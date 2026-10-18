@@ -1,7 +1,7 @@
 --!strict
 --!native
 -- Звуки зданий и мира — перенос packages/client/src/audio/worldSynth.ts: то, что уже есть в игре, — стройка,
--- разворачивание, выезд из завода, ворота, перегруз сети, отсчёт и уведомления. Остальное переедет вместе с механиками.
+-- разворачивание, выезд из завода, ворота, радар, перегруз сети, отсчёт и уведомления. Остальное переедет вместе с механиками.
 
 local dsp = require("lib/dsp")
 
@@ -92,6 +92,16 @@ local function rollout(rate: number, variant: number)
 	end)
 end
 
+-- Радар: мягкий звон импульса, уходящий эхом.
+local function radar(rate: number, variant: number)
+	local phase = 0
+	return render(rate, 1.6, variant, function(t)
+		phase += 2 * PI * 1320 * (1 - 0.03 * t) * (1 + variant * 0.008) / rate
+		local echo = if t > 0.4 then decay(t - 0.4, 0.3) * 0.3 else 0
+		return sin(phase) * (attack(t, 0.003) * decay(t, 0.15) + echo)
+	end)
+end
+
 -- Сеть перегружена: свет мигает — гул проседает и рвётся.
 local function brownout(rate: number, variant: number)
 	local phase = 0
@@ -140,6 +150,7 @@ return {
 	bank = {
 		built = sound("world", built),
 		gate = sound("world", gate),
+		radar = sound("world", radar),
 		deploy = sound("world", deploy),
 		rollout = sound("world", rollout),
 		brownout = sound("interface", brownout),

@@ -159,7 +159,11 @@ function buildings.bulb(g, x: number, y: number, level: number)
 	g:light(x + 1, y + 1, 1, level)
 end
 
--- Обзор здания (buildingSight): своё число или половина большей стороны и ещё 4, и не меньше дальности турелей.
+-- Сколько тайлов за краем видит здание без своего обзора (BUILDING_SIGHT).
+buildings.BUILDING_SIGHT = 4
+
+-- Обзор здания (buildingSight): своё число или половина большей стороны и ещё BUILDING_SIGHT, и не меньше дальности
+-- турелей.
 function buildings.sight(kind, protos): number
 	local data = kind.data
 	local range = 0
@@ -171,7 +175,7 @@ function buildings.sight(kind, protos): number
 		end
 	end
 	local half = math.max(data.width, data.height) / 2
-	return math.max(data.sight or half + 4, if range ~= 0 then range + 1.5 else 0)
+	return math.max(data.sight or half + buildings.BUILDING_SIGHT, if range ~= 0 then range + 1.5 else 0)
 end
 
 -- Сущность здания по данным вида: размер, основание (тайлы заняты для хода), обзор, производство.

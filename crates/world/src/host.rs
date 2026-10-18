@@ -1104,6 +1104,8 @@ impl UserData for Ctx {
     methods.add_method("walkable", |_, this, (x, y, foot): (f64, f64, Option<bool>)| Ok(this.state.borrow_mut().scene().walkable(x.floor() as i32, y.floor() as i32, foot.unwrap_or(false))));
     // Видит ли игрок тайл сейчас; без тумана — всё.
     methods.add_method("sees", |_, this, (player, x, y): (f64, f64, f64)| Ok(this.state.borrow().vision.as_ref().is_none_or(|vision| vision.sees(player as u32, x, y))));
+    // Бывал ли тайл в виду игрока; без тумана — всё.
+    methods.add_method("explored", |_, this, (player, x, y): (f64, f64, f64)| Ok(this.state.borrow().vision.as_ref().is_none_or(|vision| vision.explored(player as u32, x, y))));
     // Доля полной скорости рода class на тайле.
     methods.add_method("terrain_speed", |_, this, (class, x, y): (String, f64, f64)| Ok(this.state.borrow_mut().scene().terrain_speed(&class, x.floor() as i32, y.floor() as i32)));
     // Здание на тайле (Footprint) или nil.
