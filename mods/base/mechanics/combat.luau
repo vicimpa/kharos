@@ -37,19 +37,34 @@ combat.systems = {
 	},
 }
 
+-- Свои юниты и их турели берут цель и идут к ней (orderAttack); посланный разворачиваться MCV забывает поездку.
+local function attack(ctx, player: number, units: any, target: any)
+	if type(units) ~= "table" or type(target) ~= "number" or not ctx:alive(target) then
+		return
+	end
+	if ctx:attack(player, units, target) then
+		local own = {}
+		for _, e in units do
+			local owner = ctx:alive(e) and ctx:get(e, "Owner")
+			if owner and owner.player == player then
+				table.insert(own, e)
+			end
+		end
+		conversion.forget(ctx, own)
+	end
+end
+
+combat.on = {
+	-- Приказ точкой по врагу (mechanics/orders).
+	attack = function(ctx, event)
+		attack(ctx, event.player, event.units, event.target)
+	end,
+}
+
 combat.commands = {
 	-- Атаковать цель: { units = { … }, target = сущность } (orderAttack).
 	attack = function(ctx, player, args)
-		if ctx:attack(player, args.units, args.target) then
-			local own = {}
-			for _, e in args.units do
-				local owner = ctx:alive(e) and ctx:get(e, "Owner")
-				if owner and owner.player == player then
-					table.insert(own, e)
-				end
-			end
-			conversion.forget(ctx, own)
-		end
+		attack(ctx, player, args.units, args.target)
 	end,
 	-- Стойка: { units = { … }, stance = "aggressive" | "defensive" | "hold" | "passive" } (setStance).
 	stance = function(ctx, player, args)

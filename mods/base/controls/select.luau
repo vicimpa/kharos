@@ -20,6 +20,9 @@ local HIT_ALPHA = 0.5
 local PATH_DOT, PATH_GAP, PATH_ALPHA, PATH_GOAL = 3, 14, 0.55, 0.4
 local BAR_HEIGHT, BAR_GAP = 4, 0.3
 local BAR_BACK, BAR_PRODUCING, BAR_CONVERTING = 0x080d14, 0x59a6ff, 0xffcc4d
+-- Цели выбранных стрелков (TARGET в selectionPass.ts) и патруль (ROUTE в cursorPass.ts): остановки — тайлы в рамке.
+local TARGET, TARGET_ALPHA = 0xff594d, 0.7
+local ROUTE, ROUTE_FILL, ROUTE_BORDER = 0xffd94d, 0.18, 0.85
 
 local start: { x: number, y: number, wx: number, wy: number }? = nil
 local last = { time = -1, entity = 0 }
@@ -55,7 +58,7 @@ local function mark(c, e: number, share: number)
 end
 
 -- Пунктир от (x1, y1) к (x2, y2): точки PATH_DOT пикселей через PATH_GAP пикселей экрана, от конца.
-local function dashes(c, x1: number, y1: number, x2: number, y2: number, alpha: number)
+local function dashes(c, x1: number, y1: number, x2: number, y2: number, alpha: number, color: number?)
 	local pixel = 1 / c.camera.zoom
 	local dot, step = PATH_DOT * pixel, PATH_GAP * pixel
 	local length = math.sqrt((x2 - x1) ^ 2 + (y2 - y1) ^ 2)
@@ -63,7 +66,7 @@ local function dashes(c, x1: number, y1: number, x2: number, y2: number, alpha: 
 	while along < length do
 		local x = x2 + (x1 - x2) / length * along
 		local y = y2 + (y1 - y2) / length * along
-		c.draw:rect(x - dot / 2, y - dot / 2, x + dot / 2, y + dot / 2, SELECTED, nil, alpha)
+		c.draw:rect(x - dot / 2, y - dot / 2, x + dot / 2, y + dot / 2, color or SELECTED, nil, alpha)
 		along += step
 	end
 end
@@ -79,9 +82,83 @@ local function bar(c, e: number, value: number, color: number)
 	c.draw:rect(left, top, left + w * math.clamp(value, 0, 1), top + height, color)
 end
 
+-- Цели выбранных стрелков: пунктир от стрелка к тому, в кого он целится, — он сам или турели на нём; одна цель —
+-- одна рамка, сколько бы ни целилось.
+local function aims(c, selection)
+	local chosen = {}
+	for _, e in selection do
+		chosen[e] = true
+	end
+	local targets: { [number]: { number } } = {}
+	local function aim(shooter: number, target: number)
+		if target < 0 or not chosen[shooter] or not c:alive(target) then
+			return
+		end
+		local list = targets[shooter] or {}
+		if not table.find(list, target) then
+			table.insert(list, target)
+		end
+		targets[shooter] = list
+	end
+	for _, e in selection do
+		local armed = c:get(e, "Armed")
+		if armed then
+			aim(e, armed.target)
+		end
+	end
+	for _, e in c:each({ "Attached", "Armed" }) do
+		aim(c:get(e, "Attached").parent, c:get(e, "Armed").target)
+	end
+	local marked = {}
+	local half = PATH_GOAL
+	for shooter, list in targets do
+		local from = c:get(shooter, "Position")
+		for _, target in list do
+			local to = c:get(target, "Position")
+			if from and to then
+				dashes(c, from.x, from.y, to.x, to.y, TARGET_ALPHA, TARGET)
+				if not marked[target] then
+					marked[target] = true
+					c.draw:rect(to.x - half, to.y - half, to.x + half, to.y + half, TARGET, 2)
+				end
+			end
+		end
+	end
+end
+
+-- Патруль выбранных: точки — тайлы в рамке, между ними пунктир по кругу; один и тот же патруль — один раз.
+local function patrols(c, selection)
+	local seen = {}
+	for _, e in selection do
+		local state = c:get(e, "Tactics")
+		local points = state and state.patrol
+		if not points or #points < 4 then
+			continue
+		end
+		local key = table.concat(points, ",")
+		if seen[key] then
+			continue
+		end
+		seen[key] = true
+		local border = 1 / 16
+		for i = 1, #points - 1, 2 do
+			local x, y = points[i], points[i + 1]
+			c.draw:rect(x, y, x + 1, y + 1, ROUTE, nil, ROUTE_FILL)
+			c.draw:rect(x, y, x + 1, y + border, ROUTE, nil, ROUTE_BORDER)
+			c.draw:rect(x, y + 1 - border, x + 1, y + 1, ROUTE, nil, ROUTE_BORDER)
+			c.draw:rect(x, y + border, x + border, y + 1 - border, ROUTE, nil, ROUTE_BORDER)
+			c.draw:rect(x + 1 - border, y + border, x + 1, y + 1 - border, ROUTE, nil, ROUTE_BORDER)
+			local nx, ny = points[(i + 1) % #points + 1], points[(i + 2) % #points + 1]
+			dashes(c, nx + 0.5, ny + 0.5, x + 0.5, y + 0.5, PATH_ALPHA, ROUTE)
+		end
+	end
+end
+
 -- Пути, флажки сбора и полоски выпуска у выбранного.
 local function marks(c, selection)
 	local pixel = 1 / c.camera.zoom
+	patrols(c, selection)
+	aims(c, selection)
 	for _, e in selection do
 		-- Путь — под кольцом: точки отсчитываются от конца пути, поэтому стоят на земле, а не ползут с юнитом.
 		local path = c:get(e, "Path")
@@ -156,8 +233,8 @@ function select.update(c)
 		return
 	end
 
-	-- В режиме наведения (выбор места MCV) щелчок по карте — его, а не выделение.
-	if input.pressed.left and input.inside and not input.over_ui and not shared.mode then
+	-- В режиме наведения (выбор места MCV) щелчок по карте — его, а не выделение; в наборе патруля рамка — выделение.
+	if input.pressed.left and input.inside and not input.over_ui and (not shared.mode or shared.mode.selects) then
 		start = { x = input.x, y = input.y, wx = input.wx, wy = input.wy }
 	end
 	if start then
@@ -172,13 +249,13 @@ function select.update(c)
 				end
 			end
 		end
-		-- Долгое касание стало приказом (controls/orders.luau): отпускание не выделяет.
-		if input.released.left and c.shared.swallow then
+		-- Долгое касание стало приказом (controls/orders.luau), щелчок — точкой патруля (controls/patrol): отпускание
+		-- не выделяет.
+		local swallowed = input.released.left and c.shared.swallow
+		if swallowed then
 			c.shared.swallow = nil
-			start = nil
-			return
 		end
-		if input.released.left then
+		if input.released.left and not swallowed then
 			local picked = {}
 			if moved then
 				for _, e in c:within(start.wx, start.wy, input.wx, input.wy, { "Unit" }) do

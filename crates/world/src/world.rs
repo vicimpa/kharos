@@ -206,6 +206,8 @@ impl World {
     for (name, value) in values {
       let field = def.field(name).ok_or_else(|| format!("у {} нет поля {name}", def.name))?;
       match field.kind {
+        // Пустая таблица Luau — и список, и словарь: какой, говорит значение поля по умолчанию.
+        Kind::Any if field.default.is_array() && value.as_object().is_some_and(Map::is_empty) => self.stores[component].anys[field.slot][row] = Value::Array(Vec::new()),
         Kind::Any => self.stores[component].anys[field.slot][row] = value.clone(),
         kind => {
           let number = encode_checked(&mut self.strings, kind, value).ok_or_else(|| format!("{}.{name}: {value} — не {}", def.name, kind_word(kind)))?;

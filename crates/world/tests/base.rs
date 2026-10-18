@@ -922,3 +922,78 @@ fn pipe_carries_materials_from_the_store_to_a_site_in_batches() {
   assert!(stocked(&host, accumulator, "lithium") >= 20.0 - 1e-6, "на стройке {:?}", get(&host, accumulator, "Inventory"));
   assert!((stocked(&host, yard, "lithium") - 10.0).abs() < 1e-6);
 }
+
+#[test]
+fn patrol_goes_there_and_back_and_a_move_ends_it() {
+  let mut host = host();
+  let buggy = kind(&host, "units", "buggy")[0];
+  let (sx, sy) = place(&host, buggy);
+  let home = (sx.floor(), sy.floor());
+  host.send(1, "patrol", json!({ "units": [buggy], "points": [10, -6] }));
+  host.tick(0.05).unwrap();
+  let tactics = get(&host, buggy, "Tactics").unwrap();
+  let patrol: Vec<f64> = tactics["patrol"].as_array().unwrap().iter().map(|value| value.as_f64().unwrap()).collect();
+  assert_eq!(patrol, [home.0, home.1, 10.0, -6.0], "от своего места до точки");
+  // Доехал до точки — и обратно, к месту, откуда начал.
+  let (mut there, mut back) = (false, false);
+  for _ in 0..2000 {
+    host.tick(0.05).unwrap();
+    let (x, y) = place(&host, buggy);
+    there |= (x - 10.5).abs() <= 1.5 && (y + 5.5).abs() <= 1.5;
+    back |= there && (x - home.0 - 0.5).abs() <= 1.5 && (y - home.1 - 0.5).abs() <= 1.5;
+    if back {
+      break;
+    }
+  }
+  assert!(there && back, "там {there}, обратно {back}");
+  // Приказ идти снимает патруль.
+  host.send(1, "move", json!({ "units": [buggy], "x": 4, "y": 4 }));
+  host.tick(0.05).unwrap();
+  assert_eq!(get(&host, buggy, "Tactics").unwrap()["patrol"], json!([]));
+  assert!(get(&host, buggy, "Path").is_some(), "едет");
+}
+
+#[test]
+fn aggressive_march_remembers_the_goal_and_point_order_on_an_enemy_attacks() {
+  let mut host = host();
+  host.join(2).unwrap();
+  host.tick(0.05).unwrap();
+  let buggies: Vec<u32> = kind(&host, "units", "buggy");
+  let own: Vec<u32> = buggies.iter().copied().filter(|&e| get(&host, e, "Owner").unwrap()["player"].as_f64() == Some(1.0)).collect();
+  let enemy = buggies.iter().copied().find(|&e| get(&host, e, "Owner").unwrap()["player"].as_f64() == Some(2.0)).unwrap();
+  let buggy = own[0];
+  // Агрессивный, посланный идти, идёт походом: помнит, куда шёл; дошёл — помнить нечего.
+  host.send(1, "stance", json!({ "units": [buggy], "stance": "aggressive" }));
+  host.tick(0.05).unwrap();
+  host.send(1, "move", json!({ "units": [buggy], "x": 10, "y": -6 }));
+  host.tick(0.05).unwrap();
+  let tactics = get(&host, buggy, "Tactics").unwrap();
+  let path = get(&host, buggy, "Path").unwrap();
+  assert_eq!(tactics["away"], json!(true));
+  assert_eq!((tactics["homeX"].clone(), tactics["homeY"].clone()), (path["goalX"].clone(), path["goalY"].clone()));
+  for _ in 0..600 {
+    host.tick(0.05).unwrap();
+    if get(&host, buggy, "Tactics").unwrap()["away"] == json!(false) {
+      break;
+    }
+  }
+  assert_eq!(get(&host, buggy, "Tactics").unwrap()["away"], json!(false), "дошёл");
+  // Не стреляющий сам по врагу рядом не бьёт; приказ точкой по нему — атака.
+  host.send(1, "stance", json!({ "units": [buggy], "stance": "passive" }));
+  let (x, y) = place(&host, buggy);
+  set(&host, enemy, "Position", json!({ "x": x + 3.0, "y": y }));
+  ticks(&mut host, 2);
+  // Стреляет багги турелью на корпусе.
+  let gun = all(&host, "Attached").into_iter().find(|(_, attached)| attached["parent"].as_f64() == Some(buggy as f64)).map(|(entity, _)| entity).unwrap();
+  assert_eq!(get(&host, gun, "Armed").unwrap()["target"], json!(-1.0), "сам не стреляет");
+  let (ex, ey) = place(&host, enemy);
+  host.send(1, "order", json!({ "units": [buggy], "x": ex, "y": ey }));
+  host.tick(0.05).unwrap();
+  let armed = get(&host, gun, "Armed").unwrap();
+  assert_eq!(armed["target"], json!(enemy as f64));
+  assert_eq!(armed["ordered"], json!(true));
+  // Стоп — бросает цель.
+  host.send(1, "stop", json!({ "units": [buggy] }));
+  host.tick(0.05).unwrap();
+  assert_eq!(get(&host, gun, "Armed").unwrap()["target"], json!(-1.0));
+}

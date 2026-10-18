@@ -11,6 +11,7 @@ local economy = require("lib/economy")
 local goods = require("lib/goods")
 local logistics = require("lib/logistics")
 local research = require("lib/research")
+local tactics = require("lib/tactics")
 local COLORS, shadow = widgets.COLORS, widgets.shadow
 
 local hud = {}
@@ -45,6 +46,14 @@ local SECTIONS = {
 	{ page = "production", label = "Производство", tip = "Заводы изделий: стройблоки, боеприпасы, компоненты и стержни", picture = "blockPlant", list = { "blockPlant", "ammoPlant", "partsPlant", "rodPlant" } },
 	{ page = "military", label = "Военное", tip = "Казармы, машинный завод, аэродром, ремонтная станция, станция поставки и ракетная шахта", picture = "factory", list = { "barracks", "factory", "airfield", "repairStation", "supplyDepot", "silo" } },
 	{ page = "defense", label = "Оборона", tip = "Стены, турели, щит, перехватчик ядерных ракет и радар", picture = "wall", list = { "wall", "gate", "turret", "rocketTurret", "cannonTurret", "laserTurret", "arcTurret", "shieldGenerator", "interceptor", "radar" } },
+}
+
+-- Стойки бойцов: подпись и подсказка (grid.stances и grid.stanceTips в ru.json).
+local STANCES = {
+	aggressive = { label = "Агрессивно", tip = "Идти на любого врага, которого видно, и гнаться за ним; посланные идти бьют по дороге тех, кто опасен, и идут дальше" },
+	defensive = { label = "Оборона", tip = "Бить тех, кого достаёт; на огонь отвечать погоней не дальше {leash} тайлов и возвращаться на место" },
+	hold = { label = "Держать позицию", tip = "С места не сходить: бить только тех, кого достаёт, и под огнём тоже" },
+	passive = { label = "Не стрелять", tip = "Огонь не открывать и не отвечать: стрелять только по приказу атаки" },
 }
 
 -- Раздел здания по имени: где его нет в списках, там хозяйство.
@@ -437,6 +446,43 @@ local function slots(c, selection)
 				label = "Отменить",
 				run = function()
 					c:send("cancelDeploy", { unit = e })
+				end,
+			}
+		end
+	end
+	-- Свои бойцы без строителей: стойки — общая горит, если она у всех одна, — и патруль (tactics в hud.ts).
+	if #buildersOf(c, selection) == 0 then
+		local units, stance, patrolling = {}, nil, 0
+		local turrets = tactics.mounts(c)
+		for _, e in selection do
+			if c:mine(e) and c:has(e, "Unit") and tactics.canFight(c, e, turrets[e]) then
+				local own = tactics.stanceOf(c, e)
+				stance = if #units == 0 or stance == own then own else ""
+				table.insert(units, e)
+				local state = c:get(e, "Tactics")
+				if state and #state.patrol > 0 then
+					patrolling += 1
+				end
+			end
+		end
+		if #units > 0 then
+			for i, name in tactics.stances do
+				list[i] = {
+					label = STANCES[name].label,
+					title = (string.gsub(STANCES[name].tip, "{leash}", tostring(tactics.leash))),
+					active = stance == name,
+					run = function()
+						c:send("stance", { units = units, stance = name })
+					end,
+				}
+			end
+			local picking = c.shared.mode ~= nil and c.shared.mode.kind == "patrolling"
+			list[5] = {
+				label = "Патруль",
+				title = "P, потом щелчок по карте — бойцы ходят между своим местом и точкой; Shift+щелчок — ещё точка к патрулю",
+				active = picking or patrolling > 0,
+				run = function()
+					c.shared.mode = if picking then nil else { kind = "patrolling", selects = true }
 				end,
 			}
 		end
@@ -1067,6 +1113,7 @@ end
 -- Режимы наведения: название и что делать (mode в hud.ts).
 local MODES = {
 	deploying = { name = "Разворачивание MCV", tip = "Щёлкни, где развернуть: на зелёном можно, MCV доедет сам" },
+	patrolling = { name = "Патруль", tip = "Щёлкни, докуда патрулировать; с Shift — ещё точка" },
 	placing = { name = "Стройка: {name}", tip = "Щёлкни, где заложить, — можно ещё и ещё" },
 	paving = { name = "{name}", tip = "Зажми кнопку и тяни по карте" },
 }

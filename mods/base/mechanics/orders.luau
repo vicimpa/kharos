@@ -2,11 +2,12 @@
 -- Приказы юнитам — перенос case 'move' из packages/sim-ts/src/commands.ts: свои юниты группой едут к тайлу, каждый на
 -- своё место рядом с ним (ctx:move_group — orderGroupMove движка); стоп — снять путь. Приказ точкой (order,
 -- resolveOrder в target.ts) решает хост: строители по своей стройке или повреждённому — строят и чинят, иначе — едут.
--- Атака точкой придёт с приказами боя (В7).
+-- Вооружённые по видимому врагу — атакуют.
 
 local conversion = require("lib/conversion")
 local construction = require("lib/construction")
 local logistics = require("lib/logistics")
+local tactics = require("lib/tactics")
 
 local orders = {}
 
@@ -31,29 +32,36 @@ end
 -- Насколько мимо юнита можно попасть точкой приказа, чтобы всё равно попасть в него, в тайлах (ORDER_MARGIN).
 orders.data = { margin = 0.3 }
 
--- Свой юнит под точкой: ближайший из тех, в чей круг с запасом она попала (unitNear).
-local function unitNear(ctx, player: number, x: number, y: number): number?
+-- Юнит под точкой: ближайший из тех, в чей круг с запасом она попала (unitNear); own — среди своих или чужих.
+-- Чужого, которого игрок сейчас не видит, нет.
+local function unitNear(ctx, player: number, x: number, y: number, own: boolean): number?
 	local best, bestDistance = nil, math.huge
 	for _, e in ctx:each({ "Unit", "Position", "Mover", "Owner" }) do
-		if ctx:get(e, "Owner").player ~= player then
+		if (ctx:get(e, "Owner").player == player) ~= own then
 			continue
 		end
 		local at = ctx:get(e, "Position")
 		local distance = math.sqrt((at.x - x) ^ 2 + (at.y - y) ^ 2)
 		if distance <= ctx:get(e, "Mover").radius + orders.data.margin and distance < bestDistance then
-			best, bestDistance = e, distance
+			if own or ctx:sees(player, at.x, at.y) then
+				best, bestDistance = e, distance
+			end
 		end
 	end
 	return best
 end
 
--- Свои юниты едут к тайлу: приказ идти снимает строителя со стройки, грузовик — с работы и шахты.
+-- Свои юниты едут к тайлу: приказ идти снимает строителя со стройки, грузовик — с работы и шахты, бойца — с цели и
+-- патруля. Агрессивные идут походом: по дороге бьют увиденных врагов и продолжают путь.
 local function move(ctx, player: number, units: { number }, x: number, y: number)
 	for _, e in units do
 		ctx:remove(e, "Builds")
+		tactics.stopAttack(ctx, e)
+		tactics.clear(ctx, e)
 	end
 	ctx:emit("release", { units = units })
 	ctx:move_group(units, x, y)
+	tactics.march(ctx, units)
 	conversion.forget(ctx, units)
 	ctx:signal("moved", { player = player, x = x, y = y })
 end
@@ -73,11 +81,22 @@ orders.commands = {
 		if ctx:sees(player, x, y) then
 			-- Работа для строителей: стройка, разбор или своё повреждённое — здание или юнит.
 			local planned = construction.siteAt(ctx, x, y)
-			local broken = unitNear(ctx, player, args.x, args.y) or ctx:occupant(x, y)
+			local broken = unitNear(ctx, player, args.x, args.y, true) or ctx:occupant(x, y)
 			local site = planned or (if broken and construction.canRepair(ctx, player, broken) then broken else nil)
 			local builders = false
 			for _, e in units do
 				builders = builders or ctx:has(e, "Repair")
+			end
+			-- Вооружённые по врагу — атакуют: по чужому юниту или зданию в точке.
+			local enemy = unitNear(ctx, player, args.x, args.y, false) or ctx:occupant(x, y)
+			local turrets = tactics.mounts(ctx)
+			local fighters = false
+			for _, e in units do
+				fighters = fighters or tactics.canFight(ctx, e, turrets[e])
+			end
+			if fighters and enemy and tactics.canAttack(ctx, player, enemy) then
+				ctx:emit("attack", { player = player, units = units, target = enemy })
+				return
 			end
 			-- Грузовики по своей шахте — привязываются к ней и возят добытое.
 			local trucks = false
@@ -109,12 +128,14 @@ orders.commands = {
 		move(ctx, player, units, args.x, args.y)
 	end,
 
-	-- { units } — стоять.
+	-- { units } — стоять: без пути, работы, цели и патруля.
 	stop = function(ctx, player, args)
 		local units = own(ctx, player, args.units)
 		for _, entity in units do
 			ctx:stop(entity)
 			ctx:remove(entity, "Builds")
+			tactics.stopAttack(ctx, entity)
+			tactics.clear(ctx, entity)
 		end
 		ctx:emit("release", { units = units })
 		conversion.forget(ctx, units)

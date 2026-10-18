@@ -51,7 +51,9 @@ function deploy.update(c)
 		return
 	end
 	if input.pressed.right and input.inside and not input.over_ui then
+		-- Тот же щелчок приказом уже не станет (controls/orders).
 		shared.mode = nil
+		shared.modeClosedAt = c.time
 		return
 	end
 	local x, y, allowed = placementOf(c, unit)

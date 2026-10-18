@@ -34,8 +34,8 @@ end
 
 function orders.update(c)
 	local input = c.input
-	-- Под меню партии и в режиме наведения (выбор места MCV) приказов мышью нет.
-	if c.shared.paused or c.shared.mode then
+	-- Под меню партии и в режиме наведения (выбор места MCV) приказов мышью нет; щелчок, снявший режим, — тоже не приказ.
+	if c.shared.paused or c.shared.mode or c.shared.modeClosedAt == c.time then
 		held = nil
 		return
 	end
