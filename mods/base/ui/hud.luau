@@ -15,6 +15,8 @@ local research = require("lib/research")
 local tactics = require("lib/tactics")
 local trade = require("lib/trade")
 local silos = require("mechanics/silos")
+local alertsLib = require("lib/alerts")
+local missiles = require("lib/missiles")
 
 local clockOf = widgets.clock
 local COLORS, shadow = widgets.COLORS, widgets.shadow
@@ -1388,6 +1390,9 @@ end
 -- левая кнопка (и протяжка) ставит туда камеру, правая шлёт выделенных.
 local SIDE_COLORS = { own = "#5aa9ff", foe = "#ff6b5a", neutral = "#c8c8c8" }
 
+-- Уведомления этого кадра (lib/alerts): их строки в ленте и кольца на мини-карте.
+local shownAlerts: { alertsLib.Alert } = {}
+
 local function minimapView(c, side: number)
 	local ui = c.ui
 	local size = (c.game.data and c.game.data.size) or 64
@@ -1429,6 +1434,51 @@ local function minimapView(c, side: number)
 						ui:box({ width = w, height = h, background = color })
 					end)
 				end
+			end
+			-- Метки ядерного удара, которые игрок видит: место пуска — крестик, точка удара — круг взрыва; ракеты в
+			-- полёте — белые точки (minimap.ts).
+			local function mark(x: number, y: number, w: number, h: number, color: string, alpha: number?)
+				ui:box({ self = { "start", "start" }, padding = { math.floor(y - h / 2), 0, 0, math.floor(x - w / 2) } }, function()
+					ui:box({ width = w, height = h, background = color, alpha = alpha })
+				end)
+			end
+			local function ring(x: number, y: number, radius: number, color: string, alpha: number?)
+				local count = math.max(12, math.floor(radius * 2))
+				for i = 0, count - 1 do
+					local a = i / count * math.pi * 2
+					mark(x + math.cos(a) * radius, y + math.sin(a) * radius, dot, dot, color, alpha)
+				end
+			end
+			local blast = c.protos.buildings.silo.data.warhead.blast
+			for _, e in c:each({ "Mark", "Position" }) do
+				local m = c:get(e, "Mark")
+				if m.player ~= c.player and not tactics.allied(c, c.player, m.player) and not table.find(m.viewers or {}, c.player) then
+					continue
+				end
+				local p = c:get(e, "Position")
+				local x, y = at(p.x, p.y)
+				if m.kind == "launch" then
+					local arm = math.round(4 * k)
+					for step = -arm, arm, math.max(1, math.round(k)) do
+						mark(x + step, y + step, dot, dot, "#ffb347")
+						mark(x + step, y - step, dot, dot, "#ffb347")
+					end
+				elseif m.kind == "strike" then
+					ring(x, y, math.max(4 * k, blast.radius * scale), SIDE_COLORS.foe)
+				end
+			end
+			local speed = c.protos.buildings.silo.data.warhead.speed
+			for _, e in c:each({ "Missile" }) do
+				local mx, my = missiles.at(c:get(e, "Missile"), c.tick, c.step, speed)
+				local x, y = at(mx, my)
+				mark(x, y, math.round(3 * k), math.round(3 * k), "#ffffff")
+			end
+			-- Уведомления: мигающее кольцо там, где напали или заметили врага.
+			for _, alert in shownAlerts do
+				local pulse = (alertsLib.age(alert) * 2) % 1
+				local color = if alert.kind == "attacked" or alert.kind == "nuke" then SIDE_COLORS.foe elseif alert.kind == "ping" then "#4ec973" elseif alert.kind == "found" or alert.kind == "intercepted" then "#8fe0a8" else "#ffd27a"
+				local x, y = at(alert.x, alert.y)
+				ring(x, y, (3 + pulse * 12) * k, color, 1 - pulse)
 			end
 			-- Рамка экрана.
 			local x1, y1 = c:to_world(0, 0)
@@ -1604,7 +1654,38 @@ local function rewards(c)
 	end)
 end
 
+-- Уведомления слева под полосой (alerts в hud.ts): строка цвета вида с маркером; щелчок ведёт камеру к месту. Со
+-- временем гаснут.
+local ALERT_COLORS = { attacked = COLORS.bad, spotted = COLORS.warn, found = COLORS.good, ping = COLORS.ally }
+local function alertList(c)
+	local list = shownAlerts
+	if #list == 0 then
+		return
+	end
+	local ui = c.ui
+	local seconds = alertsLib.data.seconds
+	ui:box({ anchor = { left = 12, top = TOP_HEIGHT + 6 }, skin = "panel", padding = { 10, 12 }, direction = "column", gap = 4 }, function()
+		for _, alert in list do
+			local age = alertsLib.age(alert)
+			local bright = seconds * 0.75
+			local fade = if age < bright then 1 else math.max(0.25, 1 - 0.75 * (age - bright) / (seconds - bright))
+			local id = "alert:" .. alert.at
+			local color = ALERT_COLORS[alert.kind] or COLORS.text
+			ui:box({ id = id, direction = "row", align = "center", gap = 8, padding = { 2, 4 }, alpha = math.round(fade * 8) / 8 }, function()
+				ui:box({ width = 6, height = 6, background = color })
+				ui:text(alertsLib.TEXTS[alert.text] or alert.text, { color = color, shadow = COLORS.ink })
+			end)
+			ui:tip(id, "Показать место")
+			if ui:clicked(id) then
+				c.camera.x, c.camera.y = alert.x, alert.y
+			end
+		end
+	end)
+end
+
 function hud.draw(c)
+	shownAlerts = alertsLib.update(c)
+	alertList(c)
 	modeBar(c)
 	rewards(c)
 	topBar(c)
