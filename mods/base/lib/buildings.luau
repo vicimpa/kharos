@@ -3,6 +3,8 @@
 -- местности; начало координат — левый верхний угол основания, высокие части уходят в y < 0. Кадров в цикле анимации —
 -- FRAMES, чертёж получает фазу цикла t от 0 до 1 и обязан замыкаться при t = 1. Огни кадра — canvas:light.
 
+local goods = require("lib/goods")
+
 local buildings = {}
 
 buildings.TILE = 16
@@ -186,6 +188,8 @@ function buildings.entity(kind, protos)
 		Health = { hp = data.hp or data.cost * buildings.HP_PER_COST },
 	}
 	entity.Link = buildings.link(kind)
+	-- Склад (equipStorage): шахта копит руду, переработка — руду и готовое, хранилище — свой груз.
+	entity.Inventory = goods.stock(data)
 	if data.battery then
 		entity.Accumulator = {}
 	end

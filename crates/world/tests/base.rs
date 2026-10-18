@@ -589,6 +589,8 @@ fn free_spot(host: &Host, (cx, cy): (i32, i32), size: i32) -> (i32, i32) {
 
 /// Строит здание строителем и ждёт, пока достроят.
 fn raise(host: &mut Host, building: &str, (x, y): (i32, i32), builder: u32) -> u32 {
+  // Достроивший прошлое забывает работу на следующем тике: занятых приказ из меню не берёт.
+  ticks(host, 2);
   host.send(1, "build", json!({ "building": building, "x": x, "y": y, "builders": [builder] }));
   host.tick(0.05).unwrap();
   let entity = *kind(host, "buildings", building).iter().max().unwrap();
@@ -598,7 +600,7 @@ fn raise(host: &mut Host, building: &str, (x, y): (i32, i32), builder: u32) -> u
       return entity;
     }
   }
-  panic!("{building} не достроен");
+  panic!("{building} не достроен: {:?}, кредиты {}, строитель {:?} у {:?}, площадка у {:?}", get(host, entity, "Site"), credits(host), get(host, builder, "Builds"), place(host, builder), place(host, entity));
 }
 
 /// Энергосети игрока: (члены сети) по порядку.
@@ -702,4 +704,71 @@ fn power_plant_feeds_matter_income_follows_power_and_accumulator_covers_the_gap(
   assert!((gained - 1.7).abs() < 1e-6, "доход на накопителе {gained}");
   let cell = get(&host, accumulator, "Accumulator").unwrap();
   assert!((cell["flow"].as_f64().unwrap() - 3.0).abs() < 1e-9, "накопитель {cell:?}");
+}
+
+/// Хост без дерева технологий: шахта и плавильня открыты без исследований.
+fn host_without_tech() -> Host {
+  let mods = discover(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods")).unwrap();
+  let rules = json!({ "techTree": false, "repairSpeed": 2, "repairCost": 0.5, "repairPause": 3, "vehicleSand": 0.1, "vehicleSwamp": 0.8, "heavySand": 0, "heavySwamp": 0.5, "infantrySand": 0, "infantrySwamp": 0.5, "infantryCliff": 0.7, "frozenSwamp": 0.25, "toxicSwamp": 0.01 });
+  let mut host = Host::new(mods, None, 7, &json!({ "rules": rules })).unwrap();
+  host.start().unwrap();
+  host.join(1).unwrap();
+  host
+}
+
+/// Груз на складе сущности.
+fn stocked(host: &Host, entity: u32, good: &str) -> f64 {
+  get(host, entity, "Inventory").map_or(0.0, |stock| stock["items"][good].as_f64().unwrap_or(0.0))
+}
+
+#[test]
+fn mine_ore_goes_by_truck_to_the_smelter_and_metal_to_the_yard() {
+  let mut host = host_without_tech();
+  let (core, site, builder) = base_with_builder(&mut host);
+  // Ближайшее к базе металлическое месторождение.
+  let metal = host.proto_id("deposits", "metal").unwrap() as f64;
+  let deposit = all(&host, "Deposit")
+    .into_iter()
+    .filter(|(entity, _)| get(&host, *entity, "Proto").unwrap()["id"].as_f64() == Some(metal))
+    .min_by(|a, b| {
+      let (ax, ay) = place(&host, a.0);
+      let (bx, by) = place(&host, b.0);
+      let far = |x: f64, y: f64| (x - site.0 as f64).hypot(y - site.1 as f64);
+      far(ax, ay).total_cmp(&far(bx, by))
+    })
+    .unwrap()
+    .0;
+  let (dx, dy) = place(&host, deposit);
+  let reserve = get(&host, deposit, "Deposit").unwrap()["reserve"].as_f64().unwrap();
+  let generator = {
+    let spot = free_spot(&host, site, 2);
+    raise(&mut host, "generator", spot, builder)
+  };
+  let smelter = {
+    let spot = free_spot(&host, site, 3);
+    raise(&mut host, "smelter", spot, builder)
+  };
+  let yard = {
+    let spot = free_spot(&host, site, 3);
+    raise(&mut host, "metalYard", spot, builder)
+  };
+  let mine = raise(&mut host, "mine", (dx as i32 - 1, dy as i32 - 1), builder);
+  assert!(get(&host, generator, "Footprint").is_some());
+  host.send(1, "produce", json!({ "building": core, "unit": "truck" }));
+  // Шахта добывает, грузовик возит руду на переработку, переработанное увозит в хранилище.
+  let mut delivered = false;
+  for _ in 0..20 * 240 {
+    host.tick(0.05).unwrap();
+    if stocked(&host, yard, "metal") >= 10.0 {
+      delivered = true;
+      break;
+    }
+  }
+  let truck = kind(&host, "units", "truck")[0];
+  assert!(delivered, "металл не доехал: шахта {:?}, плавильня {:?}, грузовик {:?}", get(&host, mine, "Inventory"), get(&host, smelter, "Inventory"), get(&host, truck, "Hauler"));
+  assert!(get(&host, deposit, "Deposit").unwrap()["reserve"].as_f64().unwrap() < reserve);
+  // Привязанный к шахте возит только её руду.
+  host.send(1, "haul", json!({ "mine": mine, "units": [truck] }));
+  host.tick(0.05).unwrap();
+  assert_eq!(get(&host, truck, "Hauler").unwrap()["mine"].as_f64(), Some(mine as f64));
 }

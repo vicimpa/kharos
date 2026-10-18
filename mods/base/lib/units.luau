@@ -4,6 +4,8 @@
 -- начало координат — центр юнита; каждое направление — заново: повёрнутый чертёж растеризуется чище, чем повёрнутая
 -- картинка. Массивы цветов — с нуля, как в TS.
 
+local goods = require("lib/goods")
+
 local units = {}
 
 -- Сторона кадра в пикселях: два тайла.
@@ -787,6 +789,14 @@ function units.entity(kind, protos)
 	-- Строитель: строит, разбирает и чинит в радиусе data.repair (mechanics/construction).
 	if data.repair then
 		entity.Repair = { radius = data.repair }
+	end
+	-- Склад и транспортный луч (equipStorage), грузовик — ещё и работа (mechanics/hauling).
+	entity.Inventory = goods.stock(data)
+	if data.beam then
+		entity.Beam = { radius = data.beam.radius, rate = data.beam.rate, give = data.beam.give == true, take = data.beam.take == true }
+	end
+	if data.hauls then
+		entity.Hauler = {}
 	end
 	return entity
 end

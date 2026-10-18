@@ -8,6 +8,8 @@ local conversion = require("lib/conversion")
 local construction = require("lib/construction")
 local kinds = require("lib/kinds")
 local economy = require("lib/economy")
+local goods = require("lib/goods")
+local logistics = require("lib/logistics")
 local COLORS, shadow = widgets.COLORS, widgets.shadow
 
 local hud = {}
@@ -115,6 +117,38 @@ local function credits(c): number
 	return 0
 end
 
+-- Значок груза с количеством (res в widgets.ts).
+local function goodWith(c, good: string, amount: number?, size: number?, of: number?)
+	local ui = c.ui
+	local kind = c.protos.goods[good]
+	ui:box({ direction = "row", align = "center", gap = 4 }, function()
+		if kind then
+			ui:image(kind, size or 20, size or 20)
+		end
+		if amount then
+			ui:text(tostring(math.floor(amount)) .. (if of then "/" .. math.floor(of) else ""))
+		end
+	end)
+end
+
+-- Груз списком значков: что лежит, по порядку грузов.
+local function goodsRow(c, items: { [string]: number }, empty: string?)
+	local ui = c.ui
+	ui:box({ direction = "row", align = "center", gap = 8 }, function()
+		local any = false
+		for _, name in goods.names(c) do
+			local amount = items[name] or 0
+			if amount >= 1 then
+				goodWith(c, name, amount, 20)
+				any = true
+			end
+		end
+		if not any and empty then
+			ui:text(empty)
+		end
+	end)
+end
+
 local function topBar(c)
 	local ui = c.ui
 	ui:box({ id = "top", anchor = { left = 0, right = 0, top = 0 }, height = TOP_HEIGHT, skin = "panel", padding = { 4, 12 }, direction = "row", align = "center", gap = 12 }, function()
@@ -134,6 +168,14 @@ local function topBar(c)
 				ui:text("⚡ " .. number(grid.demand) .. " / " .. number(grid.produced), { color = color })
 			end)
 			ui:tip("grid", gridText(grid) .. "\nСеть выбранного здания; ничего не выбрано — сеть главного здания")
+		end
+		-- Запас в хранилищах.
+		local items, capacity = logistics.stockOf(c, c.player)
+		if capacity > 0 then
+			ui:box({ id = "stock" }, function()
+				goodsRow(c, items, "хранилища пусты")
+			end)
+			ui:tip("stock", "Запас в хранилищах; всего помещается " .. capacity)
 		end
 		ui:space(0, 0, 1)
 		local hour = c.atmosphere.hour or 0
@@ -624,6 +666,50 @@ local function info(c, selection, width: number, height: number)
 			if health and health.value < health.max and construction.isRepairable(c, first) then
 				local repair = construction.repairCostOf(kind.data.cost, health.value, construction.rules(c).repairCost, health.max)
 				ui:text("Прочность: " .. percent(health.value / health.max) .. ". Починка стоит " .. repair .. ": выбери строителей и щёлкни по зданию правой кнопкой", { color = COLORS.soft, wrap = text })
+			end
+			-- Склад здания, кузов грузовика и его работа, остаток месторождения под шахтой.
+			local stock = not many and c:mine(first) and c:get(first, "Inventory")
+			local hauler = not many and c:get(first, "Hauler")
+			if stock and hauler then
+				ui:box({ direction = "row", align = "center", gap = 6, width = text }, function()
+					ui:text("Груз:")
+					goodsRow(c, stock.items, "пусто")
+					ui:text("из " .. stock.capacity)
+				end)
+				local job
+				if hauler.mine >= 0 then
+					job = "Работа: возит руду из шахты на переработку"
+				elseif hauler.to >= 0 and c:alive(hauler.to) then
+					local kind = c.protos.goods[hauler.resource]
+					local name = string.lower(if kind then kind.data.title else hauler.resource)
+					local left = math.floor(math.max(0, if hauler.full then goods.amount(stock, hauler.resource) else hauler.amount))
+					local toKind = c:proto(hauler.to)
+					local fromKind = hauler.from >= 0 and c:alive(hauler.from) and c:proto(hauler.from)
+					job = if fromKind and not hauler.full
+						then "Работа: перевозит " .. name .. " из «" .. fromKind.data.title .. "» в «" .. toKind.data.title .. "», осталось " .. left
+						else "Работа: везёт " .. name .. " в «" .. toKind.data.title .. "», осталось " .. left
+				else
+					job = "Работа: сам — возит то, что заказывают здания. Правый щелчок по зданию — приказ"
+				end
+				ui:text(job, { color = COLORS.soft, wrap = text })
+			elseif stock and built then
+				ui:box({ direction = "row", align = "center", gap = 6, width = text }, function()
+					ui:text((if kind.data.stores then "Хранилище" else "Склад") .. ":")
+					goodsRow(c, stock.items, "пусто")
+					ui:text("— вмещает " .. stock.capacity .. (if (stock.reserve or 0) > 0 then ", резерв " .. stock.reserve else ""), { color = COLORS.dim })
+				end)
+			end
+			if built and kind.data.extract then
+				local deposit = logistics.depositUnder(c, first)
+				local depositKind = deposit and c:proto(deposit)
+				local ore = depositKind and c.protos.goods[goods.oreOf(c, depositKind.name) or ""]
+				if deposit and ore then
+					local left = c:get(deposit, "Deposit").reserve
+					ui:box({ direction = "row", align = "center", gap = 6, width = text }, function()
+						goodWith(c, ore.name, nil, 20)
+						ui:text(ore.data.title .. ": " .. (if left > 0 then "осталось " .. math.floor(left) else "месторождение выработано"), { color = COLORS.soft })
+					end)
+				end
 			end
 			local cell = built and c:get(first, "Accumulator")
 			if cell and kind.data.battery then

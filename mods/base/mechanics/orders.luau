@@ -6,6 +6,7 @@
 
 local conversion = require("lib/conversion")
 local construction = require("lib/construction")
+local logistics = require("lib/logistics")
 
 local orders = {}
 
@@ -46,11 +47,12 @@ local function unitNear(ctx, player: number, x: number, y: number): number?
 	return best
 end
 
--- Свои юниты едут к тайлу: приказ идти снимает строителя со стройки.
+-- Свои юниты едут к тайлу: приказ идти снимает строителя со стройки, грузовик — с работы и шахты.
 local function move(ctx, player: number, units: { number }, x: number, y: number)
 	for _, e in units do
 		ctx:remove(e, "Builds")
 	end
+	ctx:emit("release", { units = units })
 	ctx:move_group(units, x, y)
 	conversion.forget(ctx, units)
 	ctx:signal("moved", { player = player, x = x, y = y })
@@ -76,6 +78,16 @@ orders.commands = {
 			local builders = false
 			for _, e in units do
 				builders = builders or ctx:has(e, "Repair")
+			end
+			-- Грузовики по своей шахте — привязываются к ней и возят добытое.
+			local trucks = false
+			for _, e in units do
+				trucks = trucks or ctx:has(e, "Hauler")
+			end
+			local mine = ctx:occupant(x, y)
+			if trucks and mine and logistics.isReady(ctx, player, mine) and logistics.dataOf(ctx, mine).extract then
+				ctx:emit("haul", { player = player, units = units, mine = mine })
+				return
 			end
 			if site and builders and ctx:get(site, "Owner").player == player then
 				ctx:emit("assist", { player = player, units = units, site = site })
@@ -104,6 +116,7 @@ orders.commands = {
 			ctx:stop(entity)
 			ctx:remove(entity, "Builds")
 		end
+		ctx:emit("release", { units = units })
 		conversion.forget(ctx, units)
 	end,
 }

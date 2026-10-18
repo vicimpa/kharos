@@ -1053,10 +1053,12 @@ impl UserData for Ctx {
       this.state.borrow_mut().scene().order_group_move(&units, x.floor() as i32, y.floor() as i32);
       Ok(())
     });
-    // Путь одному в тайл, с поиском (orderMove); near — подойти на столько тайлов. → "set", "removed" или "kept".
-    methods.add_method("move", |_, this, (entity, x, y, near): (f64, f64, f64, Option<f64>)| {
+    // Путь одному в тайл, с поиском (orderMove); near — подойти на столько тайлов; ignore — стоящие, сквозь которых
+    // путь можно вести (подъедет — попросит посторониться), вместе с самим юнитом. → "set", "removed" или "kept".
+    methods.add_method("move", |_, this, (entity, x, y, near, ignore): (f64, f64, f64, Option<f64>, Option<Vec<f64>>)| {
       let entity = entity_of(entity)?;
-      let moved = this.state.borrow_mut().scene().order_move(entity, x.floor() as i32, y.floor() as i32, None, 0.0, near.unwrap_or(0.0), None);
+      let ignore = ignore.map(|list| list.into_iter().map(entity_of).collect::<mlua::Result<std::collections::HashSet<_>>>()).transpose()?;
+      let moved = this.state.borrow_mut().scene().order_move(entity, x.floor() as i32, y.floor() as i32, ignore.as_ref(), 0.0, near.unwrap_or(0.0), None);
       Ok(match moved {
         crate::motion::Moved::Set => "set",
         crate::motion::Moved::Removed => "removed",
@@ -1089,8 +1091,12 @@ impl UserData for Ctx {
       this.state.borrow_mut().scene().evict(&units, x, y, width, height, radius.unwrap_or(0.0));
       Ok(())
     });
-    // Сколько тайлов (не больше limit) техника объедет из тайла заливкой (vehicleReach).
-    methods.add_method("reach", |_, this, (x, y, limit): (f64, f64, usize)| Ok(this.state.borrow_mut().scene().reach(x.floor() as i32, y.floor() as i32, limit)));
+    // Сколько тайлов (не больше limit) техника объедет из тайла заливкой (vehicleReach) и, если дан тайл (tx, ty), —
+    // попал ли он в эту заливку.
+    methods.add_method("reach", |_, this, (x, y, limit, tx, ty): (f64, f64, usize, Option<f64>, Option<f64>)| {
+      let probe = tx.zip(ty).map(|(tx, ty)| (tx.floor() as i32, ty.floor() as i32));
+      Ok(this.state.borrow_mut().scene().reach_to(x.floor() as i32, y.floor() as i32, limit, probe))
+    });
     // Можно ли юниту рода class (vehicle, heavy, infantry, air) встать в тайл.
     methods.add_method("can_stand", |_, this, (class, x, y): (String, f64, f64)| Ok(this.state.borrow_mut().scene().can_stand(&class, x.floor() as i32, y.floor() as i32)));
     // Проходим ли тайл наземному (isWalkable): внутри карты, по проходимой местности, не сквозь здание; foot — пехоте

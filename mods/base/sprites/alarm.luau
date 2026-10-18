@@ -1,6 +1,7 @@
 --!strict
 -- Значки над зданиями (drawIcon и drawOff в powerPass.ts), 16 пикселей: фаза 0 — нехватка энергии, жёлтая молния на
--- красном круге; фаза 1 — «Выключено», знак питания на сером круге.
+-- красном круге; фаза 1 — «Выключено», знак питания на сером круге; фаза 2 — «Не подъехать» (drawBlocked), белая
+-- черта на красном круге, как знак «въезд запрещён».
 
 local INK = 0x0b111b
 
@@ -15,6 +16,11 @@ local function draw(g, _, phase: number)
 			g:line(6, 8, 10, 8, width, color)
 			g:line(10, 8, 6, 13, width, color)
 		end
+	elseif phase == 2 then
+		g:circle(8, 8, 7, 0xc8321f)
+		g:circle(7.5, 7.5, 5.5, 0xe5492f)
+		g:rect(3, 6, 10, 4, INK)
+		g:rect(4, 7, 8, 2, 0xf2f5f8)
 	else
 		g:circle(8, 8, 7, 0x46505f)
 		g:circle(7.5, 7.5, 5.5, 0x5d6878)
@@ -26,6 +32,6 @@ local function draw(g, _, phase: number)
 end
 
 return {
-	data = { starved = 0, off = 1 },
-	look = { size = 16, origin = { 0, 0 }, phases = 2, draw = draw },
+	data = { starved = 0, off = 1, blocked = 2 },
+	look = { size = 16, origin = { 0, 0 }, phases = 3, draw = draw },
 }

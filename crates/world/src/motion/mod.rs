@@ -640,9 +640,15 @@ impl Scene<'_> {
   /// Сколько тайлов, не больше limit, техника объедет заливкой из тайла (`vehicleReach`): так видно, не заперто ли
   /// место обрывами.
   pub fn reach(&mut self, x: i32, y: i32, limit: usize) -> usize {
+    self.reach_to(x, y, limit, None).0
+  }
+
+  /// То же, и попал ли в заливку тайл probe: в одном ли он кармане с (x, y).
+  pub fn reach_to(&mut self, x: i32, y: i32, limit: usize, probe: Option<(i32, i32)>) -> (usize, bool) {
     let cols = Cols::of(self.world);
     let (mut ground, _) = self.ground(&cols);
-    ground.vehicle_reach(x, y, limit, false).len()
+    let tiles = ground.vehicle_reach(x, y, limit, false);
+    (tiles.len(), probe.is_some_and(|tile| tiles.contains(&tile)))
   }
 
   /// Отправляет юнит в тайл (x, y): прокладывает путь и кладёт его в Path (`orderMove`).
