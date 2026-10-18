@@ -77,7 +77,7 @@ skirmish.client = {
 	controls = { "deploy", "build", "stroke", "patrol", "aim", "select", "orders" },
 	ui = { "hud", "tech", "pause" },
 	atmosphere = { "weather" },
-	effects = { "traces", "construction", "power", "logistics", "connections", "flow", "combat", "conversion", "silos" },
+	effects = { "traces", "construction", "power", "logistics", "connections", "flow", "combat", "conversion", "silos", "steps" },
 	-- Звук — как в TS: интерфейс, моторы, работа зданий, фон с подложкой и эхом, ветер полёта.
 	audio = { "levels", "interface", "motors", "machines", "world", "ambience", "flight" },
 }

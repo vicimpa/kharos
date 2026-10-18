@@ -18,6 +18,7 @@ local trade = require("lib/trade")
 local silos = require("mechanics/silos")
 local alertsLib = require("lib/alerts")
 local missiles = require("lib/missiles")
+local stepsLib = require("lib/steps")
 
 local clockOf = widgets.clock
 local COLORS, shadow = widgets.COLORS, widgets.shadow
@@ -63,6 +64,19 @@ local STANCES = {
 	hold = { label = "Держать позицию", tip = "С места не сходить: бить только тех, кого достаёт, и под огнём тоже" },
 	passive = { label = "Не стрелять", tip = "Огонь не открывать и не отвечать: стрелять только по приказу атаки" },
 }
+
+-- Пульс подсказки «Первых шагов» (pulse в hud.ts и bar.ts): обводка огнями команды разгорается и гаснет раз в
+-- секунду от low до high; восемь ступеней — плавнее не разглядеть.
+local function pulse(ui, low: number, high: number): string
+	local phase = ui.now % 1
+	local level = math.round((low + (high - low) * (0.5 - 0.5 * math.cos(phase * math.pi * 2))) * 8) / 8
+	return string.format("rgba(90 169 255 / %g)", level)
+end
+
+-- Текущий первый шаг новичка (lib/steps): его кнопки подсвечены; nil — пройдены все.
+local function currentStep(c)
+	return stepsLib.of(c).step
+end
 
 -- Раздел здания по имени: где его нет в списках, там хозяйство.
 local function sectionOf(name: string): string
@@ -217,7 +231,9 @@ local function topBar(c)
 		-- Кнопка исследований: открывает дерево технологий, с процентом нынешней темы.
 		local current = research.current(c, c.player)
 		local state = research.player(c, c.player)
-		if ui:button("tech", { active = c.shared.techOpen == true, padding = { 2, 10 }, height = 30 }, function()
+		-- Подсказка «Первых шагов»: следующий шаг — исследовать тему.
+		local hint = (currentStep(c) or {}).research
+		if ui:button("tech", { active = c.shared.techOpen == true, padding = { 2, 10 }, height = 30, outline = if hint then pulse(ui, 0.3, 1) else nil }, function()
 			ui:text("Исследования", shadow())
 			if current and state then
 				ui:text(math.round(((state.progress or {})[current] or 0) * 100) .. "%", shadow({ color = COLORS.team }))
@@ -306,12 +322,14 @@ local function constructionSlots(c, list, selection)
 			table.insert(options, kind)
 		end
 	end
+	local step = currentStep(c)
 	if page.name == "root" then
 		for i, section in SECTIONS do
-			local count = 0
+			local count, hint = 0, false
 			for _, kind in options do
 				if sectionOf(kind.name) == section.page then
 					count += 1
+					hint = hint or (step ~= nil and step.building == kind.name)
 				end
 			end
 			-- Раздел появляется, когда в нём открыто хоть одно здание; закрытый оставляет пустую ячейку.
@@ -321,6 +339,7 @@ local function constructionSlots(c, list, selection)
 					picture = c.protos.buildings[section.picture],
 					title = section.tip,
 					count = count,
+					hint = hint,
 					run = function()
 						page.name = section.page
 					end,
@@ -398,6 +417,7 @@ local function constructionSlots(c, list, selection)
 			title = if affordable then nil else "Сейчас кредитов на всю цену нет — заложить можно: платят по ходу стройки, и она подождёт, пока их прибавится",
 			active = placing == kind.name,
 			zones = true,
+			hint = step ~= nil and step.building == kind.name,
 			run = function()
 				c.shared.mode = if placing == kind.name then nil else { kind = "placing", building = kind.name }
 			end,
@@ -503,6 +523,7 @@ local function tradeSlots(c, list, port: number)
 			picture = c.protos.buildings.spaceport,
 			active = order ~= nil,
 			title = if order then "Идёт продажа: открыть заявку" else "Продать ресурсы с орбиты",
+			hint = order == nil and (currentStep(c) or {}).sell == true,
 			run = function()
 				open("sell")
 			end,
@@ -664,6 +685,7 @@ local function slots(c, selection)
 				title = if state.unit then "Выбрать место: MCV доедет и развернётся там. Нужна свободная скала или фундамент 3×3" else nil,
 				disabled = not state.possible,
 				active = state.choosing,
+				hint = state.unit and not state.traveling and (currentStep(c) or {}).deploy == true,
 				run = function()
 					if not state.unit then
 						c:send("pack", { building = e })
@@ -738,6 +760,7 @@ local function slots(c, selection)
 					short = money < unit.data.cost,
 					about = unit.data.about,
 					unit = unit,
+					hint = (currentStep(c) or {}).unit == name,
 					run = function()
 						c:send("produce", { building = building, unit = name })
 					end,
@@ -959,7 +982,8 @@ local function commandGrid(c, list, width: number, height: number)
 						continue
 					end
 					local id = "cell:" .. i
-					local click = ui:button(id, { width = cellWidth, height = cellHeight, padding = { 0, 6, 0, if slot.picture then 4 else 8 }, gap = 6, justify = "start", active = slot.active, disabled = slot.disabled }, function()
+					local outline = if slot.hint and not slot.disabled then pulse(ui, 0.3, 1) else nil
+					local click = ui:button(id, { width = cellWidth, height = cellHeight, padding = { 0, 6, 0, if slot.picture then 4 else 8 }, gap = 6, justify = "start", active = slot.active, disabled = slot.disabled, outline = outline }, function()
 						if slot.picture then
 							ui:box({ direction = "stack" }, function()
 								ui:box({ width = TILE, height = TILE }, function()
@@ -1207,7 +1231,7 @@ local function info(c, selection, width: number, height: number)
 				end)
 			end
 			-- Реактор: сколько стержней и горит ли стержень.
-			local burns = kind.data.burns
+			local burns = built and kind.data.burns
 			if stock and built and burns then
 				local have = math.floor(goods.amount(stock, burns.good))
 				local burning = economy.burning(c, first)
@@ -1591,6 +1615,102 @@ local function bottomBar(c)
 	end)
 end
 
+-- Ширина экрана, ниже которой список шагов сжимается до текущего (NARROW).
+local NARROW = 1000
+
+-- Виден ли список «Первых шагов»: не скрыт в настройках и не пройден ещё до входа в мир.
+local function stepsShown(c): boolean
+	if settings.prefs(c).steps == "off" then
+		return false
+	end
+	local done = stepsLib.of(c).done
+	local finished = table.find(done, false) == nil
+	if c.shared.stepsKnown == nil then
+		c.shared.stepsKnown = finished
+	end
+	return not (finished and c.shared.stepsKnown)
+end
+
+-- Первые шаги новичка в углу (steps в hud.ts): список с галочками, у текущего — что сделать и зачем. Заголовок
+-- сворачивает список, крестик прячет совсем (вернуть — в настройках). Мир, где всё уже пройдено при входе, списка не
+-- показывает.
+local function stepsPanel(c)
+	if not stepsShown(c) then
+		return
+	end
+	local ui = c.ui
+	local state = stepsLib.of(c)
+	local done, target = state.done, state.target
+	local shown = settings.prefs(c).steps
+	local current = table.find(done, false)
+	local count = 0
+	for _, passed in done do
+		if passed then
+			count += 1
+		end
+	end
+	local width = math.min(300, ui.width - 24)
+	ui:box({ anchor = { right = 12, top = TOP_HEIGHT + 6 }, width = width, skin = "panel", padding = { 8, 10, 10, 10 }, direction = "column", align = "stretch", gap = 6 }, function()
+		ui:box({ direction = "row", gap = 4 }, function()
+			if ui:button("steps:toggle", { height = 28, padding = { 0, 8 }, justify = "start" }, function()
+				ui:text("Первые шаги", shadow())
+				ui:text(count .. "/" .. #stepsLib.LIST, shadow({ font = "small", color = COLORS.gold }))
+				ui:text(if shown == "open" then "▾" else "▸", shadow({ font = "small" }))
+			end) then
+				settings.setPref(c, "steps", if shown == "open" then "folded" else "open")
+			end
+			ui:tip("steps:toggle", if shown == "open" then "Свернуть список" else "Развернуть список")
+			if ui:button("steps:close", { height = 28, padding = { 0, 8 } }, function()
+				ui:text("×", shadow())
+			end) then
+				settings.setPref(c, "steps", "off")
+			end
+			ui:tip("steps:close", "Скрыть: вернуть можно в меню, «Настройки»")
+		end)
+		if shown ~= "open" then
+			return
+		end
+		if not current then
+			ui:box({ padding = { 0, 2 } }, function()
+				ui:text("Первые шаги пройдены! Дальше — больше добычи и переработки, новые исследования и оборона базы.", { color = COLORS.good, wrap = width - 24 })
+			end)
+			return
+		end
+		local narrow = ui.width < NARROW
+		-- Список — плотнее панели: строки через 4, описание текущего шага — мелким шрифтом.
+		ui:box({ direction = "column", align = "stretch", gap = 4, padding = { 0, 2 } }, function()
+			for i, step in stepsLib.LIST do
+				-- На узком экране — только текущий шаг: список закрыл бы поле.
+				if narrow and i ~= current then
+					continue
+				end
+				local color = if done[i] then COLORS.dim elseif i == current then COLORS.bright else COLORS.muted
+				ui:box({ direction = "row", gap = 8 }, function()
+					ui:box({ width = 14, direction = "row", justify = "end" }, function()
+						ui:text(if done[i] then "✓" else tostring(i), { color = if done[i] then COLORS.good elseif i == current then COLORS.team else color })
+					end)
+					ui:box({ direction = "column", gap = 2, grow = 1 }, function()
+						ui:text(step.title, { color = color, wrap = width - 46 })
+						if i ~= current then
+							return
+						end
+						ui:text(step.tip, { font = "small", color = COLORS.soft, wrap = width - 46 })
+						if target then
+							ui:space(0, 2)
+							if ui:button("steps:show", { height = 28, padding = { 0, 10 } }, function()
+								ui:text("Показать", shadow())
+							end) then
+								c.camera.x, c.camera.y = target.x + target.width / 2, target.y + target.height / 2
+							end
+							ui:tip("steps:show", "Камера — к месту, где сделать этот шаг; на карте оно обведено")
+						end
+					end)
+				end)
+			end
+		end)
+	end)
+end
+
 -- Режимы наведения: название и что делать (mode в hud.ts).
 local MODES = {
 	deploying = { name = "Разворачивание MCV", tip = "Щёлкни, где развернуть: на зелёном можно, MCV доедет сам" },
@@ -1610,7 +1730,8 @@ local function modeBar(c)
 		return
 	end
 	local ui = c.ui
-	local room = ui.width - 24
+	-- Справа — «Первые шаги», слева — уведомления: середина не наезжает на них.
+	local room = if stepsShown(c) and ui.width >= NARROW then math.min(ui.width - 24, math.max(280, ui.width - 2 * 324)) else ui.width - 24
 	ui:box({ anchor = { centerX = 0, top = TOP_HEIGHT + 6 } }, function()
 		ui:box({ id = "mode", skin = "panel", padding = { 10, 12, 10, 16 }, direction = "row", align = "center", gap = 12, maxWidth = room }, function()
 			local building = mode.building and c.protos.buildings[mode.building]
@@ -1734,6 +1855,7 @@ end
 function hud.draw(c)
 	shownAlerts = alertsLib.update(c)
 	alertList(c)
+	stepsPanel(c)
 	modeBar(c)
 	rewards(c)
 	topBar(c)

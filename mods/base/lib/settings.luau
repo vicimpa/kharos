@@ -15,7 +15,10 @@ local CHANNEL_NAMES = { music = "Музыка", battle = "Бой", world = "Ми
 -- крупнее — выступает над ней.
 settings.SELECTION_LEVELS = { 0.45, 0.7, 1 }
 settings.MINIMAP_SIDES = { 140, 200, 260 }
-local DEFAULTS = { selection = 0.7, minimap = 200 }
+-- Список «Первых шагов» (lib/steps): развёрнут, свёрнут или скрыт (STEPS_SHOWN).
+settings.STEPS_SHOWN = { "open", "folded", "off" }
+local STEPS_NAMES = { open = "Список", folded = "Свёрнут", off = "Скрыт" }
+local DEFAULTS = { selection = 0.7, minimap = 200, steps = "open" }
 
 local WIDTH = 300
 -- Подпись поля слева и ширина содержимого окна.
@@ -42,16 +45,17 @@ function settings.level(c, channel: string): number
 	return share(c.app:get("level." .. channel))
 end
 
--- Настройки интерфейса: яркость выделения и сторона мини-карты.
-function settings.prefs(c): { selection: number, minimap: number }
+-- Настройки интерфейса: яркость выделения, сторона мини-карты и список «Первых шагов».
+function settings.prefs(c): { selection: number, minimap: number, steps: string }
 	local saved = c.app:get("prefs") or {}
 	return {
 		selection = pick(saved.selection, settings.SELECTION_LEVELS, DEFAULTS.selection),
 		minimap = pick(saved.minimap, settings.MINIMAP_SIDES, DEFAULTS.minimap),
+		steps = pick(saved.steps, settings.STEPS_SHOWN, DEFAULTS.steps),
 	}
 end
 
-local function setPrefs(c, key: string, value: any)
+function settings.setPref(c, key: string, value: any)
 	local prefs = settings.prefs(c)
 	prefs[key] = value
 	c.app:set("prefs", prefs)
@@ -111,11 +115,17 @@ function settings.window(c, anchor: { [string]: number }?): boolean
 			return string.format("%d%%", math.round(value * 100))
 		end)
 		if selection then
-			setPrefs(c, "selection", selection)
+			settings.setPref(c, "selection", selection)
 		end
 		local minimap = choice(ui, "settings:minimap", "Размер мини-карты", "Сторона мини-карты в пикселях. 140 — вровень с нижней панелью, крупнее — выступает над ней", settings.MINIMAP_SIDES, prefs.minimap, tostring)
 		if minimap then
-			setPrefs(c, "minimap", minimap)
+			settings.setPref(c, "minimap", minimap)
+		end
+		local steps = choice(ui, "settings:steps", "Первые шаги", "Список первых шагов в правом верхнем углу игры", settings.STEPS_SHOWN, prefs.steps, function(value)
+			return STEPS_NAMES[value]
+		end)
+		if steps then
+			settings.setPref(c, "steps", steps)
 		end
 	end)
 end
