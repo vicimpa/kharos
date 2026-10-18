@@ -42,6 +42,15 @@ function widgets.coin(ui, size: number?)
 end
 
 -- Полоса готовности с подписью: утопленное окно, внутри — полоса огней команды на долю value, поверх — подпись.
+-- Срок для интерфейса: минуты и секунды, от часа — часы, минуты и секунды (clockOf).
+function widgets.clock(seconds: number): string
+	local whole = math.floor(seconds + 0.5)
+	if whole < 3600 then
+		return string.format("%d:%02d", whole // 60, whole % 60)
+	end
+	return string.format("%d:%02d:%02d", whole // 3600, (whole % 3600) // 60, whole % 60)
+end
+
 function widgets.bar(ui, value: number, label: string, width: number?)
 	local fill = math.clamp(value, 0, 1)
 	ui:box({ skin = "well", width = width, height = 24, padding = 4, direction = "stack", clip = true }, function()

@@ -1,7 +1,7 @@
 --!strict
 --!native
 -- Звуки зданий и мира — перенос packages/client/src/audio/worldSynth.ts: то, что уже есть в игре, — стройка,
--- разворачивание, выезд из завода, ворота, радар, щиты, реактор, корабль космопорта, монеты, перегруз сети, отсчёт и уведомления. Остальное переедет вместе с механиками.
+-- разворачивание, выезд из завода, ворота, радар, щиты, реактор, корабль космопорта, монеты, ядерный пуск и взрыв, перегруз сети, отсчёт и уведомления. Остальное переедет вместе с механиками.
 
 local dsp = require("lib/dsp")
 
@@ -214,6 +214,104 @@ local function coins(rate: number, variant: number)
 	end)
 end
 
+-- Ядерный взрыв: оглушительный удар, огромный бас и раскаты — один за другим, всё дальше; через полсекунды — ударная
+-- волна, второй тупой удар и рёв ветра.
+local function nuke(rate: number, variant: number)
+	local t = 0
+	local body = lowpass(rate, function()
+		return 90 + 1600 * decay(t, 0.3)
+	end)
+	local wind = bandpass(rate, 450, 0.8)
+	local rolls = lowpass(rate, 160)
+	local next = random(variant + 1001)
+	local thunders = {}
+	for i = 0, 4 do
+		table.insert(thunders, { at = 1.2 + i * 0.7 + next() * 0.6, level = 0.8 / (1 + i * 0.4) })
+	end
+	local phase = 0
+	return render(rate, 6, variant, function(time, noise)
+		t = time
+		local n = noise()
+		phase += 2 * PI * (24 + 30 * decay(time, 0.4)) / rate
+		local blast = body(n) * attack(time, 0.003) * decay(time, 1.1) * 3 + sin(phase) * decay(time, 1.4) * 1.3
+		local wave = if time > 0.55 then (sin(2 * PI * 40 * (time - 0.55)) * decay(time - 0.55, 0.15) * 0.4 + wind(n) * decay(time - 0.55, 1.2) * 2.5) * attack(time - 0.55, 0.01) else wind(0)
+		local rolling = 0
+		for _, thunder in thunders do
+			if time >= thunder.at then
+				rolling += thunder.level * attack(time - thunder.at, 0.2) * decay(time - thunder.at, 0.9)
+			end
+		end
+		return blast + wave + rolls(n) * rolling * 3
+	end)
+end
+
+-- Створки шахты встали: тяжёлый замок — глухой удар и звон металла.
+local function doorsLocked(rate: number, variant: number)
+	local clang = clangAt(rate, 0, 95, 1, variant + 1101)
+	local second = clangAt(rate, 0.12, 140, 0.6, variant + 1111)
+	return render(rate, 1.2, variant, function(t, noise)
+		local n = noise()
+		return clang(t, n) + second(t, n)
+	end)
+end
+
+-- Старт ракеты: зажигание — хлопок и треск, — двигатель выходит на полную тягу с рёвом, и ракета уходит вверх.
+local function liftoff(rate: number, variant: number)
+	local t = 0
+	local roar = lowpass(rate, function()
+		return 300 + 2200 * min(1, t / 0.6) * decay(math.max(0, t - 1.5), 1.5)
+	end)
+	local crackle = highpass(rate, 2000)
+	local deep = lowpass(rate, 80)
+	local next = random(variant + 1201)
+	local gate, untilAt = 1, 0
+	return render(rate, 5, variant, function(time, noise)
+		t = time
+		local n = noise()
+		if time >= untilAt then
+			gate = 0.3 + next() * 0.7
+			untilAt = time + 0.004 + next() * 0.02
+		end
+		local swell = attack(time, 0.4) * decay(math.max(0, time - 1.2), 1.4)
+		return (roar(n) * 2.6 + crackle(n) * gate * 0.35 + deep(n) * 3) * swell + crackle(n) * decay(time, 0.03) * 1.5
+	end)
+end
+
+-- Гидравлика: створки шахты расходятся — ровный вой насоса и шипение.
+local function hydraulic(rate: number)
+	local hiss = bandpass(rate, 2200, 1.5)
+	return loop(rate, 2, function(t, noise)
+		local phase = (t * 140) % 1
+		return (phase * 2 - 1) * 0.35 + sin(2 * PI * 280 * t) * 0.2 + hiss(noise()) * 0.5
+	end)
+end
+
+-- Пар из шахты: широкое шипение, пульсирующее клубами.
+local function steam(rate: number)
+	local hiss = highpass(rate, 800)
+	local body = lowpass(rate, 3000)
+	return loop(rate, 3, function(t, noise)
+		return body(hiss(noise())) * (0.6 + 0.4 * sin(2 * PI * (2 / 3) * t) ^ 2)
+	end)
+end
+
+-- Ракетный двигатель: рёв струи с треском — для разгона в шахте и для ракеты в полёте.
+local function rocket(rate: number)
+	local next = random(2301)
+	local roar = lowpass(rate, 1400)
+	local deep = lowpass(rate, 90)
+	local crackle = highpass(rate, 2500)
+	local gate, untilAt = 0, 0
+	return loop(rate, 3, function(t, noise)
+		if t >= untilAt then
+			gate = if next() < 0.5 then 0.3 + next() * 0.7 else 0
+			untilAt = t + 0.003 + next() * 0.015
+		end
+		local n = noise()
+		return roar(n) * 2 + deep(n) * 3 + crackle(n) * gate * 0.4
+	end)
+end
+
 -- Сеть перегружена: свет мигает — гул проседает и рвётся.
 local function brownout(rate: number, variant: number)
 	local phase = 0
@@ -269,15 +367,21 @@ return {
 		built = sound("world", built),
 		gate = sound("world", gate),
 		radar = sound("world", radar),
+		nukeBlast = sound("battle", nuke),
+		doorsLocked = sound("world", doorsLocked),
+		liftoff = sound("world", liftoff),
 		shipLaunch = sound("world", shipLaunch),
 		shipLand = sound("world", shipLand),
 		coins = sound("interface", coins),
-		shieldHit = sound("world", shieldHit),
+		shieldHit = sound("battle", shieldHit),
 		shieldDown = sound("world", shieldDown),
 		shieldUp = sound("world", shieldUp),
 		-- Петли.
 		reactor = loopSound(reactor),
 		dome = loopSound(dome),
+		hydraulic = loopSound(hydraulic),
+		steam = loopSound(steam),
+		rocket = loopSound(rocket),
 		deploy = sound("world", deploy),
 		rollout = sound("world", rollout),
 		brownout = sound("interface", brownout),

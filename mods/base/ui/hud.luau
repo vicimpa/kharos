@@ -14,6 +14,9 @@ local logistics = require("lib/logistics")
 local research = require("lib/research")
 local tactics = require("lib/tactics")
 local trade = require("lib/trade")
+local silos = require("mechanics/silos")
+
+local clockOf = widgets.clock
 local COLORS, shadow = widgets.COLORS, widgets.shadow
 
 local hud = {}
@@ -702,6 +705,54 @@ local function slots(c, selection)
 			end
 		end
 	end
+	-- Своя готовая ракетная шахта: боеголовка, пуск и отмена (silo в commands.ts).
+	local silo = #selection == 1 and selection[1]
+	local state = silo and c:mine(silo) and logistics.isReady(c, c.player, silo) and c:get(silo, "Silo")
+	local warhead = state and c:proto(silo).data.warhead
+	if state and warhead and page.name == "root" then
+		local stage = if state.start >= 0 then "launching" elseif state.ready then "ready" elseif state.ticks > 0 then "assembling" else "empty"
+		local lack = silos.warheadLack(c, c.player, silo)
+		local aiming = c.shared.mode ~= nil and c.shared.mode.kind == "aiming" and c.shared.mode.silo == silo
+		list[1] = {
+			label = "Боеголовка",
+			picture = c.protos.goods.rods,
+			cost = if stage == "empty" then warhead.cost else nil,
+			materials = if stage == "empty" then warhead.materials else nil,
+			c = c,
+			stock = (logistics.stockOf(c, c.player)),
+			about = "Ядерная боеголовка для пуска. Шахта держит одну",
+			active = stage ~= "empty",
+			disabled = lack ~= nil,
+			title = if stage ~= "empty" then "В шахте уже есть боеголовка — готовая или в сборке"
+				elseif lack == "credits" then "Не хватает кредитов"
+				elseif lack == "materials" then "В сети шахты не хватает стержней или компонентов"
+				else "Сборка идёт " .. clockOf(warhead.seconds) .. " при полной энергии. Цена списывается сразу, стержни и компоненты — из сети шахты",
+			run = function()
+				c:send("warhead", { silo = silo })
+			end,
+		}
+		list[2] = {
+			label = "Пуск",
+			about = "Навести боеголовку на точку карты и пустить ракету",
+			active = aiming,
+			disabled = stage ~= "ready" and stage ~= "launching",
+			title = if stage == "launching" then "Пуск идёт: щёлкни по карте, чтобы навести ракету заново"
+				elseif stage == "ready" then "Щёлкни по карте — туда придёт удар. Ракета стартует через " .. warhead.launch .. " с, о пуске узнают все"
+				else "Сначала собери боеголовку",
+			run = function()
+				c.shared.mode = if aiming then nil else { kind = "aiming", silo = silo }
+			end,
+		}
+		if stage == "assembling" then
+			list[CANCEL] = { label = "Отменить", title = "Бросить сборку: её цена вернётся целиком", run = function()
+				c:send("cancelWarhead", { silo = silo })
+			end }
+		elseif stage == "launching" then
+			list[CANCEL] = { label = "Отменить пуск", title = "Ракета не стартует, боеголовка останется в шахте", run = function()
+				c:send("abortLaunch", { silo = silo })
+			end }
+		end
+	end
 	-- Свой готовый космопорт: продажа и закупка с орбиты.
 	local port = #selection == 1 and selection[1]
 	local trading = port and c:mine(port) and trade.isPort(c, c.player, port)
@@ -1113,6 +1164,42 @@ local function info(c, selection, width: number, height: number)
 				local tone = if have <= 0 and not burning then COLORS.warn else COLORS.soft
 				stockHint(c, "Стержни", burns.good, have, stock.capacity, if burning then "Стержень горит минуту; грузовики подвозят новые из хранилищ зоны" else "Стержня в работе нет: реактор не вырабатывает", tone, text)
 			end
+			-- Ракетная шахта: сборка боеголовки, готова, пуск.
+			local silo = built and c:mine(first) and kind.data.warhead and c:get(first, "Silo")
+			if silo then
+				if silo.start >= 0 then
+					local left = math.max(0, silo.start + math.floor(kind.data.warhead.launch / c.step + 0.5) - c.tick)
+					ui:text("Пуск: старт через " .. math.ceil(left * c.step) .. " с", { color = COLORS.warn, wrap = text })
+				elseif silo.ticks > 0 and not silo.ready then
+					local progress = math.min(1, silo.progress / silo.ticks)
+					widgets.bar(ui, progress, "Боеголовка — собрано " .. percent(progress), text)
+				else
+					ui:text(if silo.ready then "Боеголовка готова: «Пуск» — навести на цель" else "Боеголовки нет: собери её, чтобы пустить ракету", { color = COLORS.soft, wrap = text })
+				end
+			end
+			-- Перехватчик: сколько ракет, собирает ли следующую и что мешает.
+			local guard = built and c:mine(first) and kind.data.intercept
+			local charge = guard and c:get(first, "Interceptor")
+			if charge then
+				local count, capacity = charge.missiles, guard.capacity
+				if charge.ticks > 0 then
+					local progress = math.min(1, charge.progress / charge.ticks)
+					widgets.bar(ui, progress, "Ракет " .. count .. " из " .. capacity .. "; следующая — собрано " .. percent(progress), text)
+				else
+					local lack = silos.interceptorLack(c, first)
+					local list = {}
+					for _, name in goods.names(c) do
+						local amount = guard.materials[name]
+						if amount then
+							table.insert(list, amount .. " " .. string.lower(c.protos.goods[name].data.title))
+						end
+					end
+					ui:text(if lack == "off" then "Выключен: ракет " .. count .. " из " .. capacity .. ", новые не собирает и не стреляет"
+						elseif lack == "credits" then "Ракет " .. count .. " из " .. capacity .. ": на сборку следующей нужно " .. guard.cost .. " кредитов"
+						elseif lack == "materials" then "Ракет " .. count .. " из " .. capacity .. ": в сети не хватает — нужно " .. table.concat(list, ", ")
+						else "Ракет " .. count .. " из " .. capacity .. ": собьют ядерные, что метят ближе " .. guard.radius .. " тайлов", { color = COLORS.soft, wrap = text })
+				end
+			end
 			-- Космопорт: рейс, набираемая сделка или что тут можно (trade в bar.ts).
 			if built and c:mine(first) and trade.isPort(c, c.player, first) then
 				local order = c:get(first, "Trade")
@@ -1410,6 +1497,7 @@ end
 local MODES = {
 	deploying = { name = "Разворачивание MCV", tip = "Щёлкни, где развернуть: на зелёном можно, MCV доедет сам" },
 	patrolling = { name = "Патруль", tip = "Щёлкни, докуда патрулировать; с Shift — ещё точка" },
+	aiming = { name = "Ядерный удар", tip = "Щёлкни по карте — туда придётся удар" },
 	placing = { name = "Стройка: {name}", tip = "Щёлкни, где заложить, — можно ещё и ещё" },
 	paving = { name = "{name}", tip = "Зажми кнопку и тяни по карте" },
 }

@@ -1,15 +1,19 @@
 --!strict
 -- Звук работы зданий — перенос packages/client/src/game/machines.ts. Каждый вид звука — одна петля, сколько бы ни
 -- звучало источников: громкость — по тому, сколько их и насколько они близки к середине экрана, сторона — по тому, где
--- они. Звучит только своё работающее: цех стучит, пока движется его работа; горящий реактор и купол щита — и чужие.
+-- они. Звучит только своё работающее: цех стучит, пока движется его работа; горящий реактор, купол щита, шахта в пуске, MCV в превращении и ракеты — и чужие.
 
 local economy = require("lib/economy")
+local missiles = require("lib/missiles")
+
+-- Доли срока пуска шахты: створки расходятся до DOORS, пар идёт с STEAM, двигатель ревёт с RISE (worldSounds.ts).
+local DOORS, STEAM, RISE = 0.35, 0.45, 0.6
 
 local PERIOD = 0.2
-local LEVELS = { hum = 0.22, machinery = 0.25, drill = 0.2, reactor = 0.3, dome = 0.06 }
+local LEVELS = { hum = 0.22, machinery = 0.25, drill = 0.2, reactor = 0.3, dome = 0.06, hydraulic = 0.3, steam = 0.4, rocket = 0.6 }
 local SATURATE = 3
 -- Петли мира (worldSounds.ts) набирают громкость быстрее.
-local SATURATES = { reactor = 2, dome = 2 }
+local SATURATES = { reactor = 2, dome = 2, hydraulic = 2, steam = 2, rocket = 2 }
 local WORK_HOLD = 0.6
 local HEARING = 0.6
 
@@ -40,13 +44,47 @@ return {
 		end
 		since = 0
 		local sum, side = {}, {}
-		local function add(name: string, x: number, y: number)
-			local near = c:nearness(x, y, HEARING)
+		local function add(name: string, x: number, y: number, weight: number?)
+			local near = c:nearness(x, y, HEARING) * (weight or 1)
 			if near <= 0 then
 				return
 			end
 			sum[name] = (sum[name] or 0) + near
 			side[name] = (side[name] or 0) + near * c:side(x)
+		end
+		-- Шахта в пуске: створки — гидравлика, потом пар, потом разгон двигателя; MCV, который разворачивается или
+		-- сворачивается, — гидравлика; ракеты в полёте ревут.
+		local clock = c.tick + c.alpha
+		for _, e in c:each({ "Silo", "Position" }) do
+			local silo = c:get(e, "Silo")
+			local kind = c:proto(e)
+			local warhead = kind and kind.data.warhead
+			if silo.start >= 0 and warhead then
+				local share = (clock - silo.start) / math.floor(warhead.launch / c.step + 0.5)
+				local at = c:get(e, "Position")
+				if share < DOORS then
+					add("hydraulic", at.x, at.y)
+				end
+				if share >= STEAM then
+					add("steam", at.x, at.y, (share - STEAM) / (1 - STEAM))
+				end
+				if share >= RISE then
+					add("rocket", at.x, at.y, ((share - RISE) / (1 - RISE)) ^ 2)
+				end
+			end
+		end
+		for _, e in c:each({ "Converting", "Position" }) do
+			local at = c:get(e, "Position")
+			add("hydraulic", at.x, at.y, 0.6)
+		end
+		local speed = c.protos.buildings.silo.data.warhead.speed
+		for _, e in c:each({ "Missile" }) do
+			local x, y = missiles.at(c:get(e, "Missile"), clock, c.step, speed)
+			add("rocket", x, y)
+		end
+		for _, e in c:each({ "Chaser" }) do
+			local x, y = missiles.chaserAt(c:get(e, "Chaser"), clock)
+			add("rocket", x, y, 0.5)
 		end
 		local seen = {}
 		for _, e in c:each({ "Building", "Position", "Owner" }) do

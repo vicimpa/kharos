@@ -227,6 +227,13 @@ function buildings.entity(kind, protos)
 	if data.shield then
 		entity.Shield = { radius = data.shield.radius, recover = buildings.SHIELD_DOWN }
 	end
+	-- Ракетная шахта собирает боеголовку, перехватчик — ракеты-перехватчики (mechanics/silos).
+	if data.warhead then
+		entity.Silo = {}
+	end
+	if data.intercept then
+		entity.Interceptor = {}
+	end
 	-- Реактор жжёт стержни (mechanics/reactors).
 	if data.burns then
 		entity.Reactor = {}

@@ -3,8 +3,16 @@
 
 local wallet = {}
 
--- Сущность игрока по его номеру; нет — nil.
+-- Сущность игрока по его номеру; нет — nil. У клиента памяти хоста нет — ищет по Player.
 function wallet.of(ctx, player: number): number?
+	if ctx.storage == nil then
+		for _, e in ctx:each({ "Player" }) do
+			if ctx:get(e, "Player").id == player then
+				return e
+			end
+		end
+		return nil
+	end
 	local list = ctx.storage.players
 	return list and list[tostring(player)]
 end

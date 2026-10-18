@@ -42,14 +42,7 @@ local TRIGGERS = {
 	refined = "Получить первый готовый ресурс",
 }
 
--- Срок для интерфейса: минуты и секунды, от часа — часы, минуты и секунды (clockOf).
-local function clockOf(seconds: number): string
-	local whole = math.floor(seconds + 0.5)
-	if whole < 3600 then
-		return string.format("%d:%02d", whole // 60, whole % 60)
-	end
-	return string.format("%d:%02d:%02d", whole // 3600, (whole % 3600) // 60, whole % 60)
-end
+local clockOf = widgets.clock
 
 -- Тема для окна (techOf в hud.ts): ярус, цена, готовность, место в очереди, доступность, что открывает.
 local function viewsOf(c)

@@ -590,6 +590,75 @@ function logistics.accepts(w, player: number, to: number, good: string): boolean
 	return dataOf(w, to).refines == good or logistics.feedOf(dataOf(w, to)) == good
 end
 
+-- Склады сети здания по порядку: сначала хранилища (sourcesOf в upgrades.ts).
+local function sourcesOf(w, e: number): { number }
+	local network = logistics.networkOf(w, e)
+	local list = table.clone(if network then network.members else {})
+	table.sort(list, function(a, b)
+		local one, two = logistics.isStore(w, a), logistics.isStore(w, b)
+		if one ~= two then
+			return one
+		end
+		return a < b
+	end)
+	return list
+end
+
+-- Сколько груза сеть здания может отдать на его нужды сразу: что отдают склады сети по заявкам (networkStock).
+function logistics.networkStock(w, e: number, good: string): number
+	local amount = 0
+	for _, source in sourcesOf(w, e) do
+		if table.find(logistics.offers(w, source), good) then
+			amount += logistics.given(w, source, good)
+		end
+	end
+	return amount
+end
+
+-- Хватает ли в сети здания готового на эту цену (networkHas): недостачу меньше погрешности прощают, как стройке.
+function logistics.networkHas(w, e: number, materials: { [string]: number }): boolean
+	for good, amount in materials do
+		if logistics.networkStock(w, e, good) < amount - 1e-6 then
+			return false
+		end
+	end
+	return true
+end
+
+-- Забирает готовое со складов сети здания, сначала из хранилищ (takeFromNetwork). w — книга (goods.book): склады
+-- меняются на месте.
+function logistics.takeFromNetwork(w, e: number, materials: { [string]: number })
+	local sources = sourcesOf(w, e)
+	for good, amount in materials do
+		local left = amount
+		for _, source in sources do
+			if left <= 1e-9 then
+				break
+			end
+			if table.find(logistics.offers(w, source), good) then
+				left -= goods.take(w:get(source, "Inventory"), good, math.min(left, logistics.given(w, source, good)))
+			end
+		end
+	end
+end
+
+-- Возвращает готовое в хранилища сети здания (returnToNetwork). Чему там нет места, пропадает: груза на земле пока
+-- нет (drops.ts).
+function logistics.returnToNetwork(w, e: number, materials: { [string]: number })
+	local stores = {}
+	for _, source in sourcesOf(w, e) do
+		if logistics.isStore(w, source) then
+			table.insert(stores, source)
+		end
+	end
+	for good, amount in materials do
+		local rest = amount
+		for _, store in stores do
+			rest -= goods.put(w:get(store, "Inventory"), good, rest)
+		end
+	end
+end
+
 -- Можно ли забирать груз со склада (offersPickup): свой готовый склад, где он есть.
 function logistics.offersPickup(w, player: number, from: number, good: string): boolean
 	return logistics.isReady(w, player, from) and logistics.spare(w, from, good) > EPSILON

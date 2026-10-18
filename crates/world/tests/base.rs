@@ -1308,3 +1308,64 @@ fn spaceport_sells_from_stores_and_buys_from_orbit() {
   let landed = stocked(&host, port, "silicon") + stocked(&host, yard, "silicon") + moving;
   assert!((landed - 10.0).abs() < 1e-6, "привезено {landed}");
 }
+
+#[test]
+fn silo_launches_a_missile_that_strikes_and_an_interceptor_downs_the_next() {
+  let mut host = host_without_tech();
+  let (_, site, builder) = base_with_builder(&mut host);
+  let player = all(&host, "Player")[0].0;
+  set(&host, player, "Player", json!({ "credits": 20000 }));
+  let spot = free_spot(&host, site, 2);
+  raise(&mut host, "generator", spot, builder);
+  let spot = free_spot(&host, site, 3);
+  let silo = raise(&mut host, "silo", spot, builder);
+  host.join(2).unwrap();
+  host.tick(0.05).unwrap();
+  let enemy = kind(&host, "units", "buggy").into_iter().find(|&e| get(&host, e, "Owner").unwrap()["player"].as_f64() == Some(2.0)).unwrap();
+  let (sx, sy) = place(&host, silo);
+  // Цель — в 20 тайлах: ракета летит 8 тайлов в секунду.
+  let (tx, ty) = ((sx + 20.0).floor(), sy.floor());
+  set(&host, enemy, "Position", json!({ "x": tx + 0.5, "y": ty + 0.5 }));
+  host.send(2, "stance", json!({ "units": [enemy], "stance": "passive" }));
+  // Боеголовка готова — пуск: через 30 с ракета стартует, шахта пустеет.
+  set(&host, silo, "Silo", json!({ "ready": true }));
+  ticks(&mut host, 2);
+  assert!(get(&host, silo, "Meltdown").is_some(), "с боеголовкой взорвётся");
+  host.send(1, "launch", json!({ "silo": silo, "x": tx, "y": ty }));
+  host.tick(0.05).unwrap();
+  assert!(get(&host, silo, "Silo").unwrap()["start"].as_f64().unwrap() >= 0.0);
+  ticks(&mut host, 20 * 30);
+  let missiles = all(&host, "Missile");
+  assert_eq!(missiles.len(), 1, "ракета не стартовала");
+  assert_eq!(get(&host, silo, "Silo").unwrap()["ready"], json!(false));
+  let marks: Vec<String> = all(&host, "Mark").iter().map(|(_, mark)| mark["kind"].as_str().unwrap().to_owned()).collect();
+  assert!(marks.contains(&"strike".to_owned()) && marks.contains(&"launch".to_owned()), "метки {marks:?}");
+  // Точку удара видит тот, чьё под ней.
+  let strike = all(&host, "Mark").into_iter().find(|(_, mark)| mark["kind"] == json!("strike")).unwrap().1;
+  assert_eq!(strike["viewers"], json!([2]));
+  // Долетела — взрыв: багги под ним погибает, вспышка открывает круг всем.
+  ticks(&mut host, 20 * 4);
+  assert!(all(&host, "Missile").is_empty(), "не долетела");
+  assert!(get(&host, enemy, "Unit").is_none(), "цель цела");
+  assert!(all(&host, "Mark").iter().all(|(_, mark)| mark["kind"] != json!("strike")), "метка удара осталась");
+  // Вторая ракета — на перехватчик чужого игрока с готовой ракетой: её сбивают, не долетает.
+  let spot = free_spot(&host, site, 2);
+  let guard = raise(&mut host, "interceptor", spot, builder);
+  set(&host, guard, "Owner", json!({ "player": 2 }));
+  set(&host, guard, "Interceptor", json!({ "missiles": 1 }));
+  set(&host, silo, "Silo", json!({ "ready": true }));
+  let (gx, gy) = place(&host, guard);
+  host.send(1, "launch", json!({ "silo": silo, "x": gx.floor(), "y": gy.floor() }));
+  let mut chased = false;
+  for _ in 0..20 * 40 {
+    host.tick(0.05).unwrap();
+    chased |= !all(&host, "Chaser").is_empty();
+    if chased && all(&host, "Missile").is_empty() {
+      break;
+    }
+  }
+  assert!(chased, "перехватчик не выстрелил");
+  assert!(all(&host, "Missile").is_empty(), "ракету не сбили");
+  assert_eq!(get(&host, guard, "Interceptor").unwrap()["missiles"], json!(0.0));
+  assert!(get(&host, guard, "Building").is_some(), "перехватчик разбит");
+}

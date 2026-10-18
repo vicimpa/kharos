@@ -2,9 +2,11 @@
 -- Подача боя — перенос combatPass.ts: снаряды, лучи, разряды и струи огня, вспышки у ствола, взрывы и дым после
 -- них, огни в темноте и полоски прочности над повреждёнными юнитами. Выстрелы (Shot) и взрывы (Blast) — сущности
 -- мира от системы движка fight; клубы дыма живут только на экране. Светящееся (c.glow) складывается с картинкой,
--- остальное ложится поверх (c.draw). Купола щитов — тоже здесь. Ядерные ракеты придут со своей механикой.
+-- остальное ложится поверх (c.draw). Купола щитов, ядерные ракеты, перехватчики и метки пуска и удара — тоже здесь.
 
+local missiles = require("lib/missiles")
 local noise = require("lib/noise").of
+local tactics = require("lib/tactics")
 
 local combat = {}
 
@@ -48,6 +50,13 @@ combat.data = {
 	-- DOME_FLASH).
 	domeSegments = 64,
 	domeFlash = 0.6,
+	-- Ядерная ракета и перехватчик: длина корпуса в тайлах и через сколько тайлов пути след (MISSILE_BODY, CHASER_BODY,
+	-- MISSILE_SMOKE_STEP); шахта в пуске парит с этой доли срока, клубов в секунду (STEAM_FROM, STEAM_RATE).
+	missileBody = 0.9,
+	chaserBody = 0.5,
+	missileSmokeStep = 0.35,
+	steamFrom = 0.45,
+	steamRate = 40,
 }
 
 local BULLET = rgb(1, 0.9, 0.55)
@@ -60,6 +69,9 @@ local EMBER = rgb(1, 0.35, 0.08)
 local SPARK = rgb(0.3, 0.6, 1)
 local CORE = rgb(1, 1, 1)
 local DOME = rgb(0.35, 0.7, 1)
+local WRECK = rgb(1, 0.22, 0.1)
+local LAUNCH_SITE = rgb(1, 0.7, 0.2)
+local STRIKE = rgb(1, 0.15, 0.1)
 local BAR_BACK = rgb(0.03, 0.05, 0.08)
 local BAR_GOOD = rgb(0.45, 0.9, 0.55)
 local BAR_BAD = rgb(1, 0.35, 0.25)
@@ -184,6 +196,77 @@ local function emitSmoke(c, shots, blasts)
 			last.y += (y - last.y) * share
 		end
 	end
+	-- Ядерная ракета: на старте — облако над шахтой, в полёте — густой след на высоте полёта.
+	local clock = c.tick + c.alpha
+	local speed = c.protos.buildings.silo.data.warhead.speed
+	for _, e in c:each({ "Missile" }) do
+		alive[e] = true
+		local missile = c:get(e, "Missile")
+		local x, y, lift = missiles.at(missile, clock, c.step, speed)
+		local last = trails[e]
+		if not last then
+			trails[e] = { x = x, y = y }
+			for _ = 1, 24 do
+				puff(missile.fromX + spread(2.5), missile.fromY + spread(2.5), 1 + math.random(), 3 + math.random() * 2, 0.9, 0.7, spread(2), spread(2))
+			end
+			continue
+		end
+		local distance = math.sqrt((x - last.x) ^ 2 + (y - last.y) ^ 2)
+		local count = math.min(24, math.floor(distance / d.missileSmokeStep))
+		for i = 1, count do
+			local share = i * d.missileSmokeStep / distance
+			puff(last.x + (x - last.x) * share + spread(0.1), last.y + (y - last.y) * share - lift + spread(0.1), 0.5, 2.5, 0.85, 0.7, spread(0.3), spread(0.3))
+		end
+		if count > 0 then
+			local share = count * d.missileSmokeStep / distance
+			last.x += (x - last.x) * share
+			last.y += (y - last.y) * share
+		end
+	end
+	-- Ракета-перехватчик: тонкий белый след от станка до встречи.
+	for _, e in c:each({ "Chaser" }) do
+		alive[e] = true
+		local chaser = c:get(e, "Chaser")
+		local x, y, lift = missiles.chaserAt(chaser, clock)
+		local last = trails[e]
+		if not last then
+			trails[e] = { x = x, y = y - lift }
+			for _ = 1, 8 do
+				puff(chaser.fromX + spread(1), chaser.fromY + spread(1), 0.6 + math.random() * 0.4, 1.5, 0.9, 0.7, spread(1.5), spread(1.5))
+			end
+			continue
+		end
+		local distance = math.sqrt((x - last.x) ^ 2 + (y - lift - last.y) ^ 2)
+		local count = math.min(24, math.floor(distance / d.missileSmokeStep))
+		for i = 1, count do
+			local share = i * d.missileSmokeStep / distance
+			puff(last.x + (x - last.x) * share + spread(0.05), last.y + (y - lift - last.y) * share + spread(0.05), 0.3, 1.5, 0.95, 0.6, spread(0.2), spread(0.2))
+		end
+		if count > 0 then
+			local share = count * d.missileSmokeStep / distance
+			last.x += (x - last.x) * share
+			last.y += (y - lift - last.y) * share
+		end
+	end
+	-- Шахта в пуске парит из открытого ствола, и чем ближе старт, тем гуще.
+	for _, e in c:each({ "Silo", "Position" }) do
+		local silo = c:get(e, "Silo")
+		local kind = c:proto(e)
+		local warhead = kind and kind.data.warhead
+		if silo.start < 0 or not warhead then
+			continue
+		end
+		local share = (clock - silo.start) / math.floor(warhead.launch / c.step + 0.5)
+		if share < d.steamFrom then
+			continue
+		end
+		local expected = d.steamRate * c.dt * ((share - d.steamFrom) / (1 - d.steamFrom)) ^ 2
+		local count = math.floor(expected) + (if math.random() < expected % 1 then 1 else 0)
+		local at = c:get(e, "Position")
+		for _ = 1, count do
+			puff(at.x + 0.2 + spread(0.9), at.y - 0.1 + spread(0.9), 0.5 + math.random() * 0.4, 1.6, 0.95, 0.55, spread(1.2), spread(1.2) - 0.4)
+		end
+	end
 	for entity in trails do
 		if not alive[entity] then
 			trails[entity] = nil
@@ -202,8 +285,12 @@ function combat.update(c)
 	lastTick = c.tick
 	local left, top = c:to_world(0, 0)
 	local right, bottom = c:to_world(c.screen.w, c.screen.h)
+	-- На экране; ядерные ракеты, перехватчики и метки видны и сквозь туман.
+	local function onScreen(x: number, y: number): boolean
+		return x > left - 3 and x < right + 3 and y > top - 3 and y < bottom + 3
+	end
 	local function visible(x: number, y: number): boolean
-		return x > left - 3 and x < right + 3 and y > top - 3 and y < bottom + 3 and c:sees(x, y)
+		return onScreen(x, y) and c:sees(x, y)
 	end
 	-- Размер эффекта в пикселях экрана по его размеру в точках: растёт вместе с миром, но не тоньше пикселя.
 	local function sized(points: number): number
@@ -257,6 +344,17 @@ function combat.update(c)
 				c:light(shot.x, shot.y, 10, 4, 0.8)
 			end
 		end
+	end
+
+	local clock = c.tick + alpha
+	local speed = c.protos.buildings.silo.data.warhead.speed
+	for _, e in c:each({ "Missile" }) do
+		local x, y, lift = missiles.at(c:get(e, "Missile"), clock, c.step, speed)
+		c:light(x, y - lift, 18, 8, 0.9)
+	end
+	for _, e in c:each({ "Chaser" }) do
+		local x, y, lift = missiles.chaserAt(c:get(e, "Chaser"), clock)
+		c:light(x, y - lift, 12, 5, 0.8)
 	end
 
 	emitSmoke(c, shots, blasts)
@@ -382,6 +480,79 @@ function combat.update(c)
 	end
 
 	-- Полоски прочности над повреждёнными юнитами — своими и чужими.
+	-- Ядерная ракета: тень на земле, корпус на высоте полёта и пламя за ним.
+	for _, e in c:each({ "Missile" }) do
+		local x, y, lift, headingX, headingY = missiles.at(c:get(e, "Missile"), clock, c.step, speed)
+		if not onScreen(x, y) then
+			continue
+		end
+		local tailX, tailY = x - headingX * d.missileBody, y - headingY * d.missileBody
+		line(c.draw, tailX, tailY, x, y, 5, SHELL, 0.3)
+		line(c.glow, tailX - headingX * 0.5, tailY - headingY * 0.5 - lift, tailX, tailY - lift, 6, FLAME)
+		dot(c.glow, tailX, tailY - lift, 9, EMBER, 0.8)
+		line(c.draw, tailX, tailY - lift, x, y - lift, 6, SHELL)
+		line(c.draw, tailX, tailY - lift, x, y - lift, 4, ROCKET)
+		dot(c.draw, x, y - lift, 3, WRECK)
+	end
+	-- Ракета-перехватчик: тонкая и белая, с пламенем; тень на земле. Корпус смотрит туда, куда она летит на экране.
+	for _, e in c:each({ "Chaser" }) do
+		local chaser = c:get(e, "Chaser")
+		local x, y, lift = missiles.chaserAt(chaser, clock)
+		if not onScreen(x, y) and not onScreen(x, y - lift) then
+			continue
+		end
+		local backX, backY, backLift = missiles.chaserAt(chaser, clock - 0.5)
+		local screenX, screenY = x - backX, y - lift - (backY - backLift)
+		local reach = math.sqrt(screenX * screenX + screenY * screenY)
+		reach = if reach > 0 then reach else 1
+		local dx, dy = screenX / reach * d.chaserBody, screenY / reach * d.chaserBody
+		local tailX, tailY = x - dx, y - lift - dy
+		dot(c.draw, x, y, 3, SHELL, 0.25)
+		line(c.glow, tailX - dx * 0.4, tailY - dy * 0.4, tailX, tailY, 4, FLAME)
+		dot(c.glow, tailX, tailY, 6, EMBER, 0.8)
+		line(c.draw, tailX, tailY, x, y - lift, 3, ROCKET)
+	end
+	-- Метки ядерного удара — своему, союзникам и тем, кому их показывают. Место пуска — янтарное кольцо, которое
+	-- расходится волнами. Точка удара — кольца взрыва и его ядра: чем ближе удар, тем чаще они мигают.
+	local blast = c.protos.buildings.silo.data.warhead.blast
+	for _, e in c:each({ "Mark", "Position" }) do
+		local mark = c:get(e, "Mark")
+		if mark.player ~= c.player and not tactics.allied(c, c.player, mark.player) and not table.find(mark.viewers or {}, c.player) then
+			continue
+		end
+		local at = c:get(e, "Position")
+		local x, y = at.x, at.y
+		local left = math.max(0, (mark["until"] - c.tick - alpha) * c.step)
+		local function ring(r: number, thickness: number, color: number, level: number)
+			for i = 0, d.domeSegments - 1 do
+				local a = i / d.domeSegments * math.pi * 2
+				local b = (i + 1) / d.domeSegments * math.pi * 2
+				line(c.glow, x + math.cos(a) * r, y + math.sin(a) * r, x + math.cos(b) * r, y + math.sin(b) * r, thickness, color, level)
+			end
+		end
+		if mark.kind == "launch" then
+			if onScreen(x, y) then
+				local wave = (c.time * 0.8) % 1
+				ring(1.5, 3, LAUNCH_SITE, 0.8)
+				ring(1.5 + wave * 4, 2, LAUNCH_SITE, 0.6 * (1 - wave))
+				line(c.glow, x - 0.8, y, x + 0.8, y, 2, LAUNCH_SITE, 0.8)
+				line(c.glow, x, y - 0.8, x, y + 0.8, 2, LAUNCH_SITE, 0.8)
+			end
+			continue
+		end
+		if mark.kind ~= "strike" then
+			continue
+		end
+		local radius = blast.radius
+		if not onScreen(x - radius, y) and not onScreen(x + radius, y) and not onScreen(x, y - radius) and not onScreen(x, y + radius) and not onScreen(x, y) then
+			continue
+		end
+		local beat = 0.5 + 0.5 * math.cos(c.time * math.pi * 2 * (if left < 5 then 3 else 1))
+		ring(radius, 3, STRIKE, 0.35 + 0.4 * beat)
+		ring(blast.core, 2, STRIKE, 0.25 + 0.3 * beat)
+		dot(c.glow, x, y, 8, STRIKE, 0.6 + 0.4 * beat)
+	end
+
 	-- Купола щитов: тусклые в покое, ярче с запасом, вспыхивают от погашенного попадания. Погашенный не рисуется.
 	for _, e in c:each({ "Shield", "Building", "Position" }) do
 		local shield = c:get(e, "Shield")
