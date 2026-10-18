@@ -7,7 +7,9 @@
 -- Повреждённое чинят быстрее, чем строят, за долю цены и не под огнём. Свободные строители сами берутся за работу
 -- поблизости. Правила места и кредитов — lib/construction.
 --
--- Пока нет: материалов на стройке (В5 — подвозят грузовики и сами строители), покрытия и землеройных работ,
+-- Материалы стройке подвозят грузовики и сами строители (mechanics/fetching): дальше привезённого она не идёт.
+--
+-- Пока нет: груза брошенной стройки на земле (дропы), покрытия и землеройных работ,
 -- улучшений зданий, очереди приказов (Shift).
 
 local construction = require("lib/construction")
@@ -18,6 +20,7 @@ local wallet = require("lib/wallet")
 local conversion = require("lib/conversion")
 local buildings = require("lib/buildings")
 local economy = require("lib/economy")
+local logistics = require("lib/logistics")
 
 local readf64, writef64 = buffer.readf64, buffer.writef64
 
@@ -265,6 +268,9 @@ local function isStalled(ctx, e: number, rules, purse, all): boolean
 	if construction.outOfControl(ctx, ownerOf(ctx, e), kind, x, y, all) then
 		return true
 	end
+	if construction.awaitsMaterials(ctx, e) then
+		return true
+	end
 	return not ctx:has(e, "Footprint") and #ctx:units_in(x, y, kind.data.width, kind.data.height) > 0
 end
 
@@ -405,9 +411,20 @@ local function volunteer(ctx, rules, all)
 	local data = mechanic.data
 	local idle = {}
 	for _, e in ctx:each({ "Repair", "Unit", "Owner" }) do
-		if onTurn(ctx, e, data.retryTicks) and not ctx:has(e, "Converting") and not ctx:has(e, "Builds") and not ctx:has(e, "Path") then
-			table.insert(idle, e)
+		if not onTurn(ctx, e, data.retryTicks) or ctx:has(e, "Converting") or ctx:has(e, "Fetch") then
+			continue
 		end
+		-- Стройка, которая ждёт материалов, строителя не держит: он берётся за другую работу, а вернётся, когда подвезут;
+		-- разве что материал есть где взять — тогда он поедет за ним (mechanics/fetching).
+		local builds = ctx:get(e, "Builds")
+		if builds then
+			if not construction.awaitsMaterials(ctx, builds.site) or logistics.willFetch(ctx, e, builds.site) then
+				continue
+			end
+		elseif ctx:has(e, "Path") then
+			continue
+		end
+		table.insert(idle, e)
 	end
 	if #idle == 0 then
 		return
@@ -415,7 +432,8 @@ local function volunteer(ctx, rules, all)
 	local sites = {}
 	local overbuilt
 	for _, e in ctx:each({ "Site", "Position", "Owner" }) do
-		local work = workAt(ctx, e)
+		-- Ждущая материалов стройка добровольцев не зовёт: работы для них там нет.
+		local work = not construction.awaitsMaterials(ctx, e) and workAt(ctx, e)
 		if work then
 			local site = ctx:get(e, "Site")
 			table.insert(sites, { entity = e, work = work, player = ownerOf(ctx, e), kind = if site.demolish then nil else kinds.of(ctx, e) })
@@ -480,8 +498,12 @@ local function begin(ctx, e: number, kind, health: { value: number, max: number 
 end
 
 -- Здание достроено: всё, что положено его виду, — производство, обзор, ремонт; турели ставит mechanics/mounts.
+-- Материалы ушли в здание: склад у готового свой.
 local function finish(ctx, e: number, kind, player: number)
 	local shape = template(ctx, kind)
+	if ctx:has(e, "Inventory") then
+		ctx:remove(e, "Inventory")
+	end
 	for name, values in shape do
 		if name == "Position" or name == "Owner" or name == "Health" or name == "Footprint" or name == "Building" then
 			continue
@@ -517,6 +539,8 @@ mechanic.commands = {
 			Owner = { player = player },
 			Building = { width = data.width, height = data.height },
 			Site = { progress = 0, total = construction.siteTicks(kind, ctx.dt) },
+			-- Материалы привезут грузовики и строители: площадка заказывает их у своей зоны (lib/logistics).
+			Inventory = construction.siteStock(kind),
 		})
 		local free = {}
 		for _, e in (if type(args.builders) == "table" then args.builders else {}) do
@@ -723,8 +747,9 @@ mechanic.systems = {
 				end
 				-- Прочность недостроенного — доля построенного: урон откатывает стройку, и разбитое строят и оплачивают
 				-- заново. Платят по ходу: за каждую построенную долю — та же доля цены; кончились кредиты — стоит.
+				-- Дальше привезённых материалов стройка не идёт.
 				local progress = math.min(site.progress, total * health.value / health.max)
-				local reached = math.min(progress + count, total)
+				local reached = math.min(progress + count, total, total * construction.materialShare(ctx, e))
 				if reached > progress and wallet.spend(purse, player, (reached - progress) / total * kind.data.cost) then
 					progress = reached
 				end

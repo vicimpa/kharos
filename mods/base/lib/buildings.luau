@@ -190,6 +190,14 @@ function buildings.entity(kind, protos)
 	entity.Link = buildings.link(kind)
 	-- Склад (equipStorage): шахта копит руду, переработка — руду и готовое, хранилище — свой груз.
 	entity.Inventory = goods.stock(data)
+	-- Производителю без своего склада — склад под материалы заказов (PRODUCER_HOLD).
+	if data.produces and not entity.Inventory then
+		entity.Inventory = goods.stock({ inventory = buildings.PRODUCER_HOLD })
+	end
+	-- Цех собирает изделие своего вида; новый стоит выключенным, пока игрок его не включит.
+	if data.assembles then
+		entity.Assembly = { recipe = data.assembles }
+	end
 	if data.battery then
 		entity.Accumulator = {}
 	end
@@ -228,6 +236,9 @@ function buildings.link(kind): { [string]: any }?
 		core = kind.name == "command",
 	}
 end
+
+-- Сколько груза держит производитель без своего склада (PRODUCER_HOLD).
+buildings.PRODUCER_HOLD = 100
 
 -- Сколько прочности здания на кредит цены, если своей у него нет (BUILDING_HP).
 buildings.HP_PER_COST = 2

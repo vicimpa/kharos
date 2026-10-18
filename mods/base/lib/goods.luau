@@ -156,6 +156,13 @@ function goods.book(ctx, names: { string })
 			ctx:set(e, component, values)
 		end
 	end
+	function methods.remove(_, e: number, component: string)
+		local store = cached[component]
+		if store then
+			store[e] = false
+		end
+		ctx:remove(e, component)
+	end
 	function methods.flush()
 		for component, store in cached do
 			for e, value in store do

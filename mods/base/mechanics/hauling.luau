@@ -15,6 +15,8 @@ local logistics = require("lib/logistics")
 local approach = require("lib/approach")
 local economy = require("lib/economy")
 local kinds = require("lib/kinds")
+local beams = require("lib/beam")
+local beamFor, reaches, transfer = beams.beamFor, beams.reaches, beams.transfer
 
 local mechanic = {}
 
@@ -94,58 +96,6 @@ local function release(w, truck: number)
 	end
 	hauler.mine = NONE
 	dropJob(w, truck)
-end
-
--- Чей луч перенесёт груз со склада from на склад to (beamFor): отдающий from или забирающий to; годятся оба — тот, что
--- дальше дотягивается.
-local function beamFor(w, from: number, to: number): number?
-	if not w:get(from, "Inventory") or not w:get(to, "Inventory") then
-		return nil
-	end
-	local giving, taking = w:get(from, "Beam"), w:get(to, "Beam")
-	local best, radius = nil, -1
-	if giving and giving.give then
-		best, radius = from, giving.radius
-	end
-	if taking and taking.take and taking.radius > radius then
-		best = to
-	end
-	return best
-end
-
-local function reaches(w, from: number, to: number): boolean
-	local beam = beamFor(w, from, to)
-	return beam ~= nil and approach.gap(w, from, to) <= w:get(beam, "Beam").radius
-end
-
--- Переносит лучом до amount груза со склада from на склад to (transfer); возвращает перенесённое.
-local function transfer(w, from: number, to: number, good: string, amount: number?): number
-	local carrier = beamFor(w, from, to)
-	if not carrier then
-		return 0
-	end
-	local beam = w:get(carrier, "Beam")
-	if approach.gap(w, from, to) > beam.radius then
-		return 0
-	end
-	local source, target = w:get(from, "Inventory"), w:get(to, "Inventory")
-	local moved = math.min(amount or math.huge, beam.rate * w.dt, goods.amount(source, good), goods.room(target, good))
-	if moved <= 0 then
-		return 0
-	end
-	local partner = if carrier == from then to else from
-	local pulling = carrier == to
-	local known = false
-	for _, link in beam.links do
-		if link.target == partner and link.pulling == pulling then
-			known = true
-		end
-	end
-	if not known then
-		table.insert(beam.links, { target = partner, pulling = pulling, resource = good })
-	end
-	goods.put(target, good, goods.take(source, good, moved))
-	return moved
 end
 
 -- Можно ли вернуть груз туда, откуда взят: здание стоит и место есть.
@@ -304,7 +254,7 @@ local function dispatch(w)
 				continue
 			end
 			local data = logistics.dataOf(w, e)
-			if data.refines then
+			if data.refines or data.assembles then
 				table.insert(outlets, e)
 			elseif data.extract then
 				table.insert(mines, e)
@@ -318,6 +268,22 @@ local function dispatch(w)
 				bound[mine] = true
 			end
 		end
+		-- Откуда брать готовое: здания сети заказчика, а нет там — любой своей сети.
+		local everywhere = nil
+		local function anyZone(): { number }
+			if not everywhere then
+				local list = {}
+				for _, network in w:networks() do
+					if network.player == player then
+						for _, member in network.members do
+							table.insert(list, member)
+						end
+					end
+				end
+				everywhere = list
+			end
+			return everywhere :: { number }
+		end
 		for _, truck in trucks do
 			local room = w:get(truck, "Inventory").capacity
 			local hauler = w:get(truck, "Hauler")
@@ -330,22 +296,35 @@ local function dispatch(w)
 				if request.amount < d.MIN_JOB or not carries(request.resource) or logistics.unreachable(w, request.to) then
 					continue
 				end
-				for _, source in mines do
-					if source == request.to or logistics.unreachable(w, source) or bound[source] then
-						continue
+				local found = false
+				local function look(sources: { number })
+					for _, source in sources do
+						if source == request.to or logistics.unreachable(w, source) or (request.source == "mines" and bound[source]) then
+							continue
+						end
+						if not table.find(logistics.offers(w, source), request.resource) then
+							continue
+						end
+						local available = logistics.available(w, flows, source, request.resource)
+						if available < math.min(request.amount, d.MIN_JOB) then
+							continue
+						end
+						found = true
+						local score = request.priority * d.PRIORITY_WEIGHT - logistics.distance(w, truck, source) - logistics.distance(w, source, request.to)
+						if best and score <= best.score then
+							continue
+						end
+						best = { from = source, to = request.to, resource = request.resource, amount = math.min(request.amount, available, room), score = score }
 					end
-					if not table.find(logistics.offers(w, source), request.resource) then
-						continue
+				end
+				if request.source == "mines" then
+					look(mines)
+				else
+					look(if request.zone then request.zone.members else anyZone())
+					-- В своей зоне взять нечего — из любой своей.
+					if not found and request.zone then
+						look(anyZone())
 					end
-					local available = logistics.available(w, flows, source, request.resource)
-					if available < math.min(request.amount, d.MIN_JOB) then
-						continue
-					end
-					local score = request.priority * d.PRIORITY_WEIGHT - logistics.distance(w, truck, source) - logistics.distance(w, source, request.to)
-					if best and score <= best.score then
-						continue
-					end
-					best = { from = source, to = request.to, resource = request.resource, amount = math.min(request.amount, available, room), score = score }
 				end
 			end
 			if not best then
@@ -362,10 +341,11 @@ local function dispatch(w)
 						end
 						local available = logistics.available(w, flows, source, good)
 						local holds = math.min(stock.limits[good] or stock.capacity, stock.capacity)
-						-- Вставшая переработка — руды нет и её не везут — увозит и крошки.
+						-- Вставшая переработка — руды нет и её не везут — увозит и крошки; цех — остатки прежнего сырья.
 						local incoming = flows.incoming[source]
-						local stopped = goods.amount(stock, data.refines) <= EPSILON and (if incoming then incoming[data.refines] or 0 else 0) <= 0
-						if available < (if stopped then EPSILON else math.min(d.PUSH_MIN, room, holds * d.PUSH_SHARE)) then
+						local stopped = data.refines ~= nil and goods.amount(stock, data.refines) <= EPSILON and (if incoming then incoming[data.refines] or 0 else 0) <= 0
+						local leftover = stopped or (data.assembles ~= nil and not goods.isProduct(w, good))
+						if available < (if leftover then EPSILON else math.min(d.PUSH_MIN, room, holds * d.PUSH_SHARE)) then
 							continue
 						end
 						local score = -logistics.distance(w, truck, source)

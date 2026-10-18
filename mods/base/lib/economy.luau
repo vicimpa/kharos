@@ -4,8 +4,7 @@
 -- движок (w:grids()): связные здания игрока, слитые по касанию кругов; энергия у каждой своя. Что меняет мир —
 -- накопители, метка «занят», доход и износ — mechanics/economy.
 --
--- Пока нет: реакторов (стержни горят с В5 и В8 — до тех пор реактор энергии не даёт), заводов изделий (их флаг «включён»
--- — В5), уровней зданий (улучшения), дохода игроку не в сети (сетевой хост).
+-- Пока нет: реакторов (стержни горят с В8 — до тех пор реактор энергии не даёт), уровней зданий (улучшения), дохода игроку не в сети (сетевой хост).
 
 local kinds = require("lib/kinds")
 
@@ -60,8 +59,12 @@ function economy.switchable(kind): boolean
 	return (kind.data.power or 0) < 0 or kind.data.burns ~= nil
 end
 
--- Выключил ли игрок потребителя (switchedOff).
+-- Выключил ли игрок потребителя (switchedOff): у цеха — свой флаг.
 function economy.switchedOff(w, e: number): boolean
+	local assembly = w:get(e, "Assembly")
+	if assembly then
+		return not assembly.on
+	end
 	return w:has(e, "Off")
 end
 

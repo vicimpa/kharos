@@ -10,6 +10,17 @@
 local economy = require("lib/economy")
 local kinds = require("lib/kinds")
 local wallet = require("lib/wallet")
+local goods = require("lib/goods")
+local logistics = require("lib/logistics")
+
+-- Сколько секунд идёт сборка изделия (cycleSeconds): сырьё по ASSEMBLE_RATE в секунду.
+local function assemblyCycle(product): number
+	local total = 0
+	for _, amount in product.data.recipe do
+		total += amount
+	end
+	return total
+end
 
 local readf64, writef64 = buffer.readf64, buffer.writef64
 
@@ -70,16 +81,47 @@ local function turretsByCarrier(ctx): { [number]: { number } }
 	return found
 end
 
--- Есть ли у готового включённого потребителя дело (working). Механики, которых ещё нет (переработка, цеха,
--- исследования, ракеты, торговля, щиты), дела не дают.
+-- Есть ли у готового включённого потребителя дело (working). Механики, которых ещё нет (исследования, ракеты, торговля,
+-- щиты), дела не дают.
 local function working(ctx, e: number, data, turrets): boolean
-	if data.refines or data.assembles or data.researches or data.warhead or data.intercept or data.trades or data.shield then
+	if data.researches or data.warhead or data.intercept or data.trades or data.shield then
 		return false
 	end
-	-- Производство: заказ есть и здание не превращается. Материалов пока нет (В5) — начать можно всегда.
+	-- Переработка: есть руда и место под готовое.
+	if data.refines then
+		local stock = ctx:get(e, "Inventory")
+		local product = goods.resourceOf(ctx, data.refines)
+		return stock ~= nil and goods.amount(stock, data.refines) > 1e-6 and product ~= nil and goods.room(stock, product) > 1e-6
+	end
+	-- Цех: сборка идёт или её есть из чего начать; готовое, которому некуда лечь, — простой.
+	local assembly = ctx:get(e, "Assembly")
+	if assembly then
+		local product = ctx.protos.goods[assembly.recipe]
+		local stock = ctx:get(e, "Inventory")
+		if not product or not stock then
+			return false
+		end
+		local room = goods.room(stock, product.name) >= product.data.yield - 1e-9
+		if assembly.progress > 0 then
+			return assembly.progress < assemblyCycle(product) - 1e-6 or room
+		end
+		if not room then
+			return false
+		end
+		for good, amount in product.data.recipe do
+			if goods.amount(stock, good) < amount - 1e-6 then
+				return false
+			end
+		end
+		return true
+	end
+	-- Производство: заказ начат или его материалы на месте.
 	if data.produces then
 		local producer = ctx:get(e, "Producer")
-		return producer ~= nil and producer.unit ~= "" and not ctx:has(e, "Converting")
+		if not producer or producer.unit == "" or ctx:has(e, "Converting") then
+			return false
+		end
+		return producer.progress > 0 or next(logistics.missing(ctx, e)) == nil
 	end
 	if data.repair then
 		local repair = ctx:get(e, "Repair")
@@ -304,6 +346,11 @@ mechanic.commands = {
 		local owner = ctx:get(e, "Owner")
 		if not kind or not owner or owner.player ~= player or ctx:has(e, "Site") or not ctx:has(e, "Building") or not economy.switchable(kind) then
 			return
+		end
+		-- Новый цех выключен без метки Off: у него свой флаг on, и он главнее.
+		local assembly = ctx:get(e, "Assembly")
+		if assembly and assembly.on ~= args.on then
+			ctx:set(e, "Assembly", { on = args.on })
 		end
 		if args.on == ctx:has(e, "Off") then
 			if args.on then

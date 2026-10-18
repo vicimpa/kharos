@@ -1,12 +1,12 @@
 --!strict
--- Зональные заявки — перенос logistics.ts, общий хосту (ctx) и клиенту (c). Всё, что потребляет груз, само заказывает
--- его у своей зоны: переработка — руду из своих шахт, где бы они ни стояли. Свободные грузовики берут самую важную
--- заявку и везут груз; когда заявок нет, развозят готовое из переработки по хранилищам. Руду без переработки никто не
--- возит: она копится в шахте. Как ездят грузовики — mechanics/hauling.
+-- Зональные заявки — перенос logistics.ts и assembly.ts, общий хосту (ctx) и клиенту (c). Всё, что потребляет груз,
+-- само заказывает его у своей зоны: стройка — материалы на здание, производитель — материалы на первый заказ очереди,
+-- переработка — руду из своих шахт, где бы они ни стояли, цех — сырьё своего рецепта. Свободные грузовики берут самую
+-- важную заявку и везут груз из хранилищ, переработки и цехов зоны; когда заявок нет, развозят готовое по хранилищам.
+-- Руду без переработки никто не возит: она копится в шахте. Как ездят грузовики — mechanics/hauling.
 --
--- Пока нет: материалов стройке и производству, цехов, лабораторий, патронов турелям, станций запроса, продажи, дропов,
--- маршрутов и ручных приказов — их заявки придут с их механиками; трубы ещё не везут груз (В5), поэтому грузовик
--- везёт и внутри сети.
+-- Пока нет: лабораторий, патронов турелям, станций запроса, продажи, дропов, маршрутов и ручных приказов — их заявки
+-- придут с их механиками; трубы ещё не везут груз (В5в), поэтому грузовик везёт и внутри сети.
 
 local goods = require("lib/goods")
 local kinds = require("lib/kinds")
@@ -68,7 +68,7 @@ local function add(map: { [number]: { [string]: number } }, e: number, good: str
 end
 logistics.add = add
 
--- Что сейчас везут грузовики (flowsOf): набравший везёт то, что в кузове; ещё не набравший обещал привезти и забрать
+-- Что сейчас везут грузовики и строители (flowsOf): набравший везёт то, что в кузове; ещё не набравший обещал привезти и забрать
 -- столько, сколько в его работе. except — грузовик, которого не считать.
 function logistics.flows(w, except: number?): Flows
 	local flows: Flows = { incoming = {}, outgoing = {} }
@@ -83,6 +83,18 @@ function logistics.flows(w, except: number?): Flows
 		end
 		if hauler.from ~= NONE and not hauler.full then
 			add(flows.outgoing, hauler.from, hauler.resource, hauler.amount - carried)
+		end
+	end
+	-- Строители, которые сами везут материал на стройку (mechanics/fetching).
+	for _, builder in w:each({ "Fetch", "Inventory" }) do
+		local fetch = w:get(builder, "Fetch")
+		if builder == except then
+			continue
+		end
+		local carried = goods.amount(w:get(builder, "Inventory"), fetch.resource)
+		add(flows.incoming, fetch.to, fetch.resource, if fetch.full then carried else math.max(carried, fetch.amount))
+		if fetch.from ~= NONE and not fetch.full then
+			add(flows.outgoing, fetch.from, fetch.resource, fetch.amount - carried)
 		end
 	end
 	return flows
@@ -131,20 +143,83 @@ function logistics.mineOre(w, mine: number): string?
 	return kind and goods.oreOf(w, kind.name)
 end
 
--- Что здание отдаёт по заявкам (offersOf): хранилище и переработка — готовое, шахта — свою руду.
+-- На сколько сборок цех держит сырьё про запас (STOCKED_CYCLES).
+logistics.STOCKED_CYCLES = 4
+
+-- Сырьё, которое цех сейчас заказывает (inputsOf): у выключенного — никакого, его остатки увозят в хранилища.
+function logistics.inputs(w, e: number): { string }
+	local assembly = w:get(e, "Assembly")
+	local product = assembly and assembly.on and w.protos.goods[assembly.recipe]
+	if not product then
+		return {}
+	end
+	local list = {}
+	for _, kind in goods.list(w) do
+		if product.data.recipe[kind.name] then
+			table.insert(list, kind.name)
+		end
+	end
+	return list
+end
+
+-- Материалы, которых ждёт сущность (materialsFor): стройка — на здание, производитель — на первый заказ, пока тот не
+-- начат. nil — ничего не ждёт.
+function logistics.materials(w, e: number): { [string]: number }?
+	local site = w:get(e, "Site")
+	if site then
+		return if site.demolish then nil else dataOf(w, e).materials
+	end
+	local producer = w:get(e, "Producer")
+	if not producer or producer.unit == "" or producer.progress > 0 then
+		return nil
+	end
+	local unit = w.protos.units[producer.unit]
+	return unit and unit.data.materials
+end
+
+-- Чего из материалов ещё нет на складе (missingFor): пусто — всё на месте.
+function logistics.missing(w, e: number): { [string]: number }
+	local missing = {}
+	for good, amount in logistics.materials(w, e) or {} do
+		local lack = amount - logistics.spare(w, e, good)
+		-- Крошку меньше погрешности не ждут: стройка её прощает (materialShare).
+		if lack > 1e-6 then
+			missing[good] = lack
+		end
+	end
+	return missing
+end
+
+-- Готовое по порядку грузов.
+local function wares(w): { string }
+	local list = {}
+	for _, kind in goods.list(w) do
+		if kind.data.kind ~= "ore" then
+			table.insert(list, kind.name)
+		end
+	end
+	return list
+end
+
+-- Что здание отдаёт по заявкам (offersOf): хранилище и переработка — готовое, цех — всё, кроме сырья своего рецепта,
+-- шахта — свою руду.
 function logistics.offers(w, e: number): { string }
 	if not w:has(e, "Building") or w:has(e, "Site") then
 		return {}
 	end
 	local data = dataOf(w, e)
 	if data.stores or data.refines then
-		local wares = {}
-		for _, kind in goods.list(w) do
-			if kind.data.kind ~= "ore" then
-				table.insert(wares, kind.name)
+		return wares(w)
+	end
+	if data.assembles then
+		local inputs = logistics.inputs(w, e)
+		local list = {}
+		for _, good in wares(w) do
+			if not table.find(inputs, good) then
+				table.insert(list, good)
 			end
 		end
-		return wares
+		return list
 	end
 	if data.extract then
 		local ore = logistics.mineOre(w, e)
@@ -172,7 +247,30 @@ function logistics.networkOf(w, e: number)
 	return found.of[e]
 end
 
-export type Request = { to: number, resource: string, amount: number, priority: number, source: string }
+export type Request = { to: number, resource: string, amount: number, priority: number, source: string, zone: any? }
+
+-- Сеть, которая кормит сущность: та, куда она входит, или чьи круги накрывают её середину; nil — ни одна.
+function logistics.zoneOf(w, player: number, e: number)
+	local own = logistics.networkOf(w, e)
+	if own then
+		return own
+	end
+	local at = w:get(e, "Position")
+	if not at then
+		return nil
+	end
+	for _, network in w:networks() do
+		if network.player == player then
+			local circles = network.circles
+			for i = 1, #circles, 3 do
+				if (at.x - circles[i]) ^ 2 + (at.y - circles[i + 1]) ^ 2 <= circles[i + 2] ^ 2 then
+					return network
+				end
+			end
+		end
+	end
+	return nil
+end
 
 -- Заявки игрока (requestsOf): что, куда и сколько везти, с учётом того, что уже едет; важные — первыми.
 function logistics.requests(w, player: number, flows: Flows): { Request }
@@ -180,8 +278,29 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 	local function need(to: number, good: string, amount: number, priority: number, source: string)
 		local incoming = flows.incoming[to]
 		local left = amount - (if incoming then incoming[good] or 0 else 0)
-		if left >= logistics.MIN_JOB then
-			table.insert(requests, { to = to, resource = good, amount = left, priority = priority, source = source })
+		if left < logistics.MIN_JOB then
+			return
+		end
+		local zone = logistics.zoneOf(w, player, to)
+		if source == "mines" or zone then
+			table.insert(requests, { to = to, resource = good, amount = left, priority = priority, source = source, zone = zone })
+		end
+	end
+	-- Стройки и производство: материалы, которых нет на месте; недостачу — целыми единицами.
+	for _, e in w:each({ "Owner", "Inventory" }) do
+		if w:get(e, "Owner").player ~= player then
+			continue
+		end
+		local site = w:has(e, "Site")
+		if not site and not w:has(e, "Producer") then
+			continue
+		end
+		-- Выключенному производству материалы не везут.
+		if not site and (not logistics.isReady(w, player, e) or w:has(e, "Converting") or w:has(e, "Off")) then
+			continue
+		end
+		for good, amount in logistics.missing(w, e) do
+			need(e, good, math.ceil(amount - 1e-6), if site then logistics.PRIORITY.site else logistics.PRIORITY.production, "zone")
 		end
 	end
 	-- Переработка: своя руда из своих шахт, в какой бы зоне они ни стояли; больше буфера не просит.
@@ -193,6 +312,18 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 		local room = goods.room(w:get(e, "Inventory"), ore)
 		if room > 0 then
 			need(e, ore, room, logistics.PRIORITY.refine, "mines")
+		end
+	end
+	-- Включённые цеха: сырьё рецепта, сколько его держат про запас.
+	for _, e in w:each({ "Assembly", "Inventory", "Owner" }) do
+		local assembly = w:get(e, "Assembly")
+		local product = w.protos.goods[assembly.recipe]
+		if not assembly.on or not product or not logistics.isReady(w, player, e) then
+			continue
+		end
+		local stock = w:get(e, "Inventory")
+		for good, amount in product.data.recipe do
+			need(e, good, amount * logistics.STOCKED_CYCLES - goods.amount(stock, good), logistics.PRIORITY.production, "zone")
 		end
 	end
 	table.sort(requests, function(a, b)
@@ -278,10 +409,24 @@ end
 -- под свою руду.
 function logistics.accepts(w, player: number, to: number, good: string): boolean
 	local stock = w:alive(to) and w:get(to, "Inventory")
-	if not stock or not logistics.isReady(w, player, to) or w:has(to, "Converting") or goods.room(stock, good) <= EPSILON then
+	if not stock or goods.room(stock, good) <= EPSILON then
+		return false
+	end
+	-- Стройка — только свои материалы.
+	if w:has(to, "Site") then
+		local owner = w:get(to, "Owner")
+		return owner ~= nil and owner.player == player and (logistics.materials(w, to) or {})[good] ~= nil
+	end
+	if not logistics.isReady(w, player, to) or w:has(to, "Converting") then
 		return false
 	end
 	if logistics.isStore(w, to) then
+		return true
+	end
+	if (logistics.materials(w, to) or {})[good] then
+		return true
+	end
+	if table.find(logistics.inputs(w, to), good) then
 		return true
 	end
 	return dataOf(w, to).refines == good
@@ -290,6 +435,72 @@ end
 -- Можно ли забирать груз со склада (offersPickup): свой готовый склад, где он есть.
 function logistics.offersPickup(w, player: number, from: number, good: string): boolean
 	return logistics.isReady(w, player, from) and logistics.spare(w, from, good) > EPSILON
+end
+
+-- Дальше этого от стройки строитель за материалом не едет, меньше этого не возит (FETCH_REACH, MIN_FETCH).
+logistics.FETCH_REACH = 40
+logistics.MIN_FETCH = 0.5
+
+-- Где строителю взять материал для стройки (fetchSource): ближайшее к нему своё готовое здание, которое отдаёт
+-- недостающее сверх того, что уже едет, не дальше FETCH_REACH от стройки. nil — брать негде или везти нечего.
+function logistics.fetchSource(w, builder: number, site: number, flows: Flows): { from: number, resource: string, amount: number }?
+	local owner = w:get(builder, "Owner")
+	local cargo = w:get(builder, "Inventory")
+	local at = w:get(builder, "Position")
+	if not owner or not cargo or not at or not w:has(site, "Site") then
+		return nil
+	end
+	local coming = flows.incoming[site] or {}
+	local short = {}
+	local any = false
+	for good, amount in logistics.missing(w, site) do
+		local left = amount - (coming[good] or 0)
+		if left >= logistics.MIN_FETCH then
+			short[good] = left
+			any = true
+		end
+	end
+	if not any then
+		return nil
+	end
+	local to = w:get(site, "Position")
+	local best, bestDistance = nil, math.huge
+	for _, e in w:each({ "Building", "Owner", "Inventory" }) do
+		if e == site or w:has(e, "Site") or w:get(e, "Owner").player ~= owner.player then
+			continue
+		end
+		local there = w:get(e, "Position")
+		if math.sqrt((there.x - to.x) ^ 2 + (there.y - to.y) ^ 2) > logistics.FETCH_REACH then
+			continue
+		end
+		local distance = math.sqrt((there.x - at.x) ^ 2 + (there.y - at.y) ^ 2)
+		if distance >= bestDistance then
+			continue
+		end
+		local offers = logistics.offers(w, e)
+		for _, good in goods.names(w) do
+			local need = short[good]
+			if not need or not table.find(offers, good) then
+				continue
+			end
+			local amount = math.min(need, logistics.available(w, flows, e, good), goods.room(cargo, good))
+			if amount >= logistics.MIN_FETCH then
+				best, bestDistance = { from = e, resource = good, amount = amount }, distance
+				break
+			end
+		end
+	end
+	return best
+end
+
+-- Может ли юнит возить материалы: ремонтник с кузовом и лучом (canFetch).
+function logistics.canFetch(w, e: number): boolean
+	return w:has(e, "Repair") and w:has(e, "Inventory") and w:has(e, "Beam") and w:has(e, "Unit")
+end
+
+-- Будет ли строитель возить материал на свою стройку, а не искать другую работу (willFetch).
+function logistics.willFetch(w, builder: number, site: number): boolean
+	return logistics.canFetch(w, builder) and logistics.fetchSource(w, builder, site, logistics.flows(w)) ~= nil
 end
 
 -- Запас каждого готового груза в хранилищах игрока и сколько они вмещают (stockOf): для полосы.

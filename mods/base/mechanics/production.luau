@@ -5,6 +5,8 @@
 
 local wallet = require("lib/wallet")
 local economy = require("lib/economy")
+local goods = require("lib/goods")
+local logistics = require("lib/logistics")
 
 local readf64, writef64 = buffer.readf64, buffer.writef64
 
@@ -98,6 +100,16 @@ production.commands = {
 		elseif state.unit ~= "" then
 			unit = state.unit
 			ctx:set(args.building, "Producer", { unit = "", progress = 0 })
+			-- Начатый заказ уже забрал материалы: они возвращаются на склад производителя.
+			local stock = ctx:get(args.building, "Inventory")
+			local materials = ctx.protos.units[unit].data.materials
+			if state.progress > 0 and stock and materials then
+				for good, amount in materials do
+					goods.put(stock, good, amount)
+				end
+				ctx:set(args.building, "Producer", { unit = "", progress = 0 })
+				ctx:set(args.building, "Inventory", { items = stock.items })
+			end
 		end
 		if unit then
 			wallet.refund(ctx, player, ctx.protos.units[unit].data.cost)
@@ -140,6 +152,19 @@ production.systems = {
 				local unit = ctx.protos.units[ctx:text(current)]
 				-- Потребитель энергии при её нехватке работает на долю, вне сети и выключенный — стоит (speedOf).
 				local progress = readf64(p.progress, at)
+				if progress <= 0 and unit.data.materials then
+					-- Заказ начинается, когда его материалы на месте, и сразу их тратит.
+					local stock = ctx:get(e, "Inventory")
+					if not stock or next(logistics.missing(ctx, e)) ~= nil then
+						continue
+					end
+					for good, amount in unit.data.materials do
+						goods.take(stock, good, amount)
+					end
+					ctx:set(e, "Inventory", { items = stock.items })
+					-- Материалы потрачены — заказ начат, даже если энергии сейчас нет.
+					progress = 1e-9
+				end
 				if progress < unit.data.buildTime then
 					progress = math.min(unit.data.buildTime, progress + ctx.dt * economy.shareOf(ctx, e))
 				end

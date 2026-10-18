@@ -594,6 +594,10 @@ fn raise(host: &mut Host, building: &str, (x, y): (i32, i32), builder: u32) -> u
   host.send(1, "build", json!({ "building": building, "x": x, "y": y, "builders": [builder] }));
   host.tick(0.05).unwrap();
   let entity = *kind(host, "buildings", building).iter().max().unwrap();
+  // Материалы — как уже привезённые: их подвоз проверяют свои тесты.
+  if let Some(stock) = get(host, entity, "Inventory") {
+    set(host, entity, "Inventory", json!({ "items": stock["limits"] }));
+  }
   for _ in 0..20 * 90 {
     host.tick(0.05).unwrap();
     if get(host, entity, "Site").is_none() {
@@ -771,4 +775,59 @@ fn mine_ore_goes_by_truck_to_the_smelter_and_metal_to_the_yard() {
   host.send(1, "haul", json!({ "mine": mine, "units": [truck] }));
   host.tick(0.05).unwrap();
   assert_eq!(get(&host, truck, "Hauler").unwrap()["mine"].as_f64(), Some(mine as f64));
+}
+
+#[test]
+fn builder_fetches_materials_and_plant_assembles_blocks_from_delivered_goods() {
+  let mut host = host_without_tech();
+  let (core, site, builder) = base_with_builder(&mut host);
+  let generator = {
+    let spot = free_spot(&host, site, 2);
+    raise(&mut host, "generator", spot, builder)
+  };
+  assert!(get(&host, generator, "Footprint").is_some());
+  // Хранилище с литием, металлом и кремнием: пусть принимает любое — так проще дать ему груз.
+  let yard = {
+    let spot = free_spot(&host, site, 3);
+    raise(&mut host, "metalYard", spot, builder)
+  };
+  set(&host, yard, "Inventory", json!({ "accepts": [], "items": { "lithium": 30, "metal": 40, "silicon": 20 } }));
+  // Накопитель ждёт 20 лития: строитель сам возит его со склада, по 10 за раз.
+  ticks(&mut host, 2);
+  let spot = free_spot(&host, site, 2);
+  host.send(1, "build", json!({ "building": "accumulator", "x": spot.0, "y": spot.1, "builders": [builder] }));
+  host.tick(0.05).unwrap();
+  let accumulator = kind(&host, "buildings", "accumulator")[0];
+  let mut fetched = false;
+  for _ in 0..20 * 120 {
+    host.tick(0.05).unwrap();
+    fetched |= get(&host, builder, "Fetch").is_some();
+    if get(&host, accumulator, "Site").is_none() {
+      break;
+    }
+  }
+  assert!(fetched, "строитель не возил материал");
+  assert!(get(&host, accumulator, "Site").is_none(), "накопитель не достроен: {:?}", get(&host, accumulator, "Inventory"));
+  assert!(stocked(&host, yard, "lithium") <= 10.0 + 1e-6);
+  // Склад готового накопителя — свой: материалы ушли в здание.
+  assert!(get(&host, accumulator, "Inventory").is_none());
+
+  // Цех стройблоков: включили — грузовик везёт сырьё, цех собирает, блоки уезжают в хранилище.
+  let plant = {
+    let spot = free_spot(&host, site, 2);
+    raise(&mut host, "blockPlant", spot, builder)
+  };
+  assert_eq!(get(&host, plant, "Assembly").unwrap()["on"], json!(false));
+  host.send(1, "produce", json!({ "building": core, "unit": "truck" }));
+  host.send(1, "work", json!({ "building": plant, "on": true }));
+  let mut assembled = false;
+  for _ in 0..20 * 180 {
+    host.tick(0.05).unwrap();
+    if stocked(&host, yard, "blocks") >= 1.0 {
+      assembled = true;
+      break;
+    }
+  }
+  assert!(assembled, "блоки не доехали: цех {:?} {:?}", get(&host, plant, "Inventory"), get(&host, plant, "Assembly"));
+  assert!(stocked(&host, yard, "metal") < 40.0);
 }

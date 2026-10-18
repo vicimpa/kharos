@@ -292,6 +292,9 @@ local function constructionSlots(c, list, selection)
 			label = kind.data.title or kind.name,
 			picture = kind,
 			cost = kind.data.cost,
+			materials = kind.data.materials,
+			c = c,
+			stock = (logistics.stockOf(c, c.player)),
 			power = if power ~= 0 then power else nil,
 			idle = if idle ~= power then idle else nil,
 			short = not affordable,
@@ -369,6 +372,9 @@ local function slots(c, selection)
 					label = unit.data.title or name,
 					picture = unit,
 					cost = unit.data.cost,
+					materials = unit.data.materials,
+					c = c,
+					stock = (logistics.stockOf(c, c.player)),
 					short = money < unit.data.cost,
 					about = unit.data.about,
 					unit = unit,
@@ -402,10 +408,24 @@ local function slots(c, selection)
 	local switchable, on = {}, false
 	for _, e in selection do
 		local kind = kinds.of(c, e)
-		if c:mine(e) and c:has(e, "Building") and not c:has(e, "Site") and kind and economy.switchable(kind) then
+		if c:mine(e) and c:has(e, "Building") and not c:has(e, "Site") and not c:has(e, "Assembly") and kind and economy.switchable(kind) then
 			table.insert(switchable, e)
 			on = on or not c:has(e, "Off")
 		end
+	end
+	-- Свой цех — включить или выключить, в первой ячейке со значком изделия.
+	local plant = #selection == 1 and c:mine(selection[1]) and not c:has(selection[1], "Site") and c:get(selection[1], "Assembly")
+	if plant then
+		local e = selection[1]
+		list[1] = {
+			label = if plant.on then "Выключить" else "Включить",
+			picture = c.protos.goods[plant.recipe],
+			lamp = plant.on,
+			title = if plant.on then "Завод встанет и перестанет брать энергию; начатая сборка подождёт включения, сырьё увезут в хранилища" else "Завод начнёт заказывать сырьё у зоны и собирать до нормы",
+			run = function()
+				c:send("work", { building = e, on = not plant.on })
+			end,
+		}
 	end
 	if #switchable > 0 and page.name == "root" and not list[SWITCH] then
 		list[SWITCH] = {
@@ -474,6 +494,24 @@ local function card(ui, slot, hotkey: string)
 					end
 				end
 			end)
+		end
+		-- Материалы: значок, название и сколько нужно; не хватает в хранилищах — сколько есть из нужного.
+		if slot.materials then
+			for _, name in goods.names(slot.c) do
+				local amount = slot.materials[name]
+				local kind = slot.c.protos.goods[name]
+				if amount and kind then
+					local stored = math.floor(slot.stock[name] or 0)
+					local short = stored < amount
+					ui:box({ direction = "row", align = "center", gap = 6 }, function()
+						ui:image(kind, 16, 16)
+						ui:box({ grow = 1 }, function()
+							ui:text(kind.data.title, { ellipsis = true })
+						end)
+						ui:text(if short then stored .. "/" .. amount else tostring(amount), { color = if short then COLORS.warn else COLORS.text })
+					end)
+				end
+			end
 		end
 	end)
 end
@@ -646,7 +684,7 @@ local function info(c, selection, width: number, height: number)
 			for _, e in selection do
 				if c:has(e, "Building") and not c:has(e, "Site") then
 					starved = starved or economy.states(c)[e] == "starved"
-					off = off or economy.shutDown(c, c.player, e)
+					off = off or (economy.shutDown(c, c.player, e) and not c:has(e, "Assembly"))
 				end
 			end
 			if starved then
@@ -654,7 +692,7 @@ local function info(c, selection, width: number, height: number)
 			end
 			local switchedOn = false
 			for _, e in selection do
-				if c:mine(e) and c:has(e, "Building") and not c:has(e, "Site") and not c:has(e, "Off") and economy.switchable(kinds.of(c, e)) then
+				if c:mine(e) and c:has(e, "Building") and not c:has(e, "Site") and not c:has(e, "Off") and not c:has(e, "Assembly") and economy.switchable(kinds.of(c, e)) then
 					switchedOn = true
 				end
 			end
@@ -709,6 +747,61 @@ local function info(c, selection, width: number, height: number)
 						goodWith(c, ore.name, nil, 20)
 						ui:text(ore.data.title .. ": " .. (if left > 0 then "осталось " .. math.floor(left) else "месторождение выработано"), { color = COLORS.soft })
 					end)
+				end
+			end
+			-- Материалы стройки и первого заказа: сколько есть из нужного; ждут — подвоз.
+			local materials = not many and c:mine(first) and logistics.materials(c, first)
+			if materials then
+				local have = c:get(first, "Inventory")
+				local waiting = if site then construction.awaitsMaterials(c, first) else next(logistics.missing(c, first)) ~= nil
+				ui:box({ direction = "row", align = "center", gap = 6, width = text }, function()
+					ui:text("Материалы:", { color = if waiting then COLORS.warn else COLORS.soft })
+					for _, name in goods.names(c) do
+						if materials[name] then
+							goodWith(c, name, if have then goods.amount(have, name) else 0, 20, materials[name])
+						end
+					end
+				end)
+				if waiting then
+					ui:text("Ждёт подвоза: по трубам, грузовиком или своим строителем со склада", { color = COLORS.warn, wrap = text })
+				end
+			end
+			-- Цех: рецепт, сколько изделия у зоны и что он делает.
+			local assembly = built and c:mine(first) and c:get(first, "Assembly")
+			local product = assembly and c.protos.goods[assembly.recipe]
+			if assembly and product then
+				local seconds = 0
+				ui:box({ direction = "row", align = "center", gap = 6, width = text }, function()
+					for _, name in goods.names(c) do
+						local amount = product.data.recipe[name]
+						if amount then
+							goodWith(c, name, amount, 20)
+							seconds += amount
+						end
+					end
+					ui:text("→")
+					goodWith(c, product.name, product.data.yield, 20)
+					ui:text("за " .. seconds .. " с", { color = COLORS.dim })
+				end)
+				local zoneStock = 0
+				local network = logistics.networkOf(c, first)
+				for _, member in (if network then network.members else { first }) do
+					local held = c:get(member, "Inventory")
+					if held and (logistics.isStore(c, member) or c:has(member, "Assembly")) then
+						zoneStock += goods.amount(held, product.name)
+					end
+				end
+				for _, truck in c:each({ "Hauler", "Inventory", "Owner" }) do
+					if c:mine(truck) then
+						zoneStock += goods.amount(c:get(truck, "Inventory"), product.name)
+					end
+				end
+				local held = c:get(first, "Inventory")
+				local full = held and goods.room(held, product.name) < product.data.yield
+				local phase = if not assembly.on then (if assembly.progress > 0 then "выключен, доделывает сборку" else "выключен") elseif assembly.progress > 0 then "собирает" elseif full then "хранилища полны, ждёт" else "ждёт сырья"
+				widgets.bar(ui, assembly.progress / math.max(seconds, 1e-9), product.data.title .. " в зоне: " .. math.floor(zoneStock) .. " — " .. phase, text)
+				if not assembly.on then
+					ui:text("Завод выключен: включи его в сетке справа", { color = COLORS.warn, wrap = text })
 				end
 			end
 			local cell = built and c:get(first, "Accumulator")

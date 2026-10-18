@@ -174,6 +174,54 @@ function construction.canBuild(w, player: number, kind, x: number, y: number): b
 	return not construction.outOfControl(w, player, kind, x, y, all)
 end
 
+-- Недостача материалов меньше этого считается погрешностью (MATERIAL_EPSILON).
+construction.MATERIAL_EPSILON = 1e-6
+
+-- Какую долю стройки позволяют привезённые материалы, от 0 до 1 (materialShare): дальше привезённого не строят.
+-- Здание без материалов строится целиком; крошечная недостача считается привезённой.
+function construction.materialShare(w, e: number): number
+	local site = w:get(e, "Site")
+	local kind = site and kinds.of(w, e)
+	local materials = kind and kind.data.materials
+	local stock = w:get(e, "Inventory")
+	if not materials or not stock then
+		return 1
+	end
+	local share = 1
+	for good, amount in materials do
+		local have = stock.items[good] or 0
+		if have < amount - construction.MATERIAL_EPSILON then
+			share = math.min(share, have / amount)
+		end
+	end
+	return share
+end
+
+-- Стройка дошла до того, что позволяют привезённые материалы, и ждёт подвоза (awaitsMaterials).
+function construction.awaitsMaterials(w, e: number): boolean
+	local site = w:get(e, "Site")
+	if not site or site.demolish then
+		return false
+	end
+	local share = construction.materialShare(w, e)
+	return share < 1 and site.progress >= site.total * share - 1e-9
+end
+
+-- Склад площадки под материалы (orderBuild): ровно столько, сколько их нужно.
+function construction.siteStock(kind)
+	local materials = kind.data.materials
+	if not materials then
+		return nil
+	end
+	local accepts, total = {}, 0
+	for good, amount in materials do
+		table.insert(accepts, good)
+		total += amount
+	end
+	table.sort(accepts)
+	return { items = {}, capacity = total, accepts = accepts, limits = table.clone(materials), reserve = 0 }
+end
+
 -- Левый верхний тайл основания сущности.
 function construction.corner(w, e: number): (number, number)
 	local at = w:get(e, "Position")
