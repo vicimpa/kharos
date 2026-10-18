@@ -13,6 +13,7 @@ mod input;
 mod render;
 mod saves;
 mod script;
+mod store;
 #[cfg(not(target_arch = "wasm32"))]
 mod shell;
 #[cfg(target_arch = "wasm32")]

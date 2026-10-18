@@ -1,14 +1,10 @@
 //! Сохранения одиночной игры — как `game/storage.ts` у TS: несколько слотов, у каждого своё место. Список с
 //! названиями и временем лежит отдельно от самих миров (`saves/index.json`), чтобы меню не разбирало миры целиком;
-//! мир слота — `saves/<id>.json`, снимок хоста (`Host::snapshot`) с камерой.
+//! мир слота — `saves/<id>.json`, снимок хоста (`Host::snapshot`) с камерой. Где лежат — store.rs (файлы на нативе,
+//! `localStorage` в браузере).
 
+use crate::store;
 use serde_json::{json, Map, Value as Json};
-use std::path::PathBuf;
-
-/// Папка настроек и сохранений: `KHAROS_CONFIG`, иначе `~/.config/kharos` (Windows — `%APPDATA%\Kharos`).
-pub fn config_dir() -> Option<PathBuf> {
-  std::env::var_os("KHAROS_CONFIG").map(PathBuf::from).or_else(|| if cfg!(windows) { std::env::var_os("APPDATA").map(|dir| PathBuf::from(dir).join("Kharos")) } else { std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config").join("kharos")) })
-}
 
 /// Миллисекунды эпохи.
 pub fn now() -> f64 {
@@ -17,19 +13,17 @@ pub fn now() -> f64 {
 
 /// Слоты: список — объекты JSON `{ id, name, created, updated, tick, game, options, camera? }`.
 pub struct Saves {
-  dir: Option<PathBuf>,
   index: Vec<Map<String, Json>>,
 }
 
 impl Saves {
   pub fn load() -> Self {
-    let dir = config_dir().map(|dir| dir.join("saves"));
-    let index = dir.as_ref().and_then(|dir| std::fs::read_to_string(dir.join("index.json")).ok()).and_then(|text| serde_json::from_str::<Vec<Json>>(&text).ok()).unwrap_or_default();
+    let index = store::read("saves/index.json").and_then(|text| serde_json::from_str::<Vec<Json>>(&text).ok()).unwrap_or_default();
     let index = index.into_iter().filter_map(|slot| match slot {
       Json::Object(map) if map.get("id").is_some_and(Json::is_string) => Some(map),
       _ => None,
     });
-    Self { dir, index: index.collect() }
+    Self { index: index.collect() }
   }
 
   /// Слоты, свежие первыми.
@@ -50,7 +44,7 @@ impl Saves {
   /// Новый слот: мира ещё нет, он заведётся по партии и настройкам.
   pub fn create(&mut self, name: &str, game: &str, options: Json) -> String {
     let time = now();
-    let id = format!("{:x}", (time as u64) ^ (std::process::id() as u64) << 40);
+    let id = format!("{:x}", (time as u64) ^ ((self.index.len() as u64 + 1) << 44));
     let slot = json!({ "id": id, "name": name, "created": time, "updated": time, "tick": 0, "game": game, "options": options });
     if let Json::Object(map) = slot {
       self.index.push(map);
@@ -68,16 +62,13 @@ impl Saves {
 
   pub fn remove(&mut self, id: &str) {
     self.index.retain(|slot| slot.get("id").and_then(Json::as_str) != Some(id));
-    if let Some(dir) = &self.dir {
-      let _ = std::fs::remove_file(dir.join(format!("{id}.json")));
-    }
+    store::remove(&format!("saves/{id}.json"));
     self.write_index();
   }
 
   /// Мир слота; None — ещё не сохранён.
   pub fn world(&self, id: &str) -> Option<Json> {
-    let path = self.dir.as_ref()?.join(format!("{id}.json"));
-    serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
+    serde_json::from_str(&store::read(&format!("saves/{id}.json"))?).ok()
   }
 
   /// Пишет мир слота и отмечает время и тик в списке.
@@ -87,25 +78,15 @@ impl Saves {
       slot.insert("tick".into(), Json::from(tick));
       slot.insert("camera".into(), camera);
     }
-    if let Some(dir) = &self.dir {
-      let _ = std::fs::create_dir_all(dir);
-      // Сначала во временный файл: оборванная запись не испортит прежнее сохранение.
-      let path = dir.join(format!("{id}.json"));
-      let temporary = dir.join(format!("{id}.json.part"));
-      match std::fs::write(&temporary, serde_json::to_vec(world).unwrap_or_default()).and_then(|_| std::fs::rename(&temporary, &path)) {
-        Ok(()) => {}
-        Err(error) => eprintln!("{}: {error}", path.display()),
-      }
+    if let Err(error) = store::write(&format!("saves/{id}.json"), &serde_json::to_string(world).unwrap_or_default()) {
+      eprintln!("сохранение: {error}");
     }
     self.write_index();
   }
 
   fn write_index(&self) {
-    let Some(dir) = &self.dir else { return };
-    let _ = std::fs::create_dir_all(dir);
-    let path = dir.join("index.json");
-    if let Err(error) = std::fs::write(&path, serde_json::to_string_pretty(&self.index).unwrap_or_default()) {
-      eprintln!("{}: {error}", path.display());
+    if let Err(error) = store::write("saves/index.json", &serde_json::to_string_pretty(&self.index).unwrap_or_default()) {
+      eprintln!("список сохранений: {error}");
     }
   }
 }

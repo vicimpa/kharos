@@ -303,21 +303,20 @@ pub struct AppState {
   pub slot: Option<String>,
 }
 
-/// Настройки игрока: объект JSON в файле. На десктопе — `~/.config/kharos/client.json` (Windows — `%APPDATA%\Kharos`).
+/// Настройки игрока: объект JSON под ключом `client.json` (store.rs): на десктопе — `~/.config/kharos/client.json`
+/// (Windows — `%APPDATA%\Kharos`), в браузере — `localStorage`.
 #[derive(Default)]
 pub struct Prefs {
   values: serde_json::Map<String, Json>,
-  path: Option<std::path::PathBuf>,
 }
 
 impl Prefs {
   pub fn load() -> Self {
-    let path = crate::saves::config_dir().map(|dir| dir.join("client.json"));
-    let values = path.as_ref().and_then(|path| std::fs::read_to_string(path).ok()).and_then(|text| serde_json::from_str::<Json>(&text).ok()).and_then(|value| match value {
+    let values = crate::store::read("client.json").and_then(|text| serde_json::from_str::<Json>(&text).ok()).and_then(|value| match value {
       Json::Object(map) => Some(map),
       _ => None,
     });
-    Self { values: values.unwrap_or_default(), path }
+    Self { values: values.unwrap_or_default() }
   }
 
   pub fn get(&self, key: &str) -> Option<&Json> {
@@ -331,13 +330,8 @@ impl Prefs {
     } else {
       self.values.insert(key.to_string(), value);
     }
-    let Some(path) = &self.path else { return };
-    if let Some(dir) = path.parent() {
-      let _ = std::fs::create_dir_all(dir);
-    }
-    let text = serde_json::to_string_pretty(&self.values).unwrap_or_default();
-    if let Err(error) = std::fs::write(path, text) {
-      eprintln!("{}: {error}", path.display());
+    if let Err(error) = crate::store::write("client.json", &serde_json::to_string_pretty(&self.values).unwrap_or_default()) {
+      eprintln!("настройки: {error}");
     }
   }
 }
