@@ -131,6 +131,12 @@ impl App {
     if let Some((pixels, size)) = game.atlas.take() {
       renderer.load_atlas(&pixels, size);
     }
+    Self::upload_land(renderer, &mut game);
+    Ok(game)
+  }
+
+  /// Земля и мини-карта партии — в рендер.
+  fn upload_land(renderer: &mut Renderer, game: &mut Game) {
     if let Some((pixels, size)) = game.minimap.take() {
       renderer.load_minimap(&pixels, size);
     }
@@ -138,7 +144,6 @@ impl App {
       Some(land) => renderer.set_land(land),
       None => renderer.clear_land(),
     }
-    Ok(game)
   }
 
   pub fn frame(&mut self, input: &Input, size: [u32; 2]) -> Result<(), String> {
@@ -170,6 +175,11 @@ impl App {
         self.save();
         self.game = Self::launch(&mut self.renderer, &self.mods, Some(&game), &options, slot, self.sound.clone(), self.link.clone())?;
         self.saved_at = input.time;
+      }
+      Some(AppRequest::Reset { options }) => {
+        self.game.reset(self.mods.clone(), &options, 1)?;
+        self.link.borrow_mut().options = options;
+        Self::upload_land(&mut self.renderer, &mut self.game);
       }
       Some(AppRequest::Quit) => {
         self.save();

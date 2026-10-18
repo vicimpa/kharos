@@ -261,6 +261,8 @@ pub struct Ctx {
 pub enum AppRequest {
   /// Начать партию games/<game> с настройками (ложатся в её data); slot — слот сохранений, куда она пишется.
   Start { game: String, options: Json, slot: Option<String> },
+  /// Новый мир идущей партии с настройками — без перезагрузки панелей (витрина меню).
+  Reset { options: Json },
   /// Закрыть игру.
   Quit,
 }
@@ -344,6 +346,12 @@ impl UserData for AppApi {
     methods.add_method("start", |lua, app, (game, options): (String, Option<Value>)| {
       let options: Json = lua.from_value(options.unwrap_or(Value::Nil))?;
       app.0.borrow_mut().request = Some(AppRequest::Start { game, options: if options.is_null() { Json::Object(Default::default()) } else { options }, slot: None });
+      Ok(())
+    });
+    // c.app:reset({ seed, weather, scene… }) — новый мир этой же партии; панели, их память и звук остаются.
+    methods.add_method("reset", |lua, app, options: Option<Value>| {
+      let options: Json = lua.from_value(options.unwrap_or(Value::Nil))?;
+      app.0.borrow_mut().request = Some(AppRequest::Reset { options: if options.is_null() { Json::Object(Default::default()) } else { options } });
       Ok(())
     });
     // В главное меню — партию меню.

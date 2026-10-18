@@ -81,6 +81,35 @@ fn error(what: impl std::fmt::Display) -> impl FnOnce(mlua::Error) -> String {
   move |error| format!("{what}: {error}")
 }
 
+/// Земля партии и её мини-карта: генератор из вида `lands/` (data.land), карта — data.size тайлов от центра. Своя
+/// копия генератора уходит в состояние клиента — для скриптов (c:terrain).
+#[allow(clippy::type_complexity)]
+fn land_of(client: &Content, game_table: &Table, state: &Rc<RefCell<ClientState>>) -> Result<(Option<Land>, Option<(Vec<u8>, [usize; 2])>), String> {
+  let data = game_table.get::<Option<Table>>("data").map_err(error("data партии"))?;
+  let Some(name) = data.as_ref().and_then(|data| data.get::<Option<String>>("land").ok().flatten()) else {
+    state.borrow_mut().land = None;
+    return Ok((None, None));
+  };
+  let kind = named(client, "lands", &name)?;
+  let config: GeneratorConfig = kharos_world::land_config(client, data.as_ref().expect("data"))?.expect("местность");
+  let size = data.as_ref().and_then(|data| data.get::<Option<i32>>("size").ok().flatten()).unwrap_or(64);
+  let mut land = Land::new(config, LandArea::of(-size, -size, size, size));
+  // Мини-карта: тайл — пиксель цветом своей местности и биома (палитра — minimap вида, как PALETTE в minimap.ts).
+  let palette: Vec<Vec<Vec<u8>>> = kind.get::<Option<Vec<Vec<Vec<u8>>>>>("minimap").map_err(error(format!("lands/{name}.minimap")))?.unwrap_or_default();
+  let side = (size * 2) as usize;
+  let mut pixels = vec![0u8; side * side * 4];
+  for y in 0..side {
+    for x in 0..side {
+      let tile = land.tile(x as i32 - size, y as i32 - size);
+      let (terrain, biome) = (tile[0] as usize & 3, (tile[1] >> 6) as usize);
+      let color = palette.get(biome).and_then(|row| row.get(terrain)).cloned().unwrap_or(vec![128, 128, 128]);
+      pixels[(y * side + x) * 4..(y * side + x) * 4 + 4].copy_from_slice(&[color[0], color[1], color[2], 255]);
+    }
+  }
+  state.borrow_mut().land = Some(RefCell::new(Land::new(land.config.clone(), land.area)));
+  Ok((Some(land), Some((pixels, [side, side]))))
+}
+
 /// Вид раздела по имени из настроек партии.
 fn named(content: &Content, section: &str, name: &str) -> Result<Table, String> {
   content.get(section, name).ok_or_else(|| format!("партия просит {section}/{name}, а его нет"))
@@ -219,38 +248,40 @@ impl Game {
     }
     teams[3] = teams[0];
     let palette: Vec<f32> = teams.iter().flat_map(|team| team.iter().flat_map(|&value| rgb(value))).collect();
+    let pending = host.signals();
 
-    // Земля: генератор из вида `lands/` партии (data.land), карта — data.size тайлов от центра.
-    let data = game_table.get::<Option<Table>>("data").map_err(error("data партии"))?;
-    let land_name = data.as_ref().and_then(|data| data.get::<Option<String>>("land").ok().flatten());
-    let mut minimap = None;
-    let land = match land_name {
-      Some(name) => {
-        let kind = named(&client, "lands", &name)?;
-        let config: GeneratorConfig = kharos_world::land_config(&client, data.as_ref().expect("data"))?.expect("местность");
-        let size = data.as_ref().and_then(|data| data.get::<Option<i32>>("size").ok().flatten()).unwrap_or(64);
-        let mut land = Land::new(config, LandArea::of(-size, -size, size, size));
-        // Мини-карта: тайл — пиксель цветом своей местности и биома (палитра — minimap вида, как PALETTE в minimap.ts).
-        let palette: Vec<Vec<Vec<u8>>> = kind.get::<Option<Vec<Vec<Vec<u8>>>>>("minimap").map_err(error(format!("lands/{name}.minimap")))?.unwrap_or_default();
-        let side = (size * 2) as usize;
-        let mut pixels = vec![0u8; side * side * 4];
-        for y in 0..side {
-          for x in 0..side {
-            let tile = land.tile(x as i32 - size, y as i32 - size);
-            let (terrain, biome) = (tile[0] as usize & 3, (tile[1] >> 6) as usize);
-            let color = palette.get(biome).and_then(|row| row.get(terrain)).cloned().unwrap_or(vec![128, 128, 128]);
-            pixels[(y * side + x) * 4..(y * side + x) * 4 + 4].copy_from_slice(&[color[0], color[1], color[2], 255]);
-          }
-        }
-        minimap = Some((pixels, [side, side]));
-        // Своя копия генератора — для скриптов (c:terrain): что под камерой, где пройти.
-        state.borrow_mut().land = Some(RefCell::new(Land::new(land.config.clone(), land.area)));
-        Some(land)
-      }
-      None => None,
-    };
+    let (land, minimap) = land_of(&client, &game_table, &state)?;
 
-    Ok(Self { host, client, state, ctx, ctx_data, camera, panels, controls, atmosphere, effects, sounds, music, signals, looks, look_of, atlas: Some(atlas), land, minimap, audio, walked: HashMap::new(), drift: [0.0; 2], fog_seen: None, bar: 0, next_bar: 0.0, accumulator: 0.0, last: None, pending: Vec::new(), palette })
+    Ok(Self { host, client, state, ctx, ctx_data, camera, panels, controls, atmosphere, effects, sounds, music, signals, looks, look_of, atlas: Some(atlas), land, minimap, audio, walked: HashMap::new(), drift: [0.0; 2], fog_seen: None, bar: 0, next_bar: 0.0, accumulator: 0.0, last: None, pending, palette })
+  }
+
+  /// Новый мир той же партии с новыми настройками (`c.app:reset`): хост — заново, а клиентская машина, её панели и
+  /// звук остаются. Так витрина меню меняет сценку под окнами меню, не трогая их.
+  pub fn reset(&mut self, mods: Vec<Mod>, options: &serde_json::Value, player: u32) -> Result<(), String> {
+    let seed = options.get("seed").and_then(serde_json::Value::as_f64).map_or(1, |seed| seed as u64);
+    let game = self.host.game.clone();
+    let mut host = Host::new(mods, Some(&game), seed, options)?;
+    host.start()?;
+    host.join(player)?;
+    self.host = host;
+    self.client.apply_options(&game, options)?;
+    {
+      let mut state = self.state.borrow_mut();
+      state.world = self.host.state.clone();
+      state.prev.clear();
+      state.decals.clear();
+      state.particles.clear();
+    }
+    let game_table = named(&self.client, "games", &game)?;
+    let (land, minimap) = land_of(&self.client, &game_table, &self.state)?;
+    self.land = land;
+    self.minimap = minimap;
+    self.walked.clear();
+    self.fog_seen = None;
+    // Сигналы старта (сценка не встала и т. п.) — до первого тика: он их стирает.
+    self.pending = self.host.signals();
+    self.accumulator = 0.0;
+    Ok(())
   }
 
   /// Кадр: тики, подача, звук. Возвращает, что рисовать.
