@@ -71,6 +71,14 @@ function rts.start(cam, c)
 	cam.zoom = rts.data.start
 	target, drag, placed = nil, nil, nil
 	halt()
+	-- Камера, которую игроку задал редактор (Player.camera), — главнее.
+	for _, e in c:each({ "Player" }) do
+		local state = c:get(e, "Player")
+		if state.id == c.player and type(state.camera) == "table" and #state.camera == 3 then
+			cam.x, cam.y, cam.zoom = state.camera[1], state.camera[2], state.camera[3]
+			return
+		end
+	end
 	-- Камера — к своим: первый свой юнит, MCV стартового набора (game.ts).
 	for _, e in c:each({ "Unit", "Owner" }) do
 		if c:mine(e) then

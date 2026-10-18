@@ -288,6 +288,8 @@ local function newGameWindow(c)
 		end
 	end
 	local start = false
+	-- В редактор — мир без игроков (newWorldWindow в menu.ts: «В редактор»).
+	local edit = false
 	local back = form.window(ui, {
 		id = "menu:new",
 		title = "Новая игра",
@@ -295,6 +297,9 @@ local function newGameWindow(c)
 		anchor = place(ui),
 		back = "Назад",
 		actions = function()
+			if form.button(ui, "menu:new:edit", "В редактор", { tip = "Править карту, базы, юнитов, деньги и склады до начала игры" }) then
+				start, edit = true, true
+			end
 			if form.button(ui, "menu:new:start", "Начать", { primary = true }) then
 				start = true
 			end
@@ -412,7 +417,9 @@ local function newGameWindow(c)
 			generator = generatorChanges(c, game.generator),
 			weather = game.weather,
 		})
-		if slot then
+		if slot and edit then
+			c.app:edit(slot)
+		elseif slot then
 			c.app:play(slot)
 		end
 	end
@@ -443,6 +450,10 @@ local function saveRow(c, slot, width: number)
 		ui:box({ direction = "row", gap = 6, wrap = true }, function()
 			if form.button(ui, id .. ":play", "Играть", { primary = true }) then
 				c.app:play(slot.id)
+			end
+			-- Редактор — когда у слота есть мир: в него уже играли или его сохранил редактор.
+			if form.button(ui, id .. ":editor", "Редактор", { disabled = slot.updated == slot.created, tip = "Править мир: карту, базы, юнитов, деньги и склады" }) and slot.updated ~= slot.created then
+				c.app:edit(slot.id)
 			end
 			if form.button(ui, id .. ":rename", "Имя") then
 				renaming = { id = slot.id, name = slot.name }

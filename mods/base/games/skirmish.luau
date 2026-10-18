@@ -82,4 +82,15 @@ skirmish.client = {
 	audio = { "levels", "interface", "motors", "machines", "world", "battle", "ambience", "flight" },
 }
 
+-- Редактор этой партии (gui/screens/editor.ts): мир стоит, вместо нижней панели — панель редактора справа, мышь —
+-- инструменты редактора; тумана нет.
+skirmish.editor = {
+	camera = "rts",
+	controls = { "editor" },
+	ui = { "editor" },
+	atmosphere = { "weather" },
+	effects = { "traces", "paving", "drops", "construction", "power", "logistics", "connections", "flow", "combat", "conversion", "silos" },
+	audio = { "levels", "interface" },
+}
+
 return skirmish
