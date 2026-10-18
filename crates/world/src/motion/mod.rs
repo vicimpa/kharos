@@ -35,6 +35,8 @@ const LONG_SEARCH: f64 = 4.0;
 const LONG_POCKET: usize = 1000;
 /// На сколько колец от цели, в которую не встать, ищется тайл, куда встать можно.
 const STAND_RADIUS: i32 = 8;
+/// На сколько тайлов вокруг основания стоящие юниты не мешают выселенному выйти (`EVICT_MARGIN`).
+const EVICT_MARGIN: f64 = 2.0;
 /// Номер солончаков в биоме тайла.
 const SALT_FLATS: u8 = 1;
 
@@ -458,6 +460,21 @@ fn standing_units(world: &World, cols: &Cols, ignore: &HashSet<Entity>, radius: 
   tiles
 }
 
+/// Наземные юниты (`Mover` не летающего рода), чей центр в прямоугольнике тайлов (`unitsIn`).
+fn units_in(world: &World, cols: &Cols, x: f64, y: f64, width: f64, height: f64) -> Vec<Entity> {
+  let mut inside: Vec<Entity> = world.stores[cols.mover]
+    .entities
+    .iter()
+    .copied()
+    .filter(|&entity| {
+      let (Some(spec), Some((px, py))) = (cols.spec(world, entity), cols.position(world, entity)) else { return false };
+      !spec.air() && px >= x && px < x + width && py >= y && py < y + height
+    })
+    .collect();
+  inside.sort_unstable();
+  inside
+}
+
 /// Сетка поиска пути юнита: свой тайл проходим всегда, занятое стоящими — нет; цена шага — по местности.
 struct Walker<'g, 'a> {
   ground: &'g mut Ground<'a>,
@@ -587,6 +604,45 @@ impl Scene<'_> {
     let taken = standing_units(self.world, &cols, &HashSet::new(), 0.0, air, false);
     let (mut ground, _) = self.ground(&cols);
     ground.free_tiles_near(x, y, count, from_radius, Some(&taken), air)
+  }
+
+  /// Наземные юниты, чей центр в прямоугольнике тайлов (`unitsIn`), по возрастанию номеров.
+  pub fn units_in(&self, x: f64, y: f64, width: f64, height: f64) -> Vec<Entity> {
+    let cols = Cols::of(self.world);
+    units_in(self.world, &cols, x, y, width, height)
+  }
+
+  /// Отправляет юнитов inside из прямоугольника на свободные тайлы рядом (`evictUnits`): места ищутся с запасом
+  /// radius вокруг стоящих, а путь наружу идёт и сквозь тех, кто стоит вплотную к прямоугольнику, — они уступят.
+  pub fn evict(&mut self, inside: &[Entity], x: f64, y: f64, width: f64, height: f64, radius: f64) {
+    if inside.is_empty() {
+      return;
+    }
+    let cols = Cols::of(self.world);
+    let group: HashSet<Entity> = inside.iter().copied().collect();
+    let taken = standing_units(self.world, &cols, &group, radius, false, false);
+    let mut passable = group.clone();
+    passable.extend(units_in(self.world, &cols, x - EVICT_MARGIN, y - EVICT_MARGIN, width + EVICT_MARGIN * 2.0, height + EVICT_MARGIN * 2.0));
+    let tiles = {
+      let (mut ground, _) = self.ground(&cols);
+      ground.free_tiles_near((x + (width / 2.0).floor()) as i32, (y + (height / 2.0).floor()) as i32, inside.len(), 1, Some(&taken), false)
+    };
+    // Мест меньше, чем юнитов, — лишние идут в последнее (`sendToTiles`).
+    if tiles.is_empty() {
+      return;
+    }
+    for (i, &entity) in inside.iter().enumerate() {
+      let at = (i * 2).min(tiles.len() - 2);
+      self.order_move(entity, tiles[at], tiles[at + 1], Some(&passable), 0.0, 0.0, None);
+    }
+  }
+
+  /// Сколько тайлов, не больше limit, техника объедет заливкой из тайла (`vehicleReach`): так видно, не заперто ли
+  /// место обрывами.
+  pub fn reach(&mut self, x: i32, y: i32, limit: usize) -> usize {
+    let cols = Cols::of(self.world);
+    let (mut ground, _) = self.ground(&cols);
+    ground.vehicle_reach(x, y, limit, false).len()
   }
 
   /// Отправляет юнит в тайл (x, y): прокладывает путь и кладёт его в Path (`orderMove`).

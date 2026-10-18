@@ -1,6 +1,7 @@
-//! Мод base на хосте: вход игрока, производство за кредиты, приказ ехать.
+//! Мод base на хосте: стартовый набор, разворачивание MCV и сворачивание, производство за кредиты, приказ ехать.
 
 use kharos_content::discover;
+use kharos_engine::terrain::{FOOT_BIT, ROCK};
 use kharos_world::Host;
 use serde_json::json;
 use std::path::Path;
@@ -32,80 +33,186 @@ fn place(host: &Host, entity: u32) -> (f64, f64) {
   (at["x"].as_f64().unwrap(), at["y"].as_f64().unwrap())
 }
 
-/// Тайлы под заводом: середина и по тайлу во все стороны.
-fn factory_tiles(host: &Host) -> Vec<(i32, i32)> {
-  let (x, y) = place(host, all(host, "Building")[0].0);
-  let (cx, cy) = (x.floor() as i32, y.floor() as i32);
-  (-1..=1).flat_map(|dy| (-1..=1).map(move |dx| (cx + dx, cy + dy))).collect()
+/// Сущности вида раздел/имя.
+fn kind(host: &Host, section: &str, name: &str) -> Vec<u32> {
+  let id = host.proto_id(section, name).unwrap();
+  all(host, "Proto").into_iter().filter(|(_, proto)| proto["id"].as_f64() == Some(id as f64)).map(|(entity, _)| entity).collect()
+}
+
+fn mcv(host: &Host) -> u32 {
+  kind(host, "units", "mcv")[0]
+}
+
+fn ticks(host: &mut Host, count: usize) {
+  for _ in 0..count {
+    host.tick(0.05).unwrap();
+  }
+}
+
+/// Годится ли под главное здание 3 × 3 с левым верхним тайлом (x, y): скала без подножий обрыва.
+fn rocky(host: &Host, x: i32, y: i32) -> bool {
+  let mut state = host.state.borrow_mut();
+  let land = state.land.as_mut().unwrap();
+  (y..y + 3).all(|ty| (x..x + 3).all(|tx| {
+    let tile = land.tile(tx, ty);
+    tile[0] == ROCK && tile[3] & FOOT_BIT == 0
+  }))
+}
+
+/// Ближайшее к (x, y) место под главное здание, которому подходит test: кольцами наружу.
+fn site_near(host: &Host, x: i32, y: i32, test: impl Fn(i32, i32) -> bool) -> (i32, i32) {
+  for ring in 0i32..60 {
+    for dy in -ring..=ring {
+      for dx in -ring..=ring {
+        if dx.abs().max(dy.abs()) == ring && rocky(host, x + dx, y + dy) && test(x + dx, y + dy) {
+          return (x + dx, y + dy);
+        }
+      }
+    }
+  }
+  panic!("нет скалы рядом с {x} {y}");
+}
+
+/// Разворачивает MCV на ближайшей скале в стороне от стартового набора; отдаёт главное здание и его место.
+fn deployed(host: &mut Host) -> (u32, (i32, i32)) {
+  let (x, y) = place(host, mcv(host));
+  let units: Vec<(f64, f64)> = all(host, "Mover").into_iter().map(|(entity, _)| place(host, entity)).collect();
+  let clear = |sx: i32, sy: i32| units.iter().all(|&(ux, uy)| ux < sx as f64 - 1.0 || ux >= sx as f64 + 4.0 || uy < sy as f64 - 1.0 || uy >= sy as f64 + 4.0);
+  let site = site_near(host, x as i32, y as i32, clear);
+  host.send(1, "deploy", json!({ "unit": mcv(host), "x": site.0, "y": site.1 }));
+  for _ in 0..20 * 40 {
+    host.tick(0.05).unwrap();
+    if let Some(&core) = kind(host, "buildings", "command").first() {
+      return (core, site);
+    }
+  }
+  panic!("MCV не развернулся на {site:?}");
 }
 
 #[test]
-fn player_starts_with_factory_buggies_and_credits() {
+fn player_starts_with_mcv_buggies_infantry_and_credits() {
   let host = host();
-  assert_eq!(all(&host, "Building").len(), 1);
-  let buggies = all(&host, "Mover");
-  assert_eq!(buggies.len(), 3);
-  // У каждого багги — стрелок на месте за водителем.
+  assert!(all(&host, "Building").is_empty());
+  assert_eq!(kind(&host, "units", "mcv").len(), 1);
+  assert_eq!(kind(&host, "units", "buggy").len(), 2);
+  assert_eq!(kind(&host, "units", "infantry").len(), 3);
+  // Пушка будущего главного здания на MCV и стрелки на багги.
   assert_eq!(all(&host, "Turret").len(), 3);
-  assert_eq!(credits(&host), 1000.0);
-  // Машины стоят на свободных тайлах вокруг завода, каждая посреди своего тайла, не под заводом.
-  let under = factory_tiles(&host);
-  for (entity, _) in &buggies {
-    let (x, y) = place(&host, *entity);
+  assert_eq!(credits(&host), 1500.0);
+  // Каждый — посреди своего тайла.
+  let tiles: std::collections::HashSet<(i64, i64)> = all(&host, "Mover").into_iter().map(|(entity, _)| {
+    let (x, y) = place(&host, entity);
     assert_eq!((x.fract().abs(), y.fract().abs()), (0.5, 0.5));
-    assert!(!under.contains(&(x.floor() as i32, y.floor() as i32)), "{x} {y}");
-  }
+    (x.floor() as i64, y.floor() as i64)
+  }).collect();
+  assert_eq!(tiles.len(), 6);
+  // Свёрнутая база: очередь у MCV есть, но заказать в ней нельзя.
+  assert!(all(&host, "Producer").iter().any(|(entity, _)| *entity == mcv(&host)));
   assert!(host.system_names().contains(&"mechanics/movement.move".to_string()), "{:?}", host.system_names());
 }
 
 #[test]
-fn factory_makes_a_buggy_for_credits_and_it_comes_out_beside_it() {
+fn mcv_drives_to_the_site_and_deploys_into_the_core_that_makes_builders() {
   let mut host = host();
-  let factory = all(&host, "Building")[0].0;
-  host.send(1, "produce", json!({ "building": factory, "unit": "buggy" }));
-  // Чужой заказ и заказ того, чего завод не делает, не проходят.
-  host.send(2, "produce", json!({ "building": factory, "unit": "buggy" }));
-  host.send(1, "produce", json!({ "building": factory, "unit": "factory" }));
-  host.send(1, "rally", json!({ "building": factory, "x": 6, "y": -8 }));
+  let truck = mcv(&host);
+  let (core, (x, y)) = deployed(&mut host);
+  assert!(kind(&host, "units", "mcv").is_empty(), "MCV стал зданием");
+  assert!(!all(&host, "Mover").iter().any(|(entity, _)| *entity == truck));
+  assert_eq!(place(&host, core), (x as f64 + 1.5, y as f64 + 1.5));
+  // Пушка MCV пропала, на крыше — пушка главного здания.
+  assert_eq!(all(&host, "Turret").len(), 3);
+  assert_eq!(kind(&host, "turrets", "core").len(), 1);
+  host.send(1, "produce", json!({ "building": core, "unit": "builder" }));
   host.tick(0.05).unwrap();
-  assert_eq!(credits(&host), 750.0);
-  // 7 секунд выпуска — 140 тиков; за них доход — 7 раз по 5.
-  let mut produced = Vec::new();
-  for _ in 0..140 {
-    host.tick(0.05).unwrap();
-    produced.extend(host.signals().into_iter().filter(|signal| signal.name == "produced"));
-  }
-  assert_eq!(produced.len(), 1);
-  assert_eq!(produced[0].payload["unit"], json!("buggy"));
-  assert_eq!(all(&host, "Mover").len(), 4);
-  assert_eq!(all(&host, "Turret").len(), 4);
-  assert_eq!(credits(&host), 785.0);
-  // Новый — рядом с заводом, а не под ним, и едет к точке сбора.
-  let made = produced[0].payload["entity"].as_f64().unwrap() as u32;
-  let (x, y) = (produced[0].payload["x"].as_f64().unwrap(), produced[0].payload["y"].as_f64().unwrap());
-  assert!(!factory_tiles(&host).contains(&(x.floor() as i32, y.floor() as i32)));
-  assert!(all(&host, "Path").iter().any(|(entity, _)| *entity == made), "к точке сбора");
-  for _ in 0..200 {
-    host.tick(0.05).unwrap();
-  }
-  let (x, y) = place(&host, made);
-  assert!((x - 6.5).abs() <= 2.5 && (y + 7.5).abs() <= 2.5, "{x} {y}");
+  assert_eq!(kind(&host, "units", "builder").len(), 0);
+  ticks(&mut host, 5 * 20 + 1);
+  assert_eq!(kind(&host, "units", "builder").len(), 1);
 }
 
 #[test]
-fn ordered_buggies_take_their_own_tiles_near_the_point_and_stop() {
+fn deploying_mcv_sends_own_units_off_the_site() {
   let mut host = host();
-  let units: Vec<u32> = all(&host, "Mover").into_iter().map(|(entity, _)| entity).collect();
+  // Сначала на место скалы рядом встаёт своя багги, потом туда посылают MCV.
+  let buggy = kind(&host, "units", "buggy")[0];
+  let (bx, by) = place(&host, buggy);
+  let (x, y) = site_near(&host, bx as i32 + 3, by as i32 + 3, |_, _| true);
+  // В угол: в середину MCV не поедет — там стоят, и он ищет тайл рядом (orderMove).
+  host.send(1, "move", json!({ "units": [buggy], "x": x, "y": y }));
+  ticks(&mut host, 400);
+  let (ux, uy) = place(&host, buggy);
+  assert!((x as f64..x as f64 + 3.0).contains(&ux) && (y as f64..y as f64 + 3.0).contains(&uy), "багги не на месте: {ux} {uy}");
+  host.send(1, "deploy", json!({ "unit": mcv(&host), "x": x, "y": y }));
+  let mut core = None;
+  for _ in 0..20 * 40 {
+    host.tick(0.05).unwrap();
+    core = kind(&host, "buildings", "command").first().copied();
+    if core.is_some() {
+      break;
+    }
+  }
+  assert!(core.is_some(), "не развернулся");
+  for (entity, _) in all(&host, "Mover") {
+    let (ux, uy) = place(&host, entity);
+    assert!(!((x as f64..x as f64 + 3.0).contains(&ux) && (y as f64..y as f64 + 3.0).contains(&uy)), "{entity} остался под зданием: {ux} {uy}");
+  }
+}
+
+#[test]
+fn core_packs_back_into_mcv_with_its_queue_and_health() {
+  let mut host = host();
+  let (core, (x, y)) = deployed(&mut host);
+  host.send(1, "produce", json!({ "building": core, "unit": "builder" }));
+  host.send(1, "produce", json!({ "building": core, "unit": "truck" }));
+  host.tick(0.05).unwrap();
+  host.send(1, "pack", json!({ "building": core }));
+  // Чужой не свернёт.
+  host.send(2, "pack", json!({ "building": core }));
+  host.tick(0.05).unwrap();
+  assert!(all(&host, "Converting").iter().any(|(entity, _)| *entity == core));
+  ticks(&mut host, 10 * 20);
+  assert!(kind(&host, "buildings", "command").is_empty());
+  let truck = mcv(&host);
+  assert_eq!(place(&host, truck), (x as f64 + 1.5, y as f64 + 1.5));
+  let queue = all(&host, "Producer").into_iter().find(|(entity, _)| *entity == truck).unwrap().1;
+  assert_eq!(queue["unit"], json!("builder"));
+  assert_eq!(queue["queue"], json!(["truck"]));
+  // Свёрнутая база не производит: строитель так и не выходит.
+  ticks(&mut host, 10 * 20);
+  assert!(kind(&host, "units", "builder").is_empty());
+}
+
+#[test]
+fn deploy_can_be_cancelled_and_a_move_forgets_the_trip() {
+  let mut host = host();
+  let truck = mcv(&host);
+  let (x, y) = place(&host, truck);
+  let site = site_near(&host, x as i32 + 6, y as i32 + 6, |_, _| true);
+  host.send(1, "deploy", json!({ "unit": truck, "x": site.0, "y": site.1 }));
+  host.tick(0.05).unwrap();
+  assert_eq!(all(&host, "Deploys").len(), 1);
+  host.send(1, "move", json!({ "units": [truck], "x": x as i32, "y": y as i32 - 6 }));
+  host.tick(0.05).unwrap();
+  assert!(all(&host, "Deploys").is_empty(), "поездка забыта");
+  host.send(1, "deploy", json!({ "unit": truck, "x": site.0, "y": site.1 }));
+  host.tick(0.05).unwrap();
+  host.send(1, "cancelDeploy", json!({ "unit": truck }));
+  host.tick(0.05).unwrap();
+  assert!(all(&host, "Deploys").is_empty() && all(&host, "Converting").is_empty());
+  assert!(!all(&host, "Path").iter().any(|(entity, _)| *entity == truck), "стоит");
+}
+
+#[test]
+fn ordered_units_take_their_own_tiles_near_the_point_and_stop() {
+  let mut host = host();
+  let units: Vec<u32> = kind(&host, "units", "buggy");
   host.send(1, "move", json!({ "units": units, "x": 10, "y": -6 }));
   host.tick(0.05).unwrap();
   // Каждому — свой тайл: через тайл друг от друга вокруг цели.
   let goals: Vec<(i64, i64)> = all(&host, "Path").into_iter().map(|(_, path)| (path["goalX"].as_f64().unwrap() as i64, path["goalY"].as_f64().unwrap() as i64)).collect();
-  assert_eq!(goals.len(), 3);
+  assert_eq!(goals.len(), 2);
   let unique: std::collections::HashSet<_> = goals.iter().collect();
-  assert_eq!(unique.len(), 3, "{goals:?}");
-  for _ in 0..300 {
-    host.tick(0.05).unwrap();
-  }
+  assert_eq!(unique.len(), 2, "{goals:?}");
+  ticks(&mut host, 400);
   assert!(all(&host, "Path").is_empty(), "доехали и встали");
   for &entity in &units {
     let (x, y) = place(&host, entity);
@@ -114,45 +221,44 @@ fn ordered_buggies_take_their_own_tiles_near_the_point_and_stop() {
 }
 
 #[test]
-fn buggy_drives_around_the_factory_not_through_it() {
+fn buggy_drives_around_the_core_not_through_it() {
   let mut host = host();
-  let under = factory_tiles(&host);
-  let (fx, fy) = place(&host, all(&host, "Building")[0].0);
-  // Самая южная машина — на ту сторону завода, к северу.
-  let buggy = all(&host, "Mover").into_iter().map(|(entity, _)| entity).max_by(|a, b| place(&host, *a).1.total_cmp(&place(&host, *b).1)).unwrap();
-  let (gx, gy) = (fx.floor(), fy.floor() - 4.0);
+  let (_, (sx, sy)) = deployed(&mut host);
+  let under: Vec<(i32, i32)> = (sy..sy + 3).flat_map(|y| (sx..sx + 3).map(move |x| (x, y))).collect();
+  // Ближняя багги — на ту сторону здания.
+  let buggy = kind(&host, "units", "buggy")[0];
+  let (bx, by) = place(&host, buggy);
+  let (gx, gy) = (sx as f64 + 1.0 + (sx as f64 + 1.5 - bx).signum() * 4.0, sy as f64 + 1.0 + (sy as f64 + 1.5 - by).signum() * 4.0);
   host.send(1, "move", json!({ "units": [buggy], "x": gx, "y": gy }));
-  for _ in 0..300 {
+  for _ in 0..400 {
     host.tick(0.05).unwrap();
     let (x, y) = place(&host, buggy);
-    assert!(!under.contains(&(x.floor() as i32, y.floor() as i32)), "въехал в завод: {x} {y}");
+    assert!(!under.contains(&(x.floor() as i32, y.floor() as i32)), "въехал в здание: {x} {y}");
   }
-  let (x, y) = place(&host, buggy);
-  assert!((x - gx - 0.5).abs() <= 1.5 && (y - gy - 0.5).abs() <= 1.5, "{x} {y}");
 }
 
 #[test]
 fn snapshot_restores_the_same_game_and_it_goes_on_the_same() {
   let mut host = host();
-  let factory = all(&host, "Producer")[0].0;
-  host.send(1, "produce", json!({ "building": factory, "unit": "buggy" }));
-  let buggies: Vec<u32> = all(&host, "Mover").into_iter().map(|(entity, _)| entity).collect();
+  let truck = mcv(&host);
+  let (x, y) = place(&host, truck);
+  let site = site_near(&host, x as i32 + 4, y as i32 - 4, |_, _| true);
+  host.send(1, "deploy", json!({ "unit": truck, "x": site.0, "y": site.1 }));
+  let buggies = kind(&host, "units", "buggy");
   host.send(1, "move", json!({ "units": buggies, "x": 10, "y": 6 }));
-  for _ in 0..60 {
-    host.tick(0.05).unwrap();
-  }
+  ticks(&mut host, 30);
   let snapshot = host.snapshot().unwrap();
   let mods = discover(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods")).unwrap();
   let mut copy = Host::new(mods, None, 7, &serde_json::Value::Null).unwrap();
   copy.restore(&snapshot).unwrap();
   assert_eq!(copy.snapshot().unwrap(), snapshot);
-  // Дальше обе партии идут одинаково: производство доделывает багги, приказ доезжает.
-  for _ in 0..140 {
+  // Дальше обе партии идут одинаково: MCV доезжает и разворачивается, приказ доезжает.
+  for _ in 0..400 {
     host.tick(0.05).unwrap();
     copy.tick(0.05).unwrap();
   }
   assert_eq!(copy.snapshot().unwrap(), host.snapshot().unwrap());
-  assert_eq!(all(&copy, "Mover").len(), 4);
+  assert_eq!(kind(&copy, "buildings", "command").len(), 1);
 }
 
 /// Витрина: партия меню со сценкой.

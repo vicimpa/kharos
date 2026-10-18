@@ -4,6 +4,8 @@
 -- без цели разворачиваются по корпусу (restTurrets, тоже движок), прочность сама понемногу восстанавливается
 -- (recover), приказы атаковать и сменить стойку.
 
+local conversion = require("lib/conversion")
+
 local combat = {}
 
 combat.components = {
@@ -38,7 +40,16 @@ combat.systems = {
 combat.commands = {
 	-- Атаковать цель: { units = { … }, target = сущность } (orderAttack).
 	attack = function(ctx, player, args)
-		ctx:attack(player, args.units, args.target)
+		if ctx:attack(player, args.units, args.target) then
+			local own = {}
+			for _, e in args.units do
+				local owner = ctx:alive(e) and ctx:get(e, "Owner")
+				if owner and owner.player == player then
+					table.insert(own, e)
+				end
+			end
+			conversion.forget(ctx, own)
+		end
 	end,
 	-- Стойка: { units = { … }, stance = "aggressive" | "defensive" | "hold" | "passive" } (setStance).
 	stance = function(ctx, player, args)

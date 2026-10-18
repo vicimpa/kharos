@@ -226,6 +226,11 @@ impl Host {
     &self.content.lua
   }
 
+  /// Номер вида раздел/имя.
+  pub fn proto_id(&self, section: &str, name: &str) -> Option<u32> {
+    self.content.id(section, name)
+  }
+
   /// Имена систем по порядку тика.
   pub fn system_names(&self) -> Vec<String> {
     self.systems.iter().map(|system| system.name.clone()).collect()
@@ -1064,6 +1069,16 @@ impl UserData for Ctx {
     });
     // Свободные тайлы вокруг тайла (freeTilesNear): count мест через тайл, от кольца from; x и y подряд.
     methods.add_method("free_tiles", |_, this, (x, y, count, from, air): (f64, f64, usize, Option<i32>, Option<bool>)| Ok(this.state.borrow_mut().scene().free_tiles(x.floor() as i32, y.floor() as i32, count, from.unwrap_or(0), air.unwrap_or(false))));
+    // Наземные юниты, чей центр в прямоугольнике тайлов (x, y — левый верхний угол), по возрастанию номеров.
+    methods.add_method("units_in", |_, this, (x, y, width, height): (f64, f64, f64, f64)| Ok(this.state.borrow_mut().scene().units_in(x, y, width, height)));
+    // Выгнать юнитов units из прямоугольника на свободные тайлы рядом (evictUnits); radius — запас вокруг стоящих.
+    methods.add_method("evict", |_, this, (units, x, y, width, height, radius): (Vec<f64>, f64, f64, f64, f64, Option<f64>)| {
+      let units = units.into_iter().map(entity_of).collect::<mlua::Result<Vec<_>>>()?;
+      this.state.borrow_mut().scene().evict(&units, x, y, width, height, radius.unwrap_or(0.0));
+      Ok(())
+    });
+    // Сколько тайлов (не больше limit) техника объедет из тайла заливкой (vehicleReach).
+    methods.add_method("reach", |_, this, (x, y, limit): (f64, f64, usize)| Ok(this.state.borrow_mut().scene().reach(x.floor() as i32, y.floor() as i32, limit)));
     // Можно ли юниту рода class (vehicle, heavy, infantry, air) встать в тайл.
     methods.add_method("can_stand", |_, this, (class, x, y): (String, f64, f64)| Ok(this.state.borrow_mut().scene().can_stand(&class, x.floor() as i32, y.floor() as i32)));
     // Доля полной скорости рода class на тайле.

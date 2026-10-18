@@ -165,7 +165,7 @@ impl Game {
     }
     let atlas = atlas::pack(&mut looks);
 
-    let state = Rc::new(RefCell::new(ClientState { world: host.state.clone(), prev: HashMap::new(), alpha: 0.0, view: View { x: 0.0, y: 0.0, zoom: 32.0, screen: [1280.0, 800.0], scale: 1.0 }, input: Input::default(), time: 0.0, dt: 0.0, player, outbox: Vec::new(), sounds: Vec::new(), particles: Vec::new(), decals: Default::default(), draw: Default::default(), glow: Default::default(), lights: Vec::new(), gui: Gui::new(fonts), looks: looks.iter().map(|look| (look.proto, look_info(look))).collect(), audio: None, land: None, preview: crate::script::Preview::new(), protos: client.list.iter().map(|proto| client.by_id(proto.id).expect("вид")).collect() }));
+    let state = Rc::new(RefCell::new(ClientState { world: host.state.clone(), prev: HashMap::new(), alpha: 0.0, view: View { x: 0.0, y: 0.0, zoom: 32.0, screen: [1280.0, 800.0], scale: 1.0 }, input: Input::default(), time: 0.0, dt: 0.0, player, outbox: Vec::new(), sounds: Vec::new(), particles: Vec::new(), decals: Default::default(), draw: Default::default(), glow: Default::default(), lights: Vec::new(), gui: Gui::new(fonts), looks: looks.iter().map(|look| (look.proto, look_info(look))).collect(), audio: None, land: None, preview: crate::script::Preview::new(), dressed: HashMap::new(), shown: Vec::new(), protos: client.list.iter().map(|proto| client.by_id(proto.id).expect("вид")).collect() }));
     let table = || Ok::<_, String>(lua.create_table());
     let ctx = Ctx { state: state.clone(), input: table()?, camera: table()?, shared: table()?, atmosphere: table()?, music: table()?, protos: client.protos.clone(), game: game_table.clone(), app };
     ctx.camera.set("x", 0.0).map_err(error("камера"))?;
@@ -314,6 +314,8 @@ impl Game {
       state.draw.clear();
       state.glow.clear();
       state.lights.clear();
+      state.dressed.clear();
+      state.shown.clear();
       state.gui.begin(input);
     }
     let lua = self.client.lua.clone();
@@ -559,10 +561,21 @@ impl Game {
         (1.0, 0.0)
       };
       let cell = look.cell(angle, phase);
-      let [u0, v0, u1, v1] = look.cells[cell];
       let [w, h] = look.tiles();
       let (left, top) = (x + look.offset[0] - view.x, y + look.offset[1] - view.y);
-      sorted.push((layer, y + look.offset[1] + h, [left, top, w, h, u0, v0, u1, v1, team, look.shadow[0], look.shadow[1], grey]));
+      let sprite = [left, top, w, h, team, look.shadow[0], look.shadow[1], grey];
+      let bottom = y + look.offset[1] + h;
+      // Показанная не целиком (стройка, сворачивание) — без тени и огней; тающая — бледнее вместе с тенью.
+      let [built, fade] = state.dressed.get(&entity).copied().unwrap_or([1.0, 1.0]);
+      if built < 1.0 {
+        for piece in revealed(sprite, look.cells[cell], built) {
+          sorted.push((layer, bottom, piece));
+        }
+        continue;
+      }
+      let mut whole = instance(sprite, look.cells[cell], WHOLE.map(|channel| channel * fade));
+      whole[10] *= fade;
+      sorted.push((layer, bottom, whole));
       if !lights {
         continue;
       }
@@ -583,6 +596,28 @@ impl Game {
         }
         frame.spots.extend_from_slice(&[x + lx, y + ly, size * 16.0, level]);
         frame.blooms.extend_from_slice(&[x + lx, y + ly, size * 3.0 + 2.0, level]);
+      }
+    }
+    // Облики вне сущностей (c:show): в своём слое по нижнему краю, призраки — поверх зданий.
+    for shown in &state.shown {
+      let Some(&index) = self.look_of.get(&shown.proto) else { continue };
+      let look = &self.looks[index];
+      let phase = if look.phases > 1 { (time * look.fps as f64) as usize % look.phases } else { 0 };
+      let cell = look.cells[look.cell(0.0, phase)];
+      let [w, h] = look.tiles();
+      let team = if shown.player == 0 { 3.0 } else if shown.player == state.player { 0.0 } else { 1.0 };
+      let sprite = [shown.x + look.offset[0] - view.x, shown.y + look.offset[1] - view.y, w, h, team, look.shadow[0], 0.0, if shown.player == 0 { 1.0 } else { 0.0 }];
+      if shown.over {
+        frame.ghosts.extend_from_slice(&instance(sprite, cell, shown.tint));
+        continue;
+      }
+      let bottom = shown.y + look.offset[1] + h;
+      if shown.built < 1.0 {
+        for piece in revealed(sprite, cell, shown.built) {
+          sorted.push((look.layer as usize, bottom, piece));
+        }
+      } else {
+        sorted.push((look.layer as usize, bottom, instance([sprite[0], sprite[1], w, h, team, look.shadow[0], look.shadow[1], sprite[7]], cell, shown.tint)));
       }
     }
     let buildings = crate::atlas::Layer::Building as usize;
@@ -655,4 +690,24 @@ impl Game {
   pub fn palette(&self) -> &[f32] {
     &self.palette
   }
+}
+
+/// Оттенок «как есть» и чертёж недостроенного (BLUEPRINT в buildingsPass.ts), с предумноженной альфой.
+const WHOLE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+const BLUEPRINT: [f32; 4] = [0.3, 0.6, 1.0, 0.4];
+
+/// Спрайт: место, размер, сторона, тень и серость (sprite), кадр атласа и оттенок.
+fn instance(sprite: [f32; 8], [u0, v0, u1, v1]: [f32; 4], tint: [f32; 4]) -> [f32; SPRITE] {
+  let [left, top, w, h, team, shift, shadow, grey] = sprite;
+  [left, top, w, h, u0, v0, u1, v1, team, shift, shadow, grey, tint[0], tint[1], tint[2], tint[3]]
+}
+
+/// Показанное снизу на долю built: весь облик чертежом и поверх — готовая часть, нижние строки спрайта целым числом
+/// пикселей (buildingsPass.ts). Без тени.
+fn revealed(sprite: [f32; 8], cell: [f32; 4], built: f32) -> [[f32; SPRITE]; 2] {
+  let [left, top, w, h, team, shift, _, grey] = sprite;
+  let [u0, v0, u1, v1] = cell;
+  let rows = (h * TEXELS).round();
+  let hidden = (rows - (rows * built).floor()) / rows;
+  [instance([left, top, w, h, team, shift, 0.0, grey], cell, BLUEPRINT), instance([left, top + h * hidden, w, h * (1.0 - hidden), team, shift, 0.0, grey], [u0, v0 + (v1 - v0) * hidden, u1, v1], WHOLE)]
 }

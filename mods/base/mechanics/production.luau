@@ -130,7 +130,8 @@ production.systems = {
 			for i = 0, q.n - 1 do
 				local at = i * 8
 				local current = readf64(p.unit, at)
-				if current == empty then
+				-- Пока здание сворачивается, машина разворачивается или база свёрнута в MCV, производство стоит.
+				if current == empty or ctx:has(readf64(entity, at), "Converting") or ctx:has(readf64(entity, at), "Unit") then
 					continue
 				end
 				local unit = ctx.protos.units[ctx:text(current)]

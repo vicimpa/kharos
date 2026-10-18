@@ -4,6 +4,7 @@
 
 local widgets = require("lib/widgets")
 local stats = require("lib/stats")
+local conversion = require("lib/conversion")
 local COLORS, shadow = widgets.COLORS, widgets.shadow
 
 local hud = {}
@@ -21,6 +22,8 @@ local QUEUED = 24
 local settings = require("lib/settings")
 local INFO_MIN = 104 + 10 + 24 + 150
 local GRID_KEYS = { "T", "Y", "U", "I", "G", "H", "J", "K", "B", "N", "M", "," }
+-- Постоянные места сетки: превращение и отмена (CONVERT, CANCEL в commands.ts).
+local CONVERT, CANCEL = 9, 10
 local KEY_NAMES = { "t", "y", "u", "i", "g", "h", "j", "k", "b", "n", "m", "," }
 
 -- Свой игрок: кредиты.
@@ -61,9 +64,62 @@ local function topBar(c)
 	end)
 end
 
--- Ячейки сетки команд для выбранного: у своего завода — заказ юнитов.
+-- Превращение выбранного (conversion в hud.ts): MCV разворачивается, главное здание сворачивается; nil — не то.
+local function conversionOf(c, e: number)
+	local kind = c:proto(e)
+	local unit = c:has(e, "Unit")
+	if not kind or kind.id ~= (if unit then conversion.unit(c) else conversion.building(c)).id then
+		return nil
+	end
+	local converting = c:get(e, "Converting")
+	local mode = c.shared.mode
+	return {
+		unit = unit,
+		possible = if unit then conversion.canSend(c, c.player, e) else conversion.canPack(c, c.player, e),
+		progress = if converting then 1 - converting.left / converting.total else nil,
+		blocked = conversion.blocked(c, e),
+		choosing = mode ~= nil and mode.kind == "deploying" and mode.unit == e,
+		traveling = not converting and c:has(e, "Deploys"),
+		cancel = unit and (converting ~= nil or c:has(e, "Deploys")),
+	}
+end
+
+-- Ячейки сетки команд для выбранного: у своего завода — заказ юнитов, у MCV и главного здания — превращение.
 local function slots(c, selection)
 	local list = {}
+	local state = #selection == 1 and c:mine(selection[1]) and conversionOf(c, selection[1])
+	if state then
+		local e = selection[1]
+		-- MCV разворачивают как строят: кнопка включает выбор места, он доедет туда сам.
+		if not state.progress then
+			local building = conversion.building(c)
+			list[CONVERT] = {
+				label = if state.unit then "Развернуть" else "Свернуть в MCV",
+				picture = building,
+				about = if state.unit then building.data.info else nil,
+				title = if state.unit then "Выбрать место: MCV доедет и развернётся там. Нужна свободная скала или фундамент 3×3" else nil,
+				disabled = not state.possible,
+				active = state.choosing,
+				run = function()
+					if not state.unit then
+						c:send("pack", { building = e })
+					elseif state.choosing then
+						c.shared.mode = nil
+					else
+						c.shared.mode = { kind = "deploying", unit = e }
+					end
+				end,
+			}
+		end
+		if (state.progress or state.traveling) and state.cancel then
+			list[CANCEL] = {
+				label = "Отменить",
+				run = function()
+					c:send("cancelDeploy", { unit = e })
+				end,
+			}
+		end
+	end
 	if #selection == 1 and c:has(selection[1], "Producer") and c:mine(selection[1]) then
 		local building = selection[1]
 		local kind = c:proto(building)
@@ -98,6 +154,9 @@ local function card(ui, slot, hotkey: string)
 		end)
 		if slot.about then
 			ui:text(slot.about, { color = COLORS.dim, wrap = WIDTH })
+		end
+		if slot.title then
+			ui:text(slot.title, { color = if slot.about and slot.disabled then COLORS.warn else COLORS.dim, wrap = WIDTH })
 		end
 		if slot.unit then
 			for _, row in stats.unit(slot.unit) do
@@ -134,7 +193,7 @@ local function commandGrid(c, list, width: number, height: number)
 						continue
 					end
 					local id = "cell:" .. i
-					local click = ui:button(id, { width = cellWidth, height = cellHeight, padding = { 0, 6, 0, if slot.picture then 4 else 8 }, gap = 6, justify = "start", disabled = slot.disabled }, function()
+					local click = ui:button(id, { width = cellWidth, height = cellHeight, padding = { 0, 6, 0, if slot.picture then 4 else 8 }, gap = 6, justify = "start", active = slot.active, disabled = slot.disabled }, function()
 						if slot.picture then
 							ui:box({ direction = "stack" }, function()
 								ui:box({ width = TILE, height = TILE }, function()
@@ -150,6 +209,9 @@ local function commandGrid(c, list, width: number, height: number)
 								ui:box({ grow = 1 }, function()
 									ui:text(slot.label, shadow({ color = COLORS.bright, ellipsis = true }))
 								end)
+								if not slot.picture then
+									widgets.key(ui, hotkey, if slot.disabled then COLORS.muted else COLORS.gold)
+								end
 							end)
 							ui:box({ direction = "row", align = "center", gap = 4 }, function()
 								if slot.cost then
@@ -164,7 +226,7 @@ local function commandGrid(c, list, width: number, height: number)
 					ui:tip(id, function()
 						card(ui, slot, hotkey)
 					end, if grid then { right = math.max(8, c.screen.w - c.input.x - 40), bottom = c.screen.h - grid.y + 12 } else nil)
-					if click or (c.input.hits[KEY_NAMES[i]] and not c.input.keys.ctrl) then
+					if click or (c.input.hits[KEY_NAMES[i]] and not c.input.keys.ctrl and not slot.disabled) then
 						slot.run()
 					end
 				end
@@ -238,7 +300,12 @@ local function info(c, selection, width: number, height: number)
 				end)
 				ui:tip("info:stats", stats.text(unitKind))
 			end
+			local state = not many and c:mine(first) and conversionOf(c, first)
+			if state and state.progress then
+				widgets.bar(ui, state.progress, if state.blocked then "Место занято юнитами" elseif state.unit then "Разворачивается" else "Сворачивается", text)
+			end
 			local producer = not many and c:get(first, "Producer")
+			local packed = producer and c:has(first, "Unit")
 			if producer then
 				if producer.unit ~= "" then
 					local unit = c.protos.units[producer.unit]
@@ -251,7 +318,15 @@ local function info(c, selection, width: number, height: number)
 						end
 					end)
 				end
-				ui:text(if producer.rally then "Готовые едут к флажку; правый щелчок по карте — перенести" else "Правый щелчок по карте — точка сбора готовых", { color = COLORS.soft, wrap = text })
+				if packed and producer.unit ~= "" then
+					ui:text("База свёрнута: очередь стоит и продолжится, когда MCV развернётся", { color = COLORS.soft, wrap = text })
+				end
+				if not packed then
+					ui:text(if producer.rally then "Готовые едут к флажку; правый щелчок по карте — перенести" else "Правый щелчок по карте — точка сбора готовых", { color = COLORS.soft, wrap = text })
+				end
+			end
+			if state and state.unit and not state.progress and not state.choosing then
+				ui:text(if state.traveling then "Едет к месту, чтобы развернуться" else "Передвижная база. Нажми «Развернуть» и выбери место на свободной скале или фундаменте 3×3 — лучше у месторождения: MCV доедет и станет главным зданием, которое заказывает строителей и задаёт зону стройки", { color = COLORS.soft, wrap = text })
 			end
 		end)
 	end)
@@ -375,7 +450,37 @@ local function bottomBar(c)
 	end)
 end
 
+-- Режимы наведения: название и что делать (mode в hud.ts).
+local MODES = {
+	deploying = { name = "Разворачивание MCV", tip = "Щёлкни, где развернуть: на зелёном можно, MCV доедет сам" },
+}
+
+-- Полоса режима над полем (modeBar в hud.ts): какой режим, что делать дальше и как выйти. Esc и правая кнопка
+-- работают и так, но на сенсорном экране их нет.
+local function modeBar(c)
+	local mode = c.shared.mode
+	local spec = mode and MODES[mode.kind]
+	if not spec then
+		return
+	end
+	local ui = c.ui
+	local room = ui.width - 24
+	ui:box({ anchor = { centerX = 0, top = TOP_HEIGHT + 6 } }, function()
+		ui:box({ id = "mode", skin = "panel", padding = { 10, 12, 10, 16 }, direction = "row", align = "center", gap = 12, maxWidth = room }, function()
+			ui:text(spec.name, { color = COLORS.team })
+			ui:text(spec.tip, { color = COLORS.soft, wrap = math.max(160, room - 320) })
+			if ui:button("mode:cancel", { height = 32, padding = { 2, 14 } }, function()
+				ui:text("Отмена", shadow())
+			end) then
+				c.shared.mode = nil
+			end
+			ui:tip("mode:cancel", "То же — правая кнопка мыши или Esc")
+		end)
+	end)
+end
+
 function hud.draw(c)
+	modeBar(c)
 	topBar(c)
 	bottomBar(c)
 end

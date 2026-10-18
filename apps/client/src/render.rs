@@ -48,8 +48,9 @@ impl View {
 
 /// Слоёв спрайтов: на земле, наземные, их турели, здания, турели зданий, летающие, их турели.
 pub const LAYERS: usize = 7;
-/// Чисел на спрайт: левый верхний угол и размер в тайлах (от камеры), uv кадра, сторона, сдвиг и сила тени, серость.
-pub const SPRITE: usize = 12;
+/// Чисел на спрайт: левый верхний угол и размер в тайлах (от камеры), uv кадра, сторона, сдвиг и сила тени, серость,
+/// оттенок r, g, b, a с предумноженной альфой — на него умножается картинка (sprites.ts): (1, 1, 1, 1) — как есть.
+pub const SPRITE: usize = 16;
 
 /// Чисел на след на земле.
 pub const DECAL: usize = 16;
@@ -59,6 +60,8 @@ pub const DECAL: usize = 16;
 pub struct Frame {
   /// Спрайты по слоям, SPRITE чисел на каждый.
   pub layers: Vec<Vec<f32>>,
+  /// Призраки поверх зданий (места под здание, намеченные места) — своим слоем: без теней, лучам не преграда.
+  pub ghosts: Vec<f32>,
   /// Следы на земле, DECAL чисел на каждый: отрезок, ширина, кадр атласа (ширина 0 — белый), цвет и
   /// непрозрачность, сколько осталось, плотность, зерно.
   pub decals: Vec<f32>,
@@ -133,11 +136,13 @@ layout(location = 0) in vec2 aCorner;
 layout(location = 1) in vec4 aRect;
 layout(location = 2) in vec4 aFrame;
 layout(location = 3) in vec4 aMore;
+layout(location = 4) in vec4 aTint;
 uniform int uMode;
 out vec2 vUv;
 flat out int vTeam;
 flat out float vShadow;
 flat out float vGrey;
+flat out vec4 vTint;
 void main() {
   vec2 shift = uMode == 1 ? vec2(aMore.y) : vec2(0.0);
   vec2 px = (aRect.xy + aCorner * aRect.zw + shift) * uZoom;
@@ -146,15 +151,18 @@ void main() {
   vTeam = int(aMore.x + 0.5);
   vShadow = aMore.z;
   vGrey = aMore.w;
+  vTint = aTint;
 }
 "#;
 
-// uMode: 0 — спрайт (метка тона в альфе — цвет стороны из палитры, как sprites.ts), 1 — тень, 2 — силуэт.
+// uMode: 0 — спрайт (метка тона в альфе — цвет стороны из палитры, как sprites.ts; умножен на оттенок, альфа
+// предумножена), 1 — тень, 2 — силуэт.
 const SPRITE_FS: &str = r#"
 in vec2 vUv;
 flat in int vTeam;
 flat in float vShadow;
 flat in float vGrey;
+flat in vec4 vTint;
 uniform sampler2D uAtlas;
 uniform vec3 uPalette[12];
 uniform int uMode;
@@ -167,7 +175,7 @@ void main() {
   float tone = floor((1.0 - texel.a) * 255.0 + 0.5);
   vec3 rgb = tone >= 1.0 && tone <= 3.0 ? uPalette[vTeam * 3 + int(tone) - 1] : texel.rgb;
   if (vGrey > 0.5) rgb = vec3(dot(rgb, vec3(0.3, 0.59, 0.11)));
-  color = vec4(rgb, 1.0);
+  color = vec4(rgb, 1.0) * vTint;
 }
 "#;
 
@@ -478,7 +486,7 @@ impl Renderer {
       raw.bind_buffer(glow::ARRAY_BUFFER, Some(corners));
       let quad: [f32; 8] = [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
       raw.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytemuck::cast_slice(&quad), glow::STATIC_DRAW);
-      let (sprite_vao, sprite_data) = gl.instanced(corners, &[4, 4, 4]);
+      let (sprite_vao, sprite_data) = gl.instanced(corners, &[4, 4, 4, 4]);
       let (spot_vao, spot_data) = gl.instanced(corners, &[4]);
       let (beam_vao, beam_data) = gl.instanced(corners, &[4, 4]);
       let (decal_vao, decal_data) = gl.instanced(corners, &[4, 1, 4, 4, 3]);
@@ -582,6 +590,20 @@ impl Renderer {
       self.gl.upload(self.sprite_data, instances);
       gl.draw_arrays_instanced(glow::TRIANGLE_STRIP, 0, 4, (instances.len() / SPRITE) as i32);
     }
+  }
+
+  /// Призраки поверх зданий.
+  unsafe fn ghosts(&self, view: &View, frame: &Frame) {
+    let Some(atlas) = self.atlas.filter(|_| !frame.ghosts.is_empty()) else { return };
+    let gl = &self.gl.gl;
+    let program = self.programs.sprite;
+    self.camera(program, view);
+    gl.uniform_1_i32(gl.get_uniform_location(program, "uMode").as_ref(), 0);
+    gl.uniform_3_f32_slice(gl.get_uniform_location(program, "uPalette").as_ref(), &frame.palette);
+    gl.bind_texture(glow::TEXTURE_2D, Some(atlas));
+    gl.bind_vertex_array(Some(self.sprite_vao));
+    self.gl.upload(self.sprite_data, &frame.ghosts);
+    gl.draw_arrays_instanced(glow::TRIANGLE_STRIP, 0, 4, (frame.ghosts.len() / SPRITE) as i32);
   }
 
   unsafe fn spots(&self, view: &View, data: &[f32], color: [f32; 3], strength: f32) {
@@ -734,14 +756,18 @@ impl Renderer {
         gl.draw_arrays_instanced(glow::TRIANGLE_STRIP, 0, 4, (frame.decals.len() / DECAL) as i32);
       }
 
-      // По слою: сначала тени слоя, потом он сам — тень соседа не ляжет на кабину.
+      // По слою: сначала тени слоя, потом он сам — тень соседа не ляжет на кабину. Альфа предумножена (setBlend
+      // 'alpha' в TS): так чертёж и призраки просвечивают, как в buildingsPass.ts.
       gl.enable(glow::BLEND);
-      gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
+      gl.blend_func(glow::ONE, glow::ONE_MINUS_SRC_ALPHA);
       for layer in 0..LAYERS {
         if layer > 0 {
           self.sprites(view, frame, layer..layer + 1, 1);
         }
         self.sprites(view, frame, layer..layer + 1, 0);
+        if layer == crate::atlas::Layer::Building as usize {
+          self.ghosts(view, frame);
+        }
       }
       gl.disable(glow::BLEND);
       self.weather(view, frame, size);

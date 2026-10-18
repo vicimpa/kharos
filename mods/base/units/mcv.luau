@@ -24,7 +24,12 @@ kind.data = {
 	pitch = 0.85,
 }
 
-kind.entity = units.entity
+-- Очередь главного здания едет в MCV и стоит до разворота (spawnUnit: у MCV — Producer).
+function kind.entity(self, protos)
+	local entity = units.entity(self, protos)
+	entity.Producer = {}
+	return entity
+end
 kind.look = units.look("mcv", kind.data.mounts)
 kind.look.icon = { direction = 56 }
 

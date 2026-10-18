@@ -28,11 +28,11 @@ local drag: { x: number, y: number }? = nil
 function rts.start(cam, c)
 	cam.zoom = rts.data.start
 	target = nil
-	-- Камера — к своей базе: первое своё здание.
-	for _, e in c:each({ "Building", "Owner" }) do
+	-- Камера — к своим: первый свой юнит, MCV стартового набора (game.ts).
+	for _, e in c:each({ "Unit", "Owner" }) do
 		if c:mine(e) then
 			local at = c:get(e, "Position")
-			cam.x, cam.y = at.x, at.y + 3
+			cam.x, cam.y = at.x, at.y
 			break
 		end
 	end

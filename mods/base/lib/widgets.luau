@@ -45,7 +45,8 @@ end
 function widgets.bar(ui, value: number, label: string, width: number?)
 	local fill = math.clamp(value, 0, 1)
 	ui:box({ skin = "well", width = width, height = 24, padding = 4, direction = "stack", clip = true }, function()
-		ui:box({ grow = 1, direction = "row" }, function()
+		-- В widgets.ts у ряда нет align = "stretch", и заливка там нулевой высоты — полоса пустая; здесь она видна.
+		ui:box({ grow = 1, direction = "row", align = "stretch" }, function()
 			ui:box({ grow = fill, background = COLORS.teamMid })
 			ui:box({ grow = 1 - fill })
 		end)

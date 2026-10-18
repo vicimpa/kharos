@@ -19,7 +19,7 @@ local BOX_FILL_ALPHA = 0.12
 local HIT_ALPHA = 0.5
 local PATH_DOT, PATH_GAP, PATH_ALPHA, PATH_GOAL = 3, 14, 0.55, 0.4
 local BAR_HEIGHT, BAR_GAP = 4, 0.3
-local BAR_BACK, BAR_PRODUCING = 0x080d14, 0x59a6ff
+local BAR_BACK, BAR_PRODUCING, BAR_CONVERTING = 0x080d14, 0x59a6ff, 0xffcc4d
 
 local start: { x: number, y: number, wx: number, wy: number }? = nil
 local last = { time = -1, entity = 0 }
@@ -68,6 +68,17 @@ local function dashes(c, x1: number, y1: number, x2: number, y2: number, alpha: 
 	end
 end
 
+-- Полоска хода над сущностью: value от 0 до 1.
+local function bar(c, e: number, value: number, color: number)
+	local pixel = 1 / c.camera.zoom
+	local x, y, w, h = bounds(c, e)
+	local height = BAR_HEIGHT * pixel
+	local top = y - h / 2 - BAR_GAP - height
+	local left = x - w / 2
+	c.draw:rect(left - pixel, top - pixel, left + w + pixel, top + height + pixel, BAR_BACK)
+	c.draw:rect(left, top, left + w * math.clamp(value, 0, 1), top + height, color)
+end
+
 -- Пути, флажки сбора и полоски выпуска у выбранного.
 local function marks(c, selection)
 	local pixel = 1 / c.camera.zoom
@@ -105,17 +116,19 @@ local function marks(c, selection)
 			c.draw:rect(x + pixel, y - 0.9, x + pixel + 0.45, y - 0.6, SELECTED)
 		end
 	end
-	-- Полоски выпуска над своими заводами.
+	-- Полоски превращения над своими (BAR_CONVERTING).
+	for _, e in c:each({ "Converting", "Owner" }) do
+		if c:mine(e) then
+			local converting = c:get(e, "Converting")
+			bar(c, e, 1 - converting.left / converting.total, BAR_CONVERTING)
+		end
+	end
+	-- Полоски выпуска над своими заводами; пока здание сворачивается, выпуск стоит.
 	for _, e in c:each({ "Producer", "Owner" }) do
 		local producer = c:get(e, "Producer")
-		if c:mine(e) and producer.unit ~= "" then
+		if c:mine(e) and producer.unit ~= "" and not c:has(e, "Converting") then
 			local unit = c.protos.units[producer.unit]
-			local x, y, w, h = bounds(c, e)
-			local height = BAR_HEIGHT * pixel
-			local top = y - h / 2 - BAR_GAP - height
-			local left = x - w / 2
-			c.draw:rect(left - pixel, top - pixel, left + w + pixel, top + height + pixel, BAR_BACK)
-			c.draw:rect(left, top, left + w * math.clamp(producer.progress / (unit.data.buildTime or 1), 0, 1), top + height, BAR_PRODUCING)
+			bar(c, e, producer.progress / (unit.data.buildTime or 1), BAR_PRODUCING)
 		end
 	end
 end
@@ -143,7 +156,8 @@ function select.update(c)
 		return
 	end
 
-	if input.pressed.left and input.inside and not input.over_ui then
+	-- В режиме наведения (выбор места MCV) щелчок по карте — его, а не выделение.
+	if input.pressed.left and input.inside and not input.over_ui and not shared.mode then
 		start = { x = input.x, y = input.y, wx = input.wx, wy = input.wy }
 	end
 	if start then
@@ -206,7 +220,8 @@ function select.update(c)
 	if not input.down.left then
 		start = nil
 	end
-	if input.hits.escape then
+	-- Этот Escape уже снял режим (controls/deploy): выделение — следующим нажатием.
+	if input.hits.escape and shared.modeClosedAt ~= c.time then
 		-- Отменять нечего — Escape открывает меню партии (ui/pause), если тот же Escape его не закрыл.
 		if #selection == 0 and shared.menuClosedAt ~= c.time then
 			shared.paused = true

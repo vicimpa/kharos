@@ -1,15 +1,17 @@
 --!strict
--- Схватка: каждому вошедшему — завод и три багги на своём месте карты, стартовые кредиты. Подача — камера RTS,
+-- Схватка: каждый вошедший появляется со стартовым набором — MCV, две багги и взвод пехоты, — и стартовыми кредитами
+-- (spawnStartingUnits); первый — у начала мира, но не в кармане за обрывами (openSpawn). Подача — камера RTS,
 -- выделение рамкой и приказы мышью, панель с кредитами и производством, погода и звук как в Kharos.
 
 local skirmish = {}
 
 skirmish.data = {
 	title = "Схватка",
-	credits = 1000,
-	-- С чем начинает игрок: виды и сколько.
-	start = { buggy = 3 },
-	-- Места игроков — по кругу такого радиуса, в тайлах.
+	-- STARTING_CREDITS: строителей заказывают в развёрнутом главном здании, на это кредиты и есть.
+	credits = 1500,
+	-- С чем появляется игрок, по порядку: MCV встаёт на само место, остальные — вокруг (STARTING_UNITS).
+	start = { "mcv", "buggy", "buggy", "infantry", "infantry", "infantry" },
+	-- Места остальных игроков — по кругу такого радиуса, в тайлах.
 	radius = 24,
 	-- Поле: от −size до size по обеим осям.
 	size = 128,
@@ -17,36 +19,48 @@ skirmish.data = {
 	land = "desert",
 	-- Правила мира: замедление на местности по родам юнитов.
 	rules = require("lib/rules"),
+	-- Сколько тайлов вокруг места появления должно быть доступно технике, иначе база заперта обрывами (SPAWN_ROOM);
+	-- шаг и радиус поиска такого места (openSpawn).
+	room = 2000,
+	spawnStep = 4,
+	spawnRadius = 64,
 }
 
--- Место игрока: первый — в центре, остальные — по кругу.
+-- Место игрока: первый — в начале мира, остальные — по кругу.
 local function home(player: number): (number, number)
 	if player <= 1 then
 		return 0, 0
 	end
 	local angle = (player - 2) * math.pi * 2 / 6
-	return math.cos(angle) * skirmish.data.radius, math.sin(angle) * skirmish.data.radius
+	return math.floor(math.cos(angle) * skirmish.data.radius), math.floor(math.sin(angle) * skirmish.data.radius)
+end
+
+-- Не заперто ли место: техника отсюда доедет хотя бы до room тайлов (notWalledIn).
+local function open(ctx, x: number, y: number): boolean
+	return ctx:can_stand("vehicle", x, y) and ctx:reach(x, y, skirmish.data.room) >= skirmish.data.room
+end
+
+-- Ближайшее к (x, y) незапертое место кольцами наружу; не нашлось — сама точка (openSpawn).
+local function openSpawn(ctx, x: number, y: number): (number, number)
+	local step = skirmish.data.spawnStep
+	for ring = 0, skirmish.data.spawnRadius, step do
+		for dy = -ring, ring, step do
+			for dx = -ring, ring, step do
+				if math.max(math.abs(dx), math.abs(dy)) == ring and open(ctx, x + dx, y + dy) then
+					return x + dx, y + dy
+				end
+			end
+		end
+	end
+	return x, y
 end
 
 skirmish.on = {
+	-- Стартовый набор — на свободных тайлах вокруг места, через тайл (spawnStartingUnits); не хватило мест — меньше.
 	player_joined = function(ctx, event)
-		local player = event.player
-		local x, y = home(player)
-		-- Здание — по тайлам: середина завода 3 × 3 — в середине тайла.
-		local tx, ty = math.floor(x), math.floor(y)
-		ctx:spawn("buildings/factory", { Position = { x = tx + 0.5, y = ty + 0.5 }, Owner = { player = player } })
-		-- Машины — когда завод уже стоит: их места ищутся вокруг него.
-		ctx:emit("base_built", { player = player, x = tx, y = ty })
-	end,
-	-- Стартовые машины — на свободных тайлах вокруг завода (spawnStartingUnits).
-	base_built = function(ctx, event)
-		local list = {}
-		for name, amount in skirmish.data.start do
-			for _ = 1, amount do
-				table.insert(list, name)
-			end
-		end
-		local tiles = ctx:free_tiles(event.x, event.y, #list)
+		local x, y = openSpawn(ctx, home(event.player))
+		local list = skirmish.data.start
+		local tiles = ctx:free_tiles(x, y, #list)
 		for i, name in list do
 			if i * 2 > #tiles then
 				break
@@ -59,10 +73,11 @@ skirmish.on = {
 -- Подача: что клиент берёт из модов для этой партии (имена видов в своих разделах).
 skirmish.client = {
 	camera = "rts",
-	controls = { "select", "orders" },
+	-- Выбор места — первым: его Esc и щелчки не достаются выделению.
+	controls = { "deploy", "select", "orders" },
 	ui = { "hud", "pause" },
 	atmosphere = { "weather" },
-	effects = { "traces", "combat" },
+	effects = { "traces", "combat", "conversion" },
 	-- Звук — как в TS: интерфейс, моторы, работа зданий, фон с подложкой и эхом, ветер полёта.
 	audio = { "levels", "interface", "motors", "machines", "ambience", "flight" },
 }

@@ -2,6 +2,8 @@
 -- Приказы юнитам — перенос case 'move' из packages/sim-ts/src/commands.ts: свои юниты группой едут к тайлу, каждый на
 -- своё место рядом с ним (ctx:move_group — orderGroupMove движка); стоп — снять путь.
 
+local conversion = require("lib/conversion")
+
 local orders = {}
 
 -- Свои живые юниты из списка, без повторов.
@@ -33,14 +35,17 @@ orders.commands = {
 			return
 		end
 		ctx:move_group(units, args.x, args.y)
+		conversion.forget(ctx, units)
 		ctx:signal("moved", { player = player, x = args.x, y = args.y })
 	end,
 
 	-- { units } — стоять.
 	stop = function(ctx, player, args)
-		for _, entity in own(ctx, player, args.units) do
+		local units = own(ctx, player, args.units)
+		for _, entity in units do
 			ctx:stop(entity)
 		end
+		conversion.forget(ctx, units)
 	end,
 }
 

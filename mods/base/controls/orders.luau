@@ -33,7 +33,8 @@ end
 
 function orders.update(c)
 	local input = c.input
-	if c.shared.paused then
+	-- Под меню партии и в режиме наведения (выбор места MCV) приказов мышью нет.
+	if c.shared.paused or c.shared.mode then
 		held = nil
 		return
 	end

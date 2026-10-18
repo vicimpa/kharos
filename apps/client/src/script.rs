@@ -63,6 +63,19 @@ pub struct SoundOrder {
   pub rate: f32,
 }
 
+/// Облик вида вне сущности на этот кадр (`c:show`): середина в тайлах, сколько показано снизу (остальное — чертёж),
+/// оттенок с предумноженной альфой, чья сторона, поверх ли зданий призраком.
+#[derive(Clone, Copy, Debug)]
+pub struct Shown {
+  pub proto: u32,
+  pub x: f32,
+  pub y: f32,
+  pub built: f32,
+  pub tint: [f32; 4],
+  pub player: u32,
+  pub over: bool,
+}
+
 /// Значок вида для скриптов: портрет (или кадр значка) в атласе и его размер в пикселях.
 pub struct LookInfo {
   pub uv: [f32; 4],
@@ -154,6 +167,11 @@ pub struct ClientState {
   /// Таблицы видов клиентской машины по номерам.
   pub protos: Vec<Table>,
   pub preview: Preview,
+  /// Сущности, показанные этим кадром не целиком (`c:dress`): доля облика снизу (остальное — чертёж) и
+  /// непрозрачность вместе с тенью.
+  pub dressed: HashMap<Entity, [f32; 2]>,
+  /// Облики видов вне сущностей этого кадра (`c:show`).
+  pub shown: Vec<Shown>,
 }
 
 /// Издалека слышно тише: при таком масштабе громкость полная, при вдвое меньшем — вдвое тише (hearing.ts).
@@ -518,9 +536,38 @@ impl UserData for Ctx {
     // 2 — красные пустоши, 3 — топи); nil — местности нет.
     methods.add_method("terrain", |_, c, (x, y): (f64, f64)| {
       let state = c.state.borrow();
-      let Some(land) = &state.land else { return Ok((None, None)) };
+      let Some(land) = &state.land else { return Ok((None, None, None)) };
       let tile = land.borrow_mut().tile(x.floor() as i32, y.floor() as i32);
-      Ok((Some(tile[0] & 3), Some(tile[1] >> 6)))
+      let foot = tile[0] != kharos_engine::terrain::MOUNTAIN && tile[3] & kharos_engine::terrain::FOOT_BIT != 0;
+      Ok((Some(tile[0] & 3), Some(tile[1] >> 6), Some(foot)))
+    });
+    // Здание на тайле (Footprint) или nil — как ctx:occupant.
+    methods.add_method("occupant", |_, c, (x, y): (f64, f64)| {
+      let state = c.state.borrow();
+      let mut world = state.world.borrow_mut();
+      Ok(world.scene().occupant(x.floor() as i32, y.floor() as i32))
+    });
+    // Сущность этим кадром показана не целиком: { built — доля снизу, остальное чертёж (стройка, сворачивание);
+    // fade — непрозрачность вместе с тенью (тающий MCV) }.
+    methods.add_method("dress", |_, c, (e, options): (f64, Table)| {
+      let (built, fade): (Option<f32>, Option<f32>) = (options.get("built")?, options.get("fade")?);
+      c.state.borrow_mut().dressed.insert(entity(e)?, [built.unwrap_or(1.0).clamp(0.0, 1.0), fade.unwrap_or(1.0).clamp(0.0, 1.0)]);
+      Ok(())
+    });
+    // Облик вида kind серединой в (x, y) на этот кадр: { built — доля снизу, остальное чертёж; tint — {r, g, b, a}
+    // с предумноженной альфой; player — чья сторона (по умолчанию своя); over — призраком поверх зданий }.
+    methods.add_method("show", |_, c, (kind, x, y, options): (Table, f32, f32, Option<Table>)| {
+      let get = |key: &str| options.as_ref().map_or(Ok(Value::Nil), |table| table.get::<Value>(key));
+      let built = get("built")?.as_f64().unwrap_or(1.0).clamp(0.0, 1.0) as f32;
+      let tint = match get("tint")? {
+        Value::Table(table) => [table.get::<f32>(1)?, table.get::<f32>(2)?, table.get::<f32>(3)?, table.get::<f32>(4)?],
+        _ => [1.0; 4],
+      };
+      let mut state = c.state.borrow_mut();
+      let player = get("player")?.as_f64().map_or(state.player, |player| player as u32);
+      let over = get("over")?.as_boolean().unwrap_or(false);
+      state.shown.push(Shown { proto: kind.get("id")?, x, y, built, tint, player, over });
+      Ok(())
     });
     // Слышимость точки мира (0..1) и её сторона (−1..1): для своих голосов — моторов, гулов.
     methods.add_method("nearness", |_, c, (x, y, reach): (f32, f32, Option<f32>)| Ok(c.state.borrow().nearness(x, y, reach.unwrap_or(0.6))));
