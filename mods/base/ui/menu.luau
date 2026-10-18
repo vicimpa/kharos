@@ -4,6 +4,7 @@
 -- «Об игре». Те же окна, поля, кнопки и места.
 
 local form = require("lib/form")
+local settings = require("lib/settings")
 local widgets = require("lib/widgets")
 local COLORS = widgets.COLORS
 
@@ -178,6 +179,9 @@ local function mainWindow(c)
 		ui:box({ direction = "column", align = "stretch", gap = 6 }, function()
 			if form.button(ui, "menu:new", "Новая игра") then
 				open(c, "new")
+			end
+			if form.button(ui, "menu:settings", "Настройки") then
+				open(c, "settings")
 			end
 			if form.button(ui, "menu:about", "Об игре") then
 				open(c, "about")
@@ -398,6 +402,11 @@ function menu.draw(c)
 		newGameWindow(c)
 	elseif screen == "about" then
 		aboutWindow(c)
+	elseif screen == "settings" then
+		local ui = c.ui
+		if settings.window(c, place(ui)) then
+			screen = "main"
+		end
 	end
 end
 

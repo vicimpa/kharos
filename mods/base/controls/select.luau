@@ -13,7 +13,7 @@ select.data = {
 
 -- Вид отметок — как selectionPass.ts: приглушённый зелёный, яркость из настроек (0,7 по умолчанию).
 local SELECTED = 0x73eb8c
-local BRIGHTNESS = 0.7
+local settings = require("lib/settings")
 local RING_MARGIN = 0.2
 local BOX_FILL_ALPHA = 0.12
 local HIT_ALPHA = 0.5
@@ -45,7 +45,7 @@ local function mark(c, e: number, share: number)
 		return
 	end
 	local x, y, w, h, round = bounds(c, e)
-	local alpha = share * BRIGHTNESS
+	local alpha = share * settings.prefs(c).selection
 	if round then
 		-- Кольцо — как спрайт 64 пикселя с ободом в 4: толщина растёт с размером.
 		c.draw:circle(x, y, w / 2 - w * 3 / 64, SELECTED, w * c.camera.zoom * 4 / 64, alpha)

@@ -50,7 +50,7 @@ skirmish.client = {
 	atmosphere = { "weather" },
 	effects = { "traces" },
 	-- Звук — как в TS: интерфейс, моторы, работа зданий, фон с подложкой и эхом, ветер полёта.
-	audio = { "interface", "motors", "machines", "ambience", "flight" },
+	audio = { "levels", "interface", "motors", "machines", "ambience", "flight" },
 }
 
 return skirmish

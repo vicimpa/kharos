@@ -79,7 +79,7 @@ impl App {
     let menu = menu_of(&mods)?;
     // KHAROS_GAME — сразу в партию (проверки, снимки); иначе — в меню, а без меню — в партию по умолчанию.
     let first = std::env::var("KHAROS_GAME").ok().or_else(|| menu.clone());
-    let link: AppLink = Rc::new(RefCell::new(AppState { menu, ..Default::default() }));
+    let link: AppLink = Rc::new(RefCell::new(AppState { menu, prefs: script::Prefs::load(), ..Default::default() }));
     let game = Self::launch(&mut renderer, &mods, first.as_deref(), &serde_json::Value::Object(Default::default()), sound.clone(), link.clone())?;
     Ok(Self { renderer, game, mods, sound, link, quit: false })
   }

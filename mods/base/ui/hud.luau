@@ -17,8 +17,8 @@ local BAR_SPACING = 16 + 8 + 8
 local PORTRAIT = 96
 local TILE = 32
 local QUEUED = 24
--- Сторона мини-карты: из настроек 200, но не больше, чем оставляет сведениям ширина экрана (minimapSide).
-local MINIMAP = 200
+-- Сторона мини-карты: из настроек игрока, но не больше, чем оставляет сведениям ширина экрана (minimapSide).
+local settings = require("lib/settings")
 local INFO_MIN = 104 + 10 + 24 + 150
 local GRID_KEYS = { "T", "Y", "U", "I", "G", "H", "J", "K", "B", "N", "M", "," }
 local KEY_NAMES = { "t", "y", "u", "i", "g", "h", "j", "k", "b", "n", "m", "," }
@@ -358,7 +358,7 @@ local function bottomBar(c)
 	local ui = c.ui
 	local selection = c.shared.selection or {}
 	local selected = #selection > 0
-	local side = math.max(INNER, math.min(MINIMAP, ui.width - BAR_SPACING - GRID_WIDTH - INFO_MIN))
+	local side = math.max(INNER, math.min(settings.prefs(c).minimap, ui.width - BAR_SPACING - GRID_WIDTH - INFO_MIN))
 	local infoWidth = ui.width - BAR_SPACING - side - GRID_WIDTH
 	ui:box({ id = "bar", anchor = { left = 0, right = 0, bottom = 0 }, height = INNER + 16, skin = "panel", padding = { 4, 8 }, direction = "row", align = "end", gap = 8 }, function()
 		ui:box({ height = INNER, direction = "column", justify = "end" }, function()

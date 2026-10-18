@@ -12,6 +12,6 @@ return {
 	client = {
 		ui = { "menu" },
 		atmosphere = { "weather" },
-		audio = { "interface" },
+		audio = { "levels", "interface" },
 	},
 }

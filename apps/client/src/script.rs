@@ -274,6 +274,54 @@ pub struct AppState {
   /// Идущая партия и её настройки.
   pub game: String,
   pub options: Json,
+  /// Настройки игрока на диске — `c.app:get` и `c.app:set` (как localStorage у страницы).
+  pub prefs: Prefs,
+}
+
+/// Настройки игрока: объект JSON в файле. На десктопе — `~/.config/kharos/client.json` (Windows — `%APPDATA%\Kharos`).
+#[derive(Default)]
+pub struct Prefs {
+  values: serde_json::Map<String, Json>,
+  path: Option<std::path::PathBuf>,
+}
+
+impl Prefs {
+  pub fn load() -> Self {
+    let dir = std::env::var_os("KHAROS_CONFIG").map(std::path::PathBuf::from).or_else(|| {
+      if cfg!(windows) {
+        std::env::var_os("APPDATA").map(|dir| std::path::PathBuf::from(dir).join("Kharos"))
+      } else {
+        std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".config").join("kharos"))
+      }
+    });
+    let path = dir.map(|dir| dir.join("client.json"));
+    let values = path.as_ref().and_then(|path| std::fs::read_to_string(path).ok()).and_then(|text| serde_json::from_str::<Json>(&text).ok()).and_then(|value| match value {
+      Json::Object(map) => Some(map),
+      _ => None,
+    });
+    Self { values: values.unwrap_or_default(), path }
+  }
+
+  pub fn get(&self, key: &str) -> Option<&Json> {
+    self.values.get(key)
+  }
+
+  /// Запись — сразу на диск: настройки меняют редко, а выйти из игры могут когда угодно.
+  pub fn set(&mut self, key: &str, value: Json) {
+    if value.is_null() {
+      self.values.remove(key);
+    } else {
+      self.values.insert(key.to_string(), value);
+    }
+    let Some(path) = &self.path else { return };
+    if let Some(dir) = path.parent() {
+      let _ = std::fs::create_dir_all(dir);
+    }
+    let text = serde_json::to_string_pretty(&self.values).unwrap_or_default();
+    if let Err(error) = std::fs::write(path, text) {
+      eprintln!("{}: {error}", path.display());
+    }
+  }
 }
 
 pub type AppLink = Rc<RefCell<AppState>>;
@@ -301,6 +349,16 @@ impl UserData for AppApi {
       if let Some(menu) = state.menu.clone() {
         state.request = Some(AppRequest::Start { game: menu, options: Json::Object(Default::default()) });
       }
+      Ok(())
+    });
+    // Настройки игрока на диске: c.app:get(ключ) → значение или nil, c.app:set(ключ, значение) — nil удаляет.
+    methods.add_method("get", |lua, app, key: String| match app.0.borrow().prefs.get(&key) {
+      Some(value) => kharos_content::vm::to_lua(lua, value),
+      None => Ok(Value::Nil),
+    });
+    methods.add_method("set", |lua, app, (key, value): (String, Value)| {
+      let value: Json = lua.from_value(value)?;
+      app.0.borrow_mut().prefs.set(&key, value);
       Ok(())
     });
     // Открыть адрес в системном браузере.
