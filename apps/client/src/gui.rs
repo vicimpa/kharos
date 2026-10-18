@@ -62,6 +62,12 @@ impl FontName {
   }
 }
 
+/// Свои знаки на 12 пикселей, которых нет в пиксельном шрифте: молния энергии.
+const FALLBACK: [(char, &[&str]); 1] = [(
+  '⚡',
+  &["....##", "...##.", "..##..", ".#####", "....#.", "...#..", "..#...", ".#....", "#....."],
+)];
+
 #[derive(Clone, Copy)]
 struct Glyph {
   uv: [f32; 4],
@@ -100,8 +106,7 @@ impl Fonts {
     if let Some(glyph) = self.glyphs.get(&(face, px, char)) {
       return *glyph;
     }
-    let (metrics, bitmap) = self.faces[face].rasterize(char, px as f32);
-    let (w, h) = (metrics.width as u32, metrics.height as u32);
+    let (w, h, xmin, ymin, bitmap) = self.raster(face, char, px);
     if self.cursor[0] + w + 1 > ATLAS_SIZE {
       self.cursor = [0, self.cursor[1] + self.row + 1];
       self.row = 0;
@@ -123,9 +128,37 @@ impl Fonts {
     self.cursor[0] += w + 1;
     self.row = self.row.max(h);
     let size = ATLAS_SIZE as f32;
-    let glyph = Glyph { uv: [x as f32 / size, y as f32 / size, (x + w) as f32 / size, (y + h) as f32 / size], size: [w as f32, h as f32], offset: [metrics.xmin as f32, -(metrics.ymin as f32 + h as f32)] };
+    let glyph = Glyph { uv: [x as f32 / size, y as f32 / size, (x + w) as f32 / size, (y + h) as f32 / size], size: [w as f32, h as f32], offset: [xmin as f32, -(ymin as f32 + h as f32)] };
     self.glyphs.insert((face, px, char), glyph);
     glyph
+  }
+
+  /// Знака нет в начертании, но он есть среди своих (FALLBACK): у TS его брал системный шрифт браузера.
+  fn fallback(&self, face: usize, char: char) -> Option<&'static [&'static str]> {
+    if self.faces[face].lookup_glyph_index(char) != 0 {
+      return None;
+    }
+    FALLBACK.iter().find(|(code, _)| *code == char).map(|(_, rows)| *rows)
+  }
+
+  /// Глиф: ширина, высота, сдвиг от пера и от базовой линии, покрытие по пикселям.
+  fn raster(&self, face: usize, char: char, px: u16) -> (u32, u32, i32, i32, Vec<u8>) {
+    if let Some(rows) = self.fallback(face, char) {
+      let k = (px as f32 / 12.0).round().max(1.0) as u32;
+      let (w, h) = (rows[0].len() as u32 * k, rows.len() as u32 * k);
+      let bitmap = (0..h).flat_map(|y| (0..w).map(move |x| (y, x))).map(|(y, x)| if rows[(y / k) as usize].as_bytes()[(x / k) as usize] == b'#' { 255 } else { 0 }).collect();
+      return (w, h, 0, -(k as i32), bitmap);
+    }
+    let (metrics, bitmap) = self.faces[face].rasterize(char, px as f32);
+    (metrics.width as u32, metrics.height as u32, metrics.xmin, metrics.ymin, bitmap)
+  }
+
+  /// Шаг пера после знака.
+  fn advance(&self, face: usize, char: char, px: f32) -> f32 {
+    match self.fallback(face, char) {
+      Some(rows) => (rows[0].len() as f32 + 1.0) * (px / 12.0).round().max(1.0),
+      None => self.faces[face].metrics(char, px).advance_width,
+    }
   }
 
   /// Ширина строки в пикселях, с округлением вверх, как measureText в TS.
@@ -134,7 +167,7 @@ impl Fonts {
       return width;
     }
     let (face, size, ..) = font.spec();
-    let width = text.chars().map(|char| self.faces[face].metrics(char, size).advance_width).sum::<f32>().ceil();
+    let width = text.chars().map(|char| self.advance(face, char, size)).sum::<f32>().ceil();
     if self.widths.len() > 4000 {
       self.widths.clear();
     }
@@ -151,7 +184,7 @@ impl Fonts {
     let baseline = ((pos[1] + ascent) * scale).round();
     let mut pen = 0.0f32;
     for char in text.chars() {
-      let advance = self.faces[face].metrics(char, px as f32).advance_width;
+      let advance = self.advance(face, char, px as f32);
       let glyph = self.glyph(face, px, char);
       if glyph.size[0] > 0.0 {
         let x = origin + pen.round() + glyph.offset[0];

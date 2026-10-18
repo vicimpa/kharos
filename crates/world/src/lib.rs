@@ -4,6 +4,7 @@
 pub mod combat;
 pub mod host;
 pub mod motion;
+pub mod networks;
 pub mod schema;
 pub mod tools;
 pub mod vision;

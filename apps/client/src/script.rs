@@ -63,6 +63,25 @@ pub struct SoundOrder {
   pub rate: f32,
 }
 
+/// Как сущность показана этим кадром (`c:dress`).
+#[derive(Clone, Copy, Debug)]
+pub struct Dress {
+  /// Доля облика снизу, остальное — чертёж.
+  pub built: f32,
+  /// Непрозрачность вместе с тенью.
+  pub fade: f32,
+  /// Кадры работы облика.
+  pub working: bool,
+  /// Выключено: первый кадр, темнее, без огней.
+  pub off: bool,
+}
+
+impl Default for Dress {
+  fn default() -> Self {
+    Self { built: 1.0, fade: 1.0, working: false, off: false }
+  }
+}
+
 /// Облик вида вне сущности на этот кадр (`c:show`): середина в тайлах, сколько показано снизу (остальное — чертёж),
 /// оттенок с предумноженной альфой, чья сторона, поверх ли зданий призраком.
 #[derive(Clone, Copy, Debug)]
@@ -167,9 +186,8 @@ pub struct ClientState {
   /// Таблицы видов клиентской машины по номерам.
   pub protos: Vec<Table>,
   pub preview: Preview,
-  /// Сущности, показанные этим кадром не целиком (`c:dress`): доля облика снизу (остальное — чертёж) и
-  /// непрозрачность вместе с тенью.
-  pub dressed: HashMap<Entity, [f32; 2]>,
+  /// Как сущности показаны этим кадром (`c:dress`).
+  pub dressed: HashMap<Entity, Dress>,
   /// Облики видов вне сущностей этого кадра (`c:show`).
   pub shown: Vec<Shown>,
 }
@@ -485,6 +503,8 @@ impl UserData for Ctx {
     fields.add_field_method_get("game", |_, c| Ok(c.game.clone()));
     fields.add_field_method_get("time", |_, c| Ok(c.state.borrow().time));
     fields.add_field_method_get("dt", |_, c| Ok(c.state.borrow().dt));
+    // Шаг тика хоста в секундах: правилам, общим хосту и клиенту.
+    fields.add_field_method_get("step", |_, _| Ok(crate::game::STEP));
     fields.add_field_method_get("player", |_, c| Ok(c.state.borrow().player));
     fields.add_field_method_get("tick", |_, c| Ok(c.state.borrow().world.borrow().tick));
     // Секунды игры, сглаженные между тиками: по ним идут сутки и погода — у всех игроков одинаково.
@@ -549,11 +569,41 @@ impl UserData for Ctx {
       let mut world = state.world.borrow_mut();
       Ok(world.scene().occupant(x.floor() as i32, y.floor() as i32))
     });
-    // Сущность этим кадром показана не целиком: { built — доля снизу, остальное чертёж (стройка, сворачивание);
-    // fade — непрозрачность вместе с тенью (тающий MCV) }.
+    // Сети — как ctx:grids, ctx:networks и ctx:network_version.
+    methods.add_method("grids", |lua, c, ()| {
+      let state = c.state.borrow();
+      let mut world = state.world.borrow_mut();
+      let kharos_world::host::State { world, networks, .. } = &mut *world;
+      kharos_world::networks::to_lua(lua, networks.grids(world), false)
+    });
+    methods.add_method("networks", |lua, c, ()| {
+      let state = c.state.borrow();
+      let mut world = state.world.borrow_mut();
+      let kharos_world::host::State { world, networks, .. } = &mut *world;
+      kharos_world::networks::to_lua(lua, networks.networks(world), true)
+    });
+    methods.add_method("network_version", |_, c, ()| {
+      let state = c.state.borrow();
+      let mut world = state.world.borrow_mut();
+      let kharos_world::host::State { world, networks, .. } = &mut *world;
+      Ok(networks.version(world))
+    });
+    // Как сущность показана этим кадром: { built — доля снизу, остальное чертёж (стройка, сворачивание); fade —
+    // непрозрачность вместе с тенью (тающий MCV); working — кадры работы облика (`working` у облика); off — стоит на
+    // первом кадре, темнее и без огней (выключенное) }. Несколько вызовов за кадр складываются.
     methods.add_method("dress", |_, c, (e, options): (f64, Table)| {
       let (built, fade): (Option<f32>, Option<f32>) = (options.get("built")?, options.get("fade")?);
-      c.state.borrow_mut().dressed.insert(entity(e)?, [built.unwrap_or(1.0).clamp(0.0, 1.0), fade.unwrap_or(1.0).clamp(0.0, 1.0)]);
+      let (working, off): (Option<bool>, Option<bool>) = (options.get("working")?, options.get("off")?);
+      let mut state = c.state.borrow_mut();
+      let dress = state.dressed.entry(entity(e)?).or_default();
+      if let Some(built) = built {
+        dress.built = built.clamp(0.0, 1.0);
+      }
+      if let Some(fade) = fade {
+        dress.fade = fade.clamp(0.0, 1.0);
+      }
+      dress.working = working.unwrap_or(dress.working);
+      dress.off = off.unwrap_or(dress.off);
       Ok(())
     });
     // Облик вида kind серединой в (x, y) на этот кадр: { built — доля снизу, остальное чертёж; tint — {r, g, b, a}
@@ -784,6 +834,22 @@ impl UserData for Draw {
       let half = side / 2.0;
       let rgba = color(value.unwrap_or(0xffffff), alpha);
       draw.batch(|batch, _| batch.quad([x - half, y - half], [x + half, y + half], uv, rgba, crate::ui::Paint::Picture));
+      Ok(())
+    });
+    // Кадр спрайта на прямоугольник мира (left, top, width, height в тайлах); flip — отражён по горизонтали.
+    methods.add_method("stretch", |_, draw, (kind, phase, left, top, width, height, flip, value, alpha): (Table, usize, f32, f32, f32, f32, Option<bool>, Option<u32>, Option<f32>)| {
+      let id: u32 = kind.get("id")?;
+      let uv = {
+        let state = draw.0.borrow();
+        let Some(info) = state.looks.get(&id) else { return Ok(()) };
+        let directions = info.directions.max(1);
+        let phases = (info.cells.len() / directions).max(1);
+        let Some(&uv) = info.cells.get((phase % phases) * directions) else { return Ok(()) };
+        uv
+      };
+      let uv = if flip.unwrap_or(false) { [uv[2], uv[1], uv[0], uv[3]] } else { uv };
+      let rgba = color(value.unwrap_or(0xffffff), alpha);
+      draw.batch(|batch, _| batch.quad([left, top], [left + width, top + height], uv, rgba, crate::ui::Paint::Picture));
       Ok(())
     });
   }

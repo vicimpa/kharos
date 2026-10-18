@@ -8,7 +8,7 @@
 -- поблизости. Правила места и кредитов — lib/construction.
 --
 -- Пока нет: материалов на стройке (В5 — подвозят грузовики и сами строители), покрытия и землеройных работ,
--- улучшений зданий, очереди приказов (Shift), ремонтных станций (им нужна энергия, В4), наград за первое здание (В4).
+-- улучшений зданий, очереди приказов (Shift).
 
 local construction = require("lib/construction")
 local placement = require("lib/placement")
@@ -16,6 +16,8 @@ local zones = require("lib/zones")
 local kinds = require("lib/kinds")
 local wallet = require("lib/wallet")
 local conversion = require("lib/conversion")
+local buildings = require("lib/buildings")
+local economy = require("lib/economy")
 
 local readf64, writef64 = buffer.readf64, buffer.writef64
 
@@ -291,15 +293,22 @@ local function repairLinks(ctx, rules, purse, all): { Link }
 	local links = {}
 	local repairers = {}
 	for _, e in ctx:each({ "Repair", "Position", "Owner" }) do
-		-- На ходу, разворачиваясь и недостроенным не работают; турель — работает и на ходу носителя. Ремонтные станции
-		-- придут с энергией (В4).
+		-- На ходу, разворачиваясь и недостроенным не работают; турель — работает и на ходу носителя.
 		local attached = ctx:get(e, "Attached")
 		local carrier = if attached then attached.parent else e
-		if ctx:has(e, "Path") or ctx:has(carrier, "Converting") or ctx:has(e, "Site") or ctx:has(e, "Building") then
+		if ctx:has(e, "Path") or ctx:has(carrier, "Converting") or ctx:has(e, "Site") then
 			continue
 		end
 		local at = ctx:get(e, "Position")
 		local repair = ctx:get(e, "Repair")
+		-- Ремонтная станция (repairStations): готовая, не выключенная и с энергией — чинит на свою долю энергии.
+		if ctx:has(e, "Building") then
+			local share = if economy.switchedOff(ctx, e) then 0 else economy.shareOf(ctx, e)
+			if share > 0 then
+				table.insert(repairers, { entity = e, player = ownerOf(ctx, e), x = at.x, y = at.y, radius = repair.radius, rate = repair.rate * share, carrier = e, station = true })
+			end
+			continue
+		end
 		local builds = ctx:get(e, "Builds")
 		table.insert(repairers, { entity = e, player = ownerOf(ctx, e), x = at.x, y = at.y, radius = repair.radius, rate = repair.rate, site = if builds then builds.site else nil, carrier = carrier })
 	end
@@ -307,6 +316,7 @@ local function repairLinks(ctx, rules, purse, all): { Link }
 		return links
 	end
 	local targets = {}
+	local overbuilt
 	for _, e in ctx:each({ "Site", "Position", "Owner" }) do
 		local work = workAt(ctx, e)
 		if work then
@@ -319,7 +329,9 @@ local function repairLinks(ctx, rules, purse, all): { Link }
 		if health.value < health.max and construction.isRepairable(ctx, e) and not underFire(ctx, e, rules) then
 			local work = workAt(ctx, e)
 			if work then
-				table.insert(targets, { entity = e, work = work, player = ownerOf(ctx, e), demolish = false })
+				-- Электростанцию, которой не хватило бы и целой, чинят только посланные к ней.
+				overbuilt = overbuilt or economy.overbuilt(ctx)
+				table.insert(targets, { entity = e, work = work, player = ownerOf(ctx, e), demolish = false, ordered = ctx:has(e, "Building") and overbuilt[e] == true })
 			end
 		end
 	end
@@ -336,6 +348,13 @@ local function repairLinks(ctx, rules, purse, all): { Link }
 		for _, target in targets do
 			-- Себя и свой носитель ремонтник не чинит.
 			if target.player ~= repairer.player or target.entity == repairer.carrier then
+				continue
+			end
+			-- Станция только чинит: стройки и разбор — работа строителя.
+			if repairer.station and ctx:has(target.entity, "Site") then
+				continue
+			end
+			if target.ordered and repairer.site ~= target.entity then
 				continue
 			end
 			local distance = distanceTo(target.work, repairer.x, repairer.y)
@@ -394,6 +413,7 @@ local function volunteer(ctx, rules, all)
 		return
 	end
 	local sites = {}
+	local overbuilt
 	for _, e in ctx:each({ "Site", "Position", "Owner" }) do
 		local work = workAt(ctx, e)
 		if work then
@@ -405,7 +425,9 @@ local function volunteer(ctx, rules, all)
 		local health = ctx:get(e, "Health")
 		-- За едущим юнитом сами не гоняются: встанет — починят. К тому, по кому бьют, тоже не едут: переждут бой.
 		if health.value < health.max and construction.isRepairable(ctx, e) and not ctx:has(e, "Path") and not underFire(ctx, e, rules) then
-			local work = workAt(ctx, e)
+			-- Электростанцию, которой не хватило бы и целой, сами не чинят: починка зря жгла бы кредиты.
+			overbuilt = overbuilt or economy.overbuilt(ctx)
+			local work = not overbuilt[e] and workAt(ctx, e)
 			if work then
 				table.insert(sites, { entity = e, work = work, player = ownerOf(ctx, e) })
 			end
@@ -526,6 +548,11 @@ mechanic.commands = {
 		end
 		if state.demolish then
 			ctx:remove(site, "Site")
+			-- Разбор отменён: здание снова в сети.
+			local link = buildings.link(kinds.of(ctx, site))
+			if link then
+				ctx:add(site, "Link", link)
+			end
 		elseif ctx:has(site, "Footprint") then
 			ctx:set(site, "Site", { demolish = true, undo = true })
 		else
@@ -542,6 +569,7 @@ mechanic.commands = {
 		end
 		local total = construction.siteTicks(kinds.of(ctx, building), ctx.dt)
 		ctx:add(building, "Site", { progress = total, total = total, demolish = true })
+		ctx:remove(building, "Link")
 		ctx:emit("laid", { site = building, player = player, builders = if type(args.builders) == "table" then args.builders else {} })
 	end,
 }

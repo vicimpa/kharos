@@ -1,17 +1,13 @@
 --!strict
 -- Игроки и их кредиты. Игрок — сущность без вида с компонентом Player; номер сущности — в ctx.storage.players,
--- кошелёк — lib/wallet.luau.
+-- кошелёк — lib/wallet.luau, доход — mechanics/economy.
 
 local players = {}
 
-players.data = {
-	-- Доход каждого игрока, кредитов в секунду.
-	income = 5,
-}
-
 players.components = {
-	-- earned — накопленная дробная часть: стройка платит и разбор возвращает по долям кредита (spend, earn).
-	Player = { id = 0, credits = 0, earned = 0 },
+	-- earned — накопленная дробная часть: стройка платит, разбор возвращает и доход приходит по долям кредита (spend,
+	-- earn); rewards — полученные награды по порядку (mechanics/economy).
+	Player = { id = 0, credits = 0, earned = 0, rewards = {} },
 }
 
 players.on = {
@@ -25,22 +21,6 @@ players.on = {
 		local credits = ctx.game.data and ctx.game.data.credits or 0
 		list[tostring(event.player)] = ctx:spawn(nil, { Player = { id = event.player, credits = credits } })
 	end,
-}
-
-players.systems = {
-	-- Раз в секунду — доход.
-	income = {
-		query = { "Player" },
-		write = { "Player" },
-		every = 20,
-		run = function(q, ctx)
-			local credits = q.Player.credits
-			local gain = players.data.income * ctx.dt * 20
-			for i = 0, q.n - 1 do
-				buffer.writef64(credits, i * 8, buffer.readf64(credits, i * 8) + gain)
-			end
-		end,
-	},
 }
 
 return players

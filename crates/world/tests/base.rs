@@ -170,6 +170,9 @@ fn core_packs_back_into_mcv_with_its_queue_and_health() {
   host.send(2, "pack", json!({ "building": core }));
   host.tick(0.05).unwrap();
   assert!(all(&host, "Converting").iter().any(|(entity, _)| *entity == core));
+  // Пушка сворачивающегося здания молчит.
+  host.tick(0.05).unwrap();
+  assert_eq!(get(&host, core, "Throttle").unwrap()["share"].as_f64(), Some(0.0));
   ticks(&mut host, 10 * 20);
   assert!(kind(&host, "buildings", "command").is_empty());
   let truck = mcv(&host);
@@ -370,9 +373,16 @@ fn tick_now(host: &Host) -> u64 {
   host.state.borrow().tick
 }
 
-/// Сколько дохода (5 кредитов раз в 20 тиков) пришло между тиками.
+/// Сколько дохода пришло между тиками: главное здание даёт 0,2 в секунду, пока у игрока не меньше 600 кредитов (иначе
+/// подмога; в этих сценах их больше), остальное здесь дохода не даёт.
 fn income_between(from: u64, to: u64) -> f64 {
-  5.0 * (to / 20 - from / 20) as f64
+  0.2 * 0.05 * (to - from) as f64
+}
+
+/// Сколько у игрока денег с дробной частью: кредиты и накопленные доли.
+fn worth(host: &Host) -> f64 {
+  let player = &all(host, "Player")[0].1;
+  player["credits"].as_f64().unwrap() + player["earned"].as_f64().unwrap()
 }
 
 #[test]
@@ -380,14 +390,14 @@ fn builder_raises_a_generator_paying_as_it_goes() {
   let mut host = host();
   let (_, site, builder) = base_with_builder(&mut host);
   let (x, y) = generator_spot(&host, site);
-  let (before, from) = (credits(&host), tick_now(&host));
+  let (before, from) = (worth(&host), tick_now(&host));
   host.send(1, "build", json!({ "building": "generator", "x": x, "y": y, "builders": [builder] }));
   host.tick(0.05).unwrap();
   let generator = kind(&host, "buildings", "generator")[0];
   // Площадка: тайлов не занимает, пока к ней не приступили, и денег за неё ещё не брали.
   assert!(get(&host, generator, "Site").is_some());
   assert!(get(&host, generator, "Footprint").is_none());
-  assert_eq!(credits(&host), before + income_between(from, tick_now(&host)));
+  assert!((worth(&host) - before - income_between(from, tick_now(&host))).abs() < 1e-6);
   assert_eq!(get(&host, builder, "Builds").unwrap()["site"].as_f64(), Some(generator as f64));
   // Строитель доезжает и строит: 300 кредитов — 300 тиков работы одного строителя.
   let mut started = None;
@@ -401,7 +411,7 @@ fn builder_raises_a_generator_paying_as_it_goes() {
     if !half && work["progress"].as_f64().unwrap() >= 150.0 {
       half = true;
       // Платят по ходу: половина цены за половину стройки.
-      let paid = before + income_between(from, tick_now(&host)) - credits(&host);
+      let paid = before + income_between(from, tick_now(&host)) - worth(&host);
       assert!((paid - 150.0).abs() <= 2.0, "за половину уплачено {paid}");
       assert!(!all(&host, "Repair").iter().all(|(_, repair)| repair["target"] == json!(-1)), "луч работы");
     }
@@ -410,7 +420,8 @@ fn builder_raises_a_generator_paying_as_it_goes() {
   assert!(get(&host, generator, "Site").is_none(), "не достроено");
   let built = tick_now(&host);
   assert!((built - started) as i64 - 300 <= 2, "строилось {} тиков", built - started);
-  let paid = before + income_between(from, built) - credits(&host);
+  // Первая электростанция приносит награду.
+  let paid = before + income_between(from, built) + 150.0 - worth(&host);
   assert!((paid - 300.0).abs() <= 1.0, "уплачено {paid}");
   let health = get(&host, generator, "Health").unwrap();
   assert_eq!(health["value"], health["max"]);
@@ -458,7 +469,7 @@ fn cancelled_site_returns_what_was_paid_and_demolish_returns_half() {
   host.tick(0.05).unwrap();
   assert!(kind(&host, "buildings", "generator").is_empty());
   // Начатую — разбирают с возвратом уплаченного.
-  let (before, from) = (credits(&host), tick_now(&host));
+  let (before, from) = (worth(&host), tick_now(&host));
   host.send(1, "build", json!({ "building": "generator", "x": x, "y": y, "builders": [builder] }));
   host.tick(0.05).unwrap();
   let second = kind(&host, "buildings", "generator")[0];
@@ -478,7 +489,7 @@ fn cancelled_site_returns_what_was_paid_and_demolish_returns_half() {
     }
   }
   assert!(kind(&host, "buildings", "generator").is_empty(), "отменённая стройка не разобрана");
-  let lost = before + income_between(from, tick_now(&host)) - credits(&host);
+  let lost = before + income_between(from, tick_now(&host)) - worth(&host);
   assert!(lost.abs() <= 1.0, "отмена стоила {lost}");
   // Готовое разбирают за половину цены.
   host.send(1, "build", json!({ "building": "generator", "x": x, "y": y, "builders": [builder] }));
@@ -491,7 +502,7 @@ fn cancelled_site_returns_what_was_paid_and_demolish_returns_half() {
     }
   }
   assert!(get(&host, third, "Site").is_none());
-  let (before, from) = (credits(&host), tick_now(&host));
+  let (before, from) = (worth(&host), tick_now(&host));
   host.send(1, "demolish", json!({ "building": third, "builders": [builder] }));
   for _ in 0..20 * 30 {
     host.tick(0.05).unwrap();
@@ -500,7 +511,8 @@ fn cancelled_site_returns_what_was_paid_and_demolish_returns_half() {
     }
   }
   assert!(kind(&host, "buildings", "generator").is_empty(), "не разобрано");
-  assert_eq!(credits(&host), before + income_between(from, tick_now(&host)) + 150.0);
+  let returned = worth(&host) - before - income_between(from, tick_now(&host));
+  assert!((returned - 150.0).abs() < 1e-6, "разбор вернул {returned}");
 }
 
 #[test]
@@ -509,7 +521,7 @@ fn builders_repair_what_is_damaged_for_credits_and_not_under_fire() {
   let (core, _, _) = base_with_builder(&mut host);
   // Строитель стоит у главного здания: разбитое рядом он чинит сам.
   set(&host, core, "Health", json!({ "value": 0.5 }));
-  let (before, from) = (credits(&host), tick_now(&host));
+  let (before, from) = (worth(&host), tick_now(&host));
   for _ in 0..20 * 60 {
     host.tick(0.05).unwrap();
     if get(&host, core, "Health").unwrap()["value"].as_f64().unwrap() >= 1.0 {
@@ -519,7 +531,7 @@ fn builders_repair_what_is_damaged_for_credits_and_not_under_fire() {
   let health = get(&host, core, "Health").unwrap()["value"].as_f64().unwrap();
   assert!(health >= 1.0, "не дочинил: {health}");
   // Половина прочности за половину цены починки: 2000 × 0,5 × 0,5.
-  let paid = before + income_between(from, tick_now(&host)) - credits(&host);
+  let paid = before + income_between(from, tick_now(&host)) - worth(&host);
   assert!((paid - 500.0).abs() <= 2.0, "починка стоила {paid}");
   // По тому, во что только что попали, не работают.
   set(&host, core, "Health", json!({ "value": 0.5 }));
@@ -545,4 +557,149 @@ fn point_order_sends_builders_to_own_site() {
   host.send(1, "order", json!({ "units": [builder], "x": site.0 as f64 - 6.0, "y": site.1 as f64 + 1.5 }));
   host.tick(0.05).unwrap();
   assert!(get(&host, builder, "Builds").is_none());
+}
+
+/// Свободное место size × size в зоне главного здания: скала, ни зданий, ни юнитов на тайл вокруг.
+fn free_spot(host: &Host, (cx, cy): (i32, i32), size: i32) -> (i32, i32) {
+  let units: Vec<(f64, f64)> = all(host, "Mover").into_iter().map(|(entity, _)| place(host, entity)).collect();
+  for ring in 3i32..10 {
+    for dy in -ring..=ring {
+      for dx in -ring..=ring {
+        let (x, y) = (cx + 1 + dx, cy + 1 + dy);
+        if dx.abs().max(dy.abs()) != ring || !rocky_area(host, x, y, size) {
+          continue;
+        }
+        let taken = {
+          let mut state = host.state.borrow_mut();
+          let mut scene = state.scene();
+          (y - 1..y + size + 1).any(|ty| (x - 1..x + size + 1).any(|tx| scene.occupant(tx, ty).is_some()))
+        };
+        let crowded = units.iter().any(|&(ux, uy)| ux >= x as f64 - 1.0 && ux < (x + size + 1) as f64 && uy >= y as f64 - 1.0 && uy < (y + size + 1) as f64);
+        if !taken && !crowded && all(host, "Site").iter().all(|(site, _)| {
+          let (sx, sy) = place(host, *site);
+          (sx - (x as f64 + size as f64 / 2.0)).abs() > 3.0 || (sy - (y as f64 + size as f64 / 2.0)).abs() > 3.0
+        }) {
+          return (x, y);
+        }
+      }
+    }
+  }
+  panic!("нет места {size}×{size} у {cx} {cy}");
+}
+
+/// Строит здание строителем и ждёт, пока достроят.
+fn raise(host: &mut Host, building: &str, (x, y): (i32, i32), builder: u32) -> u32 {
+  host.send(1, "build", json!({ "building": building, "x": x, "y": y, "builders": [builder] }));
+  host.tick(0.05).unwrap();
+  let entity = *kind(host, "buildings", building).iter().max().unwrap();
+  for _ in 0..20 * 90 {
+    host.tick(0.05).unwrap();
+    if get(host, entity, "Site").is_none() {
+      return entity;
+    }
+  }
+  panic!("{building} не достроен");
+}
+
+/// Энергосети игрока: (члены сети) по порядку.
+fn grids(host: &Host) -> Vec<Vec<u32>> {
+  let mut state = host.state.borrow_mut();
+  let kharos_world::host::State { world, networks, .. } = &mut *state;
+  networks.grids(world).iter().map(|grid| grid.members.clone()).collect()
+}
+
+/// Сколько денег прибавилось за count тиков.
+fn earned_over(host: &mut Host, count: usize) -> f64 {
+  let before = worth(host);
+  ticks(host, count);
+  worth(host) - before
+}
+
+#[test]
+fn power_plant_feeds_matter_income_follows_power_and_accumulator_covers_the_gap() {
+  // Без дерева технологий: накопитель открыт и без исследования; остальные правила — как в игре.
+  let mods = discover(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods")).unwrap();
+  let rules = json!({ "techTree": false, "repairSpeed": 2, "repairCost": 0.5, "repairPause": 3, "vehicleSand": 0.1, "vehicleSwamp": 0.8, "heavySand": 0, "heavySwamp": 0.5, "infantrySand": 0, "infantrySwamp": 0.5, "infantryCliff": 0.7, "frozenSwamp": 0.25, "toxicSwamp": 0.01 });
+  let mut host = Host::new(mods, None, 7, &json!({ "rules": rules })).unwrap();
+  host.start().unwrap();
+  host.join(1).unwrap();
+  let (core, site, builder) = base_with_builder(&mut host);
+  // Первое развёрнутое главное здание и первый юнит — награды.
+  assert_eq!(all(&host, "Player")[0].1["rewards"], json!(["deploy", "unit"]));
+  // Одно главное здание: 0,2 в секунду.
+  assert!((earned_over(&mut host, 100) - 1.0).abs() < 1e-6);
+
+  let generator = {
+    let spot = free_spot(&host, site, 2);
+    raise(&mut host, "generator", spot, builder)
+  };
+  let matter = {
+    let spot = free_spot(&host, site, 2);
+    raise(&mut host, "matter", spot, builder)
+  };
+  // Всё в зоне главного здания — одна энергосеть, главное здание первым.
+  let all_grids = grids(&host);
+  assert_eq!(all_grids.len(), 1, "сети {all_grids:?}");
+  assert_eq!(all_grids[0][0], core);
+  assert!(all_grids[0].contains(&generator) && all_grids[0].contains(&matter));
+  // Генератор материи на полной энергии: 1,5 и 0,2 главного здания.
+  assert!((earned_over(&mut host, 100) - 8.5).abs() < 1e-6);
+
+  // Выключенный не просит энергии и не приносит дохода.
+  host.send(1, "work", json!({ "building": matter, "on": false }));
+  host.tick(0.05).unwrap();
+  assert!(get(&host, matter, "Off").is_some());
+  assert!((earned_over(&mut host, 100) - 1.0).abs() < 1e-6);
+  host.send(1, "work", json!({ "building": matter, "on": true }));
+  host.tick(0.05).unwrap();
+  assert!(get(&host, matter, "Off").is_none());
+
+  // Строитель больше не нужен: иначе он чинил бы станцию.
+  host.state.borrow_mut().world.destroy(builder);
+  // Разбитая станция даёт пятую часть: 2 из 3 нужных — генератор на две трети, станция перегружена и разрушается.
+  set(&host, generator, "Health", json!({ "value": 0.2 }));
+  host.tick(0.05).unwrap();
+  // По тикам: станция изнашивается, и выработка падает вместе с прочностью.
+  let (mut income, mut wear) = (0.0, 0.0);
+  let before = worth(&host);
+  for _ in 0..100 {
+    let health = get(&host, generator, "Health").unwrap()["value"].as_f64().unwrap();
+    let produced = 10.0 * health;
+    income += (0.2 + 1.5 * (produced / 3.0).min(1.0)) * 0.05;
+    wear += 0.01 * (3.0 / produced - 1.0).min(1.0) * 0.05;
+    host.tick(0.05).unwrap();
+    let after = get(&host, generator, "Health").unwrap()["value"].as_f64().unwrap();
+    assert!((health - after - 0.01 * (3.0 / produced - 1.0).min(1.0) * 0.05).abs() < 1e-9, "износ за тик {}", health - after);
+  }
+  let gained = worth(&host) - before;
+  assert!((gained - income).abs() < 1e-6, "доход при нехватке {gained}, а не {income}");
+  assert!(wear > 0.0);
+  set(&host, generator, "Health", json!({ "value": 1 }));
+
+  // Накопитель копит излишек: 10 выработки, 3 спроса — берёт 7 в секунду.
+  let rebuilt = kind(&host, "units", "builder");
+  let builder = match rebuilt.first() {
+    Some(&builder) => builder,
+    None => {
+      host.send(1, "produce", json!({ "building": core, "unit": "builder" }));
+      ticks(&mut host, 5 * 20 + 2);
+      kind(&host, "units", "builder")[0]
+    }
+  };
+  let accumulator = {
+    let spot = free_spot(&host, site, 2);
+    raise(&mut host, "accumulator", spot, builder)
+  };
+  host.state.borrow_mut().world.destroy(builder);
+  ticks(&mut host, 20);
+  let cell = get(&host, accumulator, "Accumulator").unwrap();
+  assert!((cell["flow"].as_f64().unwrap() + 7.0).abs() < 1e-9, "накопитель {cell:?}");
+  assert!(cell["charge"].as_f64().unwrap() > 0.0);
+  // Станции нет — накопитель отдаёт недостающее, и генератор материи работает в полную силу.
+  host.state.borrow_mut().world.destroy(generator);
+  host.tick(0.05).unwrap();
+  let gained = earned_over(&mut host, 20);
+  assert!((gained - 1.7).abs() < 1e-6, "доход на накопителе {gained}");
+  let cell = get(&host, accumulator, "Accumulator").unwrap();
+  assert!((cell["flow"].as_f64().unwrap() - 3.0).abs() < 1e-9, "накопитель {cell:?}");
 }

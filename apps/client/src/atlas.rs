@@ -187,6 +187,8 @@ pub struct Look {
   pub portrait_size: [f32; 2],
   /// Картинка из файла мода, а не чертёж: рисуется гладко, с прозрачностью, без цвета стороны.
   pub picture: bool,
+  /// Вторая половина кадров — работа (`working`): без `c:dress(e, { working = true })` идёт первая.
+  pub working: bool,
 }
 
 impl Look {
@@ -284,7 +286,8 @@ pub fn build(lua: &Lua, proto: u32, look: Table) -> mlua::Result<Look> {
     None => None,
   };
   let portrait_size = portrait.as_ref().map_or([width as f32, height as f32], |(_, [w, h])| [*w as f32, *h as f32]);
-  Ok(Look { proto, size: [width, height], offset, directions, phases, images, cells: Vec::new(), frame_lights, fps: look.get::<Option<f32>>("fps")?.unwrap_or(8.0), step: look.get::<Option<f32>>("step")?, layer, shadow, memory, lights, table: look, icon, portrait, portrait_uv: None, portrait_size, picture: false })
+  let working = look.get::<Option<bool>>("working")?.unwrap_or(false) && phases > 1;
+  Ok(Look { proto, size: [width, height], offset, directions, phases, images, cells: Vec::new(), frame_lights, fps: look.get::<Option<f32>>("fps")?.unwrap_or(8.0), step: look.get::<Option<f32>>("step")?, layer, shadow, memory, lights, table: look, icon, portrait, portrait_uv: None, portrait_size, picture: false, working })
 }
 
 /// Облик-картинка: PNG из мода (`image = "images/logo.png"`), уменьшенный до size усреднением — как картинка на холсте
@@ -337,7 +340,7 @@ pub fn picture(proto: u32, look: Table, png: &[u8]) -> Result<Look, String> {
       }
     }
   }
-  Ok(Look { proto, size: [w, h], offset: [-(w as f32) / 32.0, -(h as f32) / 32.0], directions: 1, phases: 1, images: vec![pixels.clone()], cells: Vec::new(), frame_lights: vec![Vec::new()], fps: 8.0, step: None, layer: Layer::Ground, shadow: [0.0, 0.0], memory: false, lights: Lights::default(), table: look, icon: 0, portrait: Some((pixels, [w, h])), portrait_uv: None, portrait_size: [w as f32, h as f32], picture: true })
+  Ok(Look { proto, size: [w, h], offset: [-(w as f32) / 32.0, -(h as f32) / 32.0], directions: 1, phases: 1, images: vec![pixels.clone()], cells: Vec::new(), frame_lights: vec![Vec::new()], fps: 8.0, step: None, layer: Layer::Ground, shadow: [0.0, 0.0], memory: false, lights: Lights::default(), table: look, icon: 0, portrait: Some((pixels, [w, h])), portrait_uv: None, portrait_size: [w as f32, h as f32], picture: true, working: false })
 }
 
 /// Портрет: `{ size, origin, draw = function(canvas) }` — рисуется один раз и обрезается по закрашенному (toCanvas).

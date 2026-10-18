@@ -7,6 +7,7 @@ local stats = require("lib/stats")
 local conversion = require("lib/conversion")
 local construction = require("lib/construction")
 local kinds = require("lib/kinds")
+local economy = require("lib/economy")
 local COLORS, shadow = widgets.COLORS, widgets.shadow
 
 local hud = {}
@@ -24,8 +25,12 @@ local QUEUED = 24
 local settings = require("lib/settings")
 local INFO_MIN = 104 + 10 + 24 + 150
 local GRID_KEYS = { "T", "Y", "U", "I", "G", "H", "J", "K", "B", "N", "M", "," }
--- Постоянные места сетки: превращение, отмена, разбор и «Назад» (CONVERT, CANCEL, DEMOLISH, BACK в commands.ts).
+-- Постоянные места сетки: превращение, отмена, разбор и «Назад» (CONVERT, CANCEL, DEMOLISH, BACK в commands.ts);
+-- выключатель — на месте «Назад» (SWITCH).
 local CONVERT, CANCEL, DEMOLISH, BACK = 9, 10, 11, 12
+local SWITCH = BACK
+-- С какой доли выработки полная нагрузка сети уже тесна: число энергии на полосе желтеет (GRID_TIGHT).
+local GRID_TIGHT = 0.8
 -- Разделы строителя: в какой странице какое здание; остальное — хозяйство (SECTIONS в commands.ts). Раздел — с
 -- картинкой здания, по порядку кнопок.
 local SECTIONS = {
@@ -53,6 +58,52 @@ local function percent(value: number): string
 end
 local KEY_NAMES = { "t", "y", "u", "i", "g", "h", "j", "k", "b", "n", "m", "," }
 
+-- Число, как его пишет JS: до сотых, без лишних нулей.
+local function number(value: number): string
+	local rounded = math.round(value * 100) / 100
+	if rounded == math.floor(rounded) then
+		return tostring(math.floor(rounded))
+	end
+	return (string.gsub(string.format("%.2f", rounded), "0+$", ""))
+end
+
+-- Энергия сети для подписи (gridState): выработка повреждённых станций дробная — до десятых и вниз, а спрос — вверх,
+-- чтобы нехватка не выглядела как «20 из 20».
+local function gridState(e: economy.Economy)
+	return {
+		produced = math.floor(e.produced * 10) / 10,
+		demand = math.ceil(e.demand * 10 - 1e-9) / 10,
+		peak = math.ceil(e.peak * 10 - 1e-9) / 10,
+		stored = math.round(e.stored * 100) / 100,
+		overload = economy.overloadOf(e) > 0,
+	}
+end
+
+-- Подпись энергии сети (gridText).
+local function gridText(grid): string
+	return "⚡ Энергия зоны: потребляется " .. number(grid.demand) .. " из " .. number(grid.produced)
+		.. (if grid.stored > 0 then ", из них " .. number(grid.stored) .. " — из накопителей" else "")
+		.. (if grid.peak > grid.demand then ", при полной нагрузке — " .. number(grid.peak) else "")
+		.. (if grid.overload then " — перегруз, станции разрушаются" else "")
+end
+
+-- Сеть, которую показывает полоса: выбранного своего здания, а без него — первая (с главным зданием).
+local function shownGrid(c)
+	local zones = economy.zones(c, c.player)
+	local index = 1
+	for _, e in c.shared.selection or {} do
+		if c:mine(e) then
+			local found = economy.gridOf(c, e)
+			if found then
+				index = found
+				break
+			end
+		end
+	end
+	local shown = zones[index]
+	return if shown then gridState(shown) else nil
+end
+
 -- Свой игрок: кредиты.
 local function credits(c): number
 	for _, e in c:each({ "Player" }) do
@@ -70,12 +121,20 @@ local function topBar(c)
 		ui:box({ id = "credits", direction = "row", align = "center", gap = 6 }, function()
 			widgets.coin(ui)
 			ui:text(tostring(math.floor(credits(c))), { font = "title", color = COLORS.gold, shadow = COLORS.ink, lift = 2 })
-			local income = c.protos.mechanics.players.data.income
+			local income = math.round(economy.of(c, c.player).income * 100) / 100
 			if income > 0 then
-				ui:text("+" .. income .. "/с", { color = COLORS.good })
+				ui:text("+" .. number(income) .. "/с", { color = COLORS.good })
 			end
 		end)
 		ui:tip("credits", "Кредиты")
+		local grid = shownGrid(c)
+		if grid then
+			local color = if grid.demand > grid.produced or grid.overload then COLORS.bad elseif grid.peak > grid.produced * GRID_TIGHT then COLORS.warn else COLORS.power
+			ui:box({ id = "grid" }, function()
+				ui:text("⚡ " .. number(grid.demand) .. " / " .. number(grid.produced), { color = color })
+			end)
+			ui:tip("grid", gridText(grid) .. "\nСеть выбранного здания; ничего не выбрано — сеть главного здания")
+		end
 		ui:space(0, 0, 1)
 		local hour = c.atmosphere.hour or 0
 		ui:box({ id = "clock", direction = "row", gap = 4 }, function()
@@ -183,10 +242,16 @@ local function constructionSlots(c, list, selection)
 		end
 		index += 1
 		local affordable = free >= kind.data.cost
+		-- Энергию кнопки показывают для первой сети: в какую попадёт здание, до выбора места неизвестно.
+		local zone = economy.zones(c, c.player)[1] or economy.of(c, c.player)
+		local power = economy.powerOf(kind, zone)
+		local idle = economy.idlePowerOf(kind, zone)
 		list[index] = {
 			label = kind.data.title or kind.name,
 			picture = kind,
 			cost = kind.data.cost,
+			power = if power ~= 0 then power else nil,
+			idle = if idle ~= power then idle else nil,
 			short = not affordable,
 			about = aboutOf(c, kind),
 			title = if affordable then nil else "Сейчас кредитов на всю цену нет — заложить можно: платят по ходу стройки, и она подождёт, пока их прибавится",
@@ -291,6 +356,27 @@ local function slots(c, selection)
 			refund += construction.refundOf(kinds.of(c, e)) + construction.prepaidOf(c, e)
 		end
 	end
+	-- Свои готовые потребители — включить или выключить все разом (switchable): горит, если хоть один включён.
+	local switchable, on = {}, false
+	for _, e in selection do
+		local kind = kinds.of(c, e)
+		if c:mine(e) and c:has(e, "Building") and not c:has(e, "Site") and kind and economy.switchable(kind) then
+			table.insert(switchable, e)
+			on = on or not c:has(e, "Off")
+		end
+	end
+	if #switchable > 0 and page.name == "root" and not list[SWITCH] then
+		list[SWITCH] = {
+			label = if on then "Выключить" else "Включить",
+			lamp = on,
+			title = if on then "Перестанет брать энергию у зоны и работать" else "Снова возьмёт энергию у зоны и заработает",
+			run = function()
+				for _, e in switchable do
+					c:send("work", { building = e, on = not on })
+				end
+			end,
+		}
+	end
 	if #demolish > 0 and page.name == "root" then
 		list[DEMOLISH] = {
 			label = "Разобрать",
@@ -331,10 +417,20 @@ local function card(ui, slot, hotkey: string)
 				end)
 			end
 		end
-		if slot.cost then
-			ui:box({ direction = "row", align = "center", gap = 4 }, function()
-				widgets.coin(ui)
-				ui:text(if slot.gain then "+" .. slot.cost else tostring(slot.cost), { color = if slot.gain then COLORS.good else COLORS.gold })
+		if slot.cost or slot.power then
+			ui:box({ direction = "row", align = "center", gap = 10 }, function()
+				if slot.cost then
+					ui:box({ direction = "row", align = "center", gap = 4 }, function()
+						widgets.coin(ui)
+						ui:text(if slot.gain then "+" .. slot.cost else tostring(slot.cost), { color = if slot.gain then COLORS.good else COLORS.gold })
+					end)
+				end
+				if slot.power then
+					ui:text("⚡" .. (if slot.power > 0 then "+" .. number(slot.power) else number(slot.power)), { color = COLORS.power })
+					if slot.idle then
+						ui:text("без дела " .. number(slot.idle), { color = COLORS.dim })
+					end
+				end
 			end)
 		end
 	end)
@@ -385,6 +481,9 @@ local function commandGrid(c, list, width: number, height: number)
 								end
 							end)
 						end)
+						if slot.lamp ~= nil then
+							ui:box({ width = 6, height = 6, background = if slot.lamp then COLORS.good else COLORS.bad })
+						end
 					end)
 					-- Подсказка — карточкой над сеткой, правым краем у указателя.
 					local grid = ui:rect("commands")
@@ -485,11 +584,52 @@ local function info(c, selection, width: number, height: number)
 				end
 				widgets.bar(ui, progress, label, text)
 			end
+			-- Энергия: у электростанции и накопителя — их сети; генератор материи вне сети с главным зданием; подмога;
+			-- нехватка; выключено (bar.ts).
+			local built = not many and not site and kind and c:has(first, "Building")
+			if built and ((kind.data.power or 0) > 0 or kind.data.battery) then
+				local _, zone = economy.gridOf(c, first)
+				if zone then
+					local grid = gridState(zone)
+					ui:text(gridText(grid), { color = if grid.demand > grid.produced or grid.overload then COLORS.bad else COLORS.power, wrap = text })
+				end
+			end
+			if built and economy.coreless(c)[first] then
+				ui:text("Денег не приносит: в зоне нет главного здания", { color = COLORS.warn, wrap = text })
+			end
+			if built and c:mine(first) and kind.name == economy.CORE and credits(c) < economy.RELIEF_BELOW then
+				ui:text("Подмога: пока кредитов меньше " .. economy.RELIEF_BELOW .. ", главное здание даёт " .. economy.RELIEF_INCOME .. " в секунду", { color = COLORS.soft, wrap = text })
+			end
+			local starved, off = false, false
+			for _, e in selection do
+				if c:has(e, "Building") and not c:has(e, "Site") then
+					starved = starved or economy.states(c)[e] == "starved"
+					off = off or economy.shutDown(c, c.player, e)
+				end
+			end
+			if starved then
+				ui:text("⚡ Не хватает энергии: здание работает медленнее или стоит", { color = COLORS.bad, wrap = text })
+			end
+			local switchedOn = false
+			for _, e in selection do
+				if c:mine(e) and c:has(e, "Building") and not c:has(e, "Site") and not c:has(e, "Off") and economy.switchable(kinds.of(c, e)) then
+					switchedOn = true
+				end
+			end
+			if off and not switchedOn then
+				ui:text("Выключено: энергию не берёт и не работает; включи в сетке справа", { color = COLORS.warn, wrap = text })
+			end
 			-- Своё повреждённое: сколько стоит починка (у стройки прочность — та же доля, что полоса стройки).
 			local health = not many and not site and c:mine(first) and c:get(first, "Health")
 			if health and health.value < health.max and construction.isRepairable(c, first) then
 				local repair = construction.repairCostOf(kind.data.cost, health.value, construction.rules(c).repairCost, health.max)
 				ui:text("Прочность: " .. percent(health.value / health.max) .. ". Починка стоит " .. repair .. ": выбери строителей и щёлкни по зданию правой кнопкой", { color = COLORS.soft, wrap = text })
+			end
+			local cell = built and c:get(first, "Accumulator")
+			if cell and kind.data.battery then
+				local flow = math.round(cell.flow * 100) / 100
+				local charge, capacity = math.floor(cell.charge), kind.data.battery.capacity
+				ui:text("Заряд: " .. charge .. " из " .. capacity .. (if flow > 0 then ", отдаёт " .. number(flow) .. " ⚡" elseif flow < 0 then ", копит " .. number(-flow) .. " ⚡" else ""), { color = COLORS.soft, wrap = text })
 			end
 			local state = not many and c:mine(first) and conversionOf(c, first)
 			if state and state.progress then
@@ -676,8 +816,43 @@ local function modeBar(c)
 	end)
 end
 
+-- Сколько секунд сообщение о награде висит на экране (TOAST_SECONDS).
+local TOAST_SECONDS = 5
+
+-- Награды под полосой режима (toastColumn в hud.ts): монета, сумма и за что; mechanics/economy кладёт их в
+-- c.shared.rewards.
+local function rewards(c)
+	local list = c.shared.rewards
+	if not list then
+		return
+	end
+	for i = #list, 1, -1 do
+		if c.time - list[i].time > TOAST_SECONDS then
+			table.remove(list, i)
+		end
+	end
+	if #list == 0 then
+		return
+	end
+	local ui = c.ui
+	local mode = ui:rect("mode")
+	local top = TOP_HEIGHT + 6 + (if mode and c.shared.mode then mode.height + 6 else 0)
+	ui:box({ anchor = { centerX = 0, top = top }, direction = "column", align = "center", gap = 6 }, function()
+		ui:box({ skin = "gold", padding = { 10, 14 }, direction = "column", gap = 4 }, function()
+			for _, toast in list do
+				ui:box({ direction = "row", align = "center", gap = 6 }, function()
+					widgets.coin(ui)
+					ui:text("+" .. toast.credits, { color = COLORS.gold })
+					ui:text(toast.title)
+				end)
+			end
+		end)
+	end)
+end
+
 function hud.draw(c)
 	modeBar(c)
+	rewards(c)
 	topBar(c)
 	bottomBar(c)
 end

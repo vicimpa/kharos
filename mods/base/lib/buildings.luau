@@ -185,14 +185,44 @@ function buildings.entity(kind, protos)
 		-- Прочность без своей — от цены (buildingHp).
 		Health = { hp = data.hp or data.cost * buildings.HP_PER_COST },
 	}
+	entity.Link = buildings.link(kind)
+	if data.battery then
+		entity.Accumulator = {}
+	end
 	if data.produces then
 		entity.Producer = {}
+	end
+	-- Турели здания стреляют, пока ему хватает энергии и оно работает (mechanics/economy).
+	if data.mounts then
+		entity.Throttle = {}
 	end
 	-- Ремонтная станция (equip в buildings.ts); чинит, когда придёт энергия зон (В4).
 	if data.repair then
 		entity.Repair = { radius = data.repair }
 	end
 	return entity
+end
+
+-- На сколько тайлов от своего центра расширяет зону готовое здание без своего радиуса (EXPAND_RADIUS).
+buildings.EXPAND_RADIUS = 5
+-- Дальше скольких тайлов колодцы не связываются подземным отрезком (UNDERGROUND_REACH).
+buildings.UNDERGROUND_REACH = 10
+
+-- Связь здания в сеть (allZones в zones.ts): круг зоны — свой (data.zone), data.expand или EXPAND_RADIUS; стык — с
+-- таким же зданием; труба и колодец — проводники, колодец ещё и подземным отрезком; главное здание — ядро. Стена и
+-- ворота (data.isolated) в сеть не входят — nil. Получает готовое здание: стройка и разбор в сеть не входят.
+function buildings.link(kind): { [string]: any }?
+	local data = kind.data
+	if data.isolated then
+		return nil
+	end
+	return {
+		radius = data.zone or data.expand or buildings.EXPAND_RADIUS,
+		group = kind.name,
+		conduit = data.pipe ~= nil,
+		tunnel = if data.pipe == "well" then buildings.UNDERGROUND_REACH else 0,
+		core = kind.name == "command",
+	}
 end
 
 -- Сколько прочности здания на кредит цены, если своей у него нет (BUILDING_HP).
@@ -236,6 +266,8 @@ function buildings.look(width: number, height: number, draw: (any, number, boole
 		fps = 8,
 		layer = "building",
 		shadow = { 3, 0.4 },
+		-- Вторая половина кадров — работа: её показывают, когда подача скажет (c:dress, effects/power).
+		working = o.working,
 		draw = function(canvas, angle: number, phase: number)
 			local variant = math.floor(angle / TURN * variants + 0.5) % variants
 			draw(canvas, (phase % frames) / frames, phase >= frames, variant)

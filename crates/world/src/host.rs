@@ -76,6 +76,8 @@ pub struct State {
   pub rules: crate::motion::Rules,
   /// Виды оружия — раздел `weapons/` контента.
   pub weapons: crate::combat::Weapons,
+  /// Сети и энергосети связанных (`Link`).
+  pub networks: crate::networks::Networks,
 }
 
 impl State {
@@ -161,7 +163,7 @@ impl Host {
     }
     content.apply_options(game, options)?;
     let schema = Rc::new(schema_of(&content)?);
-    let state = Rc::new(RefCell::new(State { world: World::new(schema.clone()), ops: Vec::new(), events: Vec::new(), signals: Vec::new(), tick: 0, dt: 0.05, rng: seed.max(1), grid: None, vision: None, land: None, motion: Default::default(), rules: Default::default(), weapons: Default::default() }));
+    let state = Rc::new(RefCell::new(State { world: World::new(schema.clone()), ops: Vec::new(), events: Vec::new(), signals: Vec::new(), tick: 0, dt: 0.05, rng: seed.max(1), grid: None, vision: None, land: None, motion: Default::default(), rules: Default::default(), weapons: Default::default(), networks: Default::default() }));
     let lua = &content.lua;
     let storage = lua.create_table();
     let game_table = content.get("games", game).expect("партия");
@@ -825,6 +827,8 @@ impl UserData for Ctx {
   fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
     fields.add_field_method_get("tick", |_, this| Ok(this.state.borrow().tick));
     fields.add_field_method_get("dt", |_, this| Ok(this.state.borrow().dt));
+    // Шаг тика в секундах — то же, что dt; у клиента dt — кадр, а step — тик.
+    fields.add_field_method_get("step", |_, this| Ok(this.state.borrow().dt));
     fields.add_field_method_get("storage", |_, this| Ok(this.storage.clone()));
     fields.add_field_method_get("protos", |_, this| Ok(this.protos.clone()));
     fields.add_field_method_get("game", |_, this| Ok(this.game.clone()));
@@ -1102,6 +1106,24 @@ impl UserData for Ctx {
     methods.add_method("seed", |_, this, ()| Ok(this.state.borrow().land.as_ref().map(|land| land.config.seed)));
     // Случайное 0..1 от координат и сида — тот же hash, что у генератора местности TS.
     methods.add_function("hash", |_, (x, y, seed): (f64, f64, f64)| Ok(kharos_engine::terrain::hash(x, y, seed)));
+    // Сети (networks.rs): энергосети всех игроков — { player, members = { … }, circles = { x, y, r, … } } по порядку
+    // игроков, у каждого — сначала с ядром; networks — сети связности, с рёбрами edges = { a, b, длина, … }.
+    methods.add_method("grids", |lua, this, ()| {
+      let mut state = this.state.borrow_mut();
+      let State { world, networks, .. } = &mut *state;
+      crate::networks::to_lua(lua, networks.grids(world), false)
+    });
+    methods.add_method("networks", |lua, this, ()| {
+      let mut state = this.state.borrow_mut();
+      let State { world, networks, .. } = &mut *state;
+      crate::networks::to_lua(lua, networks.networks(world), true)
+    });
+    // Номер пересчёта сетей: пока он тот же, сети те же.
+    methods.add_method("network_version", |_, this, ()| {
+      let mut state = this.state.borrow_mut();
+      let State { world, networks, .. } = &mut *state;
+      Ok(networks.version(world))
+    });
     methods.add_method("count", |_, this, component: String| {
       let id = this.component(&component)?;
       Ok(this.state.borrow().world.stores[id].len())

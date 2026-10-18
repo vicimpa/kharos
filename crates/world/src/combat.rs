@@ -144,12 +144,14 @@ struct Cols {
   home_y: usize,
   patrol: usize,
   resupply: usize,
+  throttle: ComponentId,
+  share: usize,
 }
 
 impl Cols {
   fn of(world: &World) -> Self {
     let id = |name: &str| world.schema.id(name).expect("компонент движка");
-    let (mover, path, footprint, player, attached, health, armed, tactics) = (id("Mover"), id("Path"), id("Footprint"), id("Player"), id("Attached"), id("Health"), id("Armed"), id("Tactics"));
+    let (mover, path, footprint, player, attached, health, armed, tactics, throttle) = (id("Mover"), id("Path"), id("Footprint"), id("Player"), id("Attached"), id("Health"), id("Armed"), id("Tactics"), id("Throttle"));
     Self {
       position: id("Position"),
       facing: id("Facing"),
@@ -197,6 +199,8 @@ impl Cols {
       home_y: slot(world, tactics, "homeY"),
       patrol: slot(world, tactics, "patrol"),
       resupply: slot(world, tactics, "resupply"),
+      throttle,
+      share: slot(world, throttle, "share"),
     }
   }
 
@@ -1118,7 +1122,13 @@ fn shoot(scene: &mut Scene, fight: &mut Fight, tick: u64, step: f64) {
       if armed.cooldown > 0.0 || wrap(wanted - turner.facing(cols, scene.world)).abs() > AIM {
         break 'shooter;
       }
-      armed.cooldown = 1f64.max(js_round(spec.reload / step));
+      // Носитель с долей работы (Throttle) перезаряжается во столько раз дольше, с нулевой — молчит: так контент
+      // глушит турели зданий без энергии, выключенных и сворачивающихся.
+      let share = cols.num(scene.world, cols.throttle, cols.share, carrier).unwrap_or(1.0);
+      if share <= 0.0 {
+        break 'shooter;
+      }
+      armed.cooldown = 1f64.max(js_round(spec.reload / step / share));
 
       // Выстрел — из точки перед стрелком.
       let facing = turner.facing(cols, scene.world);

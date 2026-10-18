@@ -536,7 +536,9 @@ impl Game {
         Some(parent) => layer_of(parent as Entity).unwrap_or(0) + 1,
         None => look.layer as usize,
       };
-      // Кадр: у ходовых — по пройденному пути, у остальных — по времени.
+      let dress = state.dressed.get(&entity).copied().unwrap_or_default();
+      // Кадр: у ходовых — по пройденному пути, у остальных — по времени; у облика с работой — из своей половины,
+      // у выключенного — первый.
       let phase = match look.step {
         Some(step) if look.phases > 1 => {
           let walk = self.walked.entry(entity).or_insert(Walk { x, y, distance: 0.0, seen: time });
@@ -549,7 +551,12 @@ impl Game {
           walk.seen = time;
           (walk.distance / step) as usize % look.phases
         }
-        _ if look.phases > 1 => (time * look.fps as f64) as usize % look.phases,
+        _ if look.working => {
+          let half = look.phases / 2;
+          let frame = if dress.off { 0 } else { (time * look.fps as f64) as usize % half };
+          frame + if dress.working && !dress.off { half } else { 0 }
+        }
+        _ if look.phases > 1 && !dress.off => (time * look.fps as f64) as usize % look.phases,
         _ => 0,
       };
       let player = world.world.num(entity, owner, "player").unwrap_or(0.0) as u32;
@@ -565,18 +572,20 @@ impl Game {
       let (left, top) = (x + look.offset[0] - view.x, y + look.offset[1] - view.y);
       let sprite = [left, top, w, h, team, look.shadow[0], look.shadow[1], grey];
       let bottom = y + look.offset[1] + h;
-      // Показанная не целиком (стройка, сворачивание) — без тени и огней; тающая — бледнее вместе с тенью.
-      let [built, fade] = state.dressed.get(&entity).copied().unwrap_or([1.0, 1.0]);
+      // Показанная не целиком (стройка, сворачивание) — без тени и огней; тающая — бледнее вместе с тенью;
+      // выключенная — темнее и без огней (SWITCHED_OFF в buildingsPass.ts).
+      let (built, fade) = (dress.built, dress.fade);
       if built < 1.0 {
         for piece in revealed(sprite, look.cells[cell], built) {
           sorted.push((layer, bottom, piece));
         }
         continue;
       }
-      let mut whole = instance(sprite, look.cells[cell], WHOLE.map(|channel| channel * fade));
+      let tint = if dress.off { SWITCHED_OFF } else { WHOLE };
+      let mut whole = instance(sprite, look.cells[cell], tint.map(|channel| channel * fade));
       whole[10] *= fade;
       sorted.push((layer, bottom, whole));
-      if !lights {
+      if !lights || dress.off {
         continue;
       }
       let (cos, sin) = ((angle as f32).cos(), (angle as f32).sin());
@@ -695,6 +704,8 @@ impl Game {
 /// Оттенок «как есть» и чертёж недостроенного (BLUEPRINT в buildingsPass.ts), с предумноженной альфой.
 const WHOLE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 const BLUEPRINT: [f32; 4] = [0.3, 0.6, 1.0, 0.4];
+/// Своё выключенное здание — темнее.
+const SWITCHED_OFF: [f32; 4] = [0.55, 0.57, 0.62, 1.0];
 
 /// Спрайт: место, размер, сторона, тень и серость (sprite), кадр атласа и оттенок.
 fn instance(sprite: [f32; 8], [u0, v0, u1, v1]: [f32; 4], tint: [f32; 4]) -> [f32; SPRITE] {

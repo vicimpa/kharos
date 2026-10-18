@@ -256,6 +256,7 @@ mechanic.systems = {
 					fields.Position = { x = placement.middle(x, building.data.width), y = placement.middle(y, building.data.height) }
 					local made = ctx:spawn(building, fields)
 					ctx:signal("converted", { entity = made, player = player, x = at.x, y = at.y })
+					ctx:emit("reward", { player = player, key = "deploy" })
 				else
 					-- MCV встаёт посреди тайла в середине основания.
 					local left = placement.left(at.x, building.data.width) + math.floor(building.data.width / 2)

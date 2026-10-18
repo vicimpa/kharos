@@ -4,6 +4,7 @@
 -- туда группой из одного (orderGroupMove); выйти некуда — ждёт внутри. Приказы: produce, cancel, rally.
 
 local wallet = require("lib/wallet")
+local economy = require("lib/economy")
 
 local readf64, writef64 = buffer.readf64, buffer.writef64
 
@@ -137,7 +138,11 @@ production.systems = {
 					continue
 				end
 				local unit = ctx.protos.units[ctx:text(current)]
-				local progress = readf64(p.progress, at) + ctx.dt
+				-- Потребитель энергии при её нехватке работает на долю, вне сети и выключенный — стоит (speedOf).
+				local progress = readf64(p.progress, at)
+				if progress < unit.data.buildTime then
+					progress = math.min(unit.data.buildTime, progress + ctx.dt * economy.shareOf(ctx, e))
+				end
 				if progress < unit.data.buildTime then
 					writef64(p.progress, at, progress)
 					continue
@@ -157,6 +162,7 @@ production.systems = {
 					ctx:emit("rally", { entity = made, x = readf64(p.rallyX, at), y = readf64(p.rallyY, at) })
 				end
 				ctx:signal("produced", { player = player, building = building, unit = unit.name, entity = made, x = ox, y = oy })
+				ctx:emit("reward", { player = player, key = "unit" })
 				-- Следующий из очереди.
 				local queue = ctx:get(building, "Producer").queue
 				local next = table.remove(queue, 1)

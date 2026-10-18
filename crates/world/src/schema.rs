@@ -95,6 +95,8 @@ pub fn builtin() -> Vec<(&'static str, Vec<(&'static str, Value)>)> {
     // Основание здания: тайлы вокруг центра (Position), занятые для хода; passable — проезд открыт (ворота).
     ("Footprint", vec![("width", json!(1)), ("height", json!(1)), ("passable", json!(false)), ("wall", json!(false))]),
     ("Player", vec![("id", json!(0)), ("allies", json!([]))]),
+    // Связь в сеть (networks.rs): круг зоны, группа стыка, проводник, подземный отрезок, ядро сети.
+    ("Link", vec![("radius", json!(0)), ("group", json!("")), ("conduit", json!(false)), ("tunnel", json!(0)), ("core", json!(false))]),
     // Бой (combat): прочность — доля от hp, hit — тик последнего попадания; оружие стрелка, его поворот и откуда
     // вылетает выстрел; стойка юнита; выстрел и взрыв — сущности для подачи.
     ("Health", vec![("value", json!(1)), ("max", json!(1)), ("regen", json!(0)), ("hit", json!(-1)), ("hp", json!(1))]),
@@ -102,6 +104,8 @@ pub fn builtin() -> Vec<(&'static str, Vec<(&'static str, Value)>)> {
     ("Tactics", vec![("stance", json!("defensive")), ("patrol", json!([])), ("leg", json!(0)), ("away", json!(false)), ("homeX", json!(0)), ("homeY", json!(0)), ("resupply", json!(false))]),
     ("Shot", vec![("weapon", json!("")), ("player", json!(0)), ("source", json!(-1)), ("target", json!(-1)), ("fromX", json!(0)), ("fromY", json!(0)), ("toX", json!(0)), ("toY", json!(0)), ("prevX", json!(0)), ("prevY", json!(0)), ("age", json!(0)), ("life", json!(0)), ("blocked", json!(false)), ("air", json!(false))]),
     ("Blast", vec![("size", json!(1)), ("age", json!(0)), ("life", json!(0)), ("lift", json!(0))]),
+    // Доля работы носителя (0..1): его оружие перезаряжается во столько раз дольше, при нуле молчит.
+    ("Throttle", vec![("share", json!(1))]),
   ]
 }
 
