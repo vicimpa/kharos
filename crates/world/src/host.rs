@@ -6,8 +6,8 @@
 //!    раздаёт события (`ctx:emit` → `on` видов);
 //! 3. сигналы (`ctx:signal`) копятся для клиентов: выстрел, взрыв, готовый юнит — им звучать и вспыхивать.
 
-use crate::schema::{ComponentId, Kind, Schema};
-use crate::world::{decode, encode_checked, Entity, World};
+use crate::schema::{ComponentId, Schema};
+use crate::world::{encode_checked, Entity, World};
 use kharos_content::vm::function;
 use kharos_content::{Content, Mod, Side};
 use mlua::{AnyUserData, Function, Lua, MultiValue, Table, UserData, UserDataFields, UserDataMethods, Value};
@@ -1308,13 +1308,3 @@ impl UserData for Ctx {
   }
 }
 
-/// Значение поля компонента для отладки и сохранений — JSON.
-pub fn field_json(world: &World, entity: Entity, component: ComponentId, field: &str) -> Option<Json> {
-  let def = world.schema.components[component].field(field)?;
-  let store = &world.stores[component];
-  let row = store.row(entity)?;
-  Some(match def.kind {
-    Kind::Any => store.anys[def.slot][row].clone(),
-    kind => decode(&world.strings, kind, store.nums[def.slot][row]),
-  })
-}

@@ -91,7 +91,6 @@ local function spotOf(w, e: number): Spot?
 	end
 	return { entity = e, x = at.x - deposits.SIZE / 2, y = at.y - deposits.SIZE / 2, kind = kind.name, left = deposit.reserve }
 end
-editor.spotOf = spotOf
 
 -- Месторождение с левым верхним тайлом ровно в (x, y) (depositAt).
 function editor.depositAt(w, x: number, y: number): Spot?

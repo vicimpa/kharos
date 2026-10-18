@@ -65,7 +65,7 @@ pub fn run_file(lua: &Lua, mod_name: &str, path: &str) -> mlua::Result<Value> {
   lua.load(source).set_name(chunk_name(mod_name, path)).eval()
 }
 
-/// `require("lib/geom")` — от корня своего мода, `require("./look")` — от папки файла, `require("@base/lib/geom")` —
+/// `require("lib/widgets")` — от корня своего мода, `require("./look")` — от папки файла, `require("@base/lib/widgets")` —
 /// из другого мода. Расширение `.luau` и `/init.luau` подставляются. Модуль выполняется один раз.
 fn require(lua: &Lua, path: String) -> mlua::Result<Value> {
   let caller = lua.inspect_stack(1).and_then(|debug| debug.source().map(|source| source.trim_start_matches('=').to_string())).unwrap_or_default();

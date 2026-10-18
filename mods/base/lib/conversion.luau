@@ -83,11 +83,6 @@ function conversion.blocked(w, e: number): boolean
 	return converting ~= nil and w:has(e, "Unit") and converting.left <= 0
 end
 
--- Свёрнутая ли это база: машина с очередью главного здания; очередь у неё стоит (isPacked).
-function conversion.packed(w, e: number): boolean
-	return w:has(e, "Unit") and w:has(e, "Producer")
-end
-
 -- Другой принятый приказ отменяет поездку MCV на разворачивание (accept в commands.ts); разворачивающегося — нет.
 function conversion.forget(ctx, units: { number })
 	for _, e in units do

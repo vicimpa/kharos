@@ -106,12 +106,6 @@ function drops.clear(w, left: number, top: number, width: number, height: number
 	end
 end
 
--- Уничтожает дропы под зданием вида kind с серединой в (x, y).
-function drops.clearUnder(w, kind, x: number, y: number)
-	local width, height = kind.data.width or 1, kind.data.height or 1
-	drops.clear(w, math.round(x - width / 2), math.round(y - height / 2), width, height)
-end
-
 -- Пустые дропы исчезают (sweepDrops).
 function drops.sweep(w)
 	for _, e in w:each({ "Drop", "Inventory" }) do

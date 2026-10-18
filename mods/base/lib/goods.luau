@@ -49,12 +49,6 @@ function goods.isProduct(w, good: string): boolean
 	return kind ~= nil and kind.data.kind == "product"
 end
 
--- Готовое: ресурс или изделие.
-function goods.isWare(w, good: string): boolean
-	local kind = w.protos.goods[good]
-	return kind ~= nil and kind.data.kind ~= "ore"
-end
-
 -- Что выходит из руды на переработке (resourceOf).
 function goods.resourceOf(w, ore: string): string?
 	local kind = w.protos.goods[ore]

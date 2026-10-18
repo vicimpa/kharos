@@ -474,19 +474,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "content-bench"
-version = "0.1.0"
-dependencies = [
- "glow",
- "glutin",
- "glutin-winit",
- "png",
- "raw-window-handle",
- "ulua-rt",
- "winit",
-]
-
-[[package]]
 name = "cooked-waker"
 version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
