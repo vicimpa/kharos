@@ -1,7 +1,7 @@
 --!strict
 --!native
 -- Звуки зданий и мира — перенос packages/client/src/audio/worldSynth.ts: то, что уже есть в игре, — стройка,
--- разворачивание, выезд из завода, перегруз сети, отсчёт и уведомления. Остальное переедет вместе с механиками.
+-- разворачивание, выезд из завода, ворота, перегруз сети, отсчёт и уведомления. Остальное переедет вместе с механиками.
 
 local dsp = require("lib/dsp")
 
@@ -44,6 +44,19 @@ local function built(rate: number, variant: number)
 		local n = noise()
 		local clicks = if t < 0.2 then pulse(t, 0.035, 0.003) else 0
 		return ratchet(n * clicks) * 3 + clang(t, n)
+	end)
+end
+
+-- Ворота: шипит гидравлика, створка едет и встаёт с лязгом.
+local function gate(rate: number, variant: number)
+	local hiss = bandpass(rate, 2500, 1)
+	local whine = lowpass(rate, 400)
+	local clang = clangAt(rate, 0.55, 120, 0.7, variant + 1401)
+	return render(rate, 1, variant, function(t, noise)
+		local n = noise()
+		local moving = if t < 0.55 then attack(t, 0.05) else 0
+		local motor = sin(2 * PI * 110 * t) * 0.25 + whine(n) * 0.6
+		return hiss(n) * moving * 0.6 + motor * moving + clang(t, n)
 	end)
 end
 
@@ -126,6 +139,7 @@ end
 return {
 	bank = {
 		built = sound("world", built),
+		gate = sound("world", gate),
 		deploy = sound("world", deploy),
 		rollout = sound("world", rollout),
 		brownout = sound("interface", brownout),

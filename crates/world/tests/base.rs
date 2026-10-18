@@ -997,3 +997,36 @@ fn aggressive_march_remembers_the_goal_and_point_order_on_an_enemy_attacks() {
   host.tick(0.05).unwrap();
   assert_eq!(get(&host, gun, "Armed").unwrap()["target"], json!(-1.0));
 }
+
+#[test]
+fn gates_rise_before_a_stranger_and_not_under_one_who_stands_in_them() {
+  let mut host = host_without_tech();
+  let (_, site, builder) = base_with_builder(&mut host);
+  let (x, y) = free_spot(&host, site, 2);
+  let left = raise(&mut host, "gate", (x, y), builder);
+  let right = raise(&mut host, "gate", (x + 1, y), builder);
+  let open = |host: &Host, gate: u32| get(host, gate, "Footprint").unwrap()["passable"] == json!(true);
+  ticks(&mut host, 4);
+  assert!(open(&host, left) && open(&host, right), "достроенные опущены");
+  host.join(2).unwrap();
+  host.tick(0.05).unwrap();
+  let buggies = kind(&host, "units", "buggy");
+  let owner = |host: &Host, e: u32| get(host, e, "Owner").unwrap()["player"].as_f64();
+  let enemy = buggies.iter().copied().find(|&e| owner(&host, e) == Some(2.0)).unwrap();
+  let own = buggies.iter().copied().find(|&e| owner(&host, e) == Some(1.0)).unwrap();
+  host.send(2, "stance", json!({ "units": [enemy], "stance": "passive" }));
+  host.send(1, "stance", json!({ "units": [own], "stance": "passive" }));
+  // Свой стоит в проёме правой секции, чужой подходит: левая поднимается, правая ждёт, пока свой съедет.
+  set(&host, own, "Position", json!({ "x": x as f64 + 1.5, "y": y as f64 + 0.5 }));
+  set(&host, enemy, "Position", json!({ "x": x as f64 + 0.5, "y": y as f64 + 4.5 }));
+  ticks(&mut host, 5);
+  assert!(!open(&host, left), "перед чужим поднялась");
+  assert!(open(&host, right), "под своим не поднимается");
+  set(&host, own, "Position", json!({ "x": x as f64 + 1.5, "y": y as f64 - 2.5 }));
+  ticks(&mut host, 5);
+  assert!(!open(&host, right), "свой съехал — поднялась");
+  // Чужой ушёл дальше порога открытия — плиты опускаются.
+  set(&host, enemy, "Position", json!({ "x": x as f64 + 0.5, "y": y as f64 + 9.5 }));
+  ticks(&mut host, 5);
+  assert!(open(&host, left) && open(&host, right), "чужих нет — опущены");
+}

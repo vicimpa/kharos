@@ -208,6 +208,10 @@ function buildings.entity(kind, protos)
 	if data.produces then
 		entity.Producer = {}
 	end
+	-- Ворота поднимаются перед чужими (mechanics/gates).
+	if data.gate then
+		entity.Gate = {}
+	end
 	-- Турели здания стреляют, пока ему хватает энергии и оно работает (mechanics/economy).
 	if data.mounts then
 		entity.Throttle = {}

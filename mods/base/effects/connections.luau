@@ -1,7 +1,7 @@
 --!strict
 -- Облик по соседям — перенос wallVariant из buildingsPass.ts: стена и ворота соединяются со стенами и воротами рядом,
 -- труба и колодец — со всем, что входит в сеть (кроме стен), и с площадками труб. Вариант — биты соседей севера,
--- востока, юга и запада (WALL_CONNECTION); и готовая стена, и ещё не начатая соседняя площадка участвуют в соединении:
+-- востока, юга и запада (WALL_CONNECTION), у опущенных ворот — ещё GATE_OPEN; и готовая стена, и ещё не начатая соседняя площадка участвуют в соединении:
 -- чертёж сразу показывает итог.
 
 local buildings = require("lib/buildings")
@@ -31,7 +31,10 @@ function connections.update(c)
 			elseif c:has(e, "Site") then
 				pipes[key] = true
 			end
-			table.insert(list, { e = e, x = x, y = y, wall = name == "wall" or name == "gate" })
+			-- Опущенная плита ворот — свой вид; соседи у ворот те же, что у стены.
+			local footprint = name == "gate" and not c:has(e, "Site") and c:get(e, "Footprint")
+			local open = footprint and footprint.passable or false
+			table.insert(list, { e = e, x = x, y = y, wall = name == "wall" or name == "gate", open = open })
 		end
 	end
 	if #list == 0 then
@@ -47,7 +50,7 @@ function connections.update(c)
 		return kind ~= nil and not kind.data.isolated
 	end
 	for _, item in list do
-		local variant = 0
+		local variant = if item.open then buildings.GATE_OPEN else 0
 		for _, side in SIDES do
 			local x, y = item.x + side[1], item.y + side[2]
 			if if item.wall then walls[x .. ":" .. y] else joins(x, y) then
