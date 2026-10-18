@@ -19,6 +19,7 @@ local silos = require("mechanics/silos")
 local alertsLib = require("lib/alerts")
 local missiles = require("lib/missiles")
 local stepsLib = require("lib/steps")
+local depositsLib = require("lib/deposits")
 
 local clockOf = widgets.clock
 local COLORS, shadow = widgets.COLORS, widgets.shadow
@@ -1207,7 +1208,7 @@ local function info(c, selection, width: number, height: number)
 					job = "Работа: возит руду из шахты на переработку"
 				elseif hauler.to >= 0 and c:alive(hauler.to) then
 					local kind = c.protos.goods[hauler.resource]
-					local name = string.lower(if kind then kind.data.title else hauler.resource)
+					local name = widgets.lower(if kind then kind.data.title else hauler.resource)
 					local left = math.floor(math.max(0, if hauler.full then goods.amount(stock, hauler.resource) else hauler.amount))
 					local toKind = c:proto(hauler.to)
 					local fromKind = hauler.from >= 0 and c:alive(hauler.from) and c:proto(hauler.from)
@@ -1265,7 +1266,7 @@ local function info(c, selection, width: number, height: number)
 					for _, name in goods.names(c) do
 						local amount = guard.materials[name]
 						if amount then
-							table.insert(list, amount .. " " .. string.lower(c.protos.goods[name].data.title))
+							table.insert(list, amount .. " " .. widgets.lower(c.protos.goods[name].data.title))
 						end
 					end
 					ui:text(if lack == "off" then "Выключен: ракет " .. count .. " из " .. capacity .. ", новые не собирает и не стреляет"
@@ -1278,7 +1279,7 @@ local function info(c, selection, width: number, height: number)
 			if built and c:mine(first) and trade.isPort(c, c.player, first) then
 				local order = c:get(first, "Trade")
 				if order then
-					local name = string.lower(c.protos.goods[order.resource].data.title)
+					local name = widgets.lower(c.protos.goods[order.resource].data.title)
 					local wanted = math.floor(order.wanted + 0.5)
 					local label, progress
 					if order.buy then
@@ -1700,7 +1701,7 @@ local function stepsPanel(c)
 							if ui:button("steps:show", { height = 28, padding = { 0, 10 } }, function()
 								ui:text("Показать", shadow())
 							end) then
-								c.camera.x, c.camera.y = target.x + target.width / 2, target.y + target.height / 2
+								c.shared.flyTo = { x = target.x + target.width / 2, y = target.y + target.height / 2 }
 							end
 							ui:tip("steps:show", "Камера — к месту, где сделать этот шаг; на карте оно обведено")
 						end
@@ -1846,9 +1847,108 @@ local function alertList(c)
 			end)
 			ui:tip(id, "Показать место")
 			if ui:clicked(id) then
-				c.camera.x, c.camera.y = alert.x, alert.y
+				c.shared.flyTo = { x = alert.x, y = alert.y }
 			end
 		end
+	end)
+end
+
+-- Остаток, каким игрок видел месторождение в последний раз (knownReserve.ts): пока видит хоть тайл — настоящий, в
+-- тумане — прежний; так туман не выдаёт, копают ли его чужие. Ключ — сущность месторождения.
+local seenReserve: { [number]: number } = {}
+
+local function knownReserve(c, e: number, x: number, y: number): number?
+	for dy = 0, depositsLib.SIZE - 1 do
+		for dx = 0, depositsLib.SIZE - 1 do
+			if c:sees(x + dx + 0.5, y + dy + 0.5) then
+				local left = c:get(e, "Deposit").reserve
+				seenReserve[e] = left
+				return left
+			end
+		end
+	end
+	return seenReserve[e]
+end
+
+-- Что выйдет из месторождения и через что (chainOf): «Металлическая руда → Плавильня → Металл».
+local function chainOf(c, resource: string): string
+	local ore = goods.oreOf(c, resource)
+	local refinery = "?"
+	for _, kind in construction.menu(c) do
+		if ore and kind.data.refines == ore then
+			refinery = kind.data.title
+			break
+		end
+	end
+	local function title(name: string?): string
+		local kind = name and c.protos.goods[name]
+		return if kind then kind.data.title else "?"
+	end
+	return title(ore) .. " → " .. refinery .. " → " .. title(resource)
+end
+
+-- Подсказки у указателя над картой (hoverTips в hud.ts): месторождение — какое, сколько осталось и что из него выйдет;
+-- своя труба или колодец — сколько зданий в сети и что в её хранилищах.
+local function hoverTips(c)
+	local input = c.input
+	if not input.inside or input.over_ui then
+		return
+	end
+	local ui = c.ui
+	local anchor = if input.x > ui.width - 260 then { right = ui.width - input.x + 16, top = input.y + 16 } else { left = input.x + 16, top = input.y + 16 }
+	local tileX, tileY = math.floor(input.wx), math.floor(input.wy)
+	-- Месторождение занимает SIZE × SIZE тайлов: подходит то, что накрывает тайл под указателем.
+	local half = depositsLib.SIZE / 2
+	for _, e in c:each({ "Deposit", "Position" }) do
+		local at = c:get(e, "Position")
+		local x, y = at.x - half, at.y - half
+		if tileX >= x and tileX < x + depositsLib.SIZE and tileY >= y and tileY < y + depositsLib.SIZE and c:explored(at.x, at.y) then
+			local kind = c:proto(e)
+			local resource = kind and kind.name
+			local good = resource and c.protos.goods[resource]
+			if not good then
+				return
+			end
+			local left = knownReserve(c, e, x, y)
+			ui:box({ anchor = anchor, skin = "panel", padding = { 8, 12 }, direction = "column", gap = 2, passive = true }, function()
+				ui:box({ direction = "row", align = "center", gap = 6 }, function()
+					ui:image(good, 20, 20)
+					ui:text("Месторождение: " .. widgets.lower(good.data.title))
+					ui:text(if left == nil then "остаток неизвестен" elseif left > 0 then "осталось " .. math.floor(left) else "выработано", { color = COLORS.dim })
+				end)
+				ui:text(chainOf(c, resource), { color = COLORS.dim, wrap = 300 })
+			end)
+			return
+		end
+	end
+	local e = c:occupant(tileX, tileY)
+	local kind = e and c:mine(e) and c:proto(e)
+	if not kind or not kind.data.pipe then
+		return
+	end
+	local network = logistics.networkOf(c, e)
+	if not network then
+		return
+	end
+	local buildings, items, capacity = 0, {}, 0
+	for _, member in network.members do
+		local other = c:proto(member)
+		if other and not other.data.pipe then
+			buildings += 1
+		end
+		if logistics.isStore(c, member) and logistics.isReady(c, c.player, member) then
+			local stock = c:get(member, "Inventory")
+			if stock then
+				capacity += stock.capacity
+				for name, amount in stock.items do
+					items[name] = (items[name] or 0) + amount
+				end
+			end
+		end
+	end
+	ui:box({ anchor = anchor, skin = "panel", padding = { 8, 12 }, direction = "row", align = "center", gap = 6, passive = true }, function()
+		ui:text("Сеть: зданий " .. buildings)
+		goodsRow(c, items, if capacity > 0 then "хранилища пусты" else "хранилищ нет")
 	end)
 end
 
@@ -1859,6 +1959,7 @@ function hud.draw(c)
 	modeBar(c)
 	rewards(c)
 	topBar(c)
+	hoverTips(c)
 	bottomBar(c)
 end
 

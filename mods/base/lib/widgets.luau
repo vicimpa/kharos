@@ -70,4 +70,20 @@ function widgets.key(ui, label: string, color: string?)
 	ui:text(label, widgets.shadow({ color = color or COLORS.gold }))
 end
 
+-- Строчными, с кириллицей (toLowerCase в TS): string.lower меняет только латиницу.
+function widgets.lower(text: string): string
+	local out = {}
+	for _, code in utf8.codes(text) do
+		if code >= 0x410 and code <= 0x42F then
+			code += 0x20
+		elseif code == 0x401 then
+			code = 0x451
+		elseif code >= 0x41 and code <= 0x5A then
+			code += 0x20
+		end
+		table.insert(out, utf8.char(code))
+	end
+	return table.concat(out)
+end
+
 return widgets
