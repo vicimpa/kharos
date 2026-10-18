@@ -8,6 +8,8 @@ local kind = {}
 
 kind.data = {
 	title = "Сейф харита",
+	-- Кратко — в карточке кнопки стройки (buildingInfo).
+	info = "Хранит харит зоны",
 	width = 1,
 	height = 1,
 	cost = 250,

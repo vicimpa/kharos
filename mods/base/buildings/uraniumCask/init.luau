@@ -8,6 +8,8 @@ local kind = {}
 
 kind.data = {
 	title = "Урановый контейнер",
+	-- Кратко — в карточке кнопки стройки (buildingInfo).
+	info = "Хранит уран зоны",
 	width = 1,
 	height = 1,
 	cost = 300,

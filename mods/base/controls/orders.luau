@@ -1,6 +1,7 @@
 --!strict
--- Приказы правой кнопкой: выделенные юниты едут в точку, выделенный завод ставит туда точку сбора. Касанием — долгое
--- нажатие на земле. Куда едут — видно пунктиром пути у выделенных (controls/select).
+-- Приказы правой кнопкой: выделенные юниты едут в точку (строители — строят и чинят то, по чему щёлкнули), выделенный
+-- завод ставит туда точку сбора. Касанием — долгое нажатие на земле. Куда едут — видно пунктиром пути у выделенных
+-- (controls/select).
 
 local orders = {}
 
@@ -11,7 +12,7 @@ orders.data = {
 
 local held: { time: number, x: number, y: number }? = nil
 
--- Приказ — в тайл под указателем, как у TS: хост принимает тайлы.
+-- Приказ точкой: что с ней делать — строить, чинить или ехать, — решает хост (resolveOrder); заводу — точка сбора в тайле.
 local function order(c, wx: number, wy: number)
 	local x, y = math.floor(wx), math.floor(wy)
 	local units, building = {}, nil
@@ -23,7 +24,7 @@ local function order(c, wx: number, wy: number)
 		end
 	end
 	if #units > 0 then
-		c:send("move", { units = units, x = x, y = y })
+		c:send("order", { units = units, x = wx, y = wy })
 		c:sound("order", { volume = 0.35 })
 	elseif building then
 		c:send("rally", { building = building, x = x, y = y })

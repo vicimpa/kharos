@@ -1,7 +1,7 @@
 --!strict
 -- Схватка: каждый вошедший появляется со стартовым набором — MCV, две багги и взвод пехоты, — и стартовыми кредитами
 -- (spawnStartingUnits); первый — у начала мира, но не в кармане за обрывами (openSpawn). Подача — камера RTS,
--- выделение рамкой и приказы мышью, панель с кредитами и производством, погода и звук как в Kharos.
+-- выделение рамкой и приказы мышью, панель с кредитами, производством и стройкой, погода и звук как в Kharos.
 
 local skirmish = {}
 
@@ -74,10 +74,10 @@ skirmish.on = {
 skirmish.client = {
 	camera = "rts",
 	-- Выбор места — первым: его Esc и щелчки не достаются выделению.
-	controls = { "deploy", "select", "orders" },
+	controls = { "deploy", "build", "select", "orders" },
 	ui = { "hud", "pause" },
 	atmosphere = { "weather" },
-	effects = { "traces", "combat", "conversion" },
+	effects = { "traces", "construction", "combat", "conversion" },
 	-- Звук — как в TS: интерфейс, моторы, работа зданий, фон с подложкой и эхом, ветер полёта.
 	audio = { "levels", "interface", "motors", "machines", "ambience", "flight" },
 }

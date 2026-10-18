@@ -8,6 +8,8 @@ local kind = {}
 
 kind.data = {
 	title = "Ветряная ловушка",
+	-- Кратко — в карточке кнопки стройки (buildingInfo).
+	info = "Ловит влагу из ветра",
 	width = 2,
 	height = 2,
 	cost = 300,

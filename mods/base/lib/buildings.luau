@@ -188,6 +188,10 @@ function buildings.entity(kind, protos)
 	if data.produces then
 		entity.Producer = {}
 	end
+	-- Ремонтная станция (equip в buildings.ts); чинит, когда придёт энергия зон (В4).
+	if data.repair then
+		entity.Repair = { radius = data.repair }
+	end
 	return entity
 end
 

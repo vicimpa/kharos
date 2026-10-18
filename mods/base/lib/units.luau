@@ -784,6 +784,10 @@ function units.entity(kind, protos)
 	if data.weapon then
 		entity.Armed = { weapon = data.weapon, turn = data.turn, radius = data.radius }
 	end
+	-- Строитель: строит, разбирает и чинит в радиусе data.repair (mechanics/construction).
+	if data.repair then
+		entity.Repair = { radius = data.repair }
+	end
 	return entity
 end
 
@@ -793,6 +797,10 @@ function units.turretEntity(kind)
 	local entity = { Position = {}, Facing = {}, Owner = {}, Turret = {}, Attached = {} }
 	if data.weapon then
 		entity.Armed = { weapon = data.weapon, turn = data.turn, radius = data.radius }
+	end
+	-- Ремонтная турель чинит своё вокруг носителя, и на ходу тоже.
+	if data.repair then
+		entity.Repair = { radius = data.repair }
 	end
 	return entity
 end

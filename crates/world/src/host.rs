@@ -903,6 +903,14 @@ impl UserData for Ctx {
       let entities = state.world.query(&ids);
       columns(lua, &state.world, &ids, &entities)
     });
+    // Сущности со всеми компонентами списком, по возрастанию номеров — как c:each у клиента: правилам, общим хосту
+    // и клиенту (lib/), столбцы не нужны.
+    methods.add_method("each", |_, this, components: Vec<String>| {
+      let ids = components.iter().map(|name| this.component(name)).collect::<mlua::Result<Vec<_>>>()?;
+      let mut entities = this.state.borrow().world.query(&ids);
+      entities.sort_unstable();
+      Ok(entities)
+    });
     // Сущности с Position в круге (x, y, r), по возрастанию номеров; components — ещё и с ними.
     methods.add_method("near", |_, this, (x, y, radius, components): (f64, f64, f64, Option<Vec<String>>)| {
       let ids = components.unwrap_or_default().iter().map(|name| this.component(name)).collect::<mlua::Result<Vec<_>>>()?;
@@ -1081,6 +1089,11 @@ impl UserData for Ctx {
     methods.add_method("reach", |_, this, (x, y, limit): (f64, f64, usize)| Ok(this.state.borrow_mut().scene().reach(x.floor() as i32, y.floor() as i32, limit)));
     // Можно ли юниту рода class (vehicle, heavy, infantry, air) встать в тайл.
     methods.add_method("can_stand", |_, this, (class, x, y): (String, f64, f64)| Ok(this.state.borrow_mut().scene().can_stand(&class, x.floor() as i32, y.floor() as i32)));
+    // Проходим ли тайл наземному (isWalkable): внутри карты, по проходимой местности, не сквозь здание; foot — пехоте
+    // можно и у подножия обрыва.
+    methods.add_method("walkable", |_, this, (x, y, foot): (f64, f64, Option<bool>)| Ok(this.state.borrow_mut().scene().walkable(x.floor() as i32, y.floor() as i32, foot.unwrap_or(false))));
+    // Видит ли игрок тайл сейчас; без тумана — всё.
+    methods.add_method("sees", |_, this, (player, x, y): (f64, f64, f64)| Ok(this.state.borrow().vision.as_ref().is_none_or(|vision| vision.sees(player as u32, x, y))));
     // Доля полной скорости рода class на тайле.
     methods.add_method("terrain_speed", |_, this, (class, x, y): (String, f64, f64)| Ok(this.state.borrow_mut().scene().terrain_speed(&class, x.floor() as i32, y.floor() as i32)));
     // Здание на тайле (Footprint) или nil.

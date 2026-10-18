@@ -239,13 +239,15 @@ impl ClientState {
     }
   }
 
-  /// Сущность под точкой мира: юниты по радиусу корпуса (Mover), здания по основанию (Footprint); ближайшая к точке.
+  /// Сущность под точкой мира: юниты по радиусу корпуса (Mover), здания и площадки по основанию; ближайшая к точке.
   pub fn pick(&self, x: f64, y: f64) -> Option<Entity> {
     let state = self.world.borrow();
     let world = &state.world;
     let position = world.schema.id("Position")?;
     let unit = world.schema.id("Mover");
+    // Основание: у здания — Footprint, у площадки, которая тайлов ещё не занимает, — размер в Building.
     let building = world.schema.id("Footprint");
+    let site = world.schema.id("Building");
     let mut best: Option<(f64, Entity)> = None;
     let owner = world.schema.id("Owner");
     for &entity in &world.stores[position].entities {
@@ -257,7 +259,7 @@ impl ClientState {
       let (dx, dy) = (x - ex, y - ey);
       let hit = if let Some(radius) = unit.and_then(|id| world.num(entity, id, "radius")) {
         dx * dx + dy * dy <= (radius + 0.15).powi(2)
-      } else if let Some(id) = building.filter(|&id| world.has(entity, id)) {
+      } else if let Some(id) = building.filter(|&id| world.has(entity, id)).or(site.filter(|&id| world.has(entity, id))) {
         let (w, h) = (world.num(entity, id, "width").unwrap_or(1.0), world.num(entity, id, "height").unwrap_or(1.0));
         dx.abs() <= w / 2.0 && dy.abs() <= h / 2.0
       } else {

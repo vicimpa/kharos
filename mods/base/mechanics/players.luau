@@ -10,7 +10,8 @@ players.data = {
 }
 
 players.components = {
-	Player = { id = 0, credits = 0 },
+	-- earned — накопленная дробная часть: стройка платит и разбор возвращает по долям кредита (spend, earn).
+	Player = { id = 0, credits = 0, earned = 0 },
 }
 
 players.on = {

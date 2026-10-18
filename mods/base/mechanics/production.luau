@@ -45,7 +45,8 @@ local function producer(ctx, player: number, building: number, unit: string?)
 	end
 	local owner = ctx:get(building, "Owner")
 	local state = ctx:get(building, "Producer")
-	if not owner or owner.player ~= player or not state then
+	-- Недостроенное и разбираемое не производит.
+	if not owner or owner.player ~= player or not state or ctx:has(building, "Site") then
 		return nil
 	end
 	if unit then
@@ -130,8 +131,9 @@ production.systems = {
 			for i = 0, q.n - 1 do
 				local at = i * 8
 				local current = readf64(p.unit, at)
-				-- Пока здание сворачивается, машина разворачивается или база свёрнута в MCV, производство стоит.
-				if current == empty or ctx:has(readf64(entity, at), "Converting") or ctx:has(readf64(entity, at), "Unit") then
+				-- Пока здание сворачивается или разбирается, машина разворачивается или база свёрнута в MCV, производство стоит.
+				local e = readf64(entity, at)
+				if current == empty or ctx:has(e, "Converting") or ctx:has(e, "Unit") or ctx:has(e, "Site") then
 					continue
 				end
 				local unit = ctx.protos.units[ctx:text(current)]

@@ -8,6 +8,8 @@ local kind = {}
 
 kind.data = {
 	title = "Топливные баки",
+	-- Кратко — в карточке кнопки стройки (buildingInfo).
+	info = "Хранят топливо зоны",
 	width = 2,
 	height = 2,
 	cost = 200,

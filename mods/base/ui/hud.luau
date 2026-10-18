@@ -5,6 +5,8 @@
 local widgets = require("lib/widgets")
 local stats = require("lib/stats")
 local conversion = require("lib/conversion")
+local construction = require("lib/construction")
+local kinds = require("lib/kinds")
 local COLORS, shadow = widgets.COLORS, widgets.shadow
 
 local hud = {}
@@ -22,8 +24,33 @@ local QUEUED = 24
 local settings = require("lib/settings")
 local INFO_MIN = 104 + 10 + 24 + 150
 local GRID_KEYS = { "T", "Y", "U", "I", "G", "H", "J", "K", "B", "N", "M", "," }
--- Постоянные места сетки: превращение и отмена (CONVERT, CANCEL в commands.ts).
-local CONVERT, CANCEL = 9, 10
+-- Постоянные места сетки: превращение, отмена, разбор и «Назад» (CONVERT, CANCEL, DEMOLISH, BACK в commands.ts).
+local CONVERT, CANCEL, DEMOLISH, BACK = 9, 10, 11, 12
+-- Разделы строителя: в какой странице какое здание; остальное — хозяйство (SECTIONS в commands.ts). Раздел — с
+-- картинкой здания, по порядку кнопок.
+local SECTIONS = {
+	{ page = "economy", label = "Хозяйство", tip = "Энергия, добыча, лаборатория и торговля", picture = "generator" },
+	{ page = "storage", label = "Склады", tip = "Хранилища ресурсов и изделий", picture = "metalYard", list = { "metalYard", "siliconStore", "fuelTank", "khariteVault", "lithiumStore", "uraniumCask", "blockYard", "ammoBunker", "partsLocker", "rodRack", "requestStation" } },
+	{ page = "industry", label = "Переработка", tip = "Переработка руды в ресурсы", picture = "smelter", list = { "smelter", "siliconWorks", "distillery", "enricher", "evaporator", "uraniumMill" } },
+	{ page = "production", label = "Производство", tip = "Заводы изделий: стройблоки, боеприпасы, компоненты и стержни", picture = "blockPlant", list = { "blockPlant", "ammoPlant", "partsPlant", "rodPlant" } },
+	{ page = "military", label = "Военное", tip = "Казармы, машинный завод, аэродром, ремонтная станция, станция поставки и ракетная шахта", picture = "factory", list = { "barracks", "factory", "airfield", "repairStation", "supplyDepot", "silo" } },
+	{ page = "defense", label = "Оборона", tip = "Стены, турели, щит, перехватчик ядерных ракет и радар", picture = "wall", list = { "wall", "gate", "turret", "rocketTurret", "cannonTurret", "laserTurret", "arcTurret", "shieldGenerator", "interceptor", "radar" } },
+}
+
+-- Раздел здания по имени: где его нет в списках, там хозяйство.
+local function sectionOf(name: string): string
+	for _, section in SECTIONS do
+		if section.list and table.find(section.list, name) then
+			return section.page
+		end
+	end
+	return "economy"
+end
+
+-- Доля процентом (percent в bar.ts).
+local function percent(value: number): string
+	return math.floor(value * 100 + 0.5) .. "%"
+end
 local KEY_NAMES = { "t", "y", "u", "i", "g", "h", "j", "k", "b", "n", "m", "," }
 
 -- Свой игрок: кредиты.
@@ -84,9 +111,113 @@ local function conversionOf(c, e: number)
 	}
 end
 
--- Ячейки сетки команд для выбранного: у своего завода — заказ юнитов, у MCV и главного здания — превращение.
+-- Свои строители среди выбранного.
+local function buildersOf(c, selection): { number }
+	local list = {}
+	for _, e in selection do
+		if c:mine(e) and c:has(e, "Unit") and c:has(e, "Repair") then
+			table.insert(list, e)
+		end
+	end
+	return list
+end
+
+-- Описание здания для карточки: что делает и какие здания открывает (aboutOf).
+local function aboutOf(c, kind): string
+	local info = kind.data.info or kind.data.about or ""
+	local opens = {}
+	for _, other in construction.menu(c) do
+		if other.data.requires and table.find(other.data.requires, kind.name) then
+			table.insert(opens, other.data.title or other.name)
+		end
+	end
+	return if #opens > 0 then info .. ". Открывает: " .. table.concat(opens, ", ") else info
+end
+
+-- Страница сетки строителя: корень с разделами или здания раздела; сменилось выделение — снова корень.
+local page = { name = "root", key = "" }
+
+-- Ячейки стройки (construction в commandsOf): на корне — разделы с открытыми зданиями, в разделе — сами здания
+-- и «Назад». Кнопка здания включает выбор места; закладывают и без кредитов — стройка подождёт их.
+local function constructionSlots(c, list, selection)
+	local key = table.concat(selection, ",")
+	if page.key ~= key then
+		page.name, page.key = "root", key
+	end
+	local mode = c.shared.mode
+	local placing = if mode ~= nil and mode.kind == "placing" then mode.building else nil
+	local free = construction.freeCredits(c, c.player)
+	local options = {}
+	for _, kind in construction.menu(c) do
+		if construction.unlocked(c, c.player, kind) then
+			table.insert(options, kind)
+		end
+	end
+	if page.name == "root" then
+		for i, section in SECTIONS do
+			local count = 0
+			for _, kind in options do
+				if sectionOf(kind.name) == section.page then
+					count += 1
+				end
+			end
+			-- Раздел появляется, когда в нём открыто хоть одно здание; закрытый оставляет пустую ячейку.
+			if count > 0 then
+				list[i] = {
+					label = section.label,
+					picture = c.protos.buildings[section.picture],
+					title = section.tip,
+					count = count,
+					run = function()
+						page.name = section.page
+					end,
+				}
+			end
+		end
+		return
+	end
+	local index = 0
+	for _, kind in options do
+		if sectionOf(kind.name) ~= page.name or index >= BACK - 1 then
+			continue
+		end
+		index += 1
+		local affordable = free >= kind.data.cost
+		list[index] = {
+			label = kind.data.title or kind.name,
+			picture = kind,
+			cost = kind.data.cost,
+			short = not affordable,
+			about = aboutOf(c, kind),
+			title = if affordable then nil else "Сейчас кредитов на всю цену нет — заложить можно: платят по ходу стройки, и она подождёт, пока их прибавится",
+			active = placing == kind.name,
+			zones = true,
+			run = function()
+				c.shared.mode = if placing == kind.name then nil else { kind = "placing", building = kind.name }
+			end,
+		}
+	end
+	list[BACK] = {
+		label = "Назад",
+		title = "К разделам; Esc отменяет выбор места",
+		run = function()
+			if placing then
+				c.shared.mode = nil
+			end
+			page.name = "root"
+		end,
+	}
+end
+
+-- Ячейки сетки команд для выбранного: у строителей — стройка, у своего завода — заказ юнитов, у MCV и главного
+-- здания — превращение, у своей стройки — отмена, у готового здания — разбор.
 local function slots(c, selection)
 	local list = {}
+	if #buildersOf(c, selection) > 0 then
+		constructionSlots(c, list, selection)
+	else
+		page.name, page.key = "root", ""
+	end
 	local state = #selection == 1 and c:mine(selection[1]) and conversionOf(c, selection[1])
 	if state then
 		local e = selection[1]
@@ -120,7 +251,7 @@ local function slots(c, selection)
 			}
 		end
 	end
-	if #selection == 1 and c:has(selection[1], "Producer") and c:mine(selection[1]) then
+	if #selection == 1 and c:has(selection[1], "Producer") and c:mine(selection[1]) and not c:has(selection[1], "Site") then
 		local building = selection[1]
 		local kind = c:proto(building)
 		local money = credits(c)
@@ -140,6 +271,38 @@ local function slots(c, selection)
 				})
 			end
 		end
+	end
+	-- Своя стройка: отменить её или разбор; отменённую уже разбирают — передумать нельзя.
+	local site = #selection == 1 and c:mine(selection[1]) and c:get(selection[1], "Site")
+	if site and not site.undo then
+		local e = selection[1]
+		list[DEMOLISH] = {
+			label = if site.demolish then "Отменить разбор" else "Отменить стройку",
+			run = function()
+				c:send("cancelBuild", { site = e })
+			end,
+		}
+	end
+	-- Готовые свои здания — разобрать за половину цены и оплаченное вперёд.
+	local demolish, refund = {}, 0
+	for _, e in selection do
+		if construction.canDemolish(c, c.player, e) then
+			table.insert(demolish, e)
+			refund += construction.refundOf(kinds.of(c, e)) + construction.prepaidOf(c, e)
+		end
+	end
+	if #demolish > 0 and page.name == "root" then
+		list[DEMOLISH] = {
+			label = "Разобрать",
+			cost = refund,
+			gain = true,
+			title = "Здание разберут строители; когда закончат, вернётся половина цены",
+			run = function()
+				for _, e in demolish do
+					c:send("demolish", { building = e, builders = {} })
+				end
+			end,
+		}
 	end
 	return list
 end
@@ -171,7 +334,7 @@ local function card(ui, slot, hotkey: string)
 		if slot.cost then
 			ui:box({ direction = "row", align = "center", gap = 4 }, function()
 				widgets.coin(ui)
-				ui:text(tostring(slot.cost), { color = COLORS.gold })
+				ui:text(if slot.gain then "+" .. slot.cost else tostring(slot.cost), { color = if slot.gain then COLORS.good else COLORS.gold })
 			end)
 		end
 	end)
@@ -216,7 +379,9 @@ local function commandGrid(c, list, width: number, height: number)
 							ui:box({ direction = "row", align = "center", gap = 4 }, function()
 								if slot.cost then
 									widgets.coin(ui)
-									ui:text(tostring(slot.cost), shadow({ color = if slot.short then COLORS.warn else COLORS.gold }))
+									ui:text(if slot.gain then "+" .. slot.cost else tostring(slot.cost), shadow({ color = if slot.gain then COLORS.good elseif slot.short then COLORS.warn else COLORS.gold }))
+								elseif slot.count then
+									ui:text(tostring(slot.count), shadow({ color = COLORS.dim }))
 								end
 							end)
 						end)
@@ -226,6 +391,10 @@ local function commandGrid(c, list, width: number, height: number)
 					ui:tip(id, function()
 						card(ui, slot, hotkey)
 					end, if grid then { right = math.max(8, c.screen.w - c.input.x - 40), bottom = c.screen.h - grid.y + 12 } else nil)
+					-- Пока смотрят кнопку здания, на карте видны границы зон (controls/build).
+					if slot.zones and ui:hovered(id) then
+						c.shared.zonesHover = true
+					end
 					if click or (c.input.hits[KEY_NAMES[i]] and not c.input.keys.ctrl and not slot.disabled) then
 						slot.run()
 					end
@@ -242,6 +411,10 @@ local function info(c, selection, width: number, height: number)
 	local first = selection[1]
 	local kind = c:proto(first)
 	local title = if kind and kind.data then kind.data.title or kind.name else "?"
+	local site = not many and c:get(first, "Site")
+	if site then
+		title = (if site.undo then "Отмена стройки: " elseif site.demolish then "Разбор: " else "Стройка: ") .. title
+	end
 	if many then
 		local counts, order = {}, {}
 		for _, e in selection do
@@ -300,6 +473,24 @@ local function info(c, selection, width: number, height: number)
 				end)
 				ui:tip("info:stats", stats.text(unitKind))
 			end
+			if site then
+				local progress = math.min(1, site.progress / site.total)
+				local label
+				if site.demolish then
+					label = if progress < 1 then "Разбирается — осталось " .. percent(progress) else "Ждёт строителя: выбери его и щёлкни по зданию правой кнопкой"
+				elseif c:has(first, "Footprint") then
+					label = if c:mine(first) and construction.short(c, c.player)[first] then "Ждёт кредитов — готово " .. percent(progress) .. ": стройку оплачивают по ходу" else "Строится — " .. percent(progress)
+				else
+					label = if site.blocked then "Место занято юнитами" else "Ждёт строителя"
+				end
+				widgets.bar(ui, progress, label, text)
+			end
+			-- Своё повреждённое: сколько стоит починка (у стройки прочность — та же доля, что полоса стройки).
+			local health = not many and not site and c:mine(first) and c:get(first, "Health")
+			if health and health.value < health.max and construction.isRepairable(c, first) then
+				local repair = construction.repairCostOf(kind.data.cost, health.value, construction.rules(c).repairCost, health.max)
+				ui:text("Прочность: " .. percent(health.value / health.max) .. ". Починка стоит " .. repair .. ": выбери строителей и щёлкни по зданию правой кнопкой", { color = COLORS.soft, wrap = text })
+			end
 			local state = not many and c:mine(first) and conversionOf(c, first)
 			if state and state.progress then
 				widgets.bar(ui, state.progress, if state.blocked then "Место занято юнитами" elseif state.unit then "Разворачивается" else "Сворачивается", text)
@@ -324,6 +515,10 @@ local function info(c, selection, width: number, height: number)
 				if not packed then
 					ui:text(if producer.rally then "Готовые едут к флажку; правый щелчок по карте — перенести" else "Правый щелчок по карте — точка сбора готовых", { color = COLORS.soft, wrap = text })
 				end
+			end
+			local mode = c.shared.mode
+			if #buildersOf(c, selection) > 0 and not (mode and mode.kind == "placing") then
+				ui:text("Строит здания и чинит своё: правый щелчок по стройке или повреждённому. Здания — в сетке справа", { color = COLORS.soft, wrap = text })
 			end
 			if state and state.unit and not state.progress and not state.choosing then
 				ui:text(if state.traveling then "Едет к месту, чтобы развернуться" else "Передвижная база. Нажми «Развернуть» и выбери место на свободной скале или фундаменте 3×3 — лучше у месторождения: MCV доедет и станет главным зданием, которое заказывает строителей и задаёт зону стройки", { color = COLORS.soft, wrap = text })
@@ -453,6 +648,7 @@ end
 -- Режимы наведения: название и что делать (mode в hud.ts).
 local MODES = {
 	deploying = { name = "Разворачивание MCV", tip = "Щёлкни, где развернуть: на зелёном можно, MCV доедет сам" },
+	placing = { name = "Стройка: {name}", tip = "Щёлкни, где заложить, — можно ещё и ещё" },
 }
 
 -- Полоса режима над полем (modeBar в hud.ts): какой режим, что делать дальше и как выйти. Esc и правая кнопка
@@ -467,7 +663,8 @@ local function modeBar(c)
 	local room = ui.width - 24
 	ui:box({ anchor = { centerX = 0, top = TOP_HEIGHT + 6 } }, function()
 		ui:box({ id = "mode", skin = "panel", padding = { 10, 12, 10, 16 }, direction = "row", align = "center", gap = 12, maxWidth = room }, function()
-			ui:text(spec.name, { color = COLORS.team })
+			local building = mode.building and c.protos.buildings[mode.building]
+			ui:text((string.gsub(spec.name, "{name}", building and building.data.title or "")), { color = COLORS.team })
 			ui:text(spec.tip, { color = COLORS.soft, wrap = math.max(160, room - 320) })
 			if ui:button("mode:cancel", { height = 32, padding = { 2, 14 } }, function()
 				ui:text("Отмена", shadow())

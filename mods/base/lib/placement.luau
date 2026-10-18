@@ -1,7 +1,7 @@
 --!strict
 -- Место под здание — перенос canPlace из buildings.ts: внутри карты, на скале (оборону и трубы — и на песке), не у
 -- подножия обрыва, тайлы и полоса gap вокруг не заняты зданиями. Годится и хосту (ctx), и клиенту (c): обоим нужны
--- только :terrain, :occupant и game.data.size. Фундамента, дорог и площадок стройки пока нет — они придут со стройкой.
+-- только :terrain, :occupant, :each и game.data.size. Фундамента и дорог пока нет — они придут с покрытием.
 
 local placement = {}
 
@@ -35,6 +35,15 @@ function placement.canPlace(w, kind, x: number, y: number, gap: number?): boolea
 			if w:occupant(tileX, tileY) then
 				return false
 			end
+		end
+	end
+	-- Площадка, которую ещё не начали строить, тайлов не занимает, но место за ней уже закреплено.
+	for _, e in w:each({ "Site", "Building", "Position" }) do
+		local other = w:get(e, "Building")
+		local at = w:get(e, "Position")
+		local left, top = placement.left(at.x, other.width), placement.left(at.y, other.height)
+		if x - around < left + other.width and x + width + around > left and y - around < top + other.height and y + height + around > top then
+			return false
 		end
 	end
 	return true

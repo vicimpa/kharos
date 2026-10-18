@@ -4,6 +4,7 @@
 -- длится — data механики mechanics/conversion.
 
 local placement = require("lib/placement")
+local zones = require("lib/zones")
 
 local conversion = {}
 
@@ -52,9 +53,14 @@ function conversion.canSend(w, player: number, e: number): boolean
 	return isKind(w, e, conversion.unit(w)) and owns(w, player, e) and not w:has(e, "Converting")
 end
 
--- Может ли MCV развернуться главным зданием с левым верхним тайлом (x, y) (canDeployAt). Чужих зон пока нет.
+-- Может ли MCV развернуться главным зданием с левым верхним тайлом (x, y) (canDeployAt): место годится и не задевает
+-- чужую зону.
 function conversion.canDeployAt(w, player: number, e: number, x: number, y: number): boolean
-	return conversion.canSend(w, player, e) and placement.canPlace(w, conversion.building(w), x, y)
+	local building = conversion.building(w)
+	if not conversion.canSend(w, player, e) or not placement.canPlace(w, building, x, y) then
+		return false
+	end
+	return not zones.inForeign(w, player, x, y, building.data.width, building.data.height)
 end
 
 -- Может ли игрок развернуть этот MCV прямо на месте (canDeploy).

@@ -8,6 +8,8 @@ local kind = {}
 
 kind.data = {
 	title = "Нефтеперегонка",
+	-- Кратко — в карточке кнопки стройки (buildingInfo).
+	info = "Перегоняет нефть в топливо",
 	width = 2,
 	height = 3,
 	cost = 400,

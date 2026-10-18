@@ -8,6 +8,8 @@ local kind = {}
 
 kind.data = {
 	title = "Стеллаж стержней",
+	-- Кратко — в карточке кнопки стройки (buildingInfo).
+	info = "Хранит топливные стержни зоны",
 	width = 1,
 	height = 1,
 	cost = 300,

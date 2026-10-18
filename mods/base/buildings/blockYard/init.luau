@@ -8,6 +8,8 @@ local kind = {}
 
 kind.data = {
 	title = "Склад стройблоков",
+	-- Кратко — в карточке кнопки стройки (buildingInfo).
+	info = "Хранит стройблоки зоны",
 	width = 2,
 	height = 2,
 	cost = 150,
