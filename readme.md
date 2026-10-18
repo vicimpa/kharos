@@ -38,7 +38,7 @@ cargo run --release --bin kharos   # игра в окне
 cargo test --release               # тесты
 ```
 
-В браузере клиент собирает [trunk](https://trunkrs.dev):
+В браузере клиент собирает [trunk](https://trunk-rs.github.io/trunk/):
 
 ```bash
 cd apps/client/web
