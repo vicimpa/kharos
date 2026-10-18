@@ -210,19 +210,6 @@ local function unitTarget(c, player: number, name: string): Target?
 	return nil
 end
 
--- Знает ли игрок месторождение: разведан хоть тайл под ним (knowsDeposit).
-local function knows(c, x: number, y: number): boolean
-	for dy = 0, depositsLib.SIZE - 1 do
-		for dx = 0, depositsLib.SIZE - 1 do
-			if c:explored(x + dx + 0.5, y + dy + 0.5) then
-				return true
-			end
-		end
-	end
-	return false
-end
-
--- Ближайшее к базе известное игроку свободное месторождение этого вида, где ещё есть руда (nearestDeposit).
 local function nearestDeposit(c, name: string, fromX: number, fromY: number): Target?
 	local best, bestDistance = nil, math.huge
 	local half = depositsLib.SIZE / 2
@@ -234,7 +221,8 @@ local function nearestDeposit(c, name: string, fromX: number, fromY: number): Ta
 			continue
 		end
 		local x, y = at.x - half, at.y - half
-		if c:occupant(x, y) or not knows(c, x, y) then
+		-- Знает ли игрок месторождение (knowsDeposit): видит или помнит.
+		if c:occupant(x, y) or not c:knows(e) then
 			continue
 		end
 		best = { x = x, y = y, width = depositsLib.SIZE, height = depositsLib.SIZE }

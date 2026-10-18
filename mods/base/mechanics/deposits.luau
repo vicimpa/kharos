@@ -11,19 +11,13 @@ return {
 	},
 	on = {
 		start = function(ctx)
-			local data = ctx.game.data or {}
-			local size = data.size
-			local land = data.land and ctx.protos.lands[data.land]
-			if not size or not land then
+			-- Генератор — как у местности (land_config хоста).
+			local setup = deposits.setup(ctx)
+			if not setup then
 				return
 			end
-			-- Генератор — как у местности (land_config хоста): вид местности, поверх data.generator и сид партии.
-			local config = table.clone(land.data)
-			for key, value in data.generator or {} do
-				config[key] = value
-			end
-			config.seed = data.seed or config.seed
-			local bounds = { left = -size, top = -size, right = size, bottom = size }
+			local config, bounds = setup.config, setup.bounds
+			local size = bounds.right
 			local kinds = ctx.protos.deposits
 			local from, to = math.floor(-size / deposits.CELL), math.floor((size - 1) / deposits.CELL)
 			for cellY = from, to do

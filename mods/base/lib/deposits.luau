@@ -105,16 +105,38 @@ local function kindIn(kinds, biome: number, pick: number): string
 	return "metal"
 end
 
--- Месторождение клетки (cellX, cellY) по генератору (generatedIn и placeIn): левый верхний тайл, вид, запас; nil —
--- нет. ctx даёт местность (terrain) и hash, bounds — карта, kinds — виды раздела deposits, config — генератор.
+-- Генератор местности партии и карта: вид местности, поверх data.generator и сид партии (land_config хоста); nil —
+-- у партии нет карты.
+function deposits.setup(ctx)
+	local data = ctx.game.data or {}
+	local size = data.size
+	local land = data.land and ctx.protos.lands[data.land]
+	if not size or not land then
+		return nil
+	end
+	local config = table.clone(land.data)
+	for key, value in data.generator or {} do
+		config[key] = value
+	end
+	config.seed = data.seed or config.seed
+	return { config = config, bounds = { left = -size, top = -size, right = size, bottom = size } }
+end
+
+-- Месторождение клетки (cellX, cellY) по генератору (generatedIn): левый верхний тайл, вид, запас; nil — нет. ctx
+-- даёт местность (terrain) и hash, bounds — карта, kinds — виды раздела deposits, config — генератор.
 function deposits.generate(ctx, kinds, config, bounds, cellX: number, cellY: number)
 	local seed = config.seed + SALT
 	if ctx.hash(cellX, cellY, seed) >= (config.depositChance or CHANCE) then
 		return nil
 	end
-	local function random(k: number): number
+	return deposits.placeIn(ctx, kinds, config, bounds, cellX, cellY, function(k: number): number
 		return ctx.hash(cellX, cellY, seed + k)
-	end
+	end)
+end
+
+-- Месторождение в клетке (cellX, cellY) по случайным числам random(k) (placeIn): место — первое из ATTEMPTS, где
+-- можно строить и где fits не против; вид — по биому; запас — по виду. Нет такого места — nil.
+function deposits.placeIn(ctx, kinds, config, bounds, cellX: number, cellY: number, random: (number) -> number, fits: ((number, number) -> boolean)?)
 	local room = deposits.CELL - deposits.SIZE
 	for attempt = 0, ATTEMPTS - 1 do
 		local x = cellX * deposits.CELL + math.floor(random(1 + attempt * 2) * room)
@@ -122,17 +144,17 @@ function deposits.generate(ctx, kinds, config, bounds, cellX: number, cellY: num
 		if x < bounds.left or y < bounds.top or x + deposits.SIZE > bounds.right or y + deposits.SIZE > bounds.bottom then
 			continue
 		end
-		local fits = true
+		local buildable = true
 		for tileY = y, y + deposits.SIZE - 1 do
 			for tileX = x, x + deposits.SIZE - 1 do
 				local terrain, _, foot = ctx:terrain(tileX, tileY)
 				-- Шахта встаёт на месторождение: тайлы те же, что годятся под здание, — скала не у подножия обрыва.
 				if terrain ~= 2 or foot then
-					fits = false
+					buildable = false
 				end
 			end
 		end
-		if fits then
+		if buildable and (not fits or fits(x, y)) then
 			local _, biome = ctx:terrain(x, y)
 			local kind = kindIn(kinds, biome, random(53))
 			local spec = kinds[kind].data

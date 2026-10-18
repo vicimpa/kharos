@@ -13,6 +13,9 @@ return {
 	techTree = true,
 	-- Во сколько раз уровни зданий дороже и дольше, чем в матче (lib/levels).
 	upgradeScale = 1,
+	-- Через сколько минут после выработки месторождения в другом месте карты появляется новое (mechanics/renewal);
+	-- ноль — месторождения конечны.
+	depositRenewal = 15,
 	vehicleSand = 0.1,
 	vehicleSwamp = 0.8,
 	heavySand = 0,

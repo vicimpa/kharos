@@ -790,6 +790,13 @@ impl UserData for Ctx {
       let world = state.world.borrow();
       Ok(world.shows(state.player, entity(e)?))
     });
+    // Знает ли свой игрок сущность: видит живой или помнит призраком.
+    methods.add_method("knows", |_, c, e: f64| {
+      let state = c.state.borrow();
+      let world = state.world.borrow();
+      let e = entity(e)?;
+      Ok(world.shows(state.player, e) || world.ghosts(state.player).iter().any(|(ghost, _)| *ghost == e))
+    });
     // Что свой игрок помнит в тумане (memory.rs): { id, x, y, width, height, kind (вид, как c:proto), parts —
     // компоненты, какими их видели }; с прямоугольником — только те, чья середина в нём.
     methods.add_method("ghosts", |lua, c, (x1, y1, x2, y2): (Option<f64>, Option<f64>, Option<f64>, Option<f64>)| {

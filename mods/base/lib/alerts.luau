@@ -167,7 +167,7 @@ function alerts.update(c): { Alert }
 	local nextKnown, fresh = {}, nil
 	for _, e in c:each({ "Deposit", "Position" }) do
 		local at = c:get(e, "Position")
-		if c:explored(at.x, at.y) then
+		if c:knows(e) then
 			nextKnown[e] = true
 			if known and not known[e] and not fresh then
 				fresh = at

@@ -2121,7 +2121,7 @@ local function hoverTips(c)
 	for _, e in c:each({ "Deposit", "Position" }) do
 		local at = c:get(e, "Position")
 		local x, y = at.x - half, at.y - half
-		if tileX >= x and tileX < x + depositsLib.SIZE and tileY >= y and tileY < y + depositsLib.SIZE and c:explored(at.x, at.y) then
+		if tileX >= x and tileX < x + depositsLib.SIZE and tileY >= y and tileY < y + depositsLib.SIZE and c:knows(e) then
 			local kind = c:proto(e)
 			local resource = kind and kind.name
 			local good = resource and c.protos.goods[resource]

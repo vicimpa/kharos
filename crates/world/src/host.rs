@@ -1148,6 +1148,12 @@ impl UserData for Ctx {
     methods.add_method("sees", |_, this, (player, x, y): (f64, f64, f64)| Ok(this.state.borrow().vision.as_ref().is_none_or(|vision| vision.sees(player as u32, x, y))));
     // Бывал ли тайл в виду игрока; без тумана — всё.
     methods.add_method("explored", |_, this, (player, x, y): (f64, f64, f64)| Ok(this.state.borrow().vision.as_ref().is_none_or(|vision| vision.explored(player as u32, x, y))));
+    // Помнит ли кто-нибудь ушедшее (memory.rs), чья середина в прямоугольнике [x1, x2) × [y1, y2): там его призрак.
+    methods.add_method("remembered_in", |_, this, (x1, y1, x2, y2): (f64, f64, f64, f64)| {
+      let state = this.state.borrow();
+      let gone = |entity: &Entity| !state.world.alive(*entity);
+      Ok(state.memory.known.values().flat_map(|known| known.iter()).any(|(entity, record)| gone(entity) && record.x >= x1 && record.x < x2 && record.y >= y1 && record.y < y2))
+    });
     // Доля полной скорости рода class радиусом radius на тайле.
     methods.add_method("terrain_speed", |_, this, (class, x, y, radius): (String, f64, f64, Option<f64>)| Ok(this.state.borrow_mut().scene().terrain_speed(&class, radius.unwrap_or(0.0), x.floor() as i32, y.floor() as i32)));
     // Слои карты (tiles.rs): значение канала тайла (0 — пусто), запись и непустые тайлы прямоугольника —

@@ -56,7 +56,7 @@ local function placementOf(c, kind): (number, number, boolean)
 		for _, e in c:each({ "Deposit", "Position" }) do
 			local at = c:get(e, "Position")
 			local distance = math.sqrt((at.x - tx - 0.5) ^ 2 + (at.y - ty - 0.5) ^ 2)
-			if distance <= best and c:explored(at.x, at.y) then
+			if distance <= best and c:knows(e) then
 				best = distance
 				x, y = at.x - depositsLib.SIZE / 2, at.y - depositsLib.SIZE / 2
 			end

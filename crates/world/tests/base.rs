@@ -1771,3 +1771,38 @@ fn foreign_buildings_and_paving_are_remembered_as_last_seen() {
   let paving = state.layers.id("paving").unwrap();
   assert_eq!(state.known_layer(2, paving, cx, cy - 3, 1), 1.0, "увидел дорогу");
 }
+
+#[test]
+fn spent_deposit_leaves_and_a_new_one_appears_elsewhere_after_renewal() {
+  let mut host = self::host();
+  // Смена через 3 секунды, а не 15 минут.
+  {
+    let game = host.content.get("games", &host.game).unwrap();
+    let data: mlua::Table = game.get("data").unwrap();
+    let rules: mlua::Table = data.get("rules").unwrap();
+    rules.set("depositRenewal", 0.05).unwrap();
+  }
+  let count = all(&host, "Deposit").len();
+  let (spent, _) = all(&host, "Deposit")[0].clone();
+  let at = place(&host, spent);
+  set(&host, spent, "Deposit", json!({ "reserve": 0 }));
+  ticks(&mut host, 21);
+  assert!(get(&host, spent, "Deposit").is_none(), "выработанное ушло");
+  assert_eq!(all(&host, "Deposit").len(), count - 1);
+  ticks(&mut host, 40);
+  assert_eq!(all(&host, "Deposit").len(), count - 1, "срок не подошёл");
+  ticks(&mut host, 30);
+  assert_eq!(all(&host, "Deposit").len(), count, "новое появилось");
+  assert!(all(&host, "Deposit").iter().all(|&(entity, _)| place(&host, entity) != at), "не на прежнем месте");
+  // Под шахтой выработанное остаётся, пока она стоит.
+  let (mined, _) = all(&host, "Deposit")[1].clone();
+  let (x, y) = place(&host, mined);
+  let mine_kind = host.proto_id("buildings", "mine").unwrap();
+  let mine = spawn_with(&host, json!({ "Position": { "x": x, "y": y }, "Proto": { "id": mine_kind }, "Building": { "width": 2, "height": 2 }, "Owner": { "player": 1 } }));
+  set(&host, mined, "Deposit", json!({ "reserve": 0 }));
+  ticks(&mut host, 41);
+  assert!(get(&host, mined, "Deposit").is_some_and(|deposit| deposit["spent"] == json!(true)), "под шахтой осталось");
+  host.state.borrow_mut().world.destroy(mine);
+  ticks(&mut host, 21);
+  assert!(get(&host, mined, "Deposit").is_none(), "шахты нет — ушло");
+}
