@@ -748,9 +748,22 @@ local function slots(c, selection)
 		local building = selection[1]
 		local kind = c:proto(building)
 		local money = credits(c)
+		local producer = c:get(building, "Producer")
+		local orders = #producer.queue + (if producer.unit ~= "" then 1 else 0)
+		-- Очередь полна — заказывать некуда (QUEUE_LIMIT).
+		local full = orders >= c.protos.mechanics.production.data.queue
+		local techTree = construction.rules(c).techTree
 		for _, name in kind.data.produces or {} do
 			local unit = c.protos.units[name]
 			if unit then
+				local missing = if techTree then construction.missing(c, c.player, unit.data.requires) else {}
+				local topic = if construction.researched(c, c.player, unit.data.research) then nil else research.topic(c, unit.data.research)
+				local titles = {}
+				for _, needed in missing do
+					local other = c.protos.buildings[needed]
+					table.insert(titles, if other then other.data.title else needed)
+				end
+				local affordable = money >= unit.data.cost
 				table.insert(list, {
 					label = unit.data.title or name,
 					picture = unit,
@@ -758,15 +771,30 @@ local function slots(c, selection)
 					materials = unit.data.materials,
 					c = c,
 					stock = (logistics.stockOf(c, c.player)),
-					short = money < unit.data.cost,
+					short = not affordable,
 					about = unit.data.about,
 					unit = unit,
+					disabled = not affordable or full or #missing > 0 or topic ~= nil,
+					title = if #missing > 0 then "Нужно построить: " .. table.concat(titles, ", ")
+						elseif topic then "Нужно исследование: " .. topic.data.title
+						elseif full then "Очередь заполнена"
+						elseif not affordable then "Не хватает кредитов"
+						else nil,
 					hint = (currentStep(c) or {}).unit == name,
 					run = function()
 						c:send("produce", { building = building, unit = name })
 					end,
 				})
 			end
+		end
+		if orders > 0 and not list[CANCEL] then
+			list[CANCEL] = {
+				label = "Отменить заказ",
+				title = "Последний в очереди; кредиты вернутся",
+				run = function()
+					c:send("cancel", { building = building })
+				end,
+			}
 		end
 	end
 	-- Своя готовая ракетная шахта: боеголовка, пуск и отмена (silo в commands.ts).

@@ -7,6 +7,7 @@
 
 local conversion = require("lib/conversion")
 local placement = require("lib/placement")
+local queue = require("lib/queue")
 
 local readf64, writef64 = buffer.readf64, buffer.writef64
 
@@ -120,6 +121,7 @@ mechanic.commands = {
 		end
 		if args.x == nil and args.y == nil then
 			if conversion.canDeploy(ctx, player, unit) then
+				queue.forget(ctx, { unit })
 				start(ctx, unit, mechanic.data.deploySeconds)
 			end
 			return
@@ -140,6 +142,7 @@ mechanic.commands = {
 			start(ctx, unit, mechanic.data.deploySeconds)
 			return
 		end
+		queue.forget(ctx, { unit })
 		ctx:add(unit, "Deploys", { x = x, y = y, misses = 0 })
 		ctx:move(unit, middleOf(ctx, x, y))
 	end,

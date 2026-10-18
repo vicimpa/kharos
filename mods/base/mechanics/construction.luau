@@ -18,6 +18,7 @@ local zones = require("lib/zones")
 local kinds = require("lib/kinds")
 local wallet = require("lib/wallet")
 local conversion = require("lib/conversion")
+local queue = require("lib/queue")
 local buildings = require("lib/buildings")
 local economy = require("lib/economy")
 local logistics = require("lib/logistics")
@@ -247,11 +248,9 @@ local function clearSite(ctx, site: number, evict: boolean): boolean
 	return false
 end
 
--- Строитель занят работой, которую дал ему игрок: новую стройку из меню он не бросает (isBusyBuilder).
-local function isBusy(ctx, e: number): boolean
-	local builds = ctx:get(e, "Builds")
-	return builds ~= nil and builds.ordered
-end
+-- Строитель занят работой, которую дал ему игрок, или ждёт приказов в очереди: новую стройку из меню он не бросает,
+-- она встаёт ему в очередь (isBusyBuilder).
+local isBusy = queue.busyBuilder
 
 -- Стоит ли работа, хотя ремонтник до неё дотянулся: стройка вне зоны или с юнитами на ещё пустой площадке, починка —
 -- без кредитов (isStalled).
@@ -566,7 +565,7 @@ local function replacePipe(ctx, player: number, e: number)
 end
 
 -- Протяжка: закладывает тайлы, которые годятся, и посылает строителей к первой площадке.
-local function stroke(ctx, player: number, kind, tiles, builders, allowed: { boolean }, swap: boolean, kept: { boolean }?): boolean
+local function stroke(ctx, player: number, kind, tiles, builders, allowed: { boolean }, swap: boolean, kept: { boolean }?, queued: boolean?): boolean
 	local first = nil
 	for i, ok in allowed do
 		local x, y = tiles[i * 2 - 1], tiles[i * 2]
@@ -588,7 +587,18 @@ local function stroke(ctx, player: number, kind, tiles, builders, allowed: { boo
 	if not first then
 		return false
 	end
-	ctx:emit("laid", { site = first, player = player, builders = freeBuilders(ctx, builders) })
+	-- Как и стройка из меню, протяжка не отнимает строителя у работы игрока: занятым она встаёт в очередь (lay).
+	local free = if queued then {} else freeBuilders(ctx, builders)
+	local busy = {}
+	for _, e in (if type(builders) == "table" then builders else {}) do
+		if type(e) == "number" and ctx:alive(e) and not table.find(free, e) then
+			table.insert(busy, e)
+		end
+	end
+	if #busy > 0 then
+		queue.push(ctx, player, "assist", { site = first }, busy)
+	end
+	ctx:emit("laid", { site = first, player = player, builders = free })
 	ctx:signal("laid", { player = player, x = tiles[1], y = tiles[2] })
 	return true
 end
@@ -615,7 +625,7 @@ mechanic.commands = {
 		local tiles = strokeTiles(args.tiles)
 		local kind = ctx.protos.buildings.pipe
 		if tiles and kind then
-			stroke(ctx, player, kind, tiles, args.builders, construction.pipeStroke(ctx, player, tiles, kind), true)
+			stroke(ctx, player, kind, tiles, args.builders, construction.pipeStroke(ctx, player, tiles, kind), true, nil, args.queue == true)
 		end
 	end,
 
@@ -639,7 +649,7 @@ mechanic.commands = {
 			end
 		end
 		if fresh > 0 then
-			stroke(ctx, player, kind, tiles, args.builders, fits, true, kept)
+			stroke(ctx, player, kind, tiles, args.builders, fits, true, kept, args.queue == true)
 		end
 	end,
 
@@ -648,12 +658,13 @@ mechanic.commands = {
 		local tiles = strokeTiles(args.tiles)
 		local kind = ctx.protos.buildings[if args.gate == true then "gate" else "wall"]
 		if tiles and kind then
-			stroke(ctx, player, kind, tiles, args.builders, construction.wallStroke(ctx, player, tiles, kind), false)
+			stroke(ctx, player, kind, tiles, args.builders, construction.wallStroke(ctx, player, tiles, kind), false, nil, args.queue == true)
 		end
 	end,
 
-	-- { building, x, y, builders } — заложить здание левым верхним тайлом основания в (x, y) и послать строителей.
-	-- Заложить можно и без кредитов: платят по ходу. Занятых делом игрока строителей стройка из меню не отнимает.
+	-- { building, x, y, builders, queue } — заложить здание левым верхним тайлом основания в (x, y) и послать строителей.
+	-- Заложить можно и без кредитов: платят по ходу. Занятых делом игрока строителей стройка из меню не отнимает: им
+	-- она встаёт в очередь; с Shift (queue) — в очередь всем.
 	build = function(ctx, player, args)
 		local kind = type(args.building) == "string" and ctx.protos.buildings[args.building]
 		if not kind or type(args.x) ~= "number" or type(args.y) ~= "number" then
@@ -664,19 +675,28 @@ mechanic.commands = {
 			return
 		end
 		local site = laySite(ctx, player, kind, args.x, args.y)
-		local free = {}
+		local free, busy = {}, {}
 		for _, e in (if type(args.builders) == "table" then args.builders else {}) do
-			if type(e) == "number" and ctx:alive(e) and not isBusy(ctx, e) then
-				table.insert(free, e)
+			if type(e) == "number" and ctx:alive(e) then
+				table.insert(if args.queue or isBusy(ctx, e) then busy else free, e)
 			end
+		end
+		if #busy > 0 then
+			queue.push(ctx, player, "assist", { site = site }, busy)
 		end
 		ctx:emit("laid", { site = site, player = player, builders = free })
 		ctx:signal("laid", { player = player, x = args.x, y = args.y })
 	end,
 
-	-- { units, site } — послать своих строителей на свою стройку, разбор или чинить.
+	-- { units, site, queue } — послать своих строителей на свою стройку, разбор или чинить.
 	assist = function(ctx, player, args)
-		if type(args.site) == "number" and type(args.units) == "table" and assignBuilders(ctx, player, args.site, args.units, true) then
+		if type(args.site) ~= "number" or type(args.units) ~= "table" then
+			return
+		end
+		if args.queue then
+			queue.push(ctx, player, "assist", { site = args.site }, args.units)
+		elseif assignBuilders(ctx, player, args.site, args.units, true) then
+			queue.forget(ctx, args.units)
 			conversion.forget(ctx, args.units)
 		end
 	end,

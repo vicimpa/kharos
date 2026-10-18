@@ -214,7 +214,7 @@ function build.update(c)
 			return
 		end
 		if allowed then
-			c:send("build", { building = mode.building, x = x, y = y, builders = units })
+			c:send("build", { building = mode.building, x = x, y = y, builders = units, queue = c.input.keys.shift })
 		else
 			c:sound("deny", { volume = 0.35 })
 		end

@@ -16,6 +16,7 @@ local approach = require("lib/approach")
 local economy = require("lib/economy")
 local kinds = require("lib/kinds")
 local beams = require("lib/beam")
+local queue = require("lib/queue")
 local beamFor, reaches, transfer = beams.beamFor, beams.reaches, beams.transfer
 
 local mechanic = {}
@@ -430,11 +431,18 @@ local function assign(ctx, player: number, mine: number, units: { number })
 end
 
 mechanic.commands = {
-	-- { mine, units } — привязать свои грузовики к своей шахте: возят только её руду на переработку.
+	-- { mine, units, queue } — привязать свои грузовики к своей шахте: возят только её руду на переработку; с Shift — в
+	-- очередь.
 	haul = function(ctx, player, args)
-		if type(args.mine) == "number" and type(args.units) == "table" then
-			assign(ctx, player, args.mine, args.units)
+		if type(args.mine) ~= "number" or type(args.units) ~= "table" then
+			return
 		end
+		if args.queue then
+			queue.push(ctx, player, "haul", { mine = args.mine }, args.units)
+			return
+		end
+		queue.forget(ctx, args.units)
+		assign(ctx, player, args.mine, args.units)
 	end,
 }
 

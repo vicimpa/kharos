@@ -2,12 +2,14 @@
 -- Приказы юнитам — перенос case 'move' из packages/sim-ts/src/commands.ts: свои юниты группой едут к тайлу, каждый на
 -- своё место рядом с ним (ctx:move_group — orderGroupMove движка); стоп — снять путь. Приказ точкой (order,
 -- resolveOrder в target.ts) решает хост: строители по своей стройке или повреждённому — строят и чинят, иначе — едут.
--- Вооружённые по видимому врагу — атакуют.
+-- Вооружённые по видимому врагу — атакуют. С Shift (queue) приказ встаёт юнитам в очередь (lib/queue), и система follow
+-- раздаёт его, когда они освободятся (followOrders в orders.ts).
 
 local conversion = require("lib/conversion")
 local construction = require("lib/construction")
 local logistics = require("lib/logistics")
 local tactics = require("lib/tactics")
+local queue = require("lib/queue")
 
 local orders = {}
 
@@ -54,6 +56,7 @@ end
 -- Свои юниты едут к тайлу: приказ идти снимает строителя со стройки, грузовик — с работы и шахты, бойца — с цели и
 -- патруля. Агрессивные идут походом: по дороге бьют увиденных врагов и продолжают путь.
 local function move(ctx, player: number, units: { number }, x: number, y: number)
+	queue.forget(ctx, units)
 	for _, e in units do
 		ctx:remove(e, "Builds")
 		tactics.stopAttack(ctx, e)
@@ -78,6 +81,16 @@ orders.commands = {
 			return
 		end
 		local x, y = math.floor(args.x), math.floor(args.y)
+		-- Что решено: с Shift — в очередь, иначе — сразу (событием той механики, чей это приказ).
+		local function act(name: string, event: { [string]: any })
+			if args.queue then
+				queue.push(ctx, player, name, event, units)
+				return
+			end
+			queue.forget(ctx, units)
+			event.player, event.units = player, units
+			ctx:emit(name, event)
+		end
 		if ctx:sees(player, x, y) then
 			-- Работа для строителей: стройка, разбор или своё повреждённое — здание или юнит.
 			local planned = construction.siteAt(ctx, x, y)
@@ -95,7 +108,7 @@ orders.commands = {
 				fighters = fighters or tactics.canFight(ctx, e, turrets[e])
 			end
 			if fighters and enemy and tactics.canAttack(ctx, player, enemy) then
-				ctx:emit("attack", { player = player, units = units, target = enemy })
+				act("attack", { target = enemy })
 				return
 			end
 			-- Грузовики по своей шахте — привязываются к ней и возят добытое.
@@ -105,13 +118,17 @@ orders.commands = {
 			end
 			local mine = ctx:occupant(x, y)
 			if trucks and mine and logistics.isReady(ctx, player, mine) and logistics.dataOf(ctx, mine).extract then
-				ctx:emit("haul", { player = player, units = units, mine = mine })
+				act("haul", { mine = mine })
 				return
 			end
 			if site and builders and ctx:get(site, "Owner").player == player then
-				ctx:emit("assist", { player = player, units = units, site = site })
+				act("assist", { site = site })
 				return
 			end
+		end
+		if args.queue then
+			queue.push(ctx, player, "move", { x = x, y = y }, units)
+			return
 		end
 		move(ctx, player, units, x, y)
 	end,
@@ -125,12 +142,17 @@ orders.commands = {
 		if #units == 0 then
 			return
 		end
+		if args.queue then
+			queue.push(ctx, player, "move", { x = args.x, y = args.y }, units)
+			return
+		end
 		move(ctx, player, units, args.x, args.y)
 	end,
 
 	-- { units } — стоять: без пути, работы, цели и патруля.
 	stop = function(ctx, player, args)
 		local units = own(ctx, player, args.units)
+		queue.forget(ctx, units)
 		for _, entity in units do
 			ctx:stop(entity)
 			ctx:remove(entity, "Builds")
@@ -140,6 +162,99 @@ orders.commands = {
 		ctx:emit("release", { units = units })
 		conversion.forget(ctx, units)
 	end,
+}
+
+orders.components = {
+	-- Очередь приказов юнита (lib/queue): list — по порядку { group, name, args }.
+	Orders = { list = {} },
+}
+
+-- Занят делом, у которого нет конца: грузовик при шахте, боец в патруле. Ждать, пока оно кончится, нечего — приказ из
+-- очереди его прерывает, как прервал бы приказ без Shift (endless).
+local function endless(ctx, e: number): boolean
+	local hauler = ctx:get(e, "Hauler")
+	if hauler and hauler.mine >= 0 then
+		return true
+	end
+	local state = ctx:get(e, "Tactics")
+	return state ~= nil and #state.patrol > 0
+end
+
+-- Нечем занят: не едет, не строит, не превращается, не гонится за целью по приказу и не возвращается после погони.
+-- Дело без конца — не в счёт (idle).
+local function idle(ctx, e: number, turrets: { [number]: { number } }): boolean
+	if endless(ctx, e) then
+		return true
+	end
+	if ctx:has(e, "Path") or ctx:has(e, "Builds") or ctx:has(e, "Converting") then
+		return false
+	end
+	for _, gunner in { e, table.unpack(turrets[e] or {}) } do
+		local armed = ctx:get(gunner, "Armed")
+		if armed and armed.ordered and armed.target >= 0 then
+			return false
+		end
+	end
+	local state = ctx:get(e, "Tactics")
+	return not (state and state.away)
+end
+
+-- Приказы механик по имени — как их зовёт приказ игрока.
+local handlers: { [string]: any }? = nil
+local function handlerOf(ctx, name: string)
+	if not handlers then
+		local found = {}
+		for _, kind in ctx.protos.mechanics do
+			for command, handler in (if type(kind) == "table" and type(kind.commands) == "table" then kind.commands else {}) do
+				found[command] = handler
+			end
+		end
+		handlers = found
+	end
+	return (handlers :: { [string]: any })[name]
+end
+
+orders.systems = {
+	-- Раз в тик освободившиеся юниты берут следующий приказ из очереди (followOrders). Приказ группы ждёт, пока
+	-- освободятся все её юниты, у которых он следующий, — тогда они получают его вместе и встают строем.
+	follow = {
+		every = 1,
+		run = function(_, ctx)
+			local groups, order = {}, {}
+			local turrets = nil
+			for _, e in ctx:each({ "Orders", "Owner" }) do
+				local list = ctx:get(e, "Orders").list
+				local head = list[1]
+				if not head then
+					continue
+				end
+				turrets = turrets or tactics.mounts(ctx)
+				local group = groups[head.group]
+				if not group then
+					group = { player = ctx:get(e, "Owner").player, head = head, units = {}, rests = {}, ready = true }
+					groups[head.group] = group
+					table.insert(order, head.group)
+				end
+				table.insert(group.units, e)
+				table.insert(group.rests, { table.unpack(list, 2) })
+				group.ready = group.ready and idle(ctx, e, turrets)
+			end
+			for _, key in order do
+				local group = groups[key]
+				local handler = group.ready and handlerOf(ctx, group.head.name)
+				if not handler then
+					continue
+				end
+				-- Приказ забывает очередь, как любой без Shift: остаток кладётся обратно после него.
+				local args = queue.copy(group.head.args)
+				args.units = group.units
+				handler(ctx, group.player, args)
+				for i, e in group.units do
+					ctx:set(e, "Orders", { list = group.rests[i] })
+				end
+			end
+		end,
+	},
 }
 
 return orders

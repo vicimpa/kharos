@@ -5,6 +5,7 @@
 -- (recover), приказы атаковать и сменить стойку.
 
 local conversion = require("lib/conversion")
+local queue = require("lib/queue")
 
 local combat = {}
 
@@ -62,8 +63,16 @@ combat.on = {
 }
 
 combat.commands = {
-	-- Атаковать цель: { units = { … }, target = сущность } (orderAttack).
+	-- Атаковать цель: { units = { … }, target = сущность, queue } (orderAttack); с Shift — в очередь.
 	attack = function(ctx, player, args)
+		if type(args.units) ~= "table" then
+			return
+		end
+		if args.queue then
+			queue.push(ctx, player, "attack", { target = args.target }, args.units)
+			return
+		end
+		queue.forget(ctx, args.units)
 		attack(ctx, player, args.units, args.target)
 	end,
 	-- Стойка: { units = { … }, stance = "aggressive" | "defensive" | "hold" | "passive" } (setStance).

@@ -159,6 +159,39 @@ fn deploying_mcv_sends_own_units_off_the_site() {
 }
 
 #[test]
+fn queued_orders_come_out_one_by_one_and_cancel_takes_the_last_back() {
+  let mut host = host();
+  let (core, _) = deployed(&mut host);
+  let before = credits(&host);
+  for _ in 0..3 {
+    host.send(1, "produce", json!({ "building": core, "unit": "builder" }));
+  }
+  host.send(1, "produce", json!({ "building": core, "unit": "truck" }));
+  host.tick(0.05).unwrap();
+  let producer = get(&host, core, "Producer").unwrap();
+  assert_eq!(producer["unit"], json!("builder"));
+  assert_eq!(producer["queue"], json!(["builder", "builder", "truck"]));
+  // Последний заказ снимается с возвратом его цены.
+  let paid = credits(&host);
+  host.send(1, "cancel", json!({ "building": core }));
+  host.tick(0.05).unwrap();
+  assert_eq!(get(&host, core, "Producer").unwrap()["queue"], json!(["builder", "builder"]));
+  assert!(credits(&host) > paid, "вернули цену грузовика");
+  // Строители выходят по очереди: по одному за срок, все три — за три срока.
+  let mut seen = Vec::new();
+  for _ in 0..(3 * 5 * 20 + 10) {
+    host.tick(0.05).unwrap();
+    let count = kind(&host, "units", "builder").len();
+    if seen.last() != Some(&count) {
+      seen.push(count);
+    }
+  }
+  assert_eq!(seen, vec![0, 1, 2, 3], "строители выходят по одному");
+  assert_eq!(get(&host, core, "Producer").unwrap()["unit"], json!(""));
+  assert!(credits(&host) < before);
+}
+
+#[test]
 fn core_packs_back_into_mcv_with_its_queue_and_health() {
   let mut host = host();
   let (core, (x, y)) = deployed(&mut host);
@@ -557,6 +590,60 @@ fn point_order_sends_builders_to_own_site() {
   host.send(1, "order", json!({ "units": [builder], "x": site.0 as f64 - 6.0, "y": site.1 as f64 + 1.5 }));
   host.tick(0.05).unwrap();
   assert!(get(&host, builder, "Builds").is_none());
+}
+
+#[test]
+fn second_building_from_the_menu_waits_in_the_busy_builders_queue() {
+  let mut host = host();
+  let (_, site, builder) = base_with_builder(&mut host);
+  let (x, y) = generator_spot(&host, site);
+  host.send(1, "build", json!({ "building": "generator", "x": x, "y": y, "builders": [builder] }));
+  host.tick(0.05).unwrap();
+  let first = kind(&host, "buildings", "generator")[0];
+  let (x2, y2) = free_spot(&host, site, 2);
+  host.send(1, "build", json!({ "building": "generator", "x": x2, "y": y2, "builders": [builder] }));
+  host.tick(0.05).unwrap();
+  let second = *kind(&host, "buildings", "generator").iter().find(|&&entity| entity != first).unwrap();
+  // Стройка из меню не отнимает строителя у первой: вторая ждёт в его очереди.
+  assert_eq!(get(&host, builder, "Builds").unwrap()["site"].as_f64(), Some(first as f64));
+  let orders = get(&host, builder, "Orders").unwrap();
+  assert_eq!(orders["list"][0]["name"], json!("assist"));
+  assert_eq!(orders["list"][0]["args"]["site"].as_f64(), Some(second as f64));
+  // Достроив первую, он берётся за вторую и строит её.
+  let mut moved = false;
+  for _ in 0..20 * 120 {
+    host.tick(0.05).unwrap();
+    if get(&host, first, "Site").is_none() && !moved {
+      // Следующий приказ раздают в начале тика, а стройку снимают в конце: строитель берётся за неё тиком позже.
+      ticks(&mut host, 2);
+      assert_eq!(get(&host, builder, "Builds").map(|builds| builds["site"].as_f64()), Some(Some(second as f64)), "взялся за вторую");
+      moved = true;
+    }
+    if moved && get(&host, second, "Site").is_none() {
+      break;
+    }
+  }
+  assert!(moved, "первая не достроена");
+  assert!(get(&host, second, "Site").is_none(), "вторая не достроена");
+  assert_eq!(queued(&host, builder), 0);
+  // Приказ идти с Shift встаёт в очередь, без Shift — забывает её.
+  host.send(1, "move", json!({ "units": [builder], "x": site.0 - 6, "y": site.1, "queue": true }));
+  host.send(1, "move", json!({ "units": [builder], "x": site.0 - 8, "y": site.1, "queue": true }));
+  host.tick(0.05).unwrap();
+  host.tick(0.05).unwrap();
+  assert_eq!(queued(&host, builder), 1, "первый взят, второй ждёт");
+  host.send(1, "stop", json!({ "units": [builder] }));
+  host.tick(0.05).unwrap();
+  assert_eq!(queued(&host, builder), 0);
+}
+
+/// Сколько приказов ждёт в очереди юнита. Пустой список Luau приходит и объектом.
+fn queued(host: &Host, entity: u32) -> usize {
+  get(host, entity, "Orders").map_or(0, |orders| match &orders["list"] {
+    serde_json::Value::Array(list) => list.len(),
+    serde_json::Value::Object(map) => map.len(),
+    _ => 0,
+  })
 }
 
 /// Свободное место size × size в зоне главного здания: скала, ни зданий, ни юнитов на тайл вокруг.

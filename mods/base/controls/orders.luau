@@ -24,7 +24,7 @@ local function order(c, wx: number, wy: number)
 		end
 	end
 	if #units > 0 then
-		c:send("order", { units = units, x = wx, y = wy })
+		c:send("order", { units = units, x = wx, y = wy, queue = c.input.keys.shift })
 		c:sound("order", { volume = 0.35 })
 	elseif building then
 		c:send("rally", { building = building, x = x, y = y })

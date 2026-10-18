@@ -4,6 +4,7 @@
 -- обход или возвращается, откуда ушёл, а агрессивный в походе — идёт, куда шёл.
 
 local tactics = require("lib/tactics")
+local queue = require("lib/queue")
 
 local mechanic = {}
 
@@ -81,7 +82,10 @@ mechanic.commands = {
 		if #stops == 0 then
 			return
 		end
-		for _, e in fightersOf(ctx, player, args.units) do
+		-- Патруль — приказ без конца: очередь он забывает.
+		local fighters = fightersOf(ctx, player, args.units)
+		queue.forget(ctx, fighters)
+		for _, e in fighters do
 			-- Изменения мира — после приказа: заведённая тут тактика ещё не видна.
 			local own = ctx:get(e, "Tactics")
 			if not own then

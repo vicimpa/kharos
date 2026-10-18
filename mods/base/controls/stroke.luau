@@ -133,11 +133,11 @@ function stroke.update(c)
 			return
 		end
 		if mode.tool == "pipe" then
-			c:send("pipes", { tiles = tiles, builders = units })
+			c:send("pipes", { tiles = tiles, builders = units, queue = c.input.keys.shift })
 		elseif mode.tool == "well" then
-			c:send("wells", { tiles = tiles, builders = units })
+			c:send("wells", { tiles = tiles, builders = units, queue = c.input.keys.shift })
 		else
-			c:send("walls", { tiles = tiles, builders = units, gate = mode.tool == "gate" })
+			c:send("walls", { tiles = tiles, builders = units, gate = mode.tool == "gate", queue = c.input.keys.shift })
 		end
 	end
 end
