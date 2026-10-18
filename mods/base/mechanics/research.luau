@@ -468,7 +468,7 @@ mechanic.commands = {
 	end,
 }
 
--- На клиенте: своему игроку — сообщение «Исследовано» и звук.
+-- На клиенте: своему игроку — сообщение «Исследовано»; звук — audio/world, один на все темы разом.
 mechanic.signals = {
 	researched = function(c, signal)
 		if signal.player ~= c.player then
@@ -478,7 +478,6 @@ mechanic.signals = {
 		local list = c.shared.learned or {}
 		c.shared.learned = list
 		table.insert(list, { topic = signal.topic, time = c.time, trigger = kind and kind.data.trigger ~= nil })
-		c:sound("researched", { volume = 0.5 })
 	end,
 }
 

@@ -1,13 +1,14 @@
 --!strict
 -- Разовые звуки мира по сверке с прошлым кадром — перенос части worldSounds.ts: щит принял удар, пробит, поднялся;
--- створки шахты встали; отсчёт перед ядерным ударом — раз в секунду последние countdown секунд по точке удара,
+-- створки шахты встали; своему игроку открыта тема или выдана награда — по одному звуку, сколько бы их ни пришло
+-- разом; отсчёт перед ядерным ударом — раз в секунду последние countdown секунд по точке удара,
 -- которую игрок видит; база гибнет волной после сдачи — сирена (своя — громче и везде); игрок проиграл — аккорд.
 -- Остальное, что слышно по событиям хоста, приходит сигналами механик (ворота, радар, достроено). Скачок часов мира —
 -- новый мир или загрузка: тогда сверять не с чем.
 
 -- Громкость вблизи и как часто один звук может повторяться (VOLUMES, MIN_GAP).
 local VOLUMES = { shieldHit = 0.35, shieldDown = 0.6, shieldUp = 0.35, doorsLocked = 0.7, surrender = 0.6 }
-local MIN_GAP = { shieldHit = 0.08, countdown = 0.5, surrender = 5 }
+local MIN_GAP = { shieldHit = 0.08, countdown = 0.5, surrender = 5, researched = 1 }
 -- Громкость уведомлений и как далеко слышно чужую сдачу (NOTICE_VOLUME, HEARING × 3).
 local NOTICE_VOLUME = 0.4
 local SURRENDER_REACH = 1.8
@@ -25,6 +26,8 @@ local doors: { [number]: boolean } = {}
 local countdown = math.huge
 local doomed = 0
 local lost = false
+-- Сколько тем открыто и наград получено у своего игрока в прошлом кадре; -1 — ещё не считали.
+local research, rewards = -1, -1
 local last: { [string]: number } = {}
 local tick = -1
 
@@ -115,5 +118,20 @@ return {
 			play("defeat", nil, nil, NOTICE_VOLUME * 1.5)
 		end
 		lost = defeated
+		-- Открытые темы и награды: прибавилось — уведомление, где бы ни была камера.
+		for _, e in c:each({ "Player" }) do
+			local state = c:get(e, "Player")
+			if state.id ~= c.player then
+				continue
+			end
+			local learned, got = #(state.research or {}), #(state.rewards or {})
+			if not fresh and research >= 0 and learned > research then
+				play("researched", nil, nil, NOTICE_VOLUME)
+			end
+			if not fresh and rewards >= 0 and got > rewards then
+				play("reward", nil, nil, NOTICE_VOLUME)
+			end
+			research, rewards = learned, got
+		end
 	end,
 }

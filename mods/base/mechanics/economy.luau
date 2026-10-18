@@ -373,13 +373,12 @@ mechanic.commands = {
 	end,
 }
 
--- На клиенте: награда своему игроку — звук; сообщение показывает панель (ui/hud).
+-- На клиенте: награда своему игроку — сообщение на панели (ui/hud); звук — audio/world.
 mechanic.signals = {
 	reward = function(c, signal)
 		if signal.player ~= c.player then
 			return
 		end
-		c:sound("reward", { volume = 0.5 })
 		local toasts = c.shared.rewards or {}
 		c.shared.rewards = toasts
 		table.insert(toasts, { title = mechanic.data.rewardTitles[signal.key] or signal.key, credits = signal.credits, time = c.time })
