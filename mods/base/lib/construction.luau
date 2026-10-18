@@ -8,6 +8,7 @@ local zones = require("lib/zones")
 local kinds = require("lib/kinds")
 local conversion = require("lib/conversion")
 local depositsLib = require("lib/deposits")
+local trade = require("lib/trade")
 
 local construction = {}
 
@@ -378,13 +379,15 @@ function construction.refundOf(kind): number
 	return math.floor(kind.data.cost * construction.DEMOLISH_REFUND)
 end
 
--- Сколько кредитов здание держит оплаченными вперёд: очередь юнитов (prepaidOf). Разбор их возвращает.
+-- Сколько кредитов здание держит оплаченными вперёд: очередь юнитов и закупка с орбиты (prepaidOf). Разбор их возвращает.
 function construction.prepaidOf(w, e: number): number
+	-- Оплаченная закупка с орбиты, чей корабль не прилетел (refundPurchase).
+	local order = w:get(e, "Trade")
+	local paid = if order and order.buy then order.wanted * trade.buyPrice(w, order.resource) else 0
 	local producer = w:get(e, "Producer")
 	if not producer then
-		return 0
+		return paid
 	end
-	local paid = 0
 	for _, name in { producer.unit, table.unpack(producer.queue) } do
 		local unit = w.protos.units[name]
 		if unit then

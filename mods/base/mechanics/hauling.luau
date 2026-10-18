@@ -254,7 +254,7 @@ local function dispatch(w)
 				continue
 			end
 			local data = logistics.dataOf(w, e)
-			if data.refines or data.assembles or data.researches then
+			if data.refines or data.assembles or data.researches or data.trades then
 				table.insert(outlets, e)
 			elseif data.extract then
 				table.insert(mines, e)
@@ -269,9 +269,9 @@ local function dispatch(w)
 			end
 		end
 		-- Есть ли в сети поставщик груза для заказчика — тогда его везут трубы; есть ли хранилище, куда груз поместится.
-		local function hasLocal(network, to: number, good: string, least: number): boolean
+		local function hasLocal(network, to: number, good: string, least: number, sale: boolean?): boolean
 			for _, source in network.members do
-				if source ~= to and table.find(logistics.offers(w, source), good) and logistics.given(w, source, good) >= least then
+				if source ~= to and table.find(logistics.offers(w, source), good) and logistics.given(w, source, good, sale) >= least then
 					return true
 				end
 			end
@@ -315,7 +315,7 @@ local function dispatch(w)
 				end
 				-- Внутри сети груз идёт по трубам: грузовик везёт только то, чего в сети заказчика нет, — из других сетей.
 				local network = logistics.networkOf(w, request.to)
-				if network and hasLocal(network, request.to, request.resource, math.min(request.amount, d.MIN_JOB)) then
+				if network and hasLocal(network, request.to, request.resource, math.min(request.amount, d.MIN_JOB), request.sale) then
 					continue
 				end
 				local found = false
@@ -330,7 +330,7 @@ local function dispatch(w)
 						if not table.find(logistics.offers(w, source), request.resource) then
 							continue
 						end
-						local available = logistics.available(w, flows, source, request.resource)
+						local available = logistics.available(w, flows, source, request.resource, request.sale)
 						if available < math.min(request.amount, d.MIN_JOB) then
 							continue
 						end
@@ -375,7 +375,7 @@ local function dispatch(w)
 						-- Вставшая переработка — руды нет и её не везут — увозит и крошки; цех — остатки прежнего сырья.
 						local incoming = flows.incoming[source]
 						local stopped = data.refines ~= nil and goods.amount(stock, data.refines) <= EPSILON and (if incoming then incoming[data.refines] or 0 else 0) <= 0
-						local leftover = stopped or data.researches == true or (data.assembles ~= nil and not goods.isProduct(w, good))
+						local leftover = stopped or data.researches == true or data.trades == true or (data.assembles ~= nil and not goods.isProduct(w, good))
 						if available < (if leftover then EPSILON else math.min(d.PUSH_MIN, room, holds * d.PUSH_SHARE)) then
 							continue
 						end

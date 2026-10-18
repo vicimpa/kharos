@@ -13,6 +13,7 @@ local supply = require("lib/supply")
 local logistics = require("lib/logistics")
 local research = require("lib/research")
 local tactics = require("lib/tactics")
+local trade = require("lib/trade")
 local COLORS, shadow = widgets.COLORS, widgets.shadow
 
 local hud = {}
@@ -422,6 +423,184 @@ end
 
 -- Ячейки сетки команд для выбранного: у строителей — стройка, у своего завода — заказ юнитов, у MCV и главного
 -- здания — превращение, у своей стройки — отмена, у готового здания — разбор.
+-- Торговля у космопорта (commands.ts): страница — корень, продажа или закупка; deal — набираемая сделка: что и
+-- сколько. Сбрасывается, когда выбран другой космопорт.
+local DEAL_STEPS = { 10, 50, 100 }
+local DEAL_START = 50
+local market = { port = -1, page = "root", deal = nil :: { resource: string, amount: number }? }
+
+-- Что можно продать из запаса игрока: сколько всего, сколько в сети космопорта и почём (offers в hud.ts).
+local function offersOf(c, port: number)
+	local items = logistics.stockOf(c, c.player)
+	local network = logistics.networkOf(c, port)
+	local near = if network then trade.stockOfZone(c, network) else {}
+	local list = {}
+	for _, name in goods.names(c) do
+		local available = math.floor(items[name] or 0)
+		if trade.isResource(c, name) and available >= 1 then
+			table.insert(list, { resource = name, available = available, here = math.floor(near[name] or 0), price = trade.price(c, name) })
+		end
+	end
+	return list
+end
+
+-- Что можно купить с орбиты: почём, сколько влезет в склад космопорта и что надо изучить (purchases в hud.ts).
+local function purchasesOf(c, port: number)
+	local hold = c:get(port, "Inventory")
+	local list = {}
+	for _, name in goods.names(c) do
+		if trade.isOrbital(c, name) then
+			table.insert(list, { resource = name, price = trade.buyPrice(c, name), room = if hold then math.floor(goods.room(hold, name)) else 0, research = trade.buyResearch(c, c.player, name) })
+		end
+	end
+	return list
+end
+
+-- Сделка в пределах возможного (dealOf): продажа — не больше запаса, закупка — на сколько хватает кредитов и трюма.
+-- nil — такого ресурса космопорт сейчас не предлагает.
+local function dealOf(c, port: number, buying: boolean, deal)
+	local item, room = nil, 0
+	for _, purchase in purchasesOf(c, port) do
+		if purchase.resource == deal.resource then
+			room = purchase.room
+			if buying then
+				item = purchase
+			end
+		end
+	end
+	if not buying then
+		for _, offer in offersOf(c, port) do
+			if offer.resource == deal.resource then
+				item = offer
+			end
+		end
+	end
+	if not item then
+		return nil
+	end
+	local max = if buying then math.max(0, math.min(room, math.floor(credits(c) / item.price))) else item.available
+	return { resource = item.resource, amount = math.max(0, math.min(max, math.floor(deal.amount))), price = item.price, max = max, room = room }
+end
+
+-- Сетка космопорта (trade в commands.ts): продажа и закупка — каждая на своей странице, набор количества, заявка.
+local function tradeSlots(c, list, port: number)
+	if market.port ~= port then
+		market.port, market.page, market.deal = port, "root", nil
+	end
+	local order = c:get(port, "Trade")
+	local function open(page: string)
+		market.page, market.deal = page, nil
+	end
+	if market.page == "root" then
+		list[CONVERT] = {
+			label = "Продажа",
+			picture = c.protos.buildings.spaceport,
+			active = order ~= nil,
+			title = if order then "Идёт продажа: открыть заявку" else "Продать ресурсы с орбиты",
+			run = function()
+				open("sell")
+			end,
+		}
+		list[CANCEL] = {
+			label = "Закупка",
+			picture = c.protos.buildings.spaceport,
+			disabled = order ~= nil,
+			title = if order then "Космопорт занят продажей" else "Заказать ресурсы с орбиты втрое дороже цены продажи",
+			run = function()
+				open("buy")
+			end,
+		}
+	elseif not order then
+		local buying = market.page == "buy"
+		local picked = market.deal and dealOf(c, port, buying, market.deal)
+		if not picked then
+			-- Сначала — что продать или купить: ячейка на ресурс. Количество — на следующем шаге.
+			local items = if buying then purchasesOf(c, port) else offersOf(c, port)
+			for i, item in items do
+				if i > 8 then
+					break
+				end
+				local limit = dealOf(c, port, buying, { resource = item.resource, amount = DEAL_START })
+				local title = c.protos.goods[item.resource].data.title
+				local topic = item.research and research.topic(c, item.research)
+				list[i] = {
+					label = if buying then title else title .. " ×" .. limit.max,
+					picture = c.protos.goods[item.resource],
+					disabled = limit.max < 1 or item.research ~= nil,
+					title = if topic then "Нужно исследование: " .. topic.data.title
+						elseif limit.max >= 1 then (if buying then "По " .. item.price .. " за единицу, корабль прилетит через 20 с"
+							elseif item.here and item.here < limit.max then "По " .. item.price .. " за единицу. В сети космопорта " .. item.here .. ", остальное привезут грузовики из других сетей"
+							else "По " .. item.price .. " за единицу")
+						elseif limit.room < 1 and buying then "Не помещается в склад космопорта"
+						else "Не хватает кредитов",
+					run = function()
+						market.deal = { resource = item.resource, amount = limit.amount }
+					end,
+				}
+			end
+			list[BACK] = {
+				label = "Назад",
+				run = function()
+					open("root")
+				end,
+			}
+		else
+			-- Верхний ряд — прибавить, второй — убавить; «Всё» — сколько есть в запасе или на сколько хватает кредитов и
+			-- трюма.
+			local resource, amount, price, max = picked.resource, picked.amount, picked.price, picked.max
+			local function set(value: number)
+				market.deal = { resource = resource, amount = math.max(0, math.min(max, value)) }
+			end
+			for i, step in DEAL_STEPS do
+				list[i] = { label = "+" .. step, disabled = amount >= max, run = function()
+					set(amount + step)
+				end }
+				list[i + 4] = { label = "−" .. step, disabled = amount <= 0, run = function()
+					set(amount - step)
+				end }
+			end
+			list[#DEAL_STEPS + 1] = { label = "Всё", active = amount >= max, title = "×" .. max, run = function()
+				set(max)
+			end }
+			list[CONVERT] = {
+				label = (if buying then "Закупка" else "Продажа") .. " ×" .. amount,
+				picture = c.protos.goods[resource],
+				cost = amount * price,
+				gain = not buying,
+				disabled = amount < 1,
+				title = if buying then "По " .. price .. " за единицу, корабль прилетит через 20 с" else "По " .. price .. " за единицу",
+				run = function()
+					c:send(if buying then "buy" else "sell", { port = port, resource = resource, amount = amount })
+					market.deal = nil
+				end,
+			}
+			list[BACK] = {
+				label = "Назад",
+				run = function()
+					market.deal = nil
+				end,
+			}
+		end
+	else
+		if order.total <= 0 and not order.buy then
+			local delivered = math.floor(trade.delivered(c, port))
+			list[CANCEL] = {
+				label = if delivered > 0 then "Отправить" else "Снять заявку",
+				title = if delivered > 0 then "Корабль улетит с тем, что уже привезли" else nil,
+				run = function()
+					c:send("closeSale", { port = port })
+				end,
+			}
+		end
+		list[BACK] = {
+			label = "Назад",
+			run = function()
+				open("root")
+			end,
+		}
+	end
+end
+
 local function slots(c, selection)
 	local list = {}
 	if #buildersOf(c, selection) > 0 then
@@ -523,6 +702,15 @@ local function slots(c, selection)
 			end
 		end
 	end
+	-- Свой готовый космопорт: продажа и закупка с орбиты.
+	local port = #selection == 1 and selection[1]
+	local trading = port and c:mine(port) and trade.isPort(c, c.player, port)
+	if trading then
+		tradeSlots(c, list, port)
+	else
+		market.port = -1
+	end
+	local root = page.name == "root" and (not trading or market.page == "root")
 	-- Своя стройка: отменить её или разбор; отменённую уже разбирают — передумать нельзя.
 	local site = #selection == 1 and c:mine(selection[1]) and c:get(selection[1], "Site")
 	if site and not site.undo then
@@ -565,7 +753,7 @@ local function slots(c, selection)
 			end,
 		}
 	end
-	if #switchable > 0 and page.name == "root" and not list[SWITCH] then
+	if #switchable > 0 and root and not list[SWITCH] then
 		list[SWITCH] = {
 			label = if on then "Выключить" else "Включить",
 			lamp = on,
@@ -577,7 +765,7 @@ local function slots(c, selection)
 			end,
 		}
 	end
-	if #demolish > 0 and page.name == "root" then
+	if #demolish > 0 and root then
 		list[DEMOLISH] = {
 			label = "Разобрать",
 			cost = refund,
@@ -924,6 +1112,52 @@ local function info(c, selection, width: number, height: number)
 				local burning = economy.burning(c, first)
 				local tone = if have <= 0 and not burning then COLORS.warn else COLORS.soft
 				stockHint(c, "Стержни", burns.good, have, stock.capacity, if burning then "Стержень горит минуту; грузовики подвозят новые из хранилищ зоны" else "Стержня в работе нет: реактор не вырабатывает", tone, text)
+			end
+			-- Космопорт: рейс, набираемая сделка или что тут можно (trade в bar.ts).
+			if built and c:mine(first) and trade.isPort(c, c.player, first) then
+				local order = c:get(first, "Trade")
+				if order then
+					local name = string.lower(c.protos.goods[order.resource].data.title)
+					local wanted = math.floor(order.wanted + 0.5)
+					local label, progress
+					if order.buy then
+						progress = 1 - order.left / order.total
+						label = "Закупка летит: " .. name .. " ×" .. wanted .. ", оплачено " .. wanted * trade.buyPrice(c, order.resource)
+					elseif order.total > 0 then
+						progress = 1 - order.left / order.total
+						label = "Корабль в пути: " .. name .. " ×" .. wanted .. " за " .. wanted * trade.price(c, order.resource)
+					else
+						local delivered = math.floor(trade.delivered(c, first))
+						progress = delivered / order.wanted
+						label = "Грузовики везут " .. name .. ": " .. delivered .. " из " .. wanted
+					end
+					widgets.bar(ui, progress, label, text)
+				else
+					local buying = market.page == "buy"
+					local deal = market.port == first and (market.page == "sell" or buying) and market.deal and dealOf(c, first, buying, market.deal)
+					if deal then
+						ui:box({ direction = "row", align = "center", gap = 6 }, function()
+							ui:text((if buying then "Закупка" else "Продажа") .. ":", { color = COLORS.soft })
+							goodWith(c, deal.resource, deal.amount, 20)
+							local field = ui:input("deal", tostring(deal.amount), { width = 72, digits = true, maxLength = 6 })
+							local amount = math.max(0, math.min(deal.max, math.floor(tonumber(field.value) or 0)))
+							if amount ~= deal.amount then
+								market.deal = { resource = deal.resource, amount = amount }
+							end
+							if table.find(field.keys, "Enter") and amount >= 1 then
+								c:send(if buying then "buy" else "sell", { port = first, resource = deal.resource, amount = amount })
+								market.deal = nil
+							end
+						end)
+						ui:text(if buying
+							then "Цена " .. deal.amount * deal.price .. ", в трюме останется место на " .. deal.room - deal.amount
+							else "Выручка " .. deal.amount * deal.price .. ", в запасе останется " .. deal.max - deal.amount, { color = COLORS.soft, wrap = text })
+					else
+						ui:text((if #offersOf(c, first) > 0
+							then "Продажа из всех ваших хранилищ: выберите ресурс, потом количество. Что лежит не в сети космопорта, привезут грузовики"
+							else "Продавать нечего: хранилища пусты") .. ". Закупка с орбиты — втрое дороже продажи, привезённое грузовики развезут по хранилищам", { color = COLORS.soft, wrap = text })
+					end
+				end
 			end
 			if built and kind.data.extract then
 				local deposit = logistics.depositUnder(c, first)

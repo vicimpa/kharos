@@ -118,19 +118,19 @@ function logistics.spare(w, e: number, good: string): number
 	return if stock then goods.amount(stock, good) else 0
 end
 
--- Сколько склад отдаёт по заявкам (givenBy): хранилище — сверх своего резерва.
-function logistics.given(w, e: number, good: string): number
+-- Сколько склад отдаёт по заявкам (givenBy): хранилище — сверх своего резерва; заявке на продажу (sale) — и резерв.
+function logistics.given(w, e: number, good: string, sale: boolean?): number
 	local stock = w:get(e, "Inventory")
 	if not stock then
 		return 0
 	end
-	return math.max(0, goods.amount(stock, good) - (stock.reserve or 0))
+	return math.max(0, goods.amount(stock, good) - (if sale then 0 else stock.reserve or 0))
 end
 
 -- Сколько можно забрать, кроме обещанного другим грузовикам (availableIn).
-function logistics.available(w, flows: Flows, e: number, good: string): number
+function logistics.available(w, flows: Flows, e: number, good: string, sale: boolean?): number
 	local out = flows.outgoing[e]
-	return math.max(0, logistics.given(w, e, good) - (if out then out[good] or 0 else 0))
+	return math.max(0, logistics.given(w, e, good, sale) - (if out then out[good] or 0 else 0))
 end
 
 -- Месторождение под шахтой: то, чья середина совпадает с её серединой; нет — nil.
@@ -223,6 +223,19 @@ function logistics.offers(w, e: number): { string }
 	if data.stores or data.refines then
 		return wares(w)
 	end
+	-- Космопорт отдаёт то, что привезла закупка или осталось после продажи, — кроме товара открытой продажи и
+	-- материалов своего производства.
+	if data.trades then
+		local order = w:get(e, "Trade")
+		local materials = logistics.materials(w, e) or {}
+		local list = {}
+		for _, good in wares(w) do
+			if not (order and not order.buy and good == order.resource) and not materials[good] then
+				table.insert(list, good)
+			end
+		end
+		return list
+	end
 	if data.assembles then
 		local inputs = logistics.inputs(w, e)
 		local list = {}
@@ -274,7 +287,7 @@ function logistics.networkOf(w, e: number)
 	return found.of[e]
 end
 
-export type Request = { to: number, resource: string, amount: number, priority: number, source: string, zone: any? }
+export type Request = { to: number, resource: string, amount: number, priority: number, source: string, zone: any?, sale: boolean? }
 
 -- Что ест здание вида с данными data (feedOf): турель и склад боеприпасов — боеприпасы, реактор — стержни.
 function logistics.feedOf(data): string?
@@ -326,7 +339,7 @@ end
 -- Заявки игрока (requestsOf): что, куда и сколько везти, с учётом того, что уже едет; важные — первыми.
 function logistics.requests(w, player: number, flows: Flows): { Request }
 	local requests: { Request } = {}
-	local function need(to: number, good: string, amount: number, priority: number, source: string, anywhere: boolean?)
+	local function need(to: number, good: string, amount: number, priority: number, source: string, anywhere: boolean?, sale: boolean?)
 		local incoming = flows.incoming[to]
 		local left = amount - (if incoming then incoming[good] or 0 else 0)
 		if left < logistics.MIN_JOB then
@@ -334,7 +347,7 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 		end
 		local zone = logistics.zoneOf(w, player, to, anywhere)
 		if source == "mines" or zone then
-			table.insert(requests, { to = to, resource = good, amount = left, priority = priority, source = source, zone = zone })
+			table.insert(requests, { to = to, resource = good, amount = left, priority = priority, source = source, zone = zone, sale = sale })
 		end
 	end
 	-- Стройки и производство: материалы, которых нет на месте; недостачу — целыми единицами.
@@ -446,6 +459,16 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 			need(e, "ammo", room, logistics.PRIORITY.ammo, "zone", true)
 		end
 	end
+	-- Продажа: товар заявки, пока корабль не улетел. Недостачу заказывают целыми единицами, как стройка: хранилище отдало
+	-- дробный остаток — и заявке не хватает меньше MIN_JOB, а такое не привёз бы никто. Лишнее вернётся в хранилища.
+	for _, e in w:each({ "Trade", "Inventory" }) do
+		local order = w:get(e, "Trade")
+		if order.total > 0 or order.buy or not logistics.isReady(w, player, e) then
+			continue
+		end
+		local delivered = math.min(order.wanted, goods.amount(w:get(e, "Inventory"), order.resource))
+		need(e, order.resource, math.ceil(order.wanted - delivered - 1e-6), logistics.PRIORITY.trade, "zone", false, true)
+	end
 	table.sort(requests, function(a, b)
 		return a.priority > b.priority
 	end)
@@ -544,6 +567,11 @@ function logistics.accepts(w, player: number, to: number, good: string): boolean
 	end
 	if not logistics.isReady(w, player, to) or w:has(to, "Converting") then
 		return false
+	end
+	-- Космопорт — только товар своей заявки, пока корабль не улетел.
+	local order = w:get(to, "Trade")
+	if order then
+		return order.total <= 0 and not order.buy and order.resource == good
 	end
 	if logistics.isStore(w, to) then
 		return true

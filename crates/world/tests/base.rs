@@ -1247,3 +1247,64 @@ fn building_turret_fires_only_with_ammo_in_its_store() {
   assert!(shots(&mut host, 40) > 0, "с боеприпасами не стреляет");
   assert!(stocked(&host, turret, "ammo") < 20.0, "не потратила");
 }
+
+#[test]
+fn spaceport_sells_from_stores_and_buys_from_orbit() {
+  let mut host = host_without_tech();
+  let (_, site, builder) = base_with_builder(&mut host);
+  let player = all(&host, "Player")[0].0;
+  set(&host, player, "Player", json!({ "credits": 5000 }));
+  let spot = free_spot(&host, site, 2);
+  raise(&mut host, "generator", spot, builder);
+  // Хранилище 3 × 2, тайл трубы и космопорт 3 × 3 в ряд: одна сеть, товар идёт по трубе.
+  let (x, y) = free_spot(&host, site, 7);
+  let yard = raise(&mut host, "metalYard", (x, y), builder);
+  set(&host, yard, "Inventory", json!({ "accepts": [], "items": { "metal": 50 } }));
+  ticks(&mut host, 2);
+  host.send(1, "pipes", json!({ "tiles": [x + 3, y], "builders": [builder] }));
+  host.tick(0.05).unwrap();
+  let pipe = kind(&host, "buildings", "pipe")[0];
+  for _ in 0..20 * 30 {
+    host.tick(0.05).unwrap();
+    if get(&host, pipe, "Site").is_none() {
+      break;
+    }
+  }
+  let port = raise(&mut host, "spaceport", (x + 4, y), builder);
+  // Продажа: товар свозят в трюм, корабль улетает и через 20 с приносит выручку — и награду за первую продажу.
+  ticks(&mut host, 2);
+  host.send(1, "sell", json!({ "port": port, "resource": "metal", "amount": 30 }));
+  host.tick(0.05).unwrap();
+  assert_eq!(get(&host, port, "Trade").unwrap()["wanted"], json!(30.0));
+  let mut launched = false;
+  for _ in 0..20 * 60 {
+    host.tick(0.05).unwrap();
+    if get(&host, port, "Trade").is_some_and(|order| order["total"].as_f64().unwrap() > 0.0) {
+      launched = true;
+      break;
+    }
+  }
+  assert!(launched, "корабль не улетел: {:?}, в трюме {}", get(&host, port, "Trade"), stocked(&host, port, "metal"));
+  assert!((stocked(&host, yard, "metal") - 20.0).abs() < 1e-6, "взято со склада");
+  let before = credits(&host);
+  ticks(&mut host, 20 * 20 + 2);
+  assert!(get(&host, port, "Trade").is_none(), "рейс не кончился");
+  // Выручка 30 × 10 и награда 100; сверху — доход главного здания за рейс, 0,2 в секунду.
+  assert_eq!(credits(&host) - before, 300.0 + 100.0 + 4.0, "выручка и награда");
+  assert!(stocked(&host, port, "metal") < 1e-6, "товар улетел");
+  // Закупка: втридорога сразу, груз — через 20 с в склад космопорта.
+  let before = credits(&host);
+  host.send(1, "buy", json!({ "port": port, "resource": "silicon", "amount": 10 }));
+  host.tick(0.05).unwrap();
+  assert_eq!(before - credits(&host), 10.0 * 10.0 * 3.0);
+  // Пока корабль в пути, новой сделки не начать.
+  host.send(1, "sell", json!({ "port": port, "resource": "metal", "amount": 5 }));
+  host.tick(0.05).unwrap();
+  assert_eq!(get(&host, port, "Trade").unwrap()["buy"], json!(true));
+  ticks(&mut host, 20 * 20 + 2);
+  assert!(get(&host, port, "Trade").is_none());
+  // Привезённое грузовики и трубы развезут по хранилищам — оно уже не в заявке.
+  let moving: f64 = all(&host, "Batch").iter().filter(|(_, batch)| batch["resource"] == json!("silicon")).map(|(_, batch)| batch["amount"].as_f64().unwrap()).sum();
+  let landed = stocked(&host, port, "silicon") + stocked(&host, yard, "silicon") + moving;
+  assert!((landed - 10.0).abs() < 1e-6, "привезено {landed}");
+}

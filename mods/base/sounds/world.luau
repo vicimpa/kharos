@@ -1,7 +1,7 @@
 --!strict
 --!native
 -- Звуки зданий и мира — перенос packages/client/src/audio/worldSynth.ts: то, что уже есть в игре, — стройка,
--- разворачивание, выезд из завода, ворота, радар, щиты, реактор, перегруз сети, отсчёт и уведомления. Остальное переедет вместе с механиками.
+-- разворачивание, выезд из завода, ворота, радар, щиты, реактор, корабль космопорта, монеты, перегруз сети, отсчёт и уведомления. Остальное переедет вместе с механиками.
 
 local dsp = require("lib/dsp")
 
@@ -159,6 +159,61 @@ local function dome(rate: number)
 	end)
 end
 
+-- Корабль космопорта взлетает: прогрев, рёв двигателей нарастает и уходит вверх, светлея и стихая.
+local function shipLaunch(rate: number, variant: number)
+	local t = 0
+	local roar = lowpass(rate, function()
+		return 300 + 2500 * min(1, t / 1.2)
+	end)
+	local deep = lowpass(rate, 90)
+	local phase = 0
+	return render(rate, 3.5, variant, function(time, noise)
+		t = time
+		local n = noise()
+		phase += 2 * PI * (300 + 900 * min(1, time / 1.5)) / rate
+		local swell = attack(time, 1) * decay(math.max(0, time - 1.3), 0.9)
+		return (roar(n) * 2 + deep(n) * 2.5 + sin(phase) * 0.12) * swell
+	end)
+end
+
+-- Корабль садится: рёв спускается сверху и тяжелеет, касание — глухой удар, шипит сброс давления.
+local function shipLand(rate: number, variant: number)
+	local t = 0
+	local roar = lowpass(rate, function()
+		return 2500 - 2100 * min(1, t / 2)
+	end)
+	local deep = lowpass(rate, 90)
+	local hiss = highpass(rate, 2500)
+	local touch = lowpass(rate, 150)
+	return render(rate, 3.5, variant, function(time, noise)
+		t = time
+		local n = noise()
+		local engine = (roar(n) * 2 + deep(n) * 2) * attack(time, 0.8) * (if time < 2.2 then 1 else decay(time - 2.2, 0.15))
+		local thump = if time > 2.2 then touch(n) * decay(time - 2.2, 0.08) * 6 else touch(0)
+		local vent = if time > 2.4 then hiss(n) * attack(time - 2.4, 0.03) * decay(time - 2.4, 0.35) * 0.8 else 0
+		return engine + thump + vent
+	end)
+end
+
+-- Деньги пришли: звон монет — несколько ярких металлических ударов вразнобой.
+local function coins(rate: number, variant: number)
+	local next = random(variant + 3201)
+	local hits = {}
+	for i = 0, 4 do
+		local at = i * 0.05 + next() * 0.03
+		table.insert(hits, { at = at, ring = metal(2400 + next() * 900, 0.08, variant * 10 + i) })
+	end
+	return render(rate, 0.6, variant, function(t)
+		local output = 0
+		for _, hit in hits do
+			if t >= hit.at then
+				output += hit.ring(t - hit.at)
+			end
+		end
+		return output
+	end)
+end
+
 -- Сеть перегружена: свет мигает — гул проседает и рвётся.
 local function brownout(rate: number, variant: number)
 	local phase = 0
@@ -214,6 +269,9 @@ return {
 		built = sound("world", built),
 		gate = sound("world", gate),
 		radar = sound("world", radar),
+		shipLaunch = sound("world", shipLaunch),
+		shipLand = sound("world", shipLand),
+		coins = sound("interface", coins),
 		shieldHit = sound("world", shieldHit),
 		shieldDown = sound("world", shieldDown),
 		shieldUp = sound("world", shieldUp),

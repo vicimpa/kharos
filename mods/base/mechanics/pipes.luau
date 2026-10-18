@@ -100,7 +100,7 @@ local function pushOutlets(w, player: number, network, busy: { [string]: boolean
 	local d = mechanic.data
 	for _, source in network.members do
 		local data = logistics.dataOf(w, source)
-		if not data.refines and not data.assembles and not data.researches then
+		if not data.refines and not data.assembles and not data.researches and not data.trades then
 			continue
 		end
 		local stock = w:get(source, "Inventory")
@@ -113,7 +113,7 @@ local function pushOutlets(w, player: number, network, busy: { [string]: boolean
 				continue
 			end
 			local available = logistics.spare(w, source, good)
-			local leftover = data.researches or (data.assembles and not goods.isProduct(w, good)) or (data.refines and goods.amount(stock, data.refines) <= EPSILON)
+			local leftover = data.researches or data.trades or (data.assembles and not goods.isProduct(w, good)) or (data.refines and goods.amount(stock, data.refines) <= EPSILON)
 			if available < (if leftover then EPSILON else d.batch) then
 				continue
 			end
@@ -200,7 +200,7 @@ mechanic.systems = {
 						if not table.find(logistics.offers(w, source), request.resource) then
 							continue
 						end
-						local available = logistics.given(w, source, request.resource)
+						local available = logistics.given(w, source, request.resource, request.sale)
 						if available < math.min(request.amount, d.minBatch) - EPSILON then
 							continue
 						end
