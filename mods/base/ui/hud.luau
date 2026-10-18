@@ -1172,14 +1172,40 @@ local function slots(c, selection)
 			requestSlots(c, list, selection)
 		end
 	end
-	if #selection == 1 and c:has(selection[1], "Producer") and c:mine(selection[1]) and not c:has(selection[1], "Site") then
-		local building = selection[1]
+	-- Свои производители: один или несколько зданий одного вида — заказ получает наименее занятый, очередь видна и
+	-- отменяется у самого занятого (production в hud.ts).
+	local producers = {}
+	for _, e in selection do
+		if c:has(e, "Producer") and c:mine(e) and not c:has(e, "Site") then
+			table.insert(producers, e)
+		end
+	end
+	local sameKind = #producers > 0
+	for _, e in producers do
+		sameKind = sameKind and (#producers == 1 or (c:has(e, "Building") and c:proto(e) == c:proto(producers[1])))
+	end
+	if sameKind then
+		local function ordersOf(e: number): number
+			local producer = c:get(e, "Producer")
+			return #producer.queue + (if producer.unit ~= "" then 1 else 0)
+		end
+		local building, busiest = producers[1], producers[1]
+		for _, e in producers do
+			if ordersOf(e) < ordersOf(building) then
+				building = e
+			end
+			if ordersOf(e) > ordersOf(busiest) then
+				busiest = e
+			end
+		end
 		local kind = c:proto(building)
 		local money = credits(c)
-		local producer = c:get(building, "Producer")
-		local orders = #producer.queue + (if producer.unit ~= "" then 1 else 0)
+		local orders = ordersOf(busiest)
 		-- Очередь полна — заказывать некуда (QUEUE_LIMIT).
-		local full = orders >= c.protos.mechanics.production.data.queue
+		local full = ordersOf(building) >= c.protos.mechanics.production.data.queue
+		local productionLib = c.protos.mechanics.production
+		local limit = productionLib.limit(c)
+		local army = if limit > 0 then productionLib.army(c, c.player) else 0
 		local techTree = construction.rules(c).techTree
 		for _, name in kind.data.produces or {} do
 			local unit = c.protos.units[name]
@@ -1192,6 +1218,7 @@ local function slots(c, selection)
 					table.insert(titles, if other then other.data.title else needed)
 				end
 				local affordable = money >= unit.data.cost
+				local capped = limit > 0 and army + (unit.data.supply or 0) > limit
 				table.insert(list, {
 					label = unit.data.title or name,
 					picture = unit,
@@ -1202,10 +1229,11 @@ local function slots(c, selection)
 					short = not affordable,
 					about = unit.data.about,
 					unit = unit,
-					disabled = not affordable or full or #missing > 0 or topic ~= nil,
+					disabled = not affordable or full or #missing > 0 or topic ~= nil or capped,
 					title = if #missing > 0 then "Нужно построить: " .. table.concat(titles, ", ")
 						elseif topic then "Нужно исследование: " .. topic.data.title
 						elseif full then "Очередь заполнена"
+						elseif capped then "Лимит армии: занято " .. army .. " из " .. limit .. ", этому юниту нужно " .. (unit.data.supply or 0)
 						elseif not affordable then "Не хватает кредитов"
 						else nil,
 					hint = (currentStep(c) or {}).unit == name,
@@ -1220,7 +1248,7 @@ local function slots(c, selection)
 				label = "Отменить заказ",
 				title = "Последний в очереди; кредиты вернутся",
 				run = function()
-					c:send("cancel", { building = building })
+					c:send("cancel", { building = busiest })
 				end,
 			}
 		end
@@ -1965,6 +1993,12 @@ local function info(c, selection, width: number, height: number)
 				end
 				if packed and producer.unit ~= "" then
 					ui:text("База свёрнута: очередь стоит и продолжится, когда MCV развернётся", { color = COLORS.soft, wrap = text })
+				end
+				-- Армия: сколько места в лимите занято (hud.army).
+				local productionLib = c.protos.mechanics.production
+				local limit = productionLib.limit(c)
+				if limit > 0 then
+					ui:text("Армия: " .. productionLib.army(c, c.player) .. " из " .. limit, { color = COLORS.soft, wrap = text })
 				end
 				if not packed then
 					ui:text(if producer.rally then "Готовые едут к флажку; правый щелчок по карте — перенести" else "Правый щелчок по карте — точка сбора готовых", { color = COLORS.soft, wrap = text })

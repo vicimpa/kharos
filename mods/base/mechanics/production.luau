@@ -11,6 +11,8 @@ local construction = require("lib/construction")
 
 local readf64, writef64 = buffer.readf64, buffer.writef64
 
+local kinds = require("lib/kinds")
+
 local production = {}
 
 production.data = {
@@ -19,6 +21,40 @@ production.data = {
 	-- Сколько свободных тайлов вокруг смотреть, куда выпустить готового (EXIT_CANDIDATES).
 	exits = 24,
 }
+
+-- Сколько места в лимите армии занято у игрока (armyOf): его юниты и заказы во всех его очередях.
+function production.army(w, player: number): number
+	local used = 0
+	for _, e in w:each({ "Unit", "Owner", "Proto" }) do
+		local kind = kinds.of(w, e)
+		if w:get(e, "Owner").player == player and kind and kind.data.supply then
+			used += kind.data.supply
+		end
+	end
+	for _, e in w:each({ "Producer", "Owner" }) do
+		if w:get(e, "Owner").player == player then
+			local producer = w:get(e, "Producer")
+			for _, name in { producer.unit, table.unpack(producer.queue) } do
+				local unit = w.protos.units[name]
+				used += if unit then unit.data.supply or 0 else 0
+			end
+		end
+	end
+	return used
+end
+
+-- Лимит армии партии (Rules.armyLimit); ноль — лимита нет.
+function production.limit(w): number
+	local rules = w.game.data and w.game.data.rules or {}
+	return rules.armyLimit or 0
+end
+
+-- Не влезет ли юнит name в лимит армии игрока (overLimit).
+function production.overLimit(w, player: number, name: string): boolean
+	local limit = production.limit(w)
+	local unit = w.protos.units[name]
+	return limit > 0 and unit ~= nil and production.army(w, player) + (unit.data.supply or 0) > limit
+end
 
 -- Ближайший к тайлу (x, y) проходимый тайл, в котором не стоит другой юнит; сам тайл не в счёт.
 local function emptyTileNear(ctx, x: number, y: number): (number?, number?)
@@ -77,6 +113,11 @@ production.commands = {
 		local unit = ctx.protos.units[args.unit]
 		-- Юнит, чьё исследование не открыто или чьих зданий нет, не заказать (missingRequirements, missingResearch).
 		if not construction.researched(ctx, player, unit.data.research) or (construction.rules(ctx).techTree and #construction.missing(ctx, player, unit.data.requires) > 0) then
+			return
+		end
+		-- Сверх лимита армии не заказать (overLimit).
+		if production.overLimit(ctx, player, args.unit) then
+			ctx:signal("refused", { player = player, reason = "army" })
 			return
 		end
 		if not wallet.pay(ctx, player, unit.data.cost) then

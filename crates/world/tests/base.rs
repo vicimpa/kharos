@@ -1966,3 +1966,25 @@ fn base_scenes_raise_a_working_base_build_and_hold_the_line() {
   }
   assert!(shots > 0, "волна не пришла или не стреляли");
 }
+
+#[test]
+fn orders_over_the_army_limit_are_refused() {
+  let mut host = self::host();
+  {
+    let game = host.content.get("games", &host.game).unwrap();
+    let data: mlua::Table = game.get("data").unwrap();
+    let rules: mlua::Table = data.get("rules").unwrap();
+    rules.set("armyLimit", 10).unwrap();
+  }
+  let (core, _) = deployed(&mut host);
+  let player = all(&host, "Player")[0].0;
+  set(&host, player, "Player", json!({ "credits": 100000 }));
+  // Стартовый набор уже занимает место; строители — по одному: сверх лимита заказ не принят.
+  for _ in 0..5 {
+    host.send(1, "produce", json!({ "building": core, "unit": "builder" }));
+  }
+  host.tick(0.05).unwrap();
+  let producer = get(&host, core, "Producer").unwrap();
+  let queued = producer["queue"].as_array().map_or(0, Vec::len) + usize::from(producer["unit"] != json!(""));
+  assert!(queued < 5, "лимит не держит: {queued} заказов");
+}
