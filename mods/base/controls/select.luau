@@ -23,6 +23,8 @@ local BAR_BACK, BAR_PRODUCING, BAR_CONVERTING = 0x080d14, 0x59a6ff, 0xffcc4d
 -- Цели выбранных стрелков (TARGET в selectionPass.ts) и патруль (ROUTE в cursorPass.ts): остановки — тайлы в рамке.
 local TARGET, TARGET_ALPHA = 0xff594d, 0.7
 local ROUTE, ROUTE_FILL, ROUTE_BORDER = 0xffd94d, 0.18, 0.85
+-- Здания, которые обслуживают выбранные грузовики: только рамки (SERVE).
+local SERVE = 0x73d9ff
 
 local start: { x: number, y: number, wx: number, wy: number }? = nil
 local last = { time = -1, entity = 0 }
@@ -126,38 +128,90 @@ local function aims(c, selection)
 	end
 end
 
--- Патруль выбранных: точки — тайлы в рамке, между ними пунктир по кругу; один и тот же патруль — один раз.
-local function patrols(c, selection)
+-- Маршрут на карте (DrawnRoute в cursorPass.ts): остановки — прямоугольники (середина и размер) в рамке, между ними
+-- пунктир; closed — замкнут по кругу, а не ещё набирается; only — только рамки, без пунктира (обслуживание).
+local function route(c, stops, closed: boolean, color: number, only: boolean?)
+	local border = 1 / 16
+	for i, stop in stops do
+		local x, y = stop.x - stop.width / 2, stop.y - stop.height / 2
+		local right, bottom = x + stop.width, y + stop.height
+		c.draw:rect(x, y, right, bottom, color, nil, ROUTE_FILL)
+		c.draw:rect(x, y, right, y + border, color, nil, ROUTE_BORDER)
+		c.draw:rect(x, bottom - border, right, bottom, color, nil, ROUTE_BORDER)
+		c.draw:rect(x, y + border, x + border, bottom - border, color, nil, ROUTE_BORDER)
+		c.draw:rect(right - border, y + border, right, bottom - border, color, nil, ROUTE_BORDER)
+		local nextStop = stops[i + 1] or (if closed and #stops > 1 then stops[1] else nil)
+		if nextStop and not only then
+			dashes(c, nextStop.x, nextStop.y, stop.x, stop.y, PATH_ALPHA, color)
+		end
+	end
+end
+
+-- Остановка-здание: середина и размер; пропавшего нет.
+local function stopOf(c, e: number)
+	local at = c:alive(e) and c:get(e, "Position")
+	local building = at and c:get(e, "Building")
+	return if building then { x = at.x, y = at.y, width = building.width, height = building.height } else nil
+end
+
+-- Маршруты для показа (routesOf): набираемый игроком, отмечаемые и назначенные здания обслуживания, маршруты
+-- выбранных грузовиков и патрули выбранных бойцов — каждый по разу.
+local function routes(c, selection)
 	local seen = {}
+	local function add(entities: { number }, closed: boolean, color: number, only: boolean?)
+		local key = (if only then "serve" else tostring(closed)) .. ":" .. table.concat(entities, ",")
+		if #entities == 0 or seen[key] then
+			return
+		end
+		seen[key] = true
+		local stops = {}
+		for _, e in entities do
+			table.insert(stops, stopOf(c, e))
+		end
+		route(c, stops, closed, color, only)
+	end
+	local mode = c.shared.mode
+	if mode and mode.kind == "routing" then
+		add(mode.stops, false, ROUTE)
+	elseif mode and mode.kind == "serving" then
+		add(mode.buildings, false, SERVE, true)
+	end
+	for _, e in selection do
+		local hauler = c:get(e, "Hauler")
+		if hauler and #hauler.serve > 0 then
+			add(hauler.serve, false, SERVE, true)
+		end
+	end
+	for _, e in selection do
+		local hauler = c:get(e, "Hauler")
+		if hauler and #hauler.route > 0 then
+			add(hauler.route, true, ROUTE)
+		end
+	end
+	-- Патруль: точки — тайлы.
 	for _, e in selection do
 		local state = c:get(e, "Tactics")
 		local points = state and state.patrol
 		if not points or #points < 4 then
 			continue
 		end
-		local key = table.concat(points, ",")
+		local key = "patrol:" .. table.concat(points, ",")
 		if seen[key] then
 			continue
 		end
 		seen[key] = true
-		local border = 1 / 16
+		local stops = {}
 		for i = 1, #points - 1, 2 do
-			local x, y = points[i], points[i + 1]
-			c.draw:rect(x, y, x + 1, y + 1, ROUTE, nil, ROUTE_FILL)
-			c.draw:rect(x, y, x + 1, y + border, ROUTE, nil, ROUTE_BORDER)
-			c.draw:rect(x, y + 1 - border, x + 1, y + 1, ROUTE, nil, ROUTE_BORDER)
-			c.draw:rect(x, y + border, x + border, y + 1 - border, ROUTE, nil, ROUTE_BORDER)
-			c.draw:rect(x + 1 - border, y + border, x + 1, y + 1 - border, ROUTE, nil, ROUTE_BORDER)
-			local nx, ny = points[(i + 1) % #points + 1], points[(i + 2) % #points + 1]
-			dashes(c, nx + 0.5, ny + 0.5, x + 0.5, y + 0.5, PATH_ALPHA, ROUTE)
+			table.insert(stops, { x = points[i] + 0.5, y = points[i + 1] + 0.5, width = 1, height = 1 })
 		end
+		route(c, stops, true, ROUTE)
 	end
 end
 
 -- Пути, флажки сбора и полоски выпуска у выбранного.
 local function marks(c, selection)
 	local pixel = 1 / c.camera.zoom
-	patrols(c, selection)
+	routes(c, selection)
 	aims(c, selection)
 	for _, e in selection do
 		-- Путь — под кольцом: точки отсчитываются от конца пути, поэтому стоят на земле, а не ползут с юнитом.
