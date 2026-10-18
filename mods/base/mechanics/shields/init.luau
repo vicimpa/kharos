@@ -16,6 +16,9 @@ local readf64 = buffer.readf64
 
 local mechanic = {}
 
+-- Кусок панели игрока (ui/hud).
+mechanic.panel = require("./panel")
+
 mechanic.data = {
 	-- На сколько секунд гаснет пробитый до нуля купол.
 	down = 10,

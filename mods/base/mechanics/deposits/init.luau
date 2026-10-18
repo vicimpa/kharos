@@ -1,10 +1,12 @@
 --!strict
 -- Месторождения на карте: при старте партии генератор раскладывает их по клеткам (lib/deposits), каждое — сущность
--- своего вида из deposits/ с запасом. Добыча — дело шахт, когда они появятся.
+-- своего вида из deposits/ с запасом. Добывают их шахты (mechanics/hauling).
 
 local deposits = require("lib/deposits")
 
 return {
+	-- Кусок панели игрока (ui/hud).
+	panel = require("./panel"),
 	components = {
 		-- Запас, что остался, и сколько было.
 		Deposit = { reserve = 0, total = 0 },

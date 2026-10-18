@@ -15,6 +15,9 @@ local readf64, writef64 = buffer.readf64, buffer.writef64
 
 local mechanic = {}
 
+-- Кусок панели игрока (ui/hud).
+mechanic.panel = require("./panel")
+
 mechanic.data = {
 	-- Что во что превращается: юнит и здание.
 	unit = "mcv",

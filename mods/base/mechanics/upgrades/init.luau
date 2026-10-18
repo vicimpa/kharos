@@ -7,6 +7,9 @@ local levels = require("lib/levels")
 
 local mechanic = {}
 
+-- Кусок панели игрока (ui/hud).
+mechanic.panel = require("./panel")
+
 mechanic.components = {
 	-- Здание поднимают на следующий уровень: progress — тики работы строителей; scale — по какому Rules.upgradeScale
 	-- заказано: отмена возвращает уплаченное, и срок работы — от него же.

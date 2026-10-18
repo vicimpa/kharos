@@ -16,6 +16,8 @@ kind.data = {
 	requires = { "radar" },
 	research = "aviation",
 	menu = 31,
+	-- Раздел сетки строителя.
+	section = "military",
 }
 
 kind.entity = buildings.entity

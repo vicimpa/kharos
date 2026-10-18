@@ -24,6 +24,9 @@ local EPSILON = 1e-9
 
 local mechanic = {}
 
+-- Кусок панели игрока (ui/hud).
+mechanic.panel = require("./panel")
+
 mechanic.data = {
 	-- Раз во сколько тиков пополняются магазины.
 	ticks = 10,

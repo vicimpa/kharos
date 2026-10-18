@@ -17,6 +17,9 @@ local kinds = require("lib/kinds")
 
 local mechanic = {}
 
+-- Кусок панели игрока (ui/hud).
+mechanic.panel = require("./panel")
+
 -- Копия списка: таблицы из ctx:get защищены, table.clone их не берёт.
 local function copy(list: { any }): { any }
 	local result = {}

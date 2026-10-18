@@ -14,6 +14,8 @@ kind.data = {
 	stores = true,
 	requires = { "ammoPlant" },
 	menu = 21,
+	-- Раздел сетки строителя.
+	section = "storage",
 }
 
 kind.entity = buildings.entity

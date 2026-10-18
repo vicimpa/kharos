@@ -15,6 +15,8 @@ kind.data = {
 	shield = { radius = 7, capacity = 4000, regen = 100 },
 	research = "shields",
 	menu = 43,
+	-- Раздел сетки строителя.
+	section = "defense",
 }
 
 kind.entity = buildings.entity

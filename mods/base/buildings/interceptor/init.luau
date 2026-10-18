@@ -17,6 +17,8 @@ kind.data = {
 	intercept = { radius = 80, cost = 600, materials = { parts = 4, fuel = 10 }, seconds = 60, speed = 30, capacity = 4 },
 	requires = { "radar" },
 	menu = 44,
+	-- Раздел сетки строителя.
+	section = "defense",
 }
 
 kind.entity = buildings.entity

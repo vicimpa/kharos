@@ -14,6 +14,8 @@ kind.data = {
 	requester = true,
 	requires = { "blockPlant" },
 	menu = 24,
+	-- Раздел сетки строителя.
+	section = "storage",
 }
 
 kind.entity = buildings.entity

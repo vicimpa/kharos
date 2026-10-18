@@ -15,6 +15,9 @@ local kinds = require("lib/kinds")
 
 local production = {}
 
+-- Кусок панели игрока (ui/hud).
+production.panel = require("./panel")
+
 production.data = {
 	-- Сколько заказов держит очередь.
 	queue = 5,

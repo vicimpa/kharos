@@ -11,6 +11,9 @@ local readf64 = buffer.readf64
 
 local mechanic = {}
 
+-- Кусок панели игрока (ui/hud).
+mechanic.panel = require("./panel")
+
 local EPSILON = goods.EPSILON
 
 mechanic.data = {

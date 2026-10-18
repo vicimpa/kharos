@@ -9,6 +9,9 @@ local world = require("lib/world")
 
 local mechanic = {}
 
+-- Кусок панели игрока (ui/hud).
+mechanic.panel = require("./panel")
+
 mechanic.data = {
 	-- Раз во сколько тиков вставший юнит вспоминает о патруле и о месте, куда вернуться.
 	resumeTicks = 10,

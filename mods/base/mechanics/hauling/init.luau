@@ -29,6 +29,9 @@ local beamFor, reaches, transfer = beams.beamFor, beams.reaches, beams.transfer
 
 local mechanic = {}
 
+-- Кусок панели игрока (ui/hud).
+mechanic.panel = require("./panel")
+
 -- Объявлены ниже, зовутся раньше.
 local assignSupply, runRoutes, runCarry
 

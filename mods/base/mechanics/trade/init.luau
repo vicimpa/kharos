@@ -11,6 +11,9 @@ local readf64 = buffer.readf64
 
 local mechanic = {}
 
+-- Кусок панели игрока (ui/hud).
+mechanic.panel = require("./panel")
+
 mechanic.components = {
 	-- Заявка космопорта: что и сколько продать или купить (buy); left и total — сколько тиков лететь кораблю, пока товар
 	-- везут — нули. Закупка оплачена сразу, и корабль летит с самого начала.

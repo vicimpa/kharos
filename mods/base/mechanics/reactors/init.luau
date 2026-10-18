@@ -11,6 +11,9 @@ local readf64 = buffer.readf64
 
 local mechanic = {}
 
+-- Кусок панели игрока (ui/hud).
+mechanic.panel = require("./panel")
+
 mechanic.components = {
 	-- Реактор: сколько тиков ещё горит стержень в работе.
 	Reactor = { left = 0 },

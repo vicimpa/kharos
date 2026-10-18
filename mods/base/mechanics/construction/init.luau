@@ -39,6 +39,9 @@ local readf64, writef64 = buffer.readf64, buffer.writef64
 
 local mechanic = {}
 
+-- Кусок панели игрока (ui/hud).
+mechanic.panel = require("./panel")
+
 mechanic.data = {
 	-- С какого расстояния до работы свободный строитель сам берётся за неё, в тайлах.
 	workRadius = 10,

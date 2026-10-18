@@ -25,6 +25,9 @@ local readf64, writef64 = buffer.readf64, buffer.writef64
 
 local mechanic = {}
 
+-- Кусок панели игрока (ui/hud).
+mechanic.panel = require("./panel")
+
 mechanic.data = {
 	-- Как часто хост решает, кто из потребителей занят, в тиках, и сколько секунд кончивший дело ещё значится
 	-- работающим: завод между двумя сборками нагрузку не дёргает.

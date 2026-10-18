@@ -17,6 +17,8 @@ kind.data = {
 	requires = { "uraniumMill" },
 	research = "rods",
 	menu = 13,
+	-- Раздел сетки строителя.
+	section = "production",
 }
 
 kind.entity = buildings.entity
