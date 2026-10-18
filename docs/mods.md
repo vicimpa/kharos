@@ -85,7 +85,9 @@ components = {
 angle }` (место на носителе: вперёд и вправо от его центра в тайлах, свой поворот), `Mover { speed, turn, radius, class,
 rooted }` (ход: тайлы и радианы в секунду, радиус корпуса, род — `vehicle`, `heavy`, `infantry`, `air`), `Path {
 points, goalX, goalY, … }` (путь: есть — юнит едет), `Footprint { width, height, passable }` (основание здания вокруг
-`Position`: тайлы заняты для хода), `Player { id, allies }` (союзникам уступают дорогу).
+`Position`: тайлы заняты для хода), `Player { id, allies }` (союзникам уступают дорогу), `Burst { radius, damage, core }` (взрыв по площади всех без разбора в ближайшем бою), `Meltdown { radius,
+damage }` (погибшее в бою оставляет такой взрыв), `Shield { charge, hit, down, radius, recover }` (купол: урон по
+своим и союзным под ним от стрелков снаружи и от летающих берёт запас, чужие снаряды рвутся на краю; запас растит мод).
 
 ### Системы
 

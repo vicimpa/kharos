@@ -2,7 +2,7 @@
 -- Энергия на экране — перенос из buildingsPass.ts и powerPass.ts: электростанция под нагрузкой работает (огни бегут,
 -- по трубам идёт топливо), лишняя стоит в запасе; своё выключенное стоит темнее, без огней и со значком; над
 -- потребителями, которым не хватает энергии, мигает молния на красном круге, по перегруженным станциям бьют молнии; над
--- повреждёнными зданиями — полоска прочности; над своими зданиями, к которым не подъехать грузовикам, — «въезд запрещён».
+-- повреждёнными зданиями — полоска прочности, над генератором щита — запас; над своими зданиями, к которым не подъехать грузовикам, — «въезд запрещён».
 
 local economy = require("lib/economy")
 local noise = require("lib/noise").of
@@ -36,6 +36,7 @@ power.data = {
 local BAR_BACK = rgb(0.03, 0.05, 0.08)
 local BAR_GOOD = rgb(0.45, 0.9, 0.55)
 local BAR_BAD = rgb(1, 0.35, 0.25)
+local BAR_SHIELD = rgb(0.3, 0.55, 1)
 
 -- Станции под нагрузкой и когда их считали.
 local plants: { [number]: boolean } = {}
@@ -80,15 +81,26 @@ function power.update(c)
 			local frame = math.floor(noise(e, step) * d.bolts)
 			c.draw:stretch(bolt, frame, left, top - d.boltRise, size.width, size.height + d.boltRise, noise(step + 7, e) < 0.5)
 		end
-		-- Полоса прочности над крышей — у повреждённого, кроме строящегося (там она равна полосе стройки).
+		-- Полосы над крышей, сверху вниз (statusBars.ts): прочность — у повреждённого, кроме строящегося (там она равна
+		-- полосе стройки), под ней запас щита — у готового генератора щита.
 		local health = c:get(e, "Health")
-		local rows = 0
+		local bars = {}
 		if health and health.value < health.max and not (site and (not site.demolish or site.undo)) then
-			rows = 1
 			local share = math.max(0, health.value / health.max)
-			local barTop = top - d.gap - barHeight / 2
+			table.insert(bars, { share, if share > 0.5 then BAR_GOOD else BAR_BAD })
+		end
+		local shield = not site and c:get(e, "Shield")
+		local kind = shield and c:proto(e)
+		local dome = kind and kind.data.shield
+		if shield and dome then
+			table.insert(bars, { math.clamp(shield.charge / dome.capacity, 0, 1), BAR_SHIELD })
+		end
+		local rows = #bars
+		local stack = d.stack / zoom
+		for i, bar in bars do
+			local barTop = top - d.gap - (rows - i + 1) * barHeight - (rows - i) * stack + barHeight / 2
 			c.draw:line(left, barTop, left + size.width, barTop, BAR_BACK, d.bar)
-			c.draw:line(left, barTop, left + size.width * share, barTop, if share > 0.5 then BAR_GOOD else BAR_BAD, d.bar)
+			c.draw:line(left, barTop, left + size.width * bar[1], barTop, bar[2], d.bar)
 		end
 		-- Значки — над полосами, несколько сразу — рядом. Тревожные мигают и держат место, «Выключено» горит ровно.
 		local icons = {}

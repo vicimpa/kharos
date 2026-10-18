@@ -2,7 +2,7 @@
 -- Подача боя — перенос combatPass.ts: снаряды, лучи, разряды и струи огня, вспышки у ствола, взрывы и дым после
 -- них, огни в темноте и полоски прочности над повреждёнными юнитами. Выстрелы (Shot) и взрывы (Blast) — сущности
 -- мира от системы движка fight; клубы дыма живут только на экране. Светящееся (c.glow) складывается с картинкой,
--- остальное ложится поверх (c.draw). Ядерные ракеты, лучи ремонта и груза, купола щитов придут со своими механиками.
+-- остальное ложится поверх (c.draw). Купола щитов — тоже здесь. Ядерные ракеты придут со своей механикой.
 
 local noise = require("lib/noise").of
 
@@ -44,6 +44,10 @@ combat.data = {
 	-- Высота полоски прочности в пикселях экрана и её отступ над юнитом в тайлах.
 	barHeight = 3,
 	barGap = 0.25,
+	-- Купол щита: из скольких отрезков кольца и сколько секунд вспыхивает от погашенного попадания (DOME_SEGMENTS,
+	-- DOME_FLASH).
+	domeSegments = 64,
+	domeFlash = 0.6,
 }
 
 local BULLET = rgb(1, 0.9, 0.55)
@@ -55,6 +59,7 @@ local LASER = rgb(1, 0.15, 0.3)
 local EMBER = rgb(1, 0.35, 0.08)
 local SPARK = rgb(0.3, 0.6, 1)
 local CORE = rgb(1, 1, 1)
+local DOME = rgb(0.35, 0.7, 1)
 local BAR_BACK = rgb(0.03, 0.05, 0.08)
 local BAR_GOOD = rgb(0.45, 0.9, 0.55)
 local BAR_BAD = rgb(1, 0.35, 0.25)
@@ -377,6 +382,35 @@ function combat.update(c)
 	end
 
 	-- Полоски прочности над повреждёнными юнитами — своими и чужими.
+	-- Купола щитов: тусклые в покое, ярче с запасом, вспыхивают от погашенного попадания. Погашенный не рисуется.
+	for _, e in c:each({ "Shield", "Building", "Position" }) do
+		local shield = c:get(e, "Shield")
+		local kind = c:proto(e)
+		local spec = kind and kind.data.shield
+		if not spec or shield.charge <= 0 then
+			continue
+		end
+		local center = c:get(e, "Position")
+		local cx, cy, radius = center.x, center.y, spec.radius
+		if not visible(cx - radius, cy) and not visible(cx + radius, cy) and not visible(cx, cy - radius) and not visible(cx, cy + radius) and not visible(cx, cy) then
+			continue
+		end
+		local since = if shield.hit < 0 then math.huge else (c.tick - shield.hit + alpha) * c.step
+		local flash = if since < d.domeFlash then 1 - since / d.domeFlash else 0
+		local level = 0.12 + 0.18 * (shield.charge / spec.capacity) + 0.6 * flash
+		-- Кромка и два кольца ближе к макушке: сверху купол читается как полусфера.
+		for _, ring in { { 1, 0, 3, 1 }, { 0.75, 0.18, 2, 0.5 }, { 0.42, 0.32, 2, 0.35 } } do
+			local r = radius * ring[1]
+			local ringTop = cy - radius * ring[2]
+			for i = 0, d.domeSegments - 1 do
+				local a = i / d.domeSegments * math.pi * 2
+				local b = (i + 1) / d.domeSegments * math.pi * 2
+				local shimmer = 0.8 + 0.2 * math.sin(c.time * 2 + i * 0.7 + e)
+				line(c.glow, cx + math.cos(a) * r, ringTop + math.sin(a) * r, cx + math.cos(b) * r, ringTop + math.sin(b) * r, ring[3], DOME, level * ring[4] * shimmer)
+			end
+		end
+	end
+
 	local pixel = 1 / zoom
 	for _, e in c:each({ "Health", "Mover", "Position" }) do
 		local health = c:get(e, "Health").value

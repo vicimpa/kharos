@@ -178,6 +178,9 @@ function buildings.sight(kind, protos): number
 	return math.max(data.sight or half + buildings.BUILDING_SIGHT, if range ~= 0 then range + 1.5 else 0)
 end
 
+-- На сколько секунд гаснет пробитый до нуля купол щита (SHIELD_DOWN).
+buildings.SHIELD_DOWN = 10
+
 -- Сущность здания по данным вида: размер, основание (тайлы заняты для хода), обзор, производство.
 function buildings.entity(kind, protos)
 	local data = kind.data
@@ -211,6 +214,10 @@ function buildings.entity(kind, protos)
 	end
 	if data.produces then
 		entity.Producer = {}
+	end
+	-- Генератор щита держит купол (mechanics/shields): пробитый гаснет на SHIELD_DOWN секунд.
+	if data.shield then
+		entity.Shield = { radius = data.shield.radius, recover = buildings.SHIELD_DOWN }
 	end
 	-- Реактор жжёт стержни (mechanics/reactors).
 	if data.burns then

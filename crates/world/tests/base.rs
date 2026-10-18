@@ -1111,3 +1111,45 @@ fn reactor_burns_rods_and_blows_up_when_destroyed_with_fuel() {
   host.tick(0.05).unwrap();
   assert!(all(&host, "Burst").is_empty(), "взрыв прошёл");
 }
+
+#[test]
+fn shield_charges_on_power_and_stops_a_shell_at_its_edge() {
+  let mut host = host_without_tech();
+  let (_, site, builder) = base_with_builder(&mut host);
+  let player = all(&host, "Player")[0].0;
+  set(&host, player, "Player", json!({ "credits": 10000 }));
+  let spot = free_spot(&host, site, 2);
+  raise(&mut host, "generator", spot, builder);
+  let spot = free_spot(&host, site, 2);
+  let dome = raise(&mut host, "shieldGenerator", spot, builder);
+  // Запас растёт на энергии: 100 в секунду.
+  ticks(&mut host, 20);
+  let charge = get(&host, dome, "Shield").unwrap()["charge"].as_f64().unwrap();
+  assert!(charge > 50.0 && charge <= 110.0 + 1e-9, "запас {charge}");
+  // Чужое ядро, летящее к генератору снаружи, рвётся на краю купола; урон берёт запас.
+  let (x, y) = place(&host, dome);
+  let health = get(&host, dome, "Health").unwrap()["value"].clone();
+  let before = get(&host, dome, "Shield").unwrap()["charge"].as_f64().unwrap();
+  let shell = spawn_with(&host, json!({
+    "Position": { "x": x + 10.0, "y": y },
+    "Shot": { "weapon": "artillery", "player": 2, "source": -1, "target": dome, "fromX": x + 10.0, "fromY": y, "toX": x, "toY": y, "life": 100 },
+  }));
+  let mut stopped = None;
+  for _ in 0..40 {
+    let at = place(&host, shell);
+    host.tick(0.05).unwrap();
+    if get(&host, shell, "Shot").is_none() {
+      stopped = Some(at);
+      break;
+    }
+  }
+  assert!(stopped.is_some(), "ядро не остановилось");
+  let shield = get(&host, dome, "Shield").unwrap();
+  assert!(shield["charge"].as_f64().unwrap() < before, "запас не тронут: {shield:?}");
+  assert!(shield["hit"].as_f64().unwrap() >= 0.0);
+  assert_eq!(get(&host, dome, "Health").unwrap()["value"], health, "генератор цел");
+  // Выключенный купол гаснет.
+  host.send(1, "work", json!({ "building": dome, "on": false }));
+  ticks(&mut host, 2);
+  assert_eq!(get(&host, dome, "Shield").unwrap()["charge"], json!(0.0));
+}

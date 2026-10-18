@@ -1,7 +1,7 @@
 --!strict
 --!native
 -- Звуки зданий и мира — перенос packages/client/src/audio/worldSynth.ts: то, что уже есть в игре, — стройка,
--- разворачивание, выезд из завода, ворота, радар, перегруз сети, отсчёт и уведомления. Остальное переедет вместе с механиками.
+-- разворачивание, выезд из завода, ворота, радар, щиты, реактор, перегруз сети, отсчёт и уведомления. Остальное переедет вместе с механиками.
 
 local dsp = require("lib/dsp")
 
@@ -113,6 +113,52 @@ local function reactor(rate: number)
 	end)
 end
 
+-- Щит принял удар: всплеск — шум с резким скольжением вниз и дрожащий звон поля.
+local function shieldHit(rate: number, variant: number)
+	local t = 0
+	local sweep = lowpass(rate, function()
+		return 600 + 5000 * decay(t, 0.05)
+	end)
+	local phase = variant * 0.2
+	return render(rate, 0.45, variant, function(time, noise)
+		t = time
+		phase += 2 * PI * (380 + 220 * decay(time, 0.06)) * (1 + 0.02 * sin(2 * PI * 35 * time)) / rate
+		return sweep(noise()) * decay(time, 0.05) * 1.3 + sin(phase) * attack(time, 0.004) * decay(time, 0.15) * 0.6
+	end)
+end
+
+-- Щит пробит: поле гаснет — гул падает вниз, рвётся треском и глохнет.
+local function shieldDown(rate: number, variant: number)
+	local crackle = highpass(rate, 1500)
+	local next = random(variant + 1301)
+	local phase, gate, untilAt = 0, 0, 0
+	return render(rate, 1.4, variant, function(t, noise)
+		if t >= untilAt then
+			gate = if next() < 0.5 then next() else 0
+			untilAt = t + 0.005 + next() * 0.02
+		end
+		phase += 2 * PI * (320 * decay(t, 0.5) + 30) / rate
+		local hum = (sin(phase) + sin(phase * 2) * 0.4) * decay(t, 0.45)
+		return hum * 0.8 + crackle(noise()) * gate * decay(t, 0.35) * 0.9
+	end)
+end
+
+-- Щит поднялся: гул нарастает снизу вверх и встаёт на ровную ноту.
+local function shieldUp(rate: number, variant: number)
+	local phase = 0
+	return render(rate, 1, variant, function(t)
+		phase += 2 * PI * (120 + 260 * min(1, t / 0.6)) * (1 + variant * 0.01) / rate
+		return (sin(phase) + sin(phase * 2.01) * 0.35) * attack(t, 0.5) * min(1, (1 - t) / 0.3)
+	end)
+end
+
+-- Купол щита: ровный высокий гул поля с медленными биениями.
+local function dome(rate: number)
+	return loop(rate, 4, function(t)
+		return (sin(2 * PI * 330 * t) + sin(2 * PI * 330.5 * t) + sin(2 * PI * 660.25 * t) * 0.3) * 0.5
+	end)
+end
+
 -- Сеть перегружена: свет мигает — гул проседает и рвётся.
 local function brownout(rate: number, variant: number)
 	local phase = 0
@@ -168,8 +214,12 @@ return {
 		built = sound("world", built),
 		gate = sound("world", gate),
 		radar = sound("world", radar),
+		shieldHit = sound("world", shieldHit),
+		shieldDown = sound("world", shieldDown),
+		shieldUp = sound("world", shieldUp),
 		-- Петли.
 		reactor = loopSound(reactor),
+		dome = loopSound(dome),
 		deploy = sound("world", deploy),
 		rollout = sound("world", rollout),
 		brownout = sound("interface", brownout),

@@ -9,7 +9,9 @@
 //!
 //! Взрывы по площади (`Burst`) бьют всех без разбора; погибшее с `Meltdown` оставляет такой взрыв на своём месте.
 //!
-//! Пока без щитов, боеприпасов, защиты новичка и плит фундамента: они придут со своими механиками (docs/port.md).
+//! Купола щитов (`Shield`) гасят урон по своим и союзным под ними и останавливают чужие снаряды на краю (shields.ts).
+//!
+//! Пока без боеприпасов, защиты новичка и плит фундамента: они придут со своими механиками (docs/port.md).
 
 use crate::host::{Signal, State};
 use crate::motion::Scene;
@@ -114,6 +116,7 @@ struct Cols {
   blast: ComponentId,
   burst: ComponentId,
   meltdown: ComponentId,
+  shield: ComponentId,
   sight: ComponentId,
   proto: ComponentId,
   mover_radius: usize,
@@ -171,6 +174,7 @@ impl Cols {
       blast: id("Blast"),
       burst: id("Burst"),
       meltdown: id("Meltdown"),
+      shield: id("Shield"),
       sight: id("Sight"),
       proto: id("Proto"),
       mover_radius: slot(world, mover, "radius"),
@@ -449,6 +453,15 @@ impl Turner {
   }
 }
 
+/// Купол щита, который держится в этот тик (`Dome`).
+struct Dome {
+  entity: Entity,
+  player: f64,
+  x: f64,
+  y: f64,
+  radius: f64,
+}
+
 /// Бой: всё, что знает тик боя о мире, — метки, сетка, союзы, турели носителей, погибшие и взрывы.
 struct Fight<'a> {
   cols: Cols,
@@ -462,10 +475,105 @@ struct Fight<'a> {
   friends: HashMap<u64, Vec<f64>>,
   turrets: HashMap<Entity, Vec<Entity>>,
   tick: u64,
+  step: f64,
+  domes: Vec<Dome>,
   signals: Vec<Signal>,
 }
 
 impl Fight<'_> {
+  /// Держит ли купол удар сейчас: с запасом и не погашен.
+  fn holds(&self, world: &World, dome: &Dome) -> bool {
+    let cols = &self.cols;
+    let charge = cols.num(world, cols.shield, slot(world, cols.shield, "charge"), dome.entity).unwrap_or(0.0);
+    let down = cols.num(world, cols.shield, slot(world, cols.shield, "down"), dome.entity).unwrap_or(0.0);
+    charge > 0.0 && self.tick as f64 >= down
+  }
+
+  /// Списывает урон с запаса купола; запас кончился — купол гаснет на свой срок. Возвращает, сколько списано (`drain`).
+  fn drain(&self, world: &mut World, dome: usize, damage: f64) -> f64 {
+    let cols = &self.cols;
+    let entity = self.domes[dome].entity;
+    let field = |name: &str| slot(world, cols.shield, name);
+    let (charge_at, hit_at, down_at, recover_at) = (field("charge"), field("hit"), field("down"), field("recover"));
+    let charge = cols.num(world, cols.shield, charge_at, entity).unwrap_or(0.0);
+    let taken = charge.min(damage);
+    let left = charge - taken;
+    cols.put(world, cols.shield, hit_at, entity, self.tick as f64);
+    if left <= 0.0 {
+      let recover = cols.num(world, cols.shield, recover_at, entity).unwrap_or(0.0);
+      cols.put(world, cols.shield, charge_at, entity, 0.0);
+      cols.put(world, cols.shield, down_at, entity, self.tick as f64 + js_round(recover / self.step));
+    } else {
+      cols.put(world, cols.shield, charge_at, entity, left);
+    }
+    taken
+  }
+
+  /// Гасит урон по цели игрока player в (x, y), пришедший из (from_x, from_y); from_air — стрелял летающий. Урон
+  /// берёт тот из подходящих куполов, у кого запас больше. Возвращает, сколько прошло сквозь щит (`absorb`).
+  #[allow(clippy::too_many_arguments)]
+  fn absorb(&self, world: &mut World, player: f64, x: f64, y: f64, damage: f64, from_x: f64, from_y: f64, from_air: bool) -> f64 {
+    let charge_at = slot(world, self.cols.shield, "charge");
+    let mut best: Option<(usize, f64)> = None;
+    for (at, dome) in self.domes.iter().enumerate() {
+      if !self.holds(world, dome) || js_hypot(x - dome.x, y - dome.y) > dome.radius {
+        continue;
+      }
+      if !from_air && js_hypot(from_x - dome.x, from_y - dome.y) <= dome.radius {
+        continue;
+      }
+      if dome.player != player && !friend(&self.friends, dome.player, player) {
+        continue;
+      }
+      let charge = self.cols.num(world, self.cols.shield, charge_at, dome.entity).unwrap_or(0.0);
+      if best.is_none_or(|(_, most)| charge > most) {
+        best = Some((at, charge));
+      }
+    }
+    match best {
+      Some((dome, _)) => damage - self.drain(world, dome, damage),
+      None => damage,
+    }
+  }
+
+  /// Купол, который остановит снаряд игрока player, летящий из (x, y) в (to_x, to_y) за этот тик, и точка на его краю,
+  /// где снаряд рвётся (`stopper`). Останавливает купол чужого, если снаряд входит в него снаружи, а сброшенный
+  /// летающим — и уже внутри: бомба падает сверху. Из нескольких — первый на пути.
+  #[allow(clippy::too_many_arguments)]
+  fn stopper(&self, world: &World, player: f64, x: f64, y: f64, to_x: f64, to_y: f64, from_air: bool) -> Option<(usize, f64, f64)> {
+    let mut best: Option<(usize, f64, f64, f64)> = None;
+    let (dx, dy) = (to_x - x, to_y - y);
+    for (at, dome) in self.domes.iter().enumerate() {
+      if !self.holds(world, dome) || dome.player == player || friend(&self.friends, dome.player, player) {
+        continue;
+      }
+      if js_hypot(x - dome.x, y - dome.y) <= dome.radius {
+        if from_air && best.is_none_or(|(_, _, _, first)| first > 0.0) {
+          best = Some((at, x, y, 0.0));
+        }
+        continue;
+      }
+      // Где отрезок пути входит в круг: наименьший корень |p + t·d − c| = r на [0, 1].
+      let (fx, fy) = (x - dome.x, y - dome.y);
+      let a = dx * dx + dy * dy;
+      if a == 0.0 {
+        continue;
+      }
+      let b = 2.0 * (fx * dx + fy * dy);
+      let c = fx * fx + fy * fy - dome.radius * dome.radius;
+      let disc = b * b - 4.0 * a * c;
+      if disc < 0.0 {
+        continue;
+      }
+      let t = (-b - disc.sqrt()) / (2.0 * a);
+      if !(0.0..=1.0).contains(&t) || best.is_some_and(|(_, _, _, first)| first <= t) {
+        continue;
+      }
+      best = Some((at, x + dx * t, y + dy * t, t));
+    }
+    best.map(|(dome, x, y, _)| (dome, x, y))
+  }
+
   fn mark(&self, entity: Entity) -> Option<usize> {
     self.index.get(&entity).copied()
   }
@@ -506,13 +614,20 @@ impl Fight<'_> {
   }
 
   /// Наносит урон метке (`hit`): source — кто стрелял.
-  fn hit(&mut self, world: &mut World, mark: usize, amount: f64, weapon: &Weapon, source: Entity) {
+  /// (from_x, from_y) — откуда пришло: щит гасит только пришедшее из-за купола.
+  #[allow(clippy::too_many_arguments)]
+  fn hit(&mut self, world: &mut World, mark: usize, amount: f64, weapon: &Weapon, source: Entity, from_x: f64, from_y: f64) {
     let entity = self.marks[mark].entity;
     if self.dead_set.contains(&entity) {
       return;
     }
     self.marks[mark].hit = self.tick as f64;
-    let damage = amount * weapon.vs.get(self.marks[mark].armor).copied().unwrap_or(1.0);
+    let mut damage = amount * weapon.vs.get(self.marks[mark].armor).copied().unwrap_or(1.0);
+    if !self.domes.is_empty() {
+      let from_air = self.mark(source).is_some_and(|from| self.marks[from].air);
+      let (player, x, y) = (self.marks[mark].player, self.marks[mark].x, self.marks[mark].y);
+      damage = self.absorb(world, player, x, y, damage, from_x, from_y, from_air);
+    }
     self.marks[mark].value -= damage / self.marks[mark].hp;
     if self.marks[mark].value <= 0.0 {
       self.kill(entity);
@@ -554,11 +669,11 @@ impl Fight<'_> {
 
   /// Попадание в точку (`impact`): урон цели или всем врагам в радиусе взрыва; blocked — только стенам.
   #[allow(clippy::too_many_arguments)]
-  fn impact(&mut self, world: &mut World, weapon: &Weapon, player: f64, source: Entity, target: f64, x: f64, y: f64, blocked: bool) {
+  fn impact(&mut self, world: &mut World, weapon: &Weapon, player: f64, source: Entity, target: f64, (x, y): (f64, f64), (from_x, from_y): (f64, f64), blocked: bool) {
     let Some(splash) = weapon.splash else {
       if let Some(mark) = (target >= 0.0).then(|| self.mark(target as Entity)).flatten() {
         if self.can_hit(weapon, player, mark) {
-          self.hit(world, mark, weapon.damage, weapon, source);
+          self.hit(world, mark, weapon.damage, weapon, source, from_x, from_y);
         }
       }
       return;
@@ -574,7 +689,7 @@ impl Fight<'_> {
       if distance > splash {
         continue;
       }
-      self.hit(world, mark, weapon.damage * (1.0 - (1.0 - SPLASH_EDGE) * (distance / splash)), weapon, source);
+      self.hit(world, mark, weapon.damage * (1.0 - (1.0 - SPLASH_EDGE) * (distance / splash)), weapon, source, from_x, from_y);
     }
   }
 
@@ -779,8 +894,26 @@ struct Landed<'w> {
   target: f64,
   x: f64,
   y: f64,
+  from_x: f64,
+  from_y: f64,
   blocked: bool,
   air: bool,
+}
+
+/// Купола щитов, которые держатся в этот тик (`domes`): с запасом и не погашенные.
+fn collect_domes(cols: &Cols, world: &World, tick: u64) -> Vec<Dome> {
+  let store = &world.stores[cols.shield];
+  let field = |name: &str| slot(world, cols.shield, name);
+  let (charge, down, radius) = (field("charge"), field("down"), field("radius"));
+  let mut domes = Vec::new();
+  for (row, &entity) in store.entities.iter().enumerate() {
+    if store.nums[charge][row] <= 0.0 || (tick as f64) < store.nums[down][row] {
+      continue;
+    }
+    let Some((x, y)) = cols.position(world, entity) else { continue };
+    domes.push(Dome { entity, player: cols.owner(world, entity), x, y, radius: store.nums[radius][row] });
+  }
+  domes
 }
 
 /// Система боя (`fight`): снаряды, стрелки, гибель.
@@ -800,7 +933,8 @@ pub fn fight(state: &mut State) {
       turrets.entry(store.nums[cols.parent][row] as Entity).or_default().push(entity);
     }
   }
-  let mut fight = Fight { cols, weapons, marks, index, grid, dead: Vec::new(), dead_set: HashSet::new(), blasts: Vec::new(), friends, turrets, tick, signals: Vec::new() };
+  let domes = collect_domes(&cols, scene.world, tick);
+  let mut fight = Fight { cols, weapons, marks, index, grid, dead: Vec::new(), dead_set: HashSet::new(), blasts: Vec::new(), friends, turrets, tick, step, domes, signals: Vec::new() };
 
   fly(&mut scene, &mut fight, step);
   shoot(&mut scene, &mut fight, tick, step);
@@ -823,7 +957,7 @@ fn fly(scene: &mut Scene, fight: &mut Fight, step: f64) {
   }
 
   let shot_slot = |name: &str| slot(world, cols.shot, name);
-  let [weapon_at, age_at, life_at, to_x_at, to_y_at, prev_x_at, prev_y_at, target_at, player_at, source_at, blocked_at, air_at] = ["weapon", "age", "life", "toX", "toY", "prevX", "prevY", "target", "player", "source", "blocked", "air"].map(shot_slot);
+  let [weapon_at, age_at, life_at, to_x_at, to_y_at, prev_x_at, prev_y_at, target_at, player_at, source_at, blocked_at, air_at, from_x_at, from_y_at] = ["weapon", "age", "life", "toX", "toY", "prevX", "prevY", "target", "player", "source", "blocked", "air", "fromX", "fromY"].map(shot_slot);
   let mut landed = Vec::new();
   for entity in world.stores[cols.shot].entities.clone() {
     let Some((mut x, mut y)) = cols.position(world, entity) else { continue };
@@ -855,6 +989,20 @@ fn fly(scene: &mut Scene, fight: &mut Fight, step: f64) {
     let (dx, dy) = (to_x - x, to_y - y);
     let distance = js_hypot(dx, dy);
     let travel = speed * step;
+    // Купол чужого щита на пути: снаряд рвётся на его краю, урон берёт щит, внутрь ничего не долетает.
+    if !fight.domes.is_empty() {
+      let share = if distance > 0.0 { (travel / distance).min(1.0) } else { 1.0 };
+      let source = get(world, source_at) as Entity;
+      let from_air = world.has(source, cols.mover) && cols.flies(world, source);
+      if let Some((dome, stop_x, stop_y)) = fight.stopper(world, get(world, player_at), x, y, x + dx * share, y + dy * share, from_air) {
+        fight.drain(world, dome, shot_weapon.damage);
+        cols.put(world, cols.position, 0, entity, stop_x);
+        cols.put(world, cols.position, 1, entity, stop_y);
+        fight.blasts.push(Blast { x: stop_x, y: stop_y, size: shot_weapon.splash.unwrap_or(0.2), ground: false });
+        gone.push(entity);
+        continue;
+      }
+    }
     if distance <= travel || age >= life {
       let reached = distance <= travel;
       if reached {
@@ -864,7 +1012,7 @@ fn fly(scene: &mut Scene, fight: &mut Fight, step: f64) {
       cols.put(world, cols.position, 1, entity, y);
       if reached || shot_weapon.splash.is_some() {
         let (player, source) = (get(world, player_at), get(world, source_at) as Entity);
-        landed.push(Landed { entity, weapon: shot_weapon, player, source, target, x, y, blocked: get(world, blocked_at) == 1.0, air: get(world, air_at) == 1.0 });
+        landed.push(Landed { entity, weapon: shot_weapon, player, source, target, x, y, from_x: get(world, from_x_at), from_y: get(world, from_y_at), blocked: get(world, blocked_at) == 1.0, air: get(world, air_at) == 1.0 });
       } else {
         gone.push(entity);
       }
@@ -876,7 +1024,7 @@ fn fly(scene: &mut Scene, fight: &mut Fight, step: f64) {
     cols.put(world, cols.position, 1, entity, y);
   }
   for shot in landed {
-    fight.impact(scene.world, shot.weapon, shot.player, shot.source, shot.target, shot.x, shot.y, shot.blocked);
+    fight.impact(scene.world, shot.weapon, shot.player, shot.source, shot.target, (shot.x, shot.y), (shot.from_x, shot.from_y), shot.blocked);
     fight.blasts.push(Blast { x: shot.x, y: shot.y, size: shot.weapon.splash.unwrap_or(0.2), ground: !shot.air });
     gone.push(shot.entity);
   }
@@ -1161,7 +1309,7 @@ fn shoot(scene: &mut Scene, fight: &mut Fight, tick: u64, step: f64) {
         spawn(scene.world, vec![(position, json!({ "x": from_x, "y": from_y })), (shot_id, fields)]);
         fight.signal("burn", json!({ "x": hit_x, "y": hit_y }));
         if let Some(mark) = fight.mark(wall) {
-          fight.hit(scene.world, mark, spec.damage, spec, carrier);
+          fight.hit(scene.world, mark, spec.damage, spec, carrier, from_x, from_y);
         }
         break 'shooter;
       }
@@ -1179,7 +1327,8 @@ fn shoot(scene: &mut Scene, fight: &mut Fight, tick: u64, step: f64) {
         struck.insert(current_entity);
         let fields = shot(json!({ "fromX": from.0, "fromY": from.1, "target": current_entity, "toX": current_x, "toY": current_y, "life": BEAM_TICKS }));
         spawn(scene.world, vec![(position, json!({ "x": from.0, "y": from.1 })), (shot_id, fields)]);
-        fight.hit(scene.world, current, damage, spec, carrier);
+        // Разряд, перескочивший под куполом, всё равно пришёл снаружи: щит судит по стрелку.
+        fight.hit(scene.world, current, damage, spec, carrier, from_x, from_y);
         if !current_air {
           fight.signal("burn", json!({ "x": current_x, "y": current_y }));
         }

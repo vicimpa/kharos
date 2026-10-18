@@ -1,15 +1,15 @@
 --!strict
 -- Звук работы зданий — перенос packages/client/src/game/machines.ts. Каждый вид звука — одна петля, сколько бы ни
 -- звучало источников: громкость — по тому, сколько их и насколько они близки к середине экрана, сторона — по тому, где
--- они. Звучит только своё работающее: цех стучит, пока движется его работа; горящий реактор — и чужой.
+-- они. Звучит только своё работающее: цех стучит, пока движется его работа; горящий реактор и купол щита — и чужие.
 
 local economy = require("lib/economy")
 
 local PERIOD = 0.2
-local LEVELS = { hum = 0.22, machinery = 0.25, drill = 0.2, reactor = 0.3 }
+local LEVELS = { hum = 0.22, machinery = 0.25, drill = 0.2, reactor = 0.3, dome = 0.06 }
 local SATURATE = 3
 -- Петли мира (worldSounds.ts) набирают громкость быстрее.
-local SATURATES = { reactor = 2 }
+local SATURATES = { reactor = 2, dome = 2 }
 local WORK_HOLD = 0.6
 local HEARING = 0.6
 
@@ -56,6 +56,11 @@ return {
 			local burning = economy.burning(c, e)
 			if burning then
 				add("reactor", at.x, at.y)
+			end
+			-- Купол щита поёт, пока держится.
+			local shield = c:get(e, "Shield")
+			if shield and shield.charge > 0 then
+				add("dome", at.x, at.y)
 			end
 			if not c:mine(e) then
 				continue

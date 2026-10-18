@@ -831,6 +831,13 @@ local function info(c, selection, width: number, height: number)
 				local repair = construction.repairCostOf(kind.data.cost, health.value, construction.rules(c).repairCost, health.max)
 				ui:text("Прочность: " .. percent(health.value / health.max) .. ". Починка стоит " .. repair .. ": выбери строителей и щёлкни по зданию правой кнопкой", { color = COLORS.soft, wrap = text })
 			end
+			-- Генератор щита: запас купола или когда он поднимется.
+			local dome = not many and built and kind.data.shield
+			local shield = dome and c:get(first, "Shield")
+			if shield then
+				local down = math.max(0, math.ceil((shield.down - c.tick) * c.step))
+				ui:text(if down > 0 then "Щит пробит: поднимется через " .. down .. " с" else "Щит: " .. math.floor(shield.charge) .. " из " .. dome.capacity, { color = COLORS.soft, wrap = text })
+			end
 			-- Склад здания, кузов грузовика и его работа, остаток месторождения под шахтой.
 			local stock = not many and c:mine(first) and c:get(first, "Inventory")
 			local hauler = not many and c:get(first, "Hauler")
