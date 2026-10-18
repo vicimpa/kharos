@@ -16,9 +16,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use web_audio_api::context::{AudioContext, BaseAudioContext};
-use web_audio_api::node::{AudioBufferSourceNode, AudioNode, AudioScheduledSourceNode, BiquadFilterNode, BiquadFilterType, ConstantSourceNode, ConvolverNode, DelayNode, DynamicsCompressorNode, GainNode, OscillatorNode, OscillatorType, StereoPannerNode, WaveShaperNode};
-use web_audio_api::{AudioBuffer, AudioParam};
+use crate::webaudio::{AnalyserNode, AudioBuffer, AudioBufferSourceNode, AudioContext, AudioNode, AudioParam, AudioScheduledSourceNode, BaseAudioContext, BiquadFilterNode, BiquadFilterType, ConstantSourceNode, ConvolverNode, DelayNode, DynamicsCompressorNode, GainNode, OscillatorNode, OscillatorType, StereoPannerNode, WaveShaperNode};
 
 /// Шины: всё сходится в общую громкость.
 /// Группы громкости, как CHANNELS в audio.ts.
@@ -115,7 +113,7 @@ pub struct Engine {
   /// Случайное для вариантов и разброса высоты.
   seed: std::cell::Cell<u32>,
   /// Замер уровня на выходе (KHAROS_AUDIO_LEVEL=1): проверить, что звук есть, не слушая его.
-  meter: Option<RefCell<web_audio_api::node::AnalyserNode>>,
+  meter: Option<RefCell<AnalyserNode>>,
 }
 
 impl Engine {
@@ -525,7 +523,7 @@ fn noise(ctx: &AudioContext, color: usize) -> AudioBuffer {
   let rate = ctx.sample_rate();
   let length = (rate * 2.0) as usize;
   let mut buffer = ctx.create_buffer(1, length, rate);
-  let data = buffer.get_channel_data_mut(0);
+  let mut data = vec![0.0f32; length];
   let mut seed: u32 = 0x9e3779b9 ^ color as u32;
   let mut white = || {
     seed ^= seed << 13;
@@ -550,6 +548,7 @@ fn noise(ctx: &AudioContext, color: usize) -> AudioBuffer {
       _ => w * 0.5,
     };
   }
+  buffer.copy_to_channel(&data, 0);
   buffer
 }
 
@@ -566,7 +565,7 @@ fn channels(value: Value) -> mlua::Result<Vec<Vec<f32>>> {
 impl Engine {
   /// Синтезатор или None, если звуку некуда выйти.
   pub fn new() -> Option<Rc<Self>> {
-    let ctx = std::panic::catch_unwind(AudioContext::default).ok()?;
+    let ctx = crate::webaudio::new_context()?;
     // Компрессор не даёт залпу перегрузить звук.
     let compressor = ctx.create_dynamics_compressor();
     compressor.threshold().set_value(-18.0);

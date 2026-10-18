@@ -5,7 +5,6 @@
 
 pub mod atlas;
 mod clock;
-#[cfg_attr(target_arch = "wasm32", path = "audio_silent.rs")]
 mod audio;
 mod game;
 mod gl;
@@ -19,6 +18,7 @@ mod shell;
 #[cfg(target_arch = "wasm32")]
 mod web;
 mod ui;
+mod webaudio;
 
 use game::Game;
 use input::Input;
@@ -97,6 +97,20 @@ fn mods() -> Result<Vec<Mod>, String> {
   Ok(all)
 }
 
+/// Настройка запуска: на нативе — переменная окружения env, в браузере — параметр адреса query.
+fn setting(env: &str, query: &str) -> Option<String> {
+  #[cfg(not(target_arch = "wasm32"))]
+  {
+    let _ = query;
+    std::env::var(env).ok()
+  }
+  #[cfg(target_arch = "wasm32")]
+  {
+    let _ = env;
+    web::query(query)
+  }
+}
+
 /// Партия меню — `menu` в манифестах модов, последний мод главнее.
 fn menu_of(mods: &[Mod]) -> Result<Option<String>, String> {
   let content = kharos_content::Content::load(kharos_content::Side::Client, mods.to_vec()).map_err(|error| error.to_string())?;
@@ -113,11 +127,19 @@ impl App {
       eprintln!("звука нет: некуда выводить");
     }
     let menu = menu_of(&mods)?;
-    // KHAROS_GAME — сразу в партию (проверки, снимки); иначе — в меню, а без меню — в партию по умолчанию.
-    let first = std::env::var("KHAROS_GAME").ok().or_else(|| menu.clone());
+    // KHAROS_GAME (в браузере — ?game=) — сразу в партию (проверки, снимки); иначе — в меню, а без меню — в партию
+    // по умолчанию.
+    let first = setting("KHAROS_GAME", "game").or_else(|| menu.clone());
     let link: AppLink = Rc::new(RefCell::new(AppState { menu, prefs: script::Prefs::load(), saves: Some(saves::Saves::load()), ..Default::default() }));
     let game = Self::launch(&mut renderer, &mods, first.as_deref(), &serde_json::Value::Object(Default::default()), None, sound.clone(), link.clone())?;
     Ok(Self { renderer, game, mods, sound, link, quit: false, saved_at: 0.0 })
+  }
+
+  /// Браузер играет звук только после касания или клавиши: оболочка будит его на каждом.
+  pub fn wake_sound(&self) {
+    if let Some(sound) = &self.sound {
+      webaudio::wake(&sound.ctx);
+    }
   }
 
   /// Пишет партию в её слот, если он есть.

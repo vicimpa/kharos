@@ -22,6 +22,12 @@ pub fn run() {
   }
 }
 
+/// Параметр адреса страницы: `?game=skirmish`.
+pub fn query(name: &str) -> Option<String> {
+  let search = web_sys::window()?.location().search().ok()?;
+  web_sys::UrlSearchParams::new_with_str(&search).ok()?.get(name)
+}
+
 /// Сообщение вместо «Загрузка…» на странице.
 fn show(text: &str) {
   if let Some(status) = web_sys::window().and_then(|window| window.document()).and_then(|document| document.get_element_by_id("status")) {
@@ -86,6 +92,7 @@ fn listen_pointer(shell: &Rc<RefCell<Shell>>, canvas: &HtmlCanvasElement) {
   listen(target, "pointerdown", move |event: PointerEvent| {
     let mut shell = s.borrow_mut();
     let _ = shell.canvas.focus();
+    shell.app.wake_sound();
     // Тянут за край холста — события всё равно ему.
     let _ = shell.canvas.set_pointer_capture(event.pointer_id());
     moved(&mut shell, &event);
@@ -172,6 +179,7 @@ fn listen_keys(shell: &Rc<RefCell<Shell>>, canvas: &HtmlCanvasElement) {
     let s = shell.clone();
     listen(target, name, move |event: KeyboardEvent| {
       let mut shell = s.borrow_mut();
+      shell.app.wake_sound();
       if let Some(key) = key_name(&event) {
         shell.input.key(&key, down, event.repeat());
       }
