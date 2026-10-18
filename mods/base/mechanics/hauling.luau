@@ -268,6 +268,23 @@ local function dispatch(w)
 				bound[mine] = true
 			end
 		end
+		-- Есть ли в сети поставщик груза для заказчика — тогда его везут трубы; есть ли хранилище, куда груз поместится.
+		local function hasLocal(network, to: number, good: string, least: number): boolean
+			for _, source in network.members do
+				if source ~= to and table.find(logistics.offers(w, source), good) and logistics.given(w, source, good) >= least then
+					return true
+				end
+			end
+			return false
+		end
+		local function hasStore(network, good: string): boolean
+			for _, store in network.members do
+				if logistics.isStore(w, store) and logistics.space(w, store, good, flows) > EPSILON then
+					return true
+				end
+			end
+			return false
+		end
 		-- Откуда брать готовое: здания сети заказчика, а нет там — любой своей сети.
 		local everywhere = nil
 		local function anyZone(): { number }
@@ -296,10 +313,18 @@ local function dispatch(w)
 				if request.amount < d.MIN_JOB or not carries(request.resource) or logistics.unreachable(w, request.to) then
 					continue
 				end
+				-- Внутри сети груз идёт по трубам: грузовик везёт только то, чего в сети заказчика нет, — из других сетей.
+				local network = logistics.networkOf(w, request.to)
+				if network and hasLocal(network, request.to, request.resource, math.min(request.amount, d.MIN_JOB)) then
+					continue
+				end
 				local found = false
 				local function look(sources: { number })
 					for _, source in sources do
 						if source == request.to or logistics.unreachable(w, source) or (request.source == "mines" and bound[source]) then
+							continue
+						end
+						if network and logistics.networkOf(w, source) == network then
 							continue
 						end
 						if not table.find(logistics.offers(w, source), request.resource) then
@@ -320,9 +345,10 @@ local function dispatch(w)
 				if request.source == "mines" then
 					look(mines)
 				else
-					look(if request.zone then request.zone.members else anyZone())
+					local localZone = request.zone and not network
+					look(if localZone then request.zone.members else anyZone())
 					-- В своей зоне взять нечего — из любой своей.
-					if not found and request.zone then
+					if not found and localZone then
 						look(anyZone())
 					end
 				end
@@ -335,8 +361,13 @@ local function dispatch(w)
 					end
 					local stock = w:get(source, "Inventory")
 					local data = logistics.dataOf(w, source)
+					local network = logistics.networkOf(w, source)
 					for _, good in logistics.offers(w, source) do
 						if not carries(good) then
+							continue
+						end
+						-- Есть куда отправить по трубам своей сети — грузовик не нужен.
+						if network and hasStore(network, good) then
 							continue
 						end
 						local available = logistics.available(w, flows, source, good)
@@ -520,7 +551,8 @@ mechanic.systems = {
 						if not retry then
 							continue
 						end
-						local to = logistics.refineryFor(w, truck, ore)
+						-- Переработку в сети шахты руда достигает по трубам: грузовик возит только в другие сети.
+						local to = logistics.refineryFor(w, truck, ore, nil, logistics.networkOf(w, hauler.mine))
 						if not to then
 							continue
 						end

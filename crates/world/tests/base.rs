@@ -699,7 +699,7 @@ fn power_plant_feeds_matter_income_follows_power_and_accumulator_covers_the_gap(
   host.state.borrow_mut().world.destroy(builder);
   ticks(&mut host, 20);
   let cell = get(&host, accumulator, "Accumulator").unwrap();
-  assert!((cell["flow"].as_f64().unwrap() + 7.0).abs() < 1e-9, "накопитель {cell:?}");
+  assert!((cell["flow"].as_f64().unwrap() + 7.0).abs() < 1e-9, "накопитель {cell:?}, связь {:?}, сети {:?}", get(&host, accumulator, "Link"), grids(&host));
   assert!(cell["charge"].as_f64().unwrap() > 0.0);
   // Станции нет — накопитель отдаёт недостающее, и генератор материи работает в полную силу.
   host.state.borrow_mut().world.destroy(generator);
@@ -879,4 +879,46 @@ fn lab_opens_science_and_researches_the_planned_topic_for_credits() {
   let paid = before + income_between(from, tick_now(&host)) - worth(&host);
   assert!((paid - 100.0).abs() < 1e-6, "уплачено {paid}");
   assert!(player_list(&host, "plan").is_empty());
+}
+
+#[test]
+fn pipe_carries_materials_from_the_store_to_a_site_in_batches() {
+  let mut host = host_without_tech();
+  let (_, site, builder) = base_with_builder(&mut host);
+  let generator = {
+    let spot = free_spot(&host, site, 2);
+    raise(&mut host, "generator", spot, builder)
+  };
+  assert!(get(&host, generator, "Footprint").is_some());
+  // Хранилище 3 × 2, за ним тайл трубы и накопитель 2 × 2: место на шесть тайлов в ряд.
+  let (x, y) = free_spot(&host, site, 6);
+  let yard = raise(&mut host, "metalYard", (x, y), builder);
+  set(&host, yard, "Inventory", json!({ "accepts": [], "items": { "lithium": 30 } }));
+  ticks(&mut host, 2);
+  host.send(1, "pipes", json!({ "tiles": [x + 3, y], "builders": [builder] }));
+  host.tick(0.05).unwrap();
+  let pipe = kind(&host, "buildings", "pipe")[0];
+  for _ in 0..20 * 30 {
+    host.tick(0.05).unwrap();
+    if get(&host, pipe, "Site").is_none() {
+      break;
+    }
+  }
+  assert!(get(&host, pipe, "Site").is_none(), "труба не достроена");
+  ticks(&mut host, 2);
+  host.send(1, "build", json!({ "building": "accumulator", "x": x + 4, "y": y, "builders": [] }));
+  host.tick(0.05).unwrap();
+  let accumulator = kind(&host, "buildings", "accumulator")[0];
+  // Площадка — лист сети хранилища: материалы идут к ней пачками по трубе.
+  let mut batches = 0;
+  for _ in 0..20 * 30 {
+    host.tick(0.05).unwrap();
+    batches = batches.max(all(&host, "Batch").len());
+    if stocked(&host, accumulator, "lithium") >= 20.0 - 1e-6 {
+      break;
+    }
+  }
+  assert!(batches > 0, "пачек не было");
+  assert!(stocked(&host, accumulator, "lithium") >= 20.0 - 1e-6, "на стройке {:?}", get(&host, accumulator, "Inventory"));
+  assert!((stocked(&host, yard, "lithium") - 10.0).abs() < 1e-6);
 }

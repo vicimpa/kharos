@@ -1124,6 +1124,27 @@ impl UserData for Ctx {
       let State { world, networks, .. } = &mut *state;
       crate::networks::to_lua(lua, networks.networks(world), true)
     });
+    // Кратчайшие пути по трубам сети от узла: { [узел] = длина } по всей его сети; не в сети — nil.
+    methods.add_method("distances", |lua, this, start: f64| {
+      let mut state = this.state.borrow_mut();
+      let State { world, networks, .. } = &mut *state;
+      match networks.distances(world, entity_of(start)?) {
+        Some(routes) => {
+          let table = lua.create_table();
+          for (&node, &length) in &routes.dist {
+            table.raw_set(node, length)?;
+          }
+          Ok(Some(table))
+        }
+        None => Ok(None),
+      }
+    });
+    // Путь по сети от from к to: узлы, где он поворачивает, с началом и концом; пусто — пути нет.
+    methods.add_method("route", |_, this, (from, to): (f64, f64)| {
+      let mut state = this.state.borrow_mut();
+      let State { world, networks, .. } = &mut *state;
+      Ok(networks.route(world, entity_of(from)?, entity_of(to)?))
+    });
     // Номер пересчёта сетей: пока он тот же, сети те же.
     methods.add_method("network_version", |_, this, ()| {
       let mut state = this.state.borrow_mut();

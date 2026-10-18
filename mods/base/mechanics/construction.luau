@@ -504,6 +504,10 @@ local function finish(ctx, e: number, kind, player: number)
 	if ctx:has(e, "Inventory") then
 		ctx:remove(e, "Inventory")
 	end
+	-- Лист площадки становится связью готового здания.
+	if ctx:has(e, "Link") then
+		ctx:remove(e, "Link")
+	end
 	for name, values in shape do
 		if name == "Position" or name == "Owner" or name == "Health" or name == "Footprint" or name == "Building" then
 			continue
@@ -520,7 +524,134 @@ local function finish(ctx, e: number, kind, player: number)
 	ctx:signal("built", { entity = e, player = player, building = kind.name, x = at.x, y = at.y })
 end
 
+-- Закладывает площадку вида kind левым верхним тайлом в (x, y) без проверок (orderBuild): материалы привезут
+-- грузовики, трубы и строители. Номер известен сразу, а площадка появится после системы.
+local function laySite(ctx, player: number, kind, x: number, y: number): number
+	local data = kind.data
+	return ctx:spawn(nil, {
+		Proto = { id = kind.id },
+		Position = { x = placement.middle(x, data.width), y = placement.middle(y, data.height) },
+		Owner = { player = player },
+		Building = { width = data.width, height = data.height },
+		Site = { progress = 0, total = construction.siteTicks(kind, ctx.dt) },
+		Inventory = construction.siteStock(kind),
+		Link = if data.materials then buildings.siteLink(kind) else nil,
+	})
+end
+
+-- Свободные из данных строителей: свои, живые, не занятые делом игрока.
+local function freeBuilders(ctx, list): { number }
+	local free = {}
+	for _, e in (if type(list) == "table" then list else {}) do
+		if type(e) == "number" and ctx:alive(e) and not isBusy(ctx, e) then
+			table.insert(free, e)
+		end
+	end
+	return free
+end
+
+-- Убирает трубу, вместо которой кладут другую, сразу: заложенную — даром, начатую — с возвратом уплаченного, готовую — с
+-- возвратом как за разбор (replacePipe).
+local function replacePipe(ctx, player: number, e: number)
+	local kind = kinds.of(ctx, e)
+	local site = ctx:get(e, "Site")
+	if site then
+		if ctx:has(e, "Footprint") then
+			wallet.refund(ctx, player, math.floor(site.progress / site.total * kind.data.cost))
+		end
+	else
+		wallet.refund(ctx, player, construction.refundOf(kind))
+	end
+	ctx:destroy(e)
+end
+
+-- Протяжка: закладывает тайлы, которые годятся, и посылает строителей к первой площадке.
+local function stroke(ctx, player: number, kind, tiles, builders, allowed: { boolean }, swap: boolean, kept: { boolean }?): boolean
+	local first = nil
+	for i, ok in allowed do
+		local x, y = tiles[i * 2 - 1], tiles[i * 2]
+		if kept and kept[i] then
+			continue
+		end
+		if not ok then
+			continue
+		end
+		if swap then
+			local other = construction.pipeSwap(ctx, player, kind, x, y)
+			if other then
+				replacePipe(ctx, player, other)
+			end
+		end
+		local site = laySite(ctx, player, kind, x, y)
+		first = first or site
+	end
+	if not first then
+		return false
+	end
+	ctx:emit("laid", { site = first, player = player, builders = freeBuilders(ctx, builders) })
+	ctx:signal("laid", { player = player, x = tiles[1], y = tiles[2] })
+	return true
+end
+
+-- Тайлы протяжки: целые числа подряд, не больше STROKE_LIMIT тайлов.
+local function strokeTiles(list): { number }?
+	if type(list) ~= "table" then
+		return nil
+	end
+	local tiles = {}
+	for i, value in list do
+		if type(value) ~= "number" or i > construction.STROKE_LIMIT * 2 then
+			break
+		end
+		table.insert(tiles, value)
+	end
+	return if #tiles >= 2 then tiles else nil
+end
+
 mechanic.commands = {
+	-- { tiles, builders } — протянутая наземная труба (x, y подряд, по порядку протяжки). Свой колодец на пути заменяется
+	-- трубой; куда нельзя — не кладут. Платят по ходу стройки.
+	pipes = function(ctx, player, args)
+		local tiles = strokeTiles(args.tiles)
+		local kind = ctx.protos.buildings.pipe
+		if tiles and kind then
+			stroke(ctx, player, kind, tiles, args.builders, construction.pipeStroke(ctx, player, tiles, kind), true)
+		end
+	end,
+
+	-- { tiles, builders } — колодец (x, y) или пара — концы подземного отрезка на одной прямой. Конец, где свой колодец
+	-- уже стоит, остаётся; пару кладут целиком или никак (orderWells).
+	wells = function(ctx, player, args)
+		local tiles = strokeTiles(args.tiles)
+		local kind = ctx.protos.buildings.well
+		if not tiles or not kind or not (#tiles == 2 or construction.isWellPair(tiles)) then
+			return
+		end
+		local kept = construction.wellsKept(ctx, player, tiles)
+		local fits = construction.pipeStroke(ctx, player, tiles, kind)
+		local fresh = 0
+		for i, ok in fits do
+			if not kept[i] then
+				fresh += 1
+				if not ok then
+					return
+				end
+			end
+		end
+		if fresh > 0 then
+			stroke(ctx, player, kind, tiles, args.builders, fits, true, kept)
+		end
+	end,
+
+	-- { tiles, builders, gate } — протянутая стена или ворота (orderWalls).
+	walls = function(ctx, player, args)
+		local tiles = strokeTiles(args.tiles)
+		local kind = ctx.protos.buildings[if args.gate == true then "gate" else "wall"]
+		if tiles and kind then
+			stroke(ctx, player, kind, tiles, args.builders, construction.wallStroke(ctx, player, tiles, kind), false)
+		end
+	end,
+
 	-- { building, x, y, builders } — заложить здание левым верхним тайлом основания в (x, y) и послать строителей.
 	-- Заложить можно и без кредитов: платят по ходу. Занятых делом игрока строителей стройка из меню не отнимает.
 	build = function(ctx, player, args)
@@ -532,16 +663,7 @@ mechanic.commands = {
 			ctx:signal("refused", { player = player, reason = "place" })
 			return
 		end
-		local data = kind.data
-		local site = ctx:spawn(nil, {
-			Proto = { id = kind.id },
-			Position = { x = placement.middle(args.x, data.width), y = placement.middle(args.y, data.height) },
-			Owner = { player = player },
-			Building = { width = data.width, height = data.height },
-			Site = { progress = 0, total = construction.siteTicks(kind, ctx.dt) },
-			-- Материалы привезут грузовики и строители: площадка заказывает их у своей зоны (lib/logistics).
-			Inventory = construction.siteStock(kind),
-		})
+		local site = laySite(ctx, player, kind, args.x, args.y)
 		local free = {}
 		for _, e in (if type(args.builders) == "table" then args.builders else {}) do
 			if type(e) == "number" and ctx:alive(e) and not isBusy(ctx, e) then
@@ -579,6 +701,10 @@ mechanic.commands = {
 			end
 		elseif ctx:has(site, "Footprint") then
 			ctx:set(site, "Site", { demolish = true, undo = true })
+			-- Разбираемое материалов уже не ждёт.
+			if ctx:has(site, "Link") then
+				ctx:remove(site, "Link")
+			end
 		else
 			ctx:destroy(site)
 		end

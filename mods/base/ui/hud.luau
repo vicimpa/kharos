@@ -32,6 +32,8 @@ local GRID_KEYS = { "T", "Y", "U", "I", "G", "H", "J", "K", "B", "N", "M", "," }
 -- выключатель — на месте «Назад» (SWITCH).
 local CONVERT, CANCEL, DEMOLISH, BACK = 9, 10, 11, 12
 local SWITCH = BACK
+-- Названия инструментов протяжки: стена и ворота — как здание (toolName).
+local TOOL_NAMES = { pipe = "Труба", well = "Колодцы" }
 -- С какой доли выработки полная нагрузка сети уже тесна: число энергии на полосе желтеет (GRID_TIGHT).
 local GRID_TIGHT = 0.8
 -- Разделы строителя: в какой странице какое здание; остальное — хозяйство (SECTIONS в commands.ts). Раздел — с
@@ -260,6 +262,15 @@ local function constructionSlots(c, list, selection)
 	end
 	local mode = c.shared.mode
 	local placing = if mode ~= nil and mode.kind == "placing" then mode.building else nil
+	local paving = if mode ~= nil and mode.kind == "paving" then mode.tool else nil
+	-- Трубы и колодцы открывают исследования: раздел «Логистика» — с первым открытым инструментом.
+	local tools = {}
+	for _, tool in { "pipe", "well" } do
+		local kind = c.protos.buildings[tool]
+		if kind and construction.researched(c, c.player, kind.data.research) then
+			table.insert(tools, kind)
+		end
+	end
 	local free = construction.freeCredits(c, c.player)
 	local options = {}
 	for _, kind in construction.menu(c) do
@@ -288,6 +299,50 @@ local function constructionSlots(c, list, selection)
 				}
 			end
 		end
+		if #tools > 0 then
+			list[#SECTIONS + 2] = {
+				label = "Логистика",
+				picture = c.protos.buildings.pipe,
+				title = "Трубы и колодцы: связывают в сеть здания, стоящие поодаль; здания вплотную связаны и так, но только одинаковые",
+				count = #tools,
+				run = function()
+					page.name = "logistics"
+				end,
+			}
+		end
+		return
+	end
+	if page.name == "logistics" then
+		local tips = {
+			pipe = "Связывает в сеть здания, стоящие поодаль (одинаковые здания вплотную связаны и без трубы): по трубам идут груз и энергия, они расширяют зону. Перекрывает проезд — под проездом веди колодцами. Своя зона не нужна. Тяни мышью линию",
+			well = "Колодцы — концы подземной трубы: щелчок ставит один (свяжется с колодцем по прямой), протяжка — пару, до 10 тайлов. Над ней ездят и строят, уязвимы только колодцы. Своя зона не нужна",
+		}
+		for i, kind in tools do
+			local active = paving == kind.name
+			local shown = c.shared.paving
+			list[i] = {
+				label = TOOL_NAMES[kind.name] or kind.data.title,
+				picture = kind,
+				cost = if active and shown and shown.tiles > 1 then shown.cost else kind.data.cost,
+				short = free < kind.data.cost,
+				title = tips[kind.name],
+				active = active,
+				zones = true,
+				run = function()
+					c.shared.mode = if active then nil else { kind = "paving", tool = kind.name }
+				end,
+			}
+		end
+		list[BACK] = {
+			label = "Назад",
+			title = "К разделам; Esc отменяет выбор места",
+			run = function()
+				if paving then
+					c.shared.mode = nil
+				end
+				page.name = "root"
+			end,
+		}
 		return
 	end
 	local index = 0
@@ -319,12 +374,24 @@ local function constructionSlots(c, list, selection)
 				c.shared.mode = if placing == kind.name then nil else { kind = "placing", building = kind.name }
 			end,
 		}
+		-- Стену и ворота не ставят по одной, а тянут мышью линией, как трубу: их кнопка включает протяжку (wallSlot).
+		if kind.name == "wall" or kind.name == "gate" then
+			local slot = list[index]
+			local active = paving == kind.name
+			local shown = c.shared.paving
+			slot.active = active
+			slot.cost = if active and shown and shown.tiles > 1 then shown.cost else kind.data.cost
+			slot.title = if affordable then "Тяни мышью линию; щелчок ставит одну" else "Тяни мышью линию; щелчок ставит одну. Сейчас кредитов на всю цену нет — заложить можно: платят по ходу стройки, и она подождёт, пока их прибавится"
+			slot.run = function()
+				c.shared.mode = if active then nil else { kind = "paving", tool = kind.name }
+			end
+		end
 	end
 	list[BACK] = {
 		label = "Назад",
 		title = "К разделам; Esc отменяет выбор места",
 		run = function()
-			if placing then
+			if placing or paving then
 				c.shared.mode = nil
 			end
 			page.name = "root"
@@ -1001,7 +1068,9 @@ end
 local MODES = {
 	deploying = { name = "Разворачивание MCV", tip = "Щёлкни, где развернуть: на зелёном можно, MCV доедет сам" },
 	placing = { name = "Стройка: {name}", tip = "Щёлкни, где заложить, — можно ещё и ещё" },
+	paving = { name = "{name}", tip = "Зажми кнопку и тяни по карте" },
 }
+
 
 -- Полоса режима над полем (modeBar в hud.ts): какой режим, что делать дальше и как выйти. Esc и правая кнопка
 -- работают и так, но на сенсорном экране их нет.
@@ -1016,8 +1085,18 @@ local function modeBar(c)
 	ui:box({ anchor = { centerX = 0, top = TOP_HEIGHT + 6 } }, function()
 		ui:box({ id = "mode", skin = "panel", padding = { 10, 12, 10, 16 }, direction = "row", align = "center", gap = 12, maxWidth = room }, function()
 			local building = mode.building and c.protos.buildings[mode.building]
-			ui:text((string.gsub(spec.name, "{name}", building and building.data.title or "")), { color = COLORS.team })
-			ui:text(spec.tip, { color = COLORS.soft, wrap = math.max(160, room - 320) })
+			local name = building and building.data.title or ""
+			local tip = spec.tip
+			if mode.kind == "paving" then
+				local tool = c.protos.buildings[mode.tool]
+				name = TOOL_NAMES[mode.tool] or (tool and tool.data.title) or mode.tool
+				local paving = c.shared.paving
+				if paving and paving.tiles > 0 then
+					tip = "Тяни по карте: " .. paving.tiles .. " тайл., " .. paving.cost .. " кредитов"
+				end
+			end
+			ui:text((string.gsub(spec.name, "{name}", name)), { color = COLORS.team })
+			ui:text(tip, { color = COLORS.soft, wrap = math.max(160, room - 320) })
 			if ui:button("mode:cancel", { height = 32, padding = { 2, 14 } }, function()
 				ui:text("Отмена", shadow())
 			end) then

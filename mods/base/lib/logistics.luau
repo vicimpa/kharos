@@ -6,7 +6,7 @@
 -- Руду без переработки никто не возит: она копится в шахте. Как ездят грузовики — mechanics/hauling.
 --
 -- Пока нет: патронов турелям, станций запроса, продажи, дропов, маршрутов и ручных приказов — их заявки
--- придут с их механиками; трубы ещё не везут груз (В5в), поэтому грузовик везёт и внутри сети.
+-- придут с их механиками. Внутри сети груз везут трубы (mechanics/pipes): грузовик — только между сетями.
 
 local goods = require("lib/goods")
 local kinds = require("lib/kinds")
@@ -75,6 +75,13 @@ logistics.add = add
 -- столько, сколько в его работе. except — грузовик, которого не считать.
 function logistics.flows(w, except: number?): Flows
 	local flows: Flows = { incoming = {}, outgoing = {} }
+	-- Пачки в трубах, ещё не пришедшие: их груз уже ушёл со склада отправителя.
+	for _, e in w:each({ "Batch" }) do
+		local batch = w:get(e, "Batch")
+		if batch.arrive > w.tick then
+			add(flows.incoming, batch.to, batch.resource, batch.amount)
+		end
+	end
 	for _, truck in w:each({ "Hauler", "Inventory" }) do
 		local hauler = w:get(truck, "Hauler")
 		if truck == except or (hauler.from == NONE and hauler.to == NONE) then
@@ -255,6 +262,9 @@ function logistics.networkOf(w, e: number)
 		for _, network in w:networks() do
 			for _, member in network.members do
 				found.of[member] = network
+			end
+			for _, leaf in network.leaves or {} do
+				found.of[leaf] = network
 			end
 		end
 		networkIndex[key] = found

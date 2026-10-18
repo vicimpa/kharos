@@ -238,7 +238,14 @@ function buildings.link(kind): { [string]: any }?
 		conduit = data.pipe ~= nil,
 		tunnel = if data.pipe == "well" then buildings.UNDERGROUND_REACH else 0,
 		core = kind.name == "command",
+		width = data.width,
+		height = data.height,
 	}
+end
+
+-- Связь площадки (стройки) в сеть: лист — сеть везёт ей материалы, но зону она не расширяет и груз сквозь неё не идёт.
+function buildings.siteLink(kind): { [string]: any }
+	return { radius = 0, group = kind.name, leaf = true, width = kind.data.width, height = kind.data.height }
 end
 
 -- Сколько груза держит производитель без своего склада (PRODUCER_HOLD).

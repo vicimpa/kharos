@@ -1,14 +1,18 @@
 //! Сети (zones.ts): связные группы сущностей со связью (`Link`) одного владельца и энергосети — сети, слитые по
 //! касанию кругов. Движок не знает, что по ним течёт: энергию, груз или что-то ещё решает контент. Пересчитываются,
-//! только когда сменился состав связанных — появилась, пропала или перешла к другому сущность со связью.
+//! только когда сменился состав связанных — появилась, пропала, перешла к другому или сменила связь сущность.
 //!
-//! Связь (`Link`) у основания (`Footprint`) с серединой в `Position`:
+//! Связь (`Link`) у основания width × height с серединой в `Position`:
 //! - `radius` — круг вокруг середины: из кругов складывается зона сети, по ним сети сливаются в энергосети;
 //! - `group` — стык: стоящие вплотную, сторона к стороне, сущности одной группы связаны и без проводника;
 //! - `conduit` — проводник (труба): связан со всеми связанными своего владельца, что стоят вплотную;
 //! - `tunnel` — подземный отрезок: на столько тайлов по прямой вправо и вниз проводник ищет ближайший проводник своей
 //!   группы с отрезком (колодец к колодцу);
-//! - `core` — сеть с ней идёт первой у своего владельца, а она — первой в сети (главное здание).
+//! - `core` — сеть с ней идёт первой у своего владельца, а она — первой в сети (главное здание);
+//! - `leaf` — лист (стройка): входит в сеть первого проводника или сущности своей группы, к которой стоит вплотную,
+//!   но сам сети не составляет, зону не расширяет, в энергосеть не входит, и пути по сети сквозь него не идут.
+//!
+//! Пути (`distances`, `route`) — кратчайшие по рёбрам сети, Дейкстрой; пересчитываются вместе с сетями.
 
 use crate::motion::Occupancy;
 use crate::world::{Entity, World};
@@ -24,6 +28,8 @@ pub struct Network {
   pub members: Vec<Entity>,
   /// Граф сети: рёбра a, b и длина в тайлах подряд. У энергосети пуст.
   pub edges: Vec<f64>,
+  /// Листья, вошедшие в сеть: стройки, к которым подведена труба. У энергосети пуст.
+  pub leaves: Vec<Entity>,
 }
 
 /// Связанная сущность: основание тайлами и поля связи.
@@ -42,16 +48,29 @@ struct Member {
   conduit: bool,
   tunnel: i32,
   core: bool,
+  leaf: bool,
+}
+
+/// Кратчайшие пути от узла: длина до каждого узла сети и следующий шаг к началу.
+#[derive(Clone, Debug, Default)]
+pub struct Routes {
+  pub dist: HashMap<Entity, f64>,
+  pub next: HashMap<Entity, Entity>,
 }
 
 /// Посчитанные сети мира.
 #[derive(Clone, Debug, Default)]
 pub struct Networks {
-  /// Состав, по которому посчитано: правка мира, и если она другая — связанные (сущность, владелец).
+  /// Состав, по которому посчитано: правка мира, и если она другая — связанные со всеми полями связи.
   revision: Option<u64>,
-  seen: Vec<(Entity, f64)>,
+  seen: Vec<Member>,
   networks: Vec<Network>,
   grids: Vec<Network>,
+  /// В какой сети каждый узел и лист; пути от узлов.
+  index: HashMap<Entity, usize>,
+  routes: HashMap<Entity, Routes>,
+  /// Середины узлов: по ним путь пачки сжимается до поворотов.
+  centers: HashMap<Entity, (f64, f64)>,
   /// Растёт с каждым пересчётом: по нему контент знает, что сети перестроились.
   pub version: u64,
 }
@@ -75,18 +94,102 @@ impl Networks {
     self.version
   }
 
+  /// Сеть, в которую входит узел или лист.
+  pub fn network_of(&mut self, world: &World, entity: Entity) -> Option<&Network> {
+    self.refresh(world);
+    let at = *self.index.get(&entity)?;
+    self.networks.get(at)
+  }
+
+  /// Кратчайшие пути по рёбрам сети от узла start (routesFrom): сквозь листья путь не идёт.
+  pub fn distances(&mut self, world: &World, start: Entity) -> Option<&Routes> {
+    self.refresh(world);
+    let at = *self.index.get(&start)?;
+    if !self.routes.contains_key(&start) {
+      let network = &self.networks[at];
+      let mut links: HashMap<Entity, Vec<(Entity, f64)>> = HashMap::new();
+      for edge in network.edges.chunks_exact(3) {
+        let (a, b, length) = (edge[0] as Entity, edge[1] as Entity, edge[2]);
+        links.entry(a).or_default().push((b, length));
+        links.entry(b).or_default().push((a, length));
+      }
+      let leaves: std::collections::HashSet<Entity> = network.leaves.iter().copied().collect();
+      let mut routes = Routes::default();
+      routes.dist.insert(start, 0.0);
+      let mut heap = std::collections::BinaryHeap::new();
+      heap.push(Step(0.0, start));
+      while let Some(Step(length, node)) = heap.pop() {
+        if length > routes.dist[&node] {
+          continue;
+        }
+        if node != start && leaves.contains(&node) {
+          continue;
+        }
+        for &(other, step) in links.get(&node).map(Vec::as_slice).unwrap_or(&[]) {
+          let total = length + step;
+          if total >= *routes.dist.get(&other).unwrap_or(&f64::INFINITY) {
+            continue;
+          }
+          routes.dist.insert(other, total);
+          routes.next.insert(other, node);
+          heap.push(Step(total, other));
+        }
+      }
+      self.routes.insert(start, routes);
+    }
+    self.routes.get(&start)
+  }
+
+  /// Путь пачки от from к to по кратчайшим путям (pathOf): узлы, где путь поворачивает, с началом и концом.
+  pub fn route(&mut self, world: &World, from: Entity, to: Entity) -> Vec<Entity> {
+    let Some(routes) = self.distances(world, to) else { return Vec::new() };
+    if !routes.dist.contains_key(&from) {
+      return Vec::new();
+    }
+    let mut nodes = vec![from];
+    let mut node = from;
+    while node != to {
+      node = routes.next[&node];
+      nodes.push(node);
+    }
+    if nodes.len() <= 2 {
+      return nodes;
+    }
+    let direction = |a: Entity, b: Entity| {
+      let (one, two) = (self.centers[&a], self.centers[&b]);
+      ((two.0 - one.0).signum() as i32 * ((two.0 - one.0).abs() > 1e-9) as i32, (two.1 - one.1).signum() as i32 * ((two.1 - one.1).abs() > 1e-9) as i32)
+    };
+    let mut path = vec![from];
+    for i in 1..nodes.len() - 1 {
+      if direction(nodes[i - 1], nodes[i]) != direction(nodes[i], nodes[i + 1]) {
+        path.push(nodes[i]);
+      }
+    }
+    path.push(to);
+    path
+  }
+
   fn refresh(&mut self, world: &World) {
     if self.revision == Some(world.revision) {
       return;
     }
     self.revision = Some(world.revision);
     let members = members(world);
-    let seen: Vec<(Entity, f64)> = members.iter().map(|member| (member.entity, member.player)).collect();
-    if seen == self.seen && self.version > 0 {
+    if members == self.seen && self.version > 0 {
       return;
     }
-    self.seen = seen;
-    self.networks = compute(&members);
+    self.seen = members.clone();
+    let (nodes, leaves): (Vec<Member>, Vec<Member>) = members.iter().partition(|member| !member.leaf);
+    self.networks = compute(&nodes, &leaves);
+    self.index.clear();
+    self.routes.clear();
+    self.centers = members.iter().map(|member| (member.entity, (member.x, member.y))).collect();
+    for (at, network) in self.networks.iter().enumerate() {
+      for &entity in network.members.iter().chain(&network.leaves) {
+        self.index.insert(entity, at);
+      }
+    }
+    let members = nodes;
     let mut players: Vec<f64> = Vec::new();
     for network in &self.networks {
       if !players.contains(&network.player) {
@@ -108,16 +211,16 @@ impl Networks {
 /// Связанные сущности по возрастанию номеров.
 fn members(world: &World) -> Vec<Member> {
   let schema = &world.schema;
-  let (Some(link), Some(owner), Some(position), Some(footprint)) = (schema.id("Link"), schema.id("Owner"), schema.id("Position"), schema.id("Footprint")) else { return Vec::new() };
+  let (Some(link), Some(owner), Some(position)) = (schema.id("Link"), schema.id("Owner"), schema.id("Position")) else { return Vec::new() };
   let field = |component: usize, name: &str| schema.components[component].field(name).expect("поле движка").slot;
-  let (radius, group, conduit, tunnel, core) = (field(link, "radius"), field(link, "group"), field(link, "conduit"), field(link, "tunnel"), field(link, "core"));
-  let (player, width, height) = (field(owner, "player"), field(footprint, "width"), field(footprint, "height"));
+  let (radius, group, conduit, tunnel, core, leaf) = (field(link, "radius"), field(link, "group"), field(link, "conduit"), field(link, "tunnel"), field(link, "core"), field(link, "leaf"));
+  let (width, height, player) = (field(link, "width"), field(link, "height"), field(owner, "player"));
   let store = &world.stores[link];
   let mut list = Vec::with_capacity(store.len());
   for (row, &entity) in store.entities.iter().enumerate() {
-    let (Some(at), Some(own), Some(base)) = (world.stores[position].row(entity), world.stores[owner].row(entity), world.stores[footprint].row(entity)) else { continue };
+    let (Some(at), Some(own)) = (world.stores[position].row(entity), world.stores[owner].row(entity)) else { continue };
     let (x, y) = (world.stores[position].nums[0][at], world.stores[position].nums[1][at]);
-    let (left, top, right, bottom) = Occupancy::tiles_of(x, y, world.stores[footprint].nums[width][base], world.stores[footprint].nums[height][base]);
+    let (left, top, right, bottom) = Occupancy::tiles_of(x, y, store.nums[width][row], store.nums[height][row]);
     list.push(Member {
       entity,
       player: world.stores[owner].nums[player][own],
@@ -132,6 +235,7 @@ fn members(world: &World) -> Vec<Member> {
       conduit: store.nums[conduit][row] != 0.0,
       tunnel: store.nums[tunnel][row] as i32,
       core: store.nums[core][row] != 0.0,
+      leaf: store.nums[leaf][row] != 0.0,
     });
   }
   list.sort_unstable_by_key(|member| member.entity);
@@ -152,8 +256,8 @@ fn find(parent: &mut [usize], mut index: usize) -> usize {
   root
 }
 
-/// Сети по связанным (computeZones без строек: стройка в сеть войдёт с логистикой).
-fn compute(members: &[Member]) -> Vec<Network> {
+/// Сети по связанным (computeZones) и листья в них.
+fn compute(members: &[Member], leaves: &[Member]) -> Vec<Network> {
   // Тайл → номер связанного.
   let mut tiles: HashMap<(i32, i32), usize> = HashMap::new();
   for (index, member) in members.iter().enumerate() {
@@ -271,6 +375,41 @@ fn compute(members: &[Member]) -> Vec<Network> {
     ordered.extend(cores);
     ordered.extend(rest);
   }
+  // Лист входит в сеть первого проводника или сущности своей группы, к которой стоит сбоку; касается двух разных
+  // сетей — первой.
+  let network_of: HashMap<Entity, usize> = ordered.iter().enumerate().flat_map(|(at, network)| network.members.iter().map(move |&entity| (entity, at))).collect();
+  for leaf in leaves {
+    let mut joined: Option<usize> = None;
+    let mut touches: Vec<Entity> = Vec::new();
+    let mut touch = |x: i32, y: i32| {
+      let Some(&index) = tiles.get(&(x, y)) else { return };
+      let other = &members[index];
+      if other.player != leaf.player || !(other.conduit || (other.group == leaf.group && leaf.group != 0.0)) {
+        return;
+      }
+      let at = network_of[&other.entity];
+      if joined.is_some_and(|joined| joined != at) {
+        return;
+      }
+      joined = Some(at);
+      touches.push(other.entity);
+    };
+    for x in leaf.left..leaf.right {
+      touch(x, leaf.top - 1);
+      touch(x, leaf.bottom);
+    }
+    for y in leaf.top..leaf.bottom {
+      touch(leaf.left - 1, y);
+      touch(leaf.right, y);
+    }
+    if let Some(at) = joined {
+      let network = &mut ordered[at];
+      network.leaves.push(leaf.entity);
+      for other in touches {
+        network.edges.extend_from_slice(&[leaf.entity as f64, other as f64, 1.0]);
+      }
+    }
+  }
   ordered
 }
 
@@ -307,7 +446,7 @@ fn merge_touching(members: &HashMap<Entity, &Member>, networks: &[&Network]) -> 
   for (index, network) in networks.iter().enumerate() {
     let root = find(&mut parent, index);
     match merged.iter_mut().find(|(other, _)| *other == root) {
-      None => merged.push((root, Network { player: network.player, circles: network.circles.clone(), members: network.members.clone(), edges: Vec::new() })),
+      None => merged.push((root, Network { player: network.player, circles: network.circles.clone(), members: network.members.clone(), ..Default::default() })),
       Some((_, grid)) => {
         grid.circles.extend_from_slice(&network.circles);
         if is_core(network) && !is_core(grid) {
@@ -331,8 +470,27 @@ pub fn to_lua(lua: &mlua::Lua, networks: &[Network], edges: bool) -> mlua::Resul
     table.raw_set("circles", lua.create_sequence_from(network.circles.iter().copied())?)?;
     if edges {
       table.raw_set("edges", lua.create_sequence_from(network.edges.iter().copied())?)?;
+      table.raw_set("leaves", lua.create_sequence_from(network.leaves.iter().copied())?)?;
     }
     list.raw_set(index + 1, table)?;
   }
   Ok(list)
+}
+
+/// Шаг поиска: длина и узел, меньшая длина — раньше; при равной — меньший номер.
+#[derive(PartialEq)]
+struct Step(f64, Entity);
+
+impl Eq for Step {}
+
+impl PartialOrd for Step {
+  fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    Some(self.cmp(other))
+  }
+}
+
+impl Ord for Step {
+  fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    other.0.total_cmp(&self.0).then(other.1.cmp(&self.1))
+  }
 }

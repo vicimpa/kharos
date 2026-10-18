@@ -57,7 +57,7 @@ menu.client = {
 	-- Витрина — первой: её затемнение лежит под окнами меню.
 	ui = { "showcase", "menu" },
 	atmosphere = { "weather" },
-	effects = { "traces", "power", "logistics", "combat" },
+	effects = { "traces", "power", "logistics", "connections", "flow", "combat" },
 	audio = { "levels", "interface" },
 }
 

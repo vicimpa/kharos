@@ -567,7 +567,10 @@ impl Game {
       } else {
         (1.0, 0.0)
       };
-      let cell = look.cell(angle, phase);
+      let cell = match dress.variant {
+        Some(variant) => (phase % look.phases.max(1)) * look.directions + variant.min(look.directions - 1),
+        None => look.cell(angle, phase),
+      };
       let [w, h] = look.tiles();
       let (left, top) = (x + look.offset[0] - view.x, y + look.offset[1] - view.y);
       let sprite = [left, top, w, h, team, look.shadow[0], look.shadow[1], grey];

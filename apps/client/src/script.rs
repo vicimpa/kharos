@@ -74,11 +74,13 @@ pub struct Dress {
   pub working: bool,
   /// Выключено: первый кадр, темнее, без огней.
   pub off: bool,
+  /// Вариант облика — направление кадра (соседи стены и трубы); None — по повороту сущности.
+  pub variant: Option<usize>,
 }
 
 impl Default for Dress {
   fn default() -> Self {
-    Self { built: 1.0, fade: 1.0, working: false, off: false }
+    Self { built: 1.0, fade: 1.0, working: false, off: false, variant: None }
   }
 }
 
@@ -590,10 +592,12 @@ impl UserData for Ctx {
     });
     // Как сущность показана этим кадром: { built — доля снизу, остальное чертёж (стройка, сворачивание); fade —
     // непрозрачность вместе с тенью (тающий MCV); working — кадры работы облика (`working` у облика); off — стоит на
-    // первом кадре, темнее и без огней (выключенное) }. Несколько вызовов за кадр складываются.
+    // первом кадре, темнее и без огней (выключенное); variant — вариант облика, направление кадра (соседи стены и
+    // трубы) }. Несколько вызовов за кадр складываются.
     methods.add_method("dress", |_, c, (e, options): (f64, Table)| {
       let (built, fade): (Option<f32>, Option<f32>) = (options.get("built")?, options.get("fade")?);
       let (working, off): (Option<bool>, Option<bool>) = (options.get("working")?, options.get("off")?);
+      let variant: Option<usize> = options.get("variant")?;
       let mut state = c.state.borrow_mut();
       let dress = state.dressed.entry(entity(e)?).or_default();
       if let Some(built) = built {
@@ -604,6 +608,7 @@ impl UserData for Ctx {
       }
       dress.working = working.unwrap_or(dress.working);
       dress.off = off.unwrap_or(dress.off);
+      dress.variant = variant.or(dress.variant);
       Ok(())
     });
     // Облик вида kind серединой в (x, y) на этот кадр: { built — доля снизу, остальное чертёж; tint — {r, g, b, a}

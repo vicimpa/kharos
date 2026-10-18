@@ -95,8 +95,8 @@ pub fn builtin() -> Vec<(&'static str, Vec<(&'static str, Value)>)> {
     // Основание здания: тайлы вокруг центра (Position), занятые для хода; passable — проезд открыт (ворота).
     ("Footprint", vec![("width", json!(1)), ("height", json!(1)), ("passable", json!(false)), ("wall", json!(false))]),
     ("Player", vec![("id", json!(0)), ("allies", json!([]))]),
-    // Связь в сеть (networks.rs): круг зоны, группа стыка, проводник, подземный отрезок, ядро сети.
-    ("Link", vec![("radius", json!(0)), ("group", json!("")), ("conduit", json!(false)), ("tunnel", json!(0)), ("core", json!(false))]),
+    // Связь в сеть (networks.rs): круг зоны, группа стыка, проводник, подземный отрезок, ядро сети, основание, лист.
+    ("Link", vec![("radius", json!(0)), ("group", json!("")), ("conduit", json!(false)), ("tunnel", json!(0)), ("core", json!(false)), ("width", json!(1)), ("height", json!(1)), ("leaf", json!(false))]),
     // Бой (combat): прочность — доля от hp, hit — тик последнего попадания; оружие стрелка, его поворот и откуда
     // вылетает выстрел; стойка юнита; выстрел и взрыв — сущности для подачи.
     ("Health", vec![("value", json!(1)), ("max", json!(1)), ("regen", json!(0)), ("hit", json!(-1)), ("hp", json!(1))]),

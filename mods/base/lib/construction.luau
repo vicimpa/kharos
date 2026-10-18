@@ -222,6 +222,89 @@ function construction.siteStock(kind)
 	return { items = {}, capacity = total, accepts = accepts, limits = table.clone(materials), reserve = 0 }
 end
 
+-- Дальше скольких тайлов протяжку не кладут разом (PAVE_LIMIT).
+construction.STROKE_LIMIT = 400
+
+-- Своя труба или колодец в тайле — готовые, строящиеся или заложенные (pipeAt); разбираемые — нет.
+function construction.pipeAt(w, player: number, x: number, y: number): number?
+	local e = w:occupant(x, y) or construction.siteAt(w, x, y)
+	if not e then
+		return nil
+	end
+	local owner = w:get(e, "Owner")
+	local kind = kinds.of(w, e)
+	local site = w:get(e, "Site")
+	if not owner or owner.player ~= player or not kind or not kind.data.pipe or (site and site.demolish) then
+		return nil
+	end
+	return e
+end
+
+-- Своя труба другого вида в тайле: новая ложится вместо неё (pipeSwap).
+function construction.pipeSwap(w, player: number, kind, x: number, y: number): number?
+	local e = construction.pipeAt(w, player, x, y)
+	local other = e and kinds.of(w, e)
+	return if other and other.name ~= kind.name then e else nil
+end
+
+-- Какие тайлы протянутой трубы или колодца можно заложить, по тайлу (pipeStroke): место годится под трубу или там своя
+-- труба другого вида, и не в чужой зоне. Своя зона трубе не нужна.
+function construction.pipeStroke(w, player: number, tiles: { number }, kind): { boolean }
+	local taken = {}
+	local allowed = {}
+	local known = construction.researched(w, player, kind.data.research)
+	local pipe = w.protos.buildings.pipe
+	local all = zones.all(w)
+	for i = 1, #tiles - 1, 2 do
+		local x, y = tiles[i], tiles[i + 1]
+		local key = x .. ":" .. y
+		local fits = x == math.floor(x) and y == math.floor(y) and (placement.canPlace(w, pipe, x, y) or construction.pipeSwap(w, player, kind, x, y) ~= nil)
+		local ok = known and not taken[key] and fits and not zones.inForeign(w, player, x, y, 1, 1, all)
+		if ok then
+			taken[key] = true
+		end
+		table.insert(allowed, ok)
+	end
+	return allowed
+end
+
+-- Какие тайлы протянутой стены или ворот можно заложить (wallStroke).
+function construction.wallStroke(w, player: number, tiles: { number }, kind): { boolean }
+	local taken = {}
+	local allowed = {}
+	for i = 1, #tiles - 1, 2 do
+		local x, y = tiles[i], tiles[i + 1]
+		local key = x .. ":" .. y
+		local ok = x == math.floor(x) and y == math.floor(y) and not taken[key] and construction.canBuild(w, player, kind, x, y)
+		if ok then
+			taken[key] = true
+		end
+		table.insert(allowed, ok)
+	end
+	return allowed
+end
+
+-- Годятся ли тайлы концами подземного отрезка: два тайла на одной прямой, от 2 до UNDERGROUND_REACH (isWellPair).
+function construction.isWellPair(tiles: { number }): boolean
+	if #tiles ~= 4 then
+		return false
+	end
+	local ax, ay, bx, by = tiles[1], tiles[2], tiles[3], tiles[4]
+	local length = math.abs(bx - ax) + math.abs(by - ay)
+	return (ax == bx or ay == by) and length >= 2 and length <= 10
+end
+
+-- Каким концам пары колодцев уже стоит свой колодец: такой конец не закладывают заново (wellsKept).
+function construction.wellsKept(w, player: number, tiles: { number }): { boolean }
+	local kept = {}
+	for i = 1, #tiles - 1, 2 do
+		local e = #tiles == 4 and construction.pipeAt(w, player, tiles[i], tiles[i + 1])
+		local kind = e and kinds.of(w, e)
+		table.insert(kept, kind ~= nil and kind ~= false and kind.name == "well")
+	end
+	return kept
+end
+
 -- Левый верхний тайл основания сущности.
 function construction.corner(w, e: number): (number, number)
 	local at = w:get(e, "Position")
