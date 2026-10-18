@@ -115,7 +115,7 @@ local function marks(c, selection)
 			local top = y - h / 2 - BAR_GAP - height
 			local left = x - w / 2
 			c.draw:rect(left - pixel, top - pixel, left + w + pixel, top + height + pixel, BAR_BACK)
-			c.draw:rect(left, top, left + w * math.clamp(producer.progress / (unit.data.time or 1), 0, 1), top + height, BAR_PRODUCING)
+			c.draw:rect(left, top, left + w * math.clamp(producer.progress / (unit.data.buildTime or 1), 0, 1), top + height, BAR_PRODUCING)
 		end
 	end
 end

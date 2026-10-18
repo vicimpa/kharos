@@ -18,7 +18,7 @@ return {
 	menu = "menu",                -- партия главного меню: в неё приложение приходит при запуске
 	patch = function(protos)      -- после загрузки всех модов, в их порядке
 		protos.units.buggy.data.speed = 5
-		protos.moves.hover = nil
+		protos.units.drone = nil
 	end,
 }
 ```
@@ -43,7 +43,7 @@ return {
 |---|---|---|
 | `data` | обе | числа и строки вида: скорость, цена, размер |
 | `components` | хост | объявления компонентов (ниже) |
-| `entity` | хост | из чего сделана сущность вида: таблица или функция от вида |
+| `entity` | хост | из чего сделана сущность вида: таблица или функция `(вид, все виды)` |
 | `systems` | хост | системы над столбцами |
 | `on` | хост | обработчики событий |
 | `commands` | хост | приказы игроков |
@@ -54,12 +54,16 @@ return {
 
 ```luau
 local buggy = {}
-buggy.data = { speed = 4, turn = 3 }
-buggy.entity = function(kind)
-	return { Position = {}, Facing = {}, Owner = {}, Drive = { move = "wheels", speed = kind.data.speed } }
+buggy.data = { speed = 6, turn = 5, radius = 0.45, kind = "vehicle" }
+buggy.entity = function(kind, protos)
+	local d = kind.data
+	return { Position = {}, Facing = {}, Owner = {}, Mover = { speed = d.speed, turn = d.turn, radius = d.radius, class = d.kind } }
 end
 return buggy
 ```
+
+У `base` виды юнитов, турелей, оружия и зданий перенесены из `packages/base/data/*.json` как есть (названия — из
+словаря `ru.json`), а сущности собирают `units.entity` и `buildings.entity` по их данным.
 
 ## Хост
 
@@ -67,7 +71,7 @@ return buggy
 
 ```luau
 components = {
-	Drive = { move = "", speed = 0, turn = 0, tx = 0, ty = 0, moving = false },
+	Wallet = { credits = 0, income = 0 },
 	Producer = { unit = "", progress = 0, queue = {} },
 }
 ```
@@ -88,11 +92,11 @@ points, goalX, goalY, … }` (путь: есть — юнит едет), `Footpr
 ```luau
 systems = {
 	drive = {
-		query = { "Position", "Facing", "Drive" },  -- сущности со всеми этими компонентами
-		where = { Drive = { move = "wheels" } },    -- и с такими значениями полей (числа, флаги, строки)
-		write = { "Position", "Facing", "Drive" },  -- чьи столбцы после системы вернуть в мир
+		query = { "Position", "Facing", "Mover" },  -- сущности со всеми этими компонентами
+		where = { Mover = { class = "air" } },      -- и с такими значениями полей (числа, флаги, строки)
+		write = { "Position" },                     -- чьи столбцы после системы вернуть в мир
 		every = 1,                                  -- раз в сколько тиков
-		after = "income", before = { "fight" },     -- ключ системы или полное имя "moves/wheels.drive"
+		after = "income", before = { "fight" },     -- ключ системы или полное имя "mechanics/movement.move"
 		run = function(q, ctx, kind)
 			for i = 0, q.n - 1 do
 				local at = i * 8

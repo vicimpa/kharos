@@ -135,7 +135,7 @@ production.systems = {
 				end
 				local unit = ctx.protos.units[ctx:text(current)]
 				local progress = readf64(p.progress, at) + ctx.dt
-				if progress < unit.data.time then
+				if progress < unit.data.buildTime then
 					writef64(p.progress, at, progress)
 					continue
 				end
@@ -143,7 +143,7 @@ production.systems = {
 				local building = readf64(entity, at)
 				local tileX, tileY = emptyTileNear(ctx, math.floor(readf64(q.Position.x, at)), math.floor(readf64(q.Position.y, at)))
 				if not tileX then
-					writef64(p.progress, at, unit.data.time)
+					writef64(p.progress, at, unit.data.buildTime)
 					continue
 				end
 				local ox, oy = tileX + 0.5, tileY + 0.5

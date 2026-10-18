@@ -242,7 +242,7 @@ local function info(c, selection, width: number, height: number)
 			if producer then
 				if producer.unit ~= "" then
 					local unit = c.protos.units[producer.unit]
-					widgets.bar(ui, producer.progress / (unit.data.time or 1), unit.data.title or producer.unit, text)
+					widgets.bar(ui, producer.progress / (unit.data.buildTime or 1), unit.data.title or producer.unit, text)
 					ui:box({ direction = "row", gap = 4 }, function()
 						for i, name in { producer.unit, table.unpack(producer.queue) } do
 							ui:box({ id = "queue:" .. i, width = 32, height = 32, skin = "well", padding = 4 }, function()

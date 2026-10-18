@@ -715,6 +715,53 @@ function units.look(name: string, mounts: { any }?)
 	}
 end
 
+-- Сколько тайлов видит юнит каждого рода, если у вида нет своего числа, и насколько обзор дальше оружия
+-- (unitSight в vision.ts).
+local CLASS_SIGHT = { infantry = 7, air = 10 }
+local SIGHT_OVER_RANGE = 1.5
+
+-- Дальность самого дальнобойного оружия — своего или на турелях (longestRange).
+function units.range(data, protos): number
+	local range = 0
+	local function arm(weapon: string?)
+		local spec = weapon and protos.weapons[weapon]
+		if spec then
+			range = math.max(range, spec.data.range)
+		end
+	end
+	arm(data.weapon)
+	for _, mount in data.mounts or {} do
+		local turret = protos.turrets[mount.turret]
+		arm(turret and turret.data.weapon)
+	end
+	return range
+end
+
+-- Сколько тайлов от центра видит юнит вида: своё число или по роду, и не меньше дальности оружия.
+function units.sight(kind, protos): number
+	local data = kind.data
+	local range = units.range(data, protos)
+	return math.max(data.sight or CLASS_SIGHT[data.kind] or 8, if range ~= 0 then range + SIGHT_OVER_RANGE else 0)
+end
+
+-- Сущность юнита по данным вида: ход (Mover) — скорость, поворот, радиус, род; обзор.
+function units.entity(kind, protos)
+	local data = kind.data
+	return {
+		Position = {},
+		Facing = {},
+		Owner = {},
+		Unit = {},
+		Mover = { speed = data.speed, turn = data.turn, radius = data.radius, class = data.kind },
+		Sight = { radius = units.sight(kind, protos) },
+	}
+end
+
+-- Сущность турели: место и поворот на носителе — Attached (ставит mechanics/mounts).
+function units.turretEntity()
+	return { Position = {}, Facing = {}, Owner = {}, Turret = {}, Attached = {} }
+end
+
 -- Облик турели: тень — вдвое ближе, чем у носителя.
 function units.turretLook(name: string)
 	return {

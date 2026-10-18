@@ -1,31 +1,26 @@
 --!strict
--- Завод: выпускает наземные машины за кредиты. Вид папкой: данные и правила здесь, облик — в look.luau.
+-- Машинный завод: машинки и тяжёлая техника. Строится из стройблоков: военная промышленность требует цеха.
+-- Данные — packages/base/data/buildings.json, облик — look.luau.
 
-local factory = {}
+local buildings = require("lib/buildings")
 
-factory.data = {
-	title = "Завод",
-	-- Размер в тайлах; место — центр здания.
+local kind = {}
+
+kind.data = {
+	title = "Машинный завод",
+	about = "Машинный завод: машинки и тяжёлая техника. Строится из стройблоков: военная промышленность требует цеха.",
 	width = 3,
 	height = 3,
-	-- Что выпускает: виды из units/.
-	produces = { "buggy" },
-	-- Сколько тайлов от центра видит: половина большей стороны и ещё 4, как у зданий в TS.
-	sight = 5.5,
+	cost = 450,
+	power = -5,
+	materials = { blocks = 10 },
+	produces = { "buggy", "flak", "lancer", "supplier", "tank", "artillery", "tesla", "carrier", "mcv" },
+	requires = { "radar" },
+	research = "vehicles",
+	menu = 30,
 }
 
-factory.entity = function(kind)
-	return {
-		Position = {},
-		Owner = {},
-		Producer = {},
-		Building = { width = kind.data.width, height = kind.data.height },
-		-- Тайлы под зданием заняты: юниты объезжают его (motion).
-		Footprint = { width = kind.data.width, height = kind.data.height },
-		Sight = { radius = kind.data.sight },
-	}
-end
+kind.entity = buildings.entity
+kind.look = require("./look")
 
-factory.look = require("./look")
-
-return factory
+return kind

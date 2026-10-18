@@ -821,7 +821,8 @@ impl UserData for Ctx {
       if !kind.is_nil() {
         let (id, proto) = this.proto(&kind)?;
         let template = match proto.get::<Value>("entity")? {
-          Value::Function(make) => make.call::<Option<Table>>(&proto)?,
+          // Шаблон-функция получает свой вид и все виды: обзор, например, зависит от дальности оружия турелей.
+          Value::Function(make) => make.call::<Option<Table>>((&proto, &this.protos))?,
           Value::Table(table) => Some(table),
           Value::Nil => None,
           other => return Err(mlua::Error::runtime(format!("entity вида — таблица или функция, а не {}", other.type_name()))),

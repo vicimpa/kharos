@@ -19,9 +19,82 @@ buildings.RUST = { [0] = 0x5e2f24, 0x9a523a, 0xc47a57 }
 buildings.TEAM = { [0] = 0x10358f, 0x1f63d8, 0x5aa9ff, 0xe4f4ff }
 buildings.HAZARD = { [0] = 0x1a1608, 0xd9b021 }
 buildings.DARK = 0x04070b
+-- Материя, которую выдаёт генератор: слитки цвета кредитов.
+buildings.GOLD = { [0] = 0xc9962b, 0xf0c95a, 0xfff0b0 }
+-- Огонь печи: от тёмно-красного к белому.
+buildings.FIRE = { [0] = 0x6a1a10, 0xc2401a, 0xf08a2a, 0xffd36a, 0xfff4d0 }
+-- Огнеупорный кирпич печей.
+buildings.BRICK = { [0] = 0x2a1a16, 0x5e2f24, 0x9a523a, 0xc47a57, 0xe0a080 }
+-- Электрическая дуга: от синего к белому.
+buildings.ARC = { [0] = 0x2f5fd0, 0x8fc0ff, 0xf2f8ff }
+-- Цвета грузов (resourceColors.ts): у здания им окрашено то, что оно выдаёт или хранит.
+buildings.GOOD_COLORS = {
+	metal = 0xb8c4d0,
+	silicon = 0x7f9cff,
+	fuel = 0xffc93c,
+	kharite = 0xc06bff,
+	lithium = 0xf59ac0,
+	uranium = 0xb4e84a,
+	blocks = 0xd8b98a,
+	ammo = 0xe0803a,
+	parts = 0x4fd6a2,
+	rods = 0x7ef0b0,
+	metalOre = 0x8d7a5f,
+	siliconOre = 0x5a6a8a,
+	fuelOre = 0x8a7a2a,
+	khariteOre = 0x7a4a9a,
+	lithiumOre = 0x9a6a7e,
+	uraniumOre = 0x6a8a3a,
+}
+-- Руды по порядку (ORES в resources.ts).
+buildings.ORES = { "metalOre", "siliconOre", "fuelOre", "khariteOre", "lithiumOre", "uraniumOre" }
 
 local INK, TEAM = buildings.INK, buildings.TEAM
 local TURN = math.pi * 2
+buildings.TURN = TURN
+
+-- Округление как Math.round у JS: половина — вверх (math.round у Luau уводит -0,5 к -1).
+function buildings.round(x: number): number
+	return math.floor(x + 0.5)
+end
+
+-- Огонь печи по яркости от 0 до 1.
+function buildings.fireColor(level: number): number
+	return buildings.FIRE[math.min(4, math.max(0, math.floor(level * 5)))]
+end
+
+-- Воспроизводимое случайное число от 0 до 1 по двум целым (hash в buildingArt.ts).
+function buildings.hash(a: number, b: number): number
+	local value = math.sin(a * 127.1 + b * 311.7) * 43758.5453
+	return value - math.floor(value)
+end
+
+-- Три тона цвета: тёмный, основной, светлый — для окраски частей здания цветом его груза (accent).
+function buildings.accent(color: number)
+	local function mix(amount: number): number
+		local function channel(shift: number): number
+			local value = bit32.band(bit32.rshift(color, shift), 255)
+			local mixed = if amount > 0 then value + (255 - value) * amount else value * (1 + amount)
+			return bit32.lshift(buildings.round(mixed), shift)
+		end
+		return bit32.bor(channel(16), channel(8), channel(0))
+	end
+	return { [0] = mix(-0.55), mix(-0.15), mix(0.3) }
+end
+
+-- Труба с обводкой: горизонтальная, длиной w, осью по строке y.
+function buildings.pipe(g, x: number, y: number, w: number)
+	g:rect(x, y - 1, w, 3, INK)
+	g:rect(x, y, w, 1, buildings.RUST[1])
+end
+
+-- Окна цвета команды в ряд: каждое 3×2 с бликом.
+function buildings.windows(g, xs: { number }, y: number)
+	for _, x in xs do
+		g:rect(x, y, 3, 2, TEAM[1])
+		g:rect(x, y, 1, 1, TEAM[2])
+	end
+end
 
 -- Плавное мигание: 1 при t = offset, 0 через полцикла.
 function buildings.pulse(t: number, offset: number?): number
@@ -84,28 +157,85 @@ function buildings.bulb(g, x: number, y: number, level: number)
 	g:light(x + 1, y + 1, 1, level)
 end
 
--- Облик здания width × height тайлов: draw(canvas, t, working) — чертёж; working — есть ли у здания вид работы.
-function buildings.look(width: number, height: number, draw: (any, number, boolean) -> (), working: boolean?)
+-- Обзор здания (buildingSight): своё число или половина большей стороны и ещё 4, и не меньше дальности турелей.
+function buildings.sight(kind, protos): number
+	local data = kind.data
+	local range = 0
+	for _, mount in data.mounts or {} do
+		local turret = protos.turrets[mount.turret]
+		local weapon = turret and turret.data.weapon and protos.weapons[turret.data.weapon]
+		if weapon then
+			range = math.max(range, weapon.data.range)
+		end
+	end
+	local half = math.max(data.width, data.height) / 2
+	return math.max(data.sight or half + 4, if range ~= 0 then range + 1.5 else 0)
+end
+
+-- Сущность здания по данным вида: размер, основание (тайлы заняты для хода), обзор, производство.
+function buildings.entity(kind, protos)
+	local data = kind.data
+	local entity = {
+		Position = {},
+		Owner = {},
+		Building = { width = data.width, height = data.height },
+		Footprint = { width = data.width, height = data.height },
+		Sight = { radius = buildings.sight(kind, protos) },
+	}
+	if data.produces then
+		entity.Producer = {}
+	end
+	return entity
+end
+
+-- Биты соседей стены, ворот, трубы и колодца: четыре направления дают 16 вариантов (WALL_CONNECTION).
+buildings.NORTH, buildings.EAST, buildings.SOUTH, buildings.WEST = 1, 2, 4, 8
+-- Бит вида ворот поверх битов соседей: плита опущена (GATE_OPEN_VARIANT).
+buildings.GATE_OPEN = 16
+
+-- Основание оборонительной турели (emplacement): само вращающееся оружие рисуется поверх отдельной сущностью.
+function buildings.emplacement(g, t: number, band: number)
+	buildings.slab(g, 0, 1, 16, 15, 2, buildings.STEEL)
+	g:circle(8, 8, 6, INK)
+	g:circle(8, 8, 5, buildings.IRON[0])
+	g:ring(8, 8, 4, 1, band)
+	g:circle(8, 8, 2, buildings.IRON[2])
+	buildings.bulb(g, 1, 2, buildings.pulse(t))
+	buildings.bulb(g, 13, 2, buildings.pulse(t, 0.5))
+end
+
+export type LookOptions = {
+	-- Есть ли у здания вид работы: тогда кадров вдвое больше — вторая половина рисуется с working.
+	working: boolean?,
+	-- Вариантов соседства (стены, ворота, трубы): они — направления облика.
+	variants: number?,
+}
+
+-- Облик здания width × height тайлов: draw(canvas, t, working, variant) — чертёж.
+function buildings.look(width: number, height: number, draw: (any, number, boolean, number) -> (), options: LookOptions?)
 	local pad, tile, frames = buildings.PAD, buildings.TILE, buildings.FRAMES
+	local o: LookOptions = options or {}
+	local variants = o.variants or 1
 	return {
 		size = { width * tile + pad * 2, height * tile + pad * 2 },
 		origin = { pad, pad },
 		-- Место сущности — центр основания.
 		anchor = { width * tile / 2, height * tile / 2 },
-		directions = 1,
-		phases = if working then frames * 2 else frames,
+		directions = variants,
+		phases = if o.working then frames * 2 else frames,
 		fps = 8,
 		layer = "building",
 		shadow = { 3, 0.4 },
-		draw = function(canvas, _angle: number, phase: number)
-			draw(canvas, (phase % frames) / frames, phase >= frames)
+		draw = function(canvas, angle: number, phase: number)
+			local variant = math.floor(angle / TURN * variants + 0.5) % variants
+			draw(canvas, (phase % frames) / frames, phase >= frames, variant)
 		end,
 		-- Портрет: первый кадр работы с полем в 2 пикселя (buildingCanvas в portraits.ts).
 		portrait = {
 			size = { width * tile + 4, height * tile + 4 },
 			origin = { 2, 2 },
 			draw = function(canvas)
-				draw(canvas, 0, true)
+				draw(canvas, 0, true, 0)
 			end,
 		},
 	}

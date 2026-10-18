@@ -1,10 +1,19 @@
 --!strict
--- Пассажир багги: плечи и шлем в цвет стороны, миниган — светлый блок стволов с жёлтым дульным срезом.
+-- Пассажир багги с миниганом: лёгкий, разворачивается быстро.
+-- Данные — packages/base/data/turrets.json, чертёж — lib/units.
 
 local units = require("lib/units")
 
-return {
-	data = { title = "Стрелок", turn = 6 },
-	entity = { Position = {}, Facing = {}, Owner = {}, Turret = {}, Attached = {} },
-	look = units.turretLook("gunner"),
+local kind = {}
+
+kind.data = {
+	about = "Пассажир багги с миниганом: лёгкий, разворачивается быстро.",
+	turn = 8,
+	radius = 0.45,
+	weapon = "machinegun",
 }
+
+kind.entity = units.turretEntity
+kind.look = units.turretLook("gunner")
+
+return kind
