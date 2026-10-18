@@ -57,6 +57,8 @@ pub struct App {
   saved_at: f64,
   /// Сколько партий запущено: по нему сценарий узнаёт, что новая партия появилась.
   pub generation: u64,
+  /// Рисовать ли интерфейс: без него — только мир (ролики); считается он всё равно, и щелчки по нему работают.
+  pub show_ui: bool,
 }
 
 /// Как запускать приложение: со звуком ли (в режиме сценария звука нет).
@@ -166,7 +168,7 @@ impl App {
       }
       None => None,
     };
-    let mut app = Self { renderer, game: None, loading, first, mods, sound, link, quit: false, saved_at: 0.0, generation: 0 };
+    let mut app = Self { renderer, game: None, loading, first, mods, sound, link, quit: false, saved_at: 0.0, generation: 0, show_ui: true };
     if app.loading.is_none() {
       app.begin()?;
     }
@@ -274,7 +276,9 @@ impl App {
       let state = game.state.borrow();
       self.renderer.draw_batch(&state.draw, &state.gui.fonts.atlas, &view, true, game.palette());
       self.renderer.draw_glow(&state.glow, &state.gui.fonts.atlas, &view, game.palette());
-      self.renderer.draw_batch(&state.gui.batch, &state.gui.fonts.atlas, &view, false, game.palette());
+      if self.show_ui {
+        self.renderer.draw_batch(&state.gui.batch, &state.gui.fonts.atlas, &view, false, game.palette());
+      }
     }
     // Схема карты новой игры досчитала ряды — в текстуру.
     {
@@ -329,6 +333,16 @@ impl App {
   pub fn fps_limit(&self) -> Option<f64> {
     let state = self.link.borrow();
     state.prefs.get("graphics").and_then(|value| value.get("fps")).and_then(serde_json::Value::as_f64).filter(|fps| *fps > 0.0)
+  }
+
+  /// Рисовать кадр не в окно, а в свой буфер такого размера (физические пиксели).
+  pub fn offscreen(&mut self, size: [u32; 2]) {
+    self.renderer.offscreen([size[0] as i32, size[1] as i32]);
+  }
+
+  /// Пиксели нарисованного кадра RGBA, строками сверху вниз.
+  pub fn pixels(&self, size: [u32; 2]) -> Vec<u8> {
+    self.renderer.pixels(size)
   }
 
   /// Идущая партия.

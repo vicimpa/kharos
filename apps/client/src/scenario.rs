@@ -1,6 +1,9 @@
 //! Режим сценария: клиент идёт по сценарию на Luau, без человека — для тестов и роликов.
 //!
-//!   kharos --scenario путь.luau [--show] [--fps 60] [--lang ru] [--timeout 600]
+//!   kharos --scenario путь.luau [--show] [--fps 60] [--lang ru] [--timeout 600] [--size 1280x800] [--scale 1] [--no-ui]
+//!
+//! `--size` — кадр такого размера в логических пикселях в своём буфере, а не в окне (любой, хоть 540x960), `--scale`
+//! — физических пикселей на логический; `--no-ui` — мир без интерфейса (он считается, щелчки по нему работают).
 //!
 //! Время игры — номер кадра ÷ fps, а не часы: прогон не зависит от скорости машины и повторяется кадр в кадр. Окно
 //! невидимо (`--show` — видно), настройки и сохранения — во временной папке, звука нет. Код выхода — итог: 0 — сценарий
@@ -23,6 +26,10 @@ pub struct Options {
   pub fps: f64,
   pub lang: String,
   pub timeout: f64,
+  /// Кадр в своём буфере: логические пиксели и плотность.
+  pub size: Option<[u32; 2]>,
+  pub scale: f32,
+  pub ui: bool,
 }
 
 /// Режим сценария, если он задан флагом `--scenario`.
@@ -36,6 +43,9 @@ pub fn options() -> Option<Options> {
     fps: value("--fps").and_then(|fps| fps.parse().ok()).unwrap_or(60.0),
     lang: value("--lang").unwrap_or_else(|| "ru".into()),
     timeout: value("--timeout").and_then(|seconds| seconds.parse().ok()).unwrap_or(600.0),
+    size: value("--size").and_then(|size| size.split_once('x').and_then(|(w, h)| Some([w.trim().parse().ok()?, h.trim().parse().ok()?]))),
+    scale: value("--scale").and_then(|scale| scale.parse().ok()).unwrap_or(1.0),
+    ui: !args.iter().any(|arg| arg == "--no-ui"),
   })
 }
 
@@ -80,6 +90,8 @@ function s:ui_click(what, button)
   if not rect then error("в интерфейсе нет " .. tostring(what), 2) end
   ask({ op = "click", x = rect.x + rect.w / 2, y = rect.y + rect.h / 2, button = button or "left" })
 end
+-- Рисовать ли интерфейс (считается он всё равно).
+function s:ui(on) ask({ op = "ui", on = on ~= false }) end
 -- Снимок кадра в PNG — после того, как кадр нарисован.
 function s:shot(path) ask({ op = "shot", path = path }) end
 function s:log(...) print("сценарий:", ...) end
@@ -113,6 +125,10 @@ pub struct Scenario {
   fps: f64,
   timeout: f64,
   lang: String,
+  ui: bool,
+  /// Кадр в своём буфере: логические пиксели и плотность.
+  pub size: Option<[u32; 2]>,
+  pub scale: f32,
   pub frame: u64,
   /// Ввод по кадрам.
   actions: Vec<(u64, Action)>,
@@ -143,7 +159,7 @@ impl Scenario {
     let file: Table = lua.load(source.as_str()).set_name(format!("={}", options.path)).eval().map_err(lua_error(&options.path))?;
     let run: Function = file.get("run").map_err(|_| format!("{}: нет run(s)", options.path))?;
     let thread = lua.create_thread(run).map_err(lua_error("сопрограмма"))?;
-    Ok(Self { lua, thread, s, source, name, fps: options.fps, timeout: options.timeout, lang: options.lang.clone(), frame: 0, actions: Vec::new(), wait: None, reply: None, shots: Vec::new(), loaded: None, started: false, begun: false, reported: false, done: None })
+    Ok(Self { lua, thread, s, source, name, fps: options.fps, timeout: options.timeout, lang: options.lang.clone(), ui: options.ui, size: options.size, scale: options.scale, frame: 0, actions: Vec::new(), wait: None, reply: None, shots: Vec::new(), loaded: None, started: false, begun: false, reported: false, done: None })
   }
 
   /// Время игры этого кадра.
@@ -159,6 +175,7 @@ impl Scenario {
     if !self.started {
       self.started = true;
       app.set_language(&self.lang);
+      app.show_ui = self.ui;
     }
     if self.time() > self.timeout {
       self.done = Some(Err(format!("не уложился в {} с игры", self.timeout)));
@@ -318,9 +335,15 @@ impl Scenario {
         self.reply = found.map(|(text, rect, id)| json!({ "text": text, "id": id, "x": rect.x, "y": rect.y, "w": rect.w, "h": rect.h }));
         Ok(false)
       }
-      "shot" => {
-        self.shots.push(request["path"].as_str().ok_or("s:shot: нет пути")?.to_string());
+      "ui" => {
+        app.show_ui = request["on"].as_bool().unwrap_or(true);
         Ok(false)
+      }
+      "shot" => {
+        // Снимок — этого кадра, когда он нарисован; сценарий идёт дальше со следующего.
+        self.shots.push(request["path"].as_str().ok_or("s:shot: нет пути")?.to_string());
+        self.wait = Some(Wait::Frame(frame + 1));
+        Ok(true)
       }
       other => Err(format!("s: непонятная просьба {other:?}")),
     }

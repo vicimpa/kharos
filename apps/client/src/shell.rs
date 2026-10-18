@@ -227,11 +227,18 @@ impl Shell {
   fn redraw(&mut self, event_loop: &ActiveEventLoop) {
     self.drawn = Some(std::time::Instant::now());
     let (Some(gl), Some(app)) = (&self.gl, &mut self.app) else { return };
-    let size = gl.window.inner_size();
+    let mut size = gl.window.inner_size();
+    let mut scale = gl.window.scale_factor() as f32;
+    // Сценарий с --size рисует кадр в своём буфере такого размера, а не в окне.
+    if let Some(scenario) = self.scenario.as_ref().filter(|scenario| scenario.size.is_some()) {
+      let [width, height] = scenario.size.expect("размер");
+      scale = scenario.scale;
+      size = winit::dpi::PhysicalSize::new((width as f32 * scale).round() as u32, (height as f32 * scale).round() as u32);
+      app.offscreen([size.width, size.height]);
+    }
     if size.width == 0 || size.height == 0 {
       return;
     }
-    let scale = gl.window.scale_factor() as f32;
     self.input.scale = scale;
     self.input.screen = [size.width as f32 / scale, size.height as f32 / scale];
     self.input.time = match &self.scenario {

@@ -467,6 +467,8 @@ pub struct Renderer {
   pub graphics: Graphics,
   /// Кадр мира в долю пикселей экрана (resolution < 1): потом он растягивается на экран.
   world: Option<Target>,
+  /// Свой кадровый буфер вместо окна (режим сценария: любой размер, окно невидимо); None — рисуем в окно.
+  screen: Option<Target>,
   pub gl: Gl,
   programs: Programs,
   sprite_vao: glow::VertexArray,
@@ -538,7 +540,7 @@ impl Renderer {
       let font = gl.texture([ATLAS_SIZE as i32; 2], glow::R8, glow::RED, None);
       raw.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
       raw.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
-      Ok(Self { graphics: Graphics::default(), world: None, gl, programs, sprite_vao, sprite_data, spot_vao, spot_data, decal_vao, decal_data, beam_vao, beam_data, empty_vao, batch_vao, batch_vertices, batch_indices, font, font_generation: 0, atlas: None, skin: None, fog: None, minimap: None, preview: None, land: None, occluders: None, lightmap: None, size: [0, 0] })
+      Ok(Self { graphics: Graphics::default(), world: None, screen: None, gl, programs, sprite_vao, sprite_data, spot_vao, spot_data, decal_vao, decal_data, beam_vao, beam_data, empty_vao, batch_vao, batch_vertices, batch_indices, font, font_generation: 0, atlas: None, skin: None, fog: None, minimap: None, preview: None, land: None, occluders: None, lightmap: None, size: [0, 0] })
     }
   }
 
@@ -767,7 +769,8 @@ impl Renderer {
       if let Some(target) = self.world.take() {
         self.gl.drop_target(&target);
       }
-      self.paint_world(view, frame, size, None);
+      let screen = self.screen();
+      self.paint_world(view, frame, size, screen);
       return;
     }
     let scaled = [((size[0] as f32 * resolution).round() as i32).max(1), ((size[1] as f32 * resolution).round() as i32).max(1)];
@@ -784,9 +787,9 @@ impl Renderer {
     let gl = &self.gl.gl;
     unsafe {
       gl.bind_framebuffer(glow::READ_FRAMEBUFFER, framebuffer);
-      gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
+      gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, self.screen());
       gl.blit_framebuffer(0, 0, scaled[0], scaled[1], 0, 0, size[0], size[1], glow::COLOR_BUFFER_BIT, glow::NEAREST);
-      gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+      gl.bind_framebuffer(glow::FRAMEBUFFER, self.screen());
     }
     self.size = size;
   }
@@ -912,7 +915,7 @@ impl Renderer {
     self.size = [size[0] as i32, size[1] as i32];
     let gl = &self.gl.gl;
     unsafe {
-      gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+      gl.bind_framebuffer(glow::FRAMEBUFFER, self.screen());
       gl.viewport(0, 0, self.size[0], self.size[1]);
       gl.clear_color(color[0] as f32 / 255.0, color[1] as f32 / 255.0, color[2] as f32 / 255.0, 1.0);
       gl.clear(glow::COLOR_BUFFER_BIT);
@@ -934,7 +937,7 @@ impl Renderer {
     }
     let gl = &self.gl.gl;
     unsafe {
-      gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+      gl.bind_framebuffer(glow::FRAMEBUFFER, self.screen());
       gl.viewport(0, 0, self.size[0], self.size[1]);
       gl.enable(glow::BLEND);
       if add {
@@ -1052,14 +1055,36 @@ impl Renderer {
   }
 
   /// Кадр в PNG.
-  pub fn shot(&self, path: &str, size: [u32; 2]) {
+  /// Кадровый буфер, куда рисуется кадр: свой (offscreen) или окна.
+  fn screen(&self) -> Option<glow::Framebuffer> {
+    self.screen.as_ref().map(|target| target.framebuffer)
+  }
+
+  /// Рисовать не в окно, а в свой кадровый буфер такого размера (физические пиксели).
+  pub fn offscreen(&mut self, size: [i32; 2]) {
+    if self.screen.as_ref().is_some_and(|target| target.size == size) {
+      return;
+    }
+    if let Some(target) = self.screen.take() {
+      self.gl.drop_target(&target);
+    }
+    self.screen = Some(self.gl.target(size, glow::RGBA8, glow::RGBA));
+  }
+
+  /// Пиксели нарисованного кадра RGBA, строками сверху вниз.
+  pub fn pixels(&self, size: [u32; 2]) -> Vec<u8> {
     let [width, height] = size;
     let mut pixels = vec![0u8; (width * height * 4) as usize];
     unsafe {
-      self.gl.gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+      self.gl.gl.bind_framebuffer(glow::FRAMEBUFFER, self.screen());
       self.gl.gl.read_pixels(0, 0, width as i32, height as i32, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelPackData::Slice(Some(&mut pixels)));
     }
-    let rows: Vec<u8> = pixels.chunks_exact((width * 4) as usize).rev().flatten().copied().collect();
+    pixels.chunks_exact((width * 4) as usize).rev().flatten().copied().collect()
+  }
+
+  pub fn shot(&self, path: &str, size: [u32; 2]) {
+    let [width, height] = size;
+    let rows = self.pixels(size);
     let file = match std::fs::File::create(path) {
       Ok(file) => file,
       Err(error) => return eprintln!("{path}: {error}"),
