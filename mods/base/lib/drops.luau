@@ -1,9 +1,9 @@
 --!strict
--- Груз на земле — перенос drops.ts, общий хосту (ctx) и клиенту (c). Дроп — груз, брошенный на землю: что лежало на
--- складе разрушенного или разобранного здания, в кузове погибшей машины, на отменённой стройке. Это склад без здания на
--- одном тайле и без хозяина (Drop, Inventory, Position посреди тайла): подобрать его может любой грузовик, а свободные
--- везут его в хранилище, руду — на переработку (mechanics/hauling). Пустой дроп исчезает, стройка или развёрнутый MCV
--- поверх дропа его уничтожают.
+-- Груз на земле, общий хосту (ctx) и клиенту (c). Дроп — груз, брошенный на землю: что лежало на складе разрушенного
+-- или разобранного здания, в кузове погибшей машины, на отменённой стройке. Это склад без здания на одном тайле и без
+-- хозяина (Drop, Inventory, Position посреди тайла): подобрать его может любой грузовик, а свободные везут его в
+-- хранилище, руду — на переработку (mechanics/hauling). Пустой дроп исчезает, стройка или развёрнутый MCV поверх дропа
+-- его уничтожают.
 
 local goods = require("lib/goods")
 
@@ -19,7 +19,7 @@ function drops.is(w, e: number): boolean
 	return w:has(e, "Drop")
 end
 
--- Дроп на тайле или nil (dropAt). Дропов немного, поэтому простой перебор.
+-- Дроп на тайле или nil. Дропов немного, поэтому простой перебор.
 function drops.at(w, x: number, y: number): number?
 	for _, e in w:each({ "Drop", "Position" }) do
 		local at = w:get(e, "Position")
@@ -30,8 +30,8 @@ function drops.at(w, x: number, y: number): number?
 	return nil
 end
 
--- Бросает груз на тайл под точкой (x, y): к дропу, который уже там лежит, или новым дропом (dropItems). Пустое не
--- бросают. Дроп принимает только то, что на него бросили: места ровно под груз. Возвращает дроп или nil.
+-- Бросает груз на тайл под точкой (x, y): к дропу, который уже там лежит, или новым дропом. Пустое не бросают. Дроп
+-- принимает только то, что на него бросили: места ровно под груз. Возвращает дроп или nil.
 function drops.put(w, x: number, y: number, items: { [string]: number }): number?
 	local any = false
 	for _, amount in items do
@@ -69,8 +69,8 @@ function drops.put(w, x: number, y: number, items: { [string]: number }): number
 	return fresh.entity
 end
 
--- Бросает весь груз сущности на землю под ней (dropCargo): у здания — на тайл в середине основания, у юнита — на его
--- тайл. remains — её компоненты, когда самой её уже нет (событие killed). Дроп груз не роняет.
+-- Бросает весь груз сущности на землю под ней: у здания — на тайл в середине основания, у юнита — на его тайл. remains
+-- — её компоненты, когда самой её уже нет (событие killed). Дроп груз не роняет.
 function drops.cargo(w, e: number, remains: { [string]: any }?)
 	local function get(name: string)
 		if remains then
@@ -85,7 +85,7 @@ function drops.cargo(w, e: number, remains: { [string]: any }?)
 	drops.put(w, at.x, at.y, stock.items)
 end
 
--- Уничтожает дропы под основанием, на котором встаёт здание (clearDrops): left, top — угол, тайлы.
+-- Уничтожает дропы под основанием, на котором встаёт здание: left, top — угол, тайлы.
 function drops.clear(w, left: number, top: number, width: number, height: number)
 	for _, e in w:each({ "Drop", "Position" }) do
 		local at = w:get(e, "Position")
@@ -106,7 +106,7 @@ function drops.clear(w, left: number, top: number, width: number, height: number
 	end
 end
 
--- Пустые дропы исчезают (sweepDrops).
+-- Пустые дропы исчезают.
 function drops.sweep(w)
 	for _, e in w:each({ "Drop", "Inventory" }) do
 		if goods.load(w:get(e, "Inventory")) <= EPSILON then

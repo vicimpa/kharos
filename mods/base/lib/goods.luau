@@ -54,13 +54,13 @@ function goods.isProduct(w, good: string): boolean
 	return kind ~= nil and kind.data.kind == "product"
 end
 
--- Что выходит из руды на переработке (resourceOf).
+-- Что выходит из руды на переработке.
 function goods.resourceOf(w, ore: string): string?
 	local kind = w.protos.goods[ore]
 	return kind and kind.data.resource
 end
 
--- Чем добывают ресурс (ORE_OF): металл — металлической рудой.
+-- Чем добывают ресурс: металл — металлической рудой.
 function goods.oreOf(w, resource: string): string?
 	for _, kind in goods.list(w) do
 		if kind.data.resource == resource then
@@ -72,12 +72,12 @@ end
 
 export type Stock = { items: { [string]: number }, capacity: number, accepts: { string }, limits: { [string]: number }, reserve: number }
 
--- Сколько этого груза на складе (amountOf).
+-- Сколько этого груза на складе.
 function goods.amount(stock: Stock, good: string): number
 	return stock.items[good] or 0
 end
 
--- Сколько всего на складе, любого груза вместе (loadOf).
+-- Сколько всего на складе, любого груза вместе.
 function goods.load(stock: Stock): number
 	local sum = 0
 	for _, amount in stock.items do
@@ -86,7 +86,7 @@ function goods.load(stock: Stock): number
 	return sum
 end
 
--- Сколько этого груза ещё поместится (roomFor): ноль — полон, такое сюда не кладут или его предел набран.
+-- Сколько этого груза ещё поместится: ноль — полон, такое сюда не кладут или его предел набран.
 function goods.room(stock: Stock, good: string): number
 	if #stock.accepts > 0 and not table.find(stock.accepts, good) then
 		return 0
@@ -114,7 +114,7 @@ function goods.take(stock: Stock, good: string, amount: number): number
 	return moved
 end
 
--- Склад по данным вида (equipStorage): inventory — объём, accepts, limits.
+-- Склад по данным вида: inventory — объём, accepts, limits.
 function goods.stock(data): Stock?
 	if not data.inventory then
 		return nil
@@ -122,9 +122,9 @@ function goods.stock(data): Stock?
 	return { items = {}, capacity = data.inventory, accepts = data.accepts or {}, limits = data.limits or {}, reserve = 0 }
 end
 
--- Книга системы: обёртка над ctx, у которой компоненты из names читаются один раз и дальше меняются на месте — как
--- объекты в TS: ctx:set откладывается до конца системы, а грузовики меняют склады друг друга в одном тике.
--- book:flush() пишет прочитанное разом. Остальное — как у ctx.
+-- Книга системы: обёртка над ctx, у которой компоненты из names читаются один раз и дальше меняются на месте: ctx:set
+-- откладывается до конца системы, а грузовики меняют склады друг друга в одном тике. book:flush() пишет прочитанное
+-- разом. Остальное — как у ctx.
 function goods.book(ctx, names: { string })
 	local cached: { [string]: { [number]: any } } = {}
 	for _, name in names do
@@ -191,8 +191,8 @@ function goods.book(ctx, names: { string })
 	})
 end
 
--- Значки грузов: маски 10 × 10 (goodIcons.ts). o — контур, l — светлый тон, b — основной, d — тёмный, x — вкрапление
--- цвета ресурса у руды.
+-- Значки грузов: маски 10 × 10. o — контур, l — светлый тон, b — основной, d — тёмный, x — вкрапление цвета ресурса у
+-- руды.
 local MASKS = {
 	metal = { "..........", "..........", "..oooooo..", "..ollllo..", ".olbbbbdo.", ".obbbbbdo.", "obbbbbbddo", "oooooooooo", "..........", ".........." },
 	silicon = { "....oo....", "...olbo...", "..olbbdo..", "..olbbdo..", "..olbbdo..", "..olbbdo..", "..olbbdo..", "...obdo...", "....oo....", ".........." },
@@ -218,7 +218,7 @@ local function shade(color: number, amount: number): number
 	return channel(16) * 0x10000 + channel(8) * 0x100 + channel(0)
 end
 
--- Облик груза: значок 10 × 10 (paintGood); mask — маска (у руды — "ore"), color — цвет, vein — цвет вкраплений.
+-- Облик груза: значок 10 × 10; mask — маска (у руды — "ore"), color — цвет, vein — цвет вкраплений.
 function goods.look(mask: string, color: number, vein: number?)
 	local ore = mask == "ore"
 	local base = if ore then ROCK else color

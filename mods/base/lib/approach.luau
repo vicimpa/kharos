@@ -1,27 +1,27 @@
 --!strict
--- Подъезд на длину луча — перенос approach и gapBetween из inventory.ts: юнит встаёт так, чтобы между ним и зданием,
--- площадкой или другим юнитом дотянулся луч длиной radius, — на ближайший к нему свободный тайл, откуда хватает и куда
--- можно доехать. Вплотную ему не нужно. Только хосту: прокладывает пути.
+-- Подъезд на длину луча: юнит встаёт так, чтобы между ним и зданием, площадкой или другим юнитом дотянулся луч длиной
+-- radius, — на ближайший к нему свободный тайл, откуда хватает и куда можно доехать. Вплотную ему не нужно. Только
+-- хосту: прокладывает пути.
 
 local placement = require("lib/placement")
 local construction = require("lib/construction")
 
 local approach = {}
 
--- На сколько тайлов ближе радиуса луча встаёт подъезжающий: с запасом на неточную остановку (APPROACH_MARGIN).
+-- На сколько тайлов ближе радиуса луча встаёт подъезжающий: с запасом на неточную остановку.
 approach.MARGIN = 0.5
--- Сколько мест пробуется, прежде чем сдаться (APPROACH_TRIES).
+-- Сколько мест пробуется, прежде чем сдаться.
 approach.TRIES = 4
--- Карман — замкнутый пятачок меньше стольких тайлов: места в чужом кармане не пробуются (POCKET).
+-- Карман — замкнутый пятачок меньше стольких тайлов: места в чужом кармане не пробуются.
 approach.POCKET = 48
--- В каком поле вокруг цели стоящие не мешают пути к ней, если иначе не проехать (ASIDE_REACH).
+-- В каком поле вокруг цели стоящие не мешают пути к ней, если иначе не проехать.
 approach.ASIDE = 6
--- Половина окна поиска пути: цель дальше — путь доходит лишь до края окна (beyondWindow).
+-- Половина окна поиска пути: цель дальше — путь доходит лишь до края окна.
 local HALF_WINDOW = 256
 
 export type Shape = { left: number, top: number, width: number, height: number, radius: number, x: number, y: number }
 
--- Что сущность занимает (shapeOf): основание здания или площадки, круг юнита. x, y — середина.
+-- Что сущность занимает: основание здания или площадки, круг юнита. x, y — середина.
 function approach.shape(w, e: number): Shape?
 	local at = w:get(e, "Position")
 	if not at then
@@ -35,7 +35,7 @@ function approach.shape(w, e: number): Shape?
 	return { left = at.x, top = at.y, width = 0, height = 0, radius = if mover then mover.radius else 0, x = at.x, y = at.y }
 end
 
--- Расстояние между краями двух сущностей (gapBetween); вплотную и внахлёст — ноль.
+-- Расстояние между краями двух сущностей; вплотную и внахлёст — ноль.
 function approach.gap(w, a: number, b: number): number
 	local one, two = approach.shape(w, a), approach.shape(w, b)
 	if not one or not two then
@@ -46,7 +46,7 @@ function approach.gap(w, a: number, b: number): number
 	return math.max(0, math.sqrt(dx * dx + dy * dy) - one.radius - two.radius)
 end
 
--- Тайлы, где стоят юниты, кроме ignore (standingUnits): radius — запас вокруг.
+-- Тайлы, где стоят юниты, кроме ignore: radius — запас вокруг.
 local function standing(ctx, ignore: number, radius: number): { [string]: boolean }
 	local tiles = {}
 	for _, e in ctx:each({ "Unit", "Position", "Mover" }) do

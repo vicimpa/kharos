@@ -1,10 +1,10 @@
 --!strict
--- Хозяйство энергосетей — перенос income.ts, общий хосту (ctx) и клиенту (c): сколько энергии сеть даёт и просит,
--- на какую долю работают потребители, перегруз электростанций, доход и подмога главного здания. Энергосети считает
--- движок (w:grids()): связные здания игрока, слитые по касанию кругов; энергия у каждой своя. Что меняет мир —
--- накопители, метка «занят», доход и износ — mechanics/economy.
+-- Хозяйство энергосетей, общий хосту (ctx) и клиенту (c): сколько энергии сеть даёт и просит, на какую долю работают
+-- потребители, перегруз электростанций, доход и подмога главного здания. Энергосети считает движок (w:grids()): связные
+-- здания игрока, слитые по касанию кругов; энергия у каждой своя. Что меняет мир — накопители, метка «занят», доход и
+-- износ — mechanics/economy.
 --
--- Пока нет: реакторов (стержни горят с В8 — до тех пор реактор энергии не даёт), уровней зданий (улучшения), дохода игроку не в сети (сетевой хост).
+-- Пока нет: дохода игроку не в сети (сетевой хост).
 
 local kinds = require("lib/kinds")
 local levels = require("lib/levels")
@@ -15,11 +15,11 @@ local economy = {}
 -- секунду вместо обычного дохода.
 economy.RELIEF_BELOW = 600
 economy.RELIEF_INCOME = 1
--- Какую долю своей энергии просит потребитель, которому нечего делать (IDLE_SHARE).
+-- Какую долю своей энергии просит потребитель, которому нечего делать.
 economy.IDLE_SHARE = 1 / 3
--- Какую долю прочности в секунду теряет электростанция, когда полная нагрузка вдвое больше выработки (OVERLOAD_DAMAGE).
+-- Какую долю прочности в секунду теряет электростанция, когда полная нагрузка вдвое больше выработки.
 economy.OVERLOAD_DAMAGE = 0.01
--- Главное здание: без него в сети генераторы материи дохода не приносят (CORE).
+-- Главное здание: без него в сети генераторы материи дохода не приносят.
 economy.CORE = "command"
 
 export type Economy = {
@@ -45,22 +45,22 @@ local function blank(): Economy
 end
 
 -- Сколько энергии просит без дела потребитель, которому в работе нужно power (меньше нуля): треть, целым числом в
--- большую сторону (idlePower).
+-- большую сторону.
 function economy.idlePower(power: number): number
 	return -math.ceil(-power * economy.IDLE_SHARE)
 end
 
--- Потребитель без простоя: пока включён, работает — генератор материи, радар (alwaysBusy).
+-- Потребитель без простоя: пока включён, работает — генератор материи, радар.
 function economy.alwaysBusy(data): boolean
 	return (data.income ~= nil and data.income ~= 0) or (data.scan ~= nil and data.scan ~= 0)
 end
 
--- Можно ли здание вида kind выключать: потребитель энергии или реактор (isSwitchable).
+-- Можно ли здание вида kind выключать: потребитель энергии или реактор.
 function economy.switchable(kind): boolean
 	return (kind.data.power or 0) < 0 or kind.data.burns ~= nil
 end
 
--- Выключил ли игрок потребителя (switchedOff): у цеха — свой флаг.
+-- Выключил ли игрок потребителя: у цеха — свой флаг.
 function economy.switchedOff(w, e: number): boolean
 	local assembly = w:get(e, "Assembly")
 	if assembly then
@@ -69,20 +69,20 @@ function economy.switchedOff(w, e: number): boolean
 	return w:has(e, "Off")
 end
 
--- Своё готовое выключенное здание (shutDown): так оно и показано — темнее и со значком.
+-- Своё готовое выключенное здание: так оно и показано — темнее и со значком.
 function economy.shutDown(w, player: number, e: number): boolean
 	local owner = w:get(e, "Owner")
 	return owner ~= nil and owner.player == player and not w:has(e, "Site") and economy.switchedOff(w, e)
 end
 
--- Горит ли в реакторе стержень (isBurning): тогда он вырабатывает энергию. У других зданий — false.
+-- Горит ли в реакторе стержень: тогда он вырабатывает энергию. У других зданий — false.
 function economy.burning(w, e: number): boolean
 	local reactor = w:get(e, "Reactor")
 	return reactor ~= nil and reactor.left > 0 and not w:has(e, "Off")
 end
 
--- Сколько энергии даёт (больше нуля) или просит (меньше) здание (powerAt). Реактор — только пока горит стержень.
--- Выработка растёт с уровнем; у радара — потребление: дальше разведывает — больше ест.
+-- Сколько энергии даёт (больше нуля) или просит (меньше) здание. Реактор — только пока горит стержень. Выработка растёт
+-- с уровнем; у радара — потребление: дальше разведывает — больше ест.
 function economy.powerAt(w, e: number, kind): number
 	local data = kind.data
 	if data.burns then
@@ -92,7 +92,7 @@ function economy.powerAt(w, e: number, kind): number
 	return if power > 0 or data.scan then power * levels.factorOf(w, e) else power
 end
 
--- Приносит ли вид доход только при главном здании в сети: все доходные, кроме самого главного (needsCore).
+-- Приносит ли вид доход только при главном здании в сети: все доходные, кроме самого главного.
 local function needsCore(kind): boolean
 	return kind.name ~= economy.CORE and (kind.data.income or 0) ~= 0
 end
@@ -103,8 +103,8 @@ local function hasCore(w, members: { number }): boolean
 	return kind ~= nil and kind.name == economy.CORE
 end
 
--- Хозяйство энергосети (economyOfZone). stored — считать ли то, что отдают накопители: сами они решают, сколько отдать,
--- по хозяйству без себя.
+-- Хозяйство энергосети. stored — считать ли то, что отдают накопители: сами они решают, сколько отдать, по хозяйству
+-- без себя.
 function economy.ofGrid(w, members: { number }, stored: boolean): Economy
 	local result = blank()
 	local core = hasCore(w, members)
@@ -169,8 +169,8 @@ local function creditsOf(w, player: number): number
 	return 0
 end
 
--- Хозяйства идущего тика: считаются раз на тик и мир, а не каждым, кто спросил (openBooks). У хоста мир — его память
--- (storage), у клиента — номер пересчёта сетей.
+-- Хозяйства идущего тика: считаются раз на тик и мир, а не каждым, кто спросил. У хоста мир — его память (storage), у
+-- клиента — номер пересчёта сетей.
 local cache: { key: any, tick: number, version: number, books: { Book }, supply: { [number]: number }? }? = nil
 
 -- Забыть посчитанное в этом тике: накопители решили, сколько отдают, — хозяйства другие.
@@ -207,7 +207,7 @@ function economy.books(w): { Book }
 	return result
 end
 
--- Хозяйства сетей одного игрока по порядку (zoneEconomies).
+-- Хозяйства сетей одного игрока по порядку.
 function economy.zones(w, player: number): { Economy }
 	local list = {}
 	for _, book in economy.books(w) do
@@ -218,7 +218,7 @@ function economy.zones(w, player: number): { Economy }
 	return list
 end
 
--- Итог по всем сетям игрока (economyOf): для дохода — то, что он получает, энергию так складывать — только для справки.
+-- Итог по всем сетям игрока: для дохода — то, что он получает, энергию так складывать — только для справки.
 function economy.of(w, player: number): Economy
 	local total = blank()
 	for _, book in economy.books(w) do
@@ -246,13 +246,13 @@ function economy.gridOf(w, e: number): (number?, Economy?)
 	return nil, nil
 end
 
--- Как здание вида kind изменит баланс энергии сети с хозяйством e (powerOf): тесное просит за всех тесных.
+-- Как здание вида kind изменит баланс энергии сети с хозяйством e: тесное просит за всех тесных.
 function economy.powerOf(kind, e: Economy): number
 	local power = kind.data.power or 0
 	return if power < 0 and kind.data.crowding then power * (e.crowd + 1) else power
 end
 
--- То же для здания без дела (idlePowerOf).
+-- То же для здания без дела.
 function economy.idlePowerOf(kind, e: Economy): number
 	local power = kind.data.power or 0
 	if power >= 0 or economy.alwaysBusy(kind.data) then
@@ -261,14 +261,14 @@ function economy.idlePowerOf(kind, e: Economy): number
 	return economy.idlePower(power) * (if kind.data.crowding then e.crowd + 1 else 1)
 end
 
--- Насколько сеть перегружена (overloadOf): 0 — энергии хватает и на полную нагрузку, 1 — полная нагрузка вдвое больше
--- того, что есть с запасом накопителей, и выше.
+-- Насколько сеть перегружена: 0 — энергии хватает и на полную нагрузку, 1 — полная нагрузка вдвое больше того, что есть
+-- с запасом накопителей, и выше.
 function economy.overloadOf(e: Economy): number
 	local able = e.produced + e.spare
 	return if e.produced > 0 and e.peak > able then math.min(1, e.peak / able - 1) else 0
 end
 
--- Здания, которым не хватает энергии (powerStates): электростанция — "overload", потребитель — "starved".
+-- Здания, которым не хватает энергии: электростанция — "overload", потребитель — "starved".
 function economy.states(w): { [number]: string }
 	local states = {}
 	for _, book in economy.books(w) do
@@ -291,8 +291,8 @@ function economy.states(w): { [number]: string }
 	return states
 end
 
--- На какую долю от полной скорости работает каждый потребитель энергии (powerSupply): 1 — хватает. Вне энергосети и
--- выключенного здесь нет — он не работает.
+-- На какую долю от полной скорости работает каждый потребитель энергии: 1 — хватает. Вне энергосети и выключенного
+-- здесь нет — он не работает.
 function economy.supply(w): { [number]: number }
 	local books = economy.books(w)
 	local found = cache
@@ -342,8 +342,8 @@ function economy.coreless(w): { [number]: boolean }
 	return idle
 end
 
--- Электростанции, которым есть что питать (loadedPlants): в каждой сети — столько, сколько нужно на её спрос сверх
--- отданного накопителями, начиная с ближайших к середине потребителей. Только картинка: энергия у сети общая.
+-- Электростанции, которым есть что питать: в каждой сети — столько, сколько нужно на её спрос сверх отданного
+-- накопителями, начиная с ближайших к середине потребителей. Только картинка: энергия у сети общая.
 function economy.loadedPlants(w): { [number]: boolean }
 	local loaded = {}
 	for _, book in economy.books(w) do
@@ -394,8 +394,7 @@ function economy.loadedPlants(w): { [number]: boolean }
 	return loaded
 end
 
--- Электростанции сетей, где энергии не хватило бы и целым станциям (overbuiltPlants): чинить такие бесполезно, пока
--- перегруз не снят.
+-- Электростанции сетей, где энергии не хватило бы и целым станциям: чинить такие бесполезно, пока перегруз не снят.
 function economy.overbuilt(w): { [number]: boolean }
 	local plants = {}
 	for _, book in economy.books(w) do

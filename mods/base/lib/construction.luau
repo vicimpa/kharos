@@ -1,7 +1,7 @@
 --!strict
--- Правила стройки из construction.ts и buildings.ts, общие хосту (ctx) и клиенту (c): что игроку открыто, где можно
--- заложить здание, сколько работы и кредитов уходит на стройку, разбор и починку, на каких стройках кредитов не
--- хватит. Как идёт работа — mechanics/construction.
+-- Правила стройки, общие хосту (ctx) и клиенту (c): что игроку открыто, где можно заложить здание, сколько работы и
+-- кредитов уходит на стройку, разбор и починку, на каких стройках кредитов не хватит. Как идёт работа —
+-- mechanics/construction.
 
 local placement = require("lib/placement")
 local zones = require("lib/zones")
@@ -14,14 +14,14 @@ local surface = require("lib/surface")
 
 local construction = {}
 
--- Сколько кредитов цены вкладывает в секунду один строитель (BUILD_RATE): из цены считается время стройки.
+-- Сколько кредитов цены вкладывает в секунду один строитель: из цены считается время стройки.
 construction.BUILD_RATE = 20
--- С какой доли прочности начинается недостроенное здание: ноль значил бы, что оно уже разбито (SITE_FLOOR).
+-- С какой доли прочности начинается недостроенное здание: ноль значил бы, что оно уже разбито.
 construction.SITE_FLOOR = 0.02
 -- Какую долю цены возвращает разбор готового здания и во сколько раз разбирать быстрее, чем строить.
 construction.DEMOLISH_REFUND = 0.5
 construction.DEMOLISH_SPEED = 1.5
--- Доля прочности обороны на песке (SAND_DURABILITY).
+-- Доля прочности обороны на песке.
 construction.SAND_DURABILITY = 0.7
 
 -- Виды местности (terrain).
@@ -32,7 +32,7 @@ local function round(x: number): number
 	return math.floor(x + 0.5)
 end
 
--- Правила партии (data.rules) с числами по умолчанию (DEFAULT_RULES).
+-- Правила партии (data.rules) с числами по умолчанию.
 function construction.rules(w)
 	local rules = w.game.data and w.game.data.rules or {}
 	return {
@@ -43,12 +43,12 @@ function construction.rules(w)
 	}
 end
 
--- Сколько тиков работы одного строителя нужно на то, что стоит cost кредитов (workTicks).
+-- Сколько тиков работы одного строителя нужно на то, что стоит cost кредитов.
 function construction.workTicks(cost: number, dt: number): number
 	return round(cost / construction.BUILD_RATE / dt)
 end
 
--- Сколько тиков работы одного строителя нужно на здание вида kind (siteTicks).
+-- Сколько тиков работы одного строителя нужно на здание вида kind.
 function construction.siteTicks(kind, dt: number): number
 	return construction.workTicks(kind.data.cost, dt)
 end
@@ -69,13 +69,13 @@ function construction.credits(w, player: number): number
 	return if state then state.credits else 0
 end
 
--- Своё и готовое: здание игрока, которое не строится и не разбирается (isReady).
+-- Своё и готовое: здание игрока, которое не строится и не разбирается.
 function construction.isReady(w, player: number, e: number): boolean
 	local owner = w:get(e, "Owner")
 	return w:has(e, "Building") and w:has(e, "Footprint") and not w:has(e, "Site") and owner ~= nil and owner.player == player
 end
 
--- Каких готовых зданий из списка needs у игрока нет — имена (missingBuildings).
+-- Каких готовых зданий из списка needs у игрока нет — имена.
 function construction.missing(w, player: number, needs: { string }?): { string }
 	if not needs or #needs == 0 then
 		return {}
@@ -96,8 +96,7 @@ function construction.missing(w, player: number, needs: { string }?): { string }
 	return missing
 end
 
--- Открыта ли игроку тема исследований: без темы и без дерева технологий — да. Исследований пока нет (В6): тема,
--- которой нет в Player.research, закрыта.
+-- Открыта ли игроку тема исследований: без темы и без дерева технологий — да; иначе — если она есть в Player.research.
 function construction.researched(w, player: number, topic: string?): boolean
 	if topic == nil or not construction.rules(w).techTree then
 		return true
@@ -107,12 +106,12 @@ function construction.researched(w, player: number, topic: string?): boolean
 	return type(known) == "table" and table.find(known, topic) ~= nil
 end
 
--- Строят ли этот вид строители: у него есть место в меню (BUILDABLE).
+-- Строят ли этот вид строители: у него есть место в меню.
 function construction.buildable(kind): boolean
 	return kind ~= nil and kind.data ~= nil and kind.data.menu ~= nil
 end
 
--- Открыто ли игроку здание: строится строителями, все нужные для него здания стоят, исследование открыто (isUnlocked).
+-- Открыто ли игроку здание: строится строителями, все нужные для него здания стоят, исследование открыто.
 function construction.unlocked(w, player: number, kind): boolean
 	if not construction.buildable(kind) then
 		return false
@@ -123,7 +122,7 @@ function construction.unlocked(w, player: number, kind): boolean
 	return #construction.missing(w, player, kind.data.requires) == 0 and construction.researched(w, player, kind.data.research)
 end
 
--- Здания, которые строят строители, по порядку меню (BUILDABLE).
+-- Здания, которые строят строители, по порядку меню.
 function construction.menu(w): { any }
 	local list = {}
 	for _, kind in w.protos.buildings do
@@ -137,19 +136,19 @@ function construction.menu(w): { any }
 	return list
 end
 
--- Нужна ли зданию своя зона: здание с собственной зоной начинает новую, оборону и трубы ставят где угодно, лишь бы не
--- в чужой зоне (needsZone).
+-- Нужна ли зданию своя зона: здание с собственной зоной начинает новую, оборону и трубы ставят где угодно, лишь бы не в
+-- чужой зоне.
 function construction.needsZone(kind): boolean
 	local data = kind.data
 	return data.zone == nil and not data.defense and not data.pipe
 end
 
--- Стоит ли стройка здесь без зоны: здание её требует, а в зоне игрока его нет (outOfControl).
+-- Стоит ли стройка здесь без зоны: здание её требует, а в зоне игрока его нет.
 function construction.outOfControl(w, player: number, kind, x: number, y: number, all: { [number]: { number } }?): boolean
 	return construction.needsZone(kind) and not zones.inControl(w, player, x, y, kind.data.width, kind.data.height, all)
 end
 
--- Остался ли запас в месторождении ровно под основанием с левым верхним тайлом (x, y) (reserveLeft).
+-- Остался ли запас в месторождении ровно под основанием с левым верхним тайлом (x, y).
 local function reserveLeft(w, x: number, y: number): number
 	local cx, cy = x + depositsLib.SIZE / 2, y + depositsLib.SIZE / 2
 	for _, e in w:each({ "Deposit", "Position" }) do
@@ -162,7 +161,7 @@ local function reserveLeft(w, x: number, y: number): number
 end
 
 -- Может ли игрок заложить здание вида kind с левым верхним тайлом (x, y): оно открыто, место годится, лежит в своей
--- зоне (если она зданию нужна) и не задевает чужую; шахта — ровно на месторождение с запасом (canBuild).
+-- зоне (если она зданию нужна) и не задевает чужую; шахта — ровно на месторождение с запасом.
 function construction.canBuild(w, player: number, kind, x: number, y: number): boolean
 	if not construction.unlocked(w, player, kind) or not placement.canPlace(w, kind, x, y) then
 		return false
@@ -177,11 +176,11 @@ function construction.canBuild(w, player: number, kind, x: number, y: number): b
 	return not construction.outOfControl(w, player, kind, x, y, all)
 end
 
--- Недостача материалов меньше этого считается погрешностью (MATERIAL_EPSILON).
+-- Недостача материалов меньше этого считается погрешностью.
 construction.MATERIAL_EPSILON = 1e-6
 
--- Какую долю стройки позволяют привезённые материалы, от 0 до 1 (materialShare): дальше привезённого не строят.
--- Здание без материалов строится целиком; крошечная недостача считается привезённой.
+-- Какую долю стройки позволяют привезённые материалы, от 0 до 1: дальше привезённого не строят. Здание без материалов
+-- строится целиком; крошечная недостача считается привезённой.
 function construction.materialShare(w, e: number): number
 	local site = w:get(e, "Site")
 	local kind = site and kinds.of(w, e)
@@ -200,7 +199,7 @@ function construction.materialShare(w, e: number): number
 	return share
 end
 
--- Стройка дошла до того, что позволяют привезённые материалы, и ждёт подвоза (awaitsMaterials).
+-- Стройка дошла до того, что позволяют привезённые материалы, и ждёт подвоза.
 function construction.awaitsMaterials(w, e: number): boolean
 	local site = w:get(e, "Site")
 	if not site or site.demolish then
@@ -210,7 +209,7 @@ function construction.awaitsMaterials(w, e: number): boolean
 	return share < 1 and site.progress >= site.total * share - 1e-9
 end
 
--- Склад площадки под материалы (orderBuild): ровно столько, сколько их нужно.
+-- Склад площадки под материалы: ровно столько, сколько их нужно.
 function construction.siteStock(kind)
 	local materials = kind.data.materials
 	if not materials then
@@ -225,10 +224,10 @@ function construction.siteStock(kind)
 	return { items = {}, capacity = total, accepts = accepts, limits = table.clone(materials), reserve = 0 }
 end
 
--- Дальше скольких тайлов протяжку не кладут разом (PAVE_LIMIT).
+-- Дальше скольких тайлов протяжку не кладут разом.
 construction.STROKE_LIMIT = 400
 
--- Своя труба или колодец в тайле — готовые, строящиеся или заложенные (pipeAt); разбираемые — нет.
+-- Своя труба или колодец в тайле — готовые, строящиеся или заложенные; разбираемые — нет.
 function construction.pipeAt(w, player: number, x: number, y: number): number?
 	local e = w:occupant(x, y) or construction.siteAt(w, x, y)
 	if not e then
@@ -243,15 +242,15 @@ function construction.pipeAt(w, player: number, x: number, y: number): number?
 	return e
 end
 
--- Своя труба другого вида в тайле: новая ложится вместо неё (pipeSwap).
+-- Своя труба другого вида в тайле: новая ложится вместо неё.
 function construction.pipeSwap(w, player: number, kind, x: number, y: number): number?
 	local e = construction.pipeAt(w, player, x, y)
 	local other = e and kinds.of(w, e)
 	return if other and other.name ~= kind.name then e else nil
 end
 
--- Какие тайлы протянутой трубы или колодца можно заложить, по тайлу (pipeStroke): место годится под трубу или там своя
--- труба другого вида, и не в чужой зоне. Своя зона трубе не нужна.
+-- Какие тайлы протянутой трубы или колодца можно заложить, по тайлу: место годится под трубу или там своя труба другого
+-- вида, и не в чужой зоне. Своя зона трубе не нужна.
 function construction.pipeStroke(w, player: number, tiles: { number }, kind): { boolean }
 	local taken = {}
 	local allowed = {}
@@ -271,7 +270,7 @@ function construction.pipeStroke(w, player: number, tiles: { number }, kind): { 
 	return allowed
 end
 
--- Какие тайлы протянутой стены или ворот можно заложить (wallStroke).
+-- Какие тайлы протянутой стены или ворот можно заложить.
 function construction.wallStroke(w, player: number, tiles: { number }, kind): { boolean }
 	local taken = {}
 	local allowed = {}
@@ -287,7 +286,7 @@ function construction.wallStroke(w, player: number, tiles: { number }, kind): { 
 	return allowed
 end
 
--- Годятся ли тайлы концами подземного отрезка: два тайла на одной прямой, от 2 до UNDERGROUND_REACH (isWellPair).
+-- Годятся ли тайлы концами подземного отрезка: два тайла на одной прямой, от 2 до UNDERGROUND_REACH.
 function construction.isWellPair(tiles: { number }): boolean
 	if #tiles ~= 4 then
 		return false
@@ -297,7 +296,7 @@ function construction.isWellPair(tiles: { number }): boolean
 	return (ax == bx or ay == by) and length >= 2 and length <= 10
 end
 
--- Каким концам пары колодцев уже стоит свой колодец: такой конец не закладывают заново (wellsKept).
+-- Каким концам пары колодцев уже стоит свой колодец: такой конец не закладывают заново.
 function construction.wellsKept(w, player: number, tiles: { number }): { boolean }
 	local kept = {}
 	for i = 1, #tiles - 1, 2 do
@@ -315,7 +314,7 @@ function construction.corner(w, e: number): (number, number)
 	return placement.left(at.x, size.width), placement.left(at.y, size.height)
 end
 
--- Стройка или разбор на тайле (x, y): сущность с Site, чьё основание его накрывает (siteAt); нет — nil.
+-- Стройка или разбор на тайле (x, y): сущность с Site, чьё основание его накрывает; нет — nil.
 function construction.siteAt(w, x: number, y: number): number?
 	for _, e in w:each({ "Site", "Building", "Position" }) do
 		local size = w:get(e, "Building")
@@ -337,7 +336,7 @@ local function owed(w, e: number): number
 	return kind.data.cost * math.max(0, 1 - site.progress / site.total)
 end
 
--- Свободные кредиты: на счету за вычетом того, что игрок ещё доплатит за свои стройки (freeCredits).
+-- Свободные кредиты: на счету за вычетом того, что игрок ещё доплатит за свои стройки.
 function construction.freeCredits(w, player: number): number
 	local total = 0
 	for _, e in w:each({ "Site", "Owner" }) do
@@ -349,7 +348,7 @@ function construction.freeCredits(w, player: number): number
 end
 
 -- Свои стройки, которым не хватит кредитов на счету: кредиты раздаются по порядку закладки, каждой — на остаток её
--- цены (sitesShortOfCredits). Так значок «ждёт кредитов» не мигает, пока доход приносит кредит, а стройка его тратит.
+-- цены. Так значок «ждёт кредитов» не мигает, пока доход приносит кредит, а стройка его тратит.
 function construction.short(w, player: number): { [number]: boolean }
 	local short = {}
 	local budget = construction.credits(w, player)
@@ -376,14 +375,14 @@ function construction.progress(w, e: number): number
 	return math.min(1, site.progress / site.total)
 end
 
--- Сколько кредитов вернёт разбор здания вида kind уровня level: доля его цены и вложенного в уровни (refundOf).
+-- Сколько кредитов вернёт разбор здания вида kind уровня level: доля его цены и вложенного в уровни.
 function construction.refundOf(kind, level: number?): number
 	return math.floor((kind.data.cost + levels.spent(kind, level or 1)) * construction.DEMOLISH_REFUND)
 end
 
--- Сколько кредитов здание держит оплаченными вперёд: очередь юнитов и закупка с орбиты (prepaidOf). Разбор их возвращает.
+-- Сколько кредитов здание держит оплаченными вперёд: очередь юнитов и закупка с орбиты. Разбор их возвращает.
 function construction.prepaidOf(w, e: number): number
-	-- Оплаченная закупка с орбиты, чей корабль не прилетел (refundPurchase).
+	-- Оплаченная закупка с орбиты, чей корабль не прилетел.
 	local order = w:get(e, "Trade")
 	local paid = if order and order.buy then order.wanted * trade.buyPrice(w, order.resource) else 0
 	local producer = w:get(e, "Producer")
@@ -399,7 +398,7 @@ function construction.prepaidOf(w, e: number): number
 	return paid
 end
 
--- Может ли игрок разобрать здание: своё, готовое и не главное — главное сворачивают в MCV (canDemolish).
+-- Может ли игрок разобрать здание: своё, готовое и не главное — главное сворачивают в MCV.
 function construction.canDemolish(w, player: number, e: number): boolean
 	if not construction.isReady(w, player, e) or w:has(e, "Converting") then
 		return false
@@ -407,7 +406,7 @@ function construction.canDemolish(w, player: number, e: number): boolean
 	return not kinds.is(w, e, conversion.building(w))
 end
 
--- Можно ли это чинить: готовое повреждённое здание или юнит, чья прочность чинится (isRepairable).
+-- Можно ли это чинить: готовое повреждённое здание или юнит, чья прочность чинится.
 function construction.isRepairable(w, e: number): boolean
 	if construction.rules(w).repairSpeed <= 0 then
 		return false
@@ -416,19 +415,19 @@ function construction.isRepairable(w, e: number): boolean
 	return health ~= nil and health.repairable and health.value < health.max and not w:has(e, "Site") and not w:has(e, "Converting")
 end
 
--- Может ли игрок послать строителей чинить это (canRepair).
+-- Может ли игрок послать строителей чинить это.
 function construction.canRepair(w, player: number, e: number): boolean
 	local owner = w:get(e, "Owner")
 	return owner ~= nil and owner.player == player and construction.isRepairable(w, e)
 end
 
--- Сколько кредитов стоит дочинить: share — доля цены за починку с нуля (repairCostOf).
+-- Сколько кредитов стоит дочинить: share — доля цены за починку с нуля.
 function construction.repairCostOf(cost: number, health: number, share: number, max: number?): number
 	return math.ceil(cost * share * ((max or 1) - health))
 end
 
--- Предел прочности здания на этом месте: оборона на песке без фундамента — SAND_DURABILITY (durabilityOf); для
--- многотайловой обороны достаточно одного песчаного тайла под основанием.
+-- Предел прочности здания на этом месте: оборона на песке без фундамента — SAND_DURABILITY; для многотайловой обороны
+-- достаточно одного песчаного тайла под основанием.
 function construction.durabilityOf(w, kind, x: number, y: number): number
 	if not kind.data.defense then
 		return 1

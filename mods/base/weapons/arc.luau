@@ -1,6 +1,5 @@
 --!strict
 -- Разряд бьёт цель и перескакивает на соседей: против толпы.
--- Данные — packages/base/data/weapons.json.
 
 return {
 	data = {

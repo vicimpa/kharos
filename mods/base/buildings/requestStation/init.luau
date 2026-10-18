@@ -1,6 +1,5 @@
 --!strict
 -- Станция запроса: держит заказанный игроком груз там, где он нужен, — у дальней стройки, у турелей, у армии.
--- Данные — packages/base/data/buildings.json, облик — look.luau.
 
 local buildings = require("lib/buildings")
 

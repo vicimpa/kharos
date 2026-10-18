@@ -44,7 +44,7 @@ function wallet.refund(ctx, player: number, amount: number)
 end
 
 -- Кошелёк одной системы: ctx:set откладывается до конца системы, поэтому несколько трат за её ход считаются здесь и
--- пишутся разом (flush). Целые кредиты — credits, дробная часть — earned, как spend и earn в economy.ts.
+-- пишутся разом (flush). Целые кредиты — credits, дробная часть — earned.
 export type Purse = { ctx: any, players: { [number]: { entity: number, credits: number, earned: number, dirty: boolean } } }
 
 function wallet.purse(ctx): Purse
@@ -102,7 +102,7 @@ function wallet.earn(purse: Purse, player: number, amount: number)
 	it.dirty = true
 end
 
--- Начисляет целую сумму сразу на счёт (addCredits).
+-- Начисляет целую сумму сразу на счёт.
 function wallet.add(purse: Purse, player: number, amount: number)
 	local it = account(purse, player)
 	if it then

@@ -1,6 +1,6 @@
 --!strict
--- Параметры вида юнита для карточек и панели — перенос packages/client/src/ui/unitStats.ts: строки собираются из данных
--- вида, а не пишутся текстом — поменяются числа, поменяется и карточка. Оружейные строки добавятся с боем.
+-- Параметры вида юнита для карточек и панели: строки собираются из данных вида, а не пишутся текстом — поменяются
+-- числа, поменяется и карточка. Оружейных строк пока нет.
 
 local stats = {}
 
@@ -58,7 +58,7 @@ function stats.unit(c, kind): { Row }
 	return rows
 end
 
--- Параметры одним текстом, строка на параметр: для всплывающей подсказки (unitStatsText).
+-- Параметры одним текстом, строка на параметр: для всплывающей подсказки.
 function stats.text(c, kind): string
 	local lines = {}
 	for _, row in stats.unit(c, kind) do
@@ -67,7 +67,7 @@ function stats.text(c, kind): string
 	return table.concat(lines, "\n")
 end
 
--- Главное одной строкой — для панели выбранного (unitStatsLine).
+-- Главное одной строкой — для панели выбранного.
 function stats.line(c, kind): string
 	local brief = { hp = true, speed = true, sight = true, cargo = true, damage = true, range = true }
 	local parts = {}

@@ -1,7 +1,7 @@
 --!strict
--- Рисунок покрытия (pavingPass.ts, paveCanvas в portraits.ts): тайл 16×16 фундамента, дороги и моста на каждый набор
--- соседей — битами сверху 1, справа 2, снизу 4, слева 8; край рисуется там, где соседа того же вида нет. Из тех же
--- тайлов — значки тем и кнопок (icons/foundation, roads, bridges, remove).
+-- Рисунок покрытия: тайл 16×16 фундамента, дороги и моста на каждый набор соседей — битами сверху 1, справа 2, снизу 4,
+-- слева 8; край рисуется там, где соседа того же вида нет. Из тех же тайлов — значки тем и кнопок (icons/foundation,
+-- roads, bridges, remove).
 
 local paveArt = {}
 
@@ -112,7 +112,7 @@ function paveArt.draw(g, look: string, mask: number)
 	DRAW[look](g, mask)
 end
 
--- Тайлы значков 32×32 (PAVE_TILES): площадка 2×2 фундамента, полоса дороги или моста посередине.
+-- Тайлы значков 32×32: площадка 2×2 фундамента, полоса дороги или моста посередине.
 local ICONS = {
 	foundation = { { { "foundation", 6 }, { "foundation", 12 } }, { { "foundation", 3 }, { "foundation", 9 } } },
 	remove = { { { "foundation", 6 }, { "foundation", 12 } }, { { "foundation", 3 }, { "foundation", 9 } } },
@@ -124,7 +124,7 @@ local ICONS = {
 
 local OUTLINE = 0x1a1410
 
--- Гора с киркой: треугольник скалы со снежной шапкой и кирка поперёк (drawPeakIcon).
+-- Гора с киркой: треугольник скалы со снежной шапкой и кирка поперёк.
 local function peakIcon(g)
 	for row = 0, 19 do
 		local half = math.floor(row * 0.7 + 0.5) + 1
@@ -143,7 +143,7 @@ local function peakIcon(g)
 	g:line(17, 7, 28, 15, 3, 0xc8ccd0)
 end
 
--- Обрыв со спуском: уступ плато слева, земля справа, между ними — пологий пандус (drawCliffIcon).
+-- Обрыв со спуском: уступ плато слева, земля справа, между ними — пологий пандус.
 local function cliffIcon(g)
 	g:rect(2, 9, 15, 19, OUTLINE)
 	g:rect(3, 10, 13, 17, 0x9a8a74)
@@ -159,8 +159,8 @@ local function cliffIcon(g)
 	g:line(25, 16, 20, 16, 2, 0xe0902c)
 end
 
--- Значок 32×32 (paveCanvas): foundation, road, bridge, remove — плиты с красным крестом, peak — гора с киркой, cliff —
--- обрыв со спуском.
+-- Значок 32×32: foundation, road, bridge, remove — плиты с красным крестом, peak — гора с киркой, cliff — обрыв со
+-- спуском.
 function paveArt.icon(g, icon: string)
 	local rows = ICONS[icon]
 	local top = (32 - #rows * TILE) / 2

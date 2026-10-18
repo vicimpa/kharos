@@ -1,8 +1,8 @@
 --!strict
--- Правки редактора — перенос editor.ts и editOps.ts: режим бога. Мир в редакторе стоит (тиков нет), приказ `edit`
--- хост выполняет сразу; правки не проверяются на деньги, технологии и строителей, но правила места — те же, что в игре:
--- здание не встаёт туда, где его нельзя построить, юнит — туда, где ему не стоять. Правка — { op, ... }, как EditOp;
--- что не удалось, уходит сигналом edit_failed с причиной (раздел host словаря TS).
+-- Правки редактора: режим бога. Мир в редакторе стоит (тиков нет), приказ `edit` хост выполняет сразу; правки не
+-- проверяются на деньги, технологии и строителей, но правила места — те же, что в игре: здание не встаёт туда, где его
+-- нельзя построить, юнит — туда, где ему не стоять. Правка — { op, ... }; что не удалось, уходит сигналом edit_failed с
+-- причиной.
 
 local deposits = require("lib/deposits")
 local editor = require("lib/editor")
@@ -39,7 +39,7 @@ local function alive(ctx, list): { number }
 	return found
 end
 
--- Заводит игрока, если его ещё нет (addCredits(…, 0) в TS): у него есть Player.
+-- Заводит игрока, если его ещё нет: у него есть Player.
 local function ensurePlayer(ctx, player: number)
 	if player <= 0 then
 		return
@@ -65,7 +65,7 @@ local function playerEntity(ctx, player: number): number?
 	return nil
 end
 
--- Хранимые байты тайла не-горы (setTile): вид, биом, ярус, кромка, барханы (только у песка).
+-- Хранимые байты тайла не-горы: вид, биом, ярус, кромка, барханы (только у песка).
 local function tileBytes(terrain: number, biome: number, tier: number, cliff: boolean, dunes: number): { number }
 	local dune = if terrain == SAND then bit32.lshift(dunes, DUNE_SHIFT) else 0
 	return { terrain, biome, 0, bit32.bor(bit32.band(tier, 3), if cliff then CLIFF_BIT else 0, dune) }
@@ -150,7 +150,7 @@ local function erase(ctx, e: number)
 end
 
 -- Переставляет здание: занятость тайлов и сети следят за составом мира, а не за местом — снять и вернуть основание и
--- связь (resetZones).
+-- связь.
 local function rebuild(ctx, e: number)
 	local footprint, link = ctx:get(e, "Footprint"), ctx:get(e, "Link")
 	if footprint then
@@ -169,7 +169,7 @@ local function rebuild(ctx, e: number)
 	ctx:flush()
 end
 
--- Ставит юнит вида name игроку player на тайл (x, y), если ему там стоять (putUnit).
+-- Ставит юнит вида name игроку player на тайл (x, y), если ему там стоять.
 local function canPut(ctx, name: string, x: number, y: number): boolean
 	local unit = ctx.protos.units[name]
 	if not unit then
@@ -182,7 +182,7 @@ local function canPut(ctx, name: string, x: number, y: number): boolean
 	return ctx:can_stand(if class == "infantry" then "infantry" else "vehicle", x, y)
 end
 
--- Сдвигает юниты, здания и месторождения вместе на (dx, dy) тайлов: всё или ничего (moveGroup).
+-- Сдвигает юниты, здания и месторождения вместе на (dx, dy) тайлов: всё или ничего.
 local function moveGroup(ctx, entities: { number }, dx: number, dy: number, spots: { editor.Spot }): boolean
 	if dx == 0 and dy == 0 then
 		return true
@@ -268,7 +268,7 @@ local function spawnDeposit(ctx, x: number, y: number, kind: string, reserve: nu
 	ctx:flush()
 end
 
--- Правки по имени (applyEdit).
+-- Правки по имени.
 local OPS = {
 	paint = function(ctx, edit)
 		paint(ctx, math.floor(edit.x), math.floor(edit.y), math.max(1, math.floor(edit.size or 1)), edit.brush or {})

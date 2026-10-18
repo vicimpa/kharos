@@ -1,8 +1,8 @@
 --!strict
--- Тестовая карта — перенос sandbox.ts: готовая база игрока у ближайшего к началу мира месторождения металла. Шахта,
--- главное здание, переработка, цеха, хранилища с запасом всего готового, космопорт, электростанции и заводы уже стоят,
--- соединены трубами; грузовики работают на заявки зон. Есть строители, немного войск и кредитов. На ней стоит сценка
--- витрины «добыча» (scenes/mining). Только хосту.
+-- Тестовая карта: готовая база игрока у ближайшего к началу мира месторождения металла. Шахта, главное здание,
+-- переработка, цеха, хранилища с запасом всего готового, космопорт, электростанции и заводы уже стоят, соединены
+-- трубами; грузовики работают на заявки зон. Есть строители, немного войск и кредитов. На ней стоит сценка витрины
+-- «добыча» (scenes/mining). Только хосту.
 
 local deposits = require("lib/deposits")
 local goods = require("lib/goods")
@@ -12,23 +12,23 @@ local kinds = require("lib/kinds")
 local sandbox = {}
 
 sandbox.data = {
-	-- Сколько кредитов у игрока (SANDBOX_CREDITS) и что уже лежит в хранилищах (SANDBOX_STOCK).
+	-- Сколько кредитов у игрока и что уже лежит в хранилищах.
 	credits = 10000,
 	stock = { metal = 120, silicon = 40, fuel = 30, kharite = 12, blocks = 20, ammo = 60, parts = 30 },
-	-- Насколько далеко от начала мира ищется месторождение под базу, в клетках месторождений (SEARCH_CELLS).
+	-- Насколько далеко от начала мира ищется месторождение под базу, в клетках месторождений.
 	searchCells = 6,
-	-- Сколько тайлов вокруг шахты оставлено свободными: там встают грузовики (MINE_ROOM).
+	-- Сколько тайлов вокруг шахты оставлено свободными: там встают грузовики.
 	mineRoom = 2,
-	-- Сколько тайлов заливает поиск места, куда доедет техника от шахты (BASE_REACH).
+	-- Сколько тайлов заливает поиск места, куда доедет техника от шахты.
 	reach = 8000,
-	-- Что стоит, кроме шахты и главного здания: по порядку, от главного здания наружу (SANDBOX_BUILDINGS).
+	-- Что стоит, кроме шахты и главного здания: по порядку, от главного здания наружу.
 	buildings = { "generator", "generator", "generator", "generator", "smelter", "siliconWorks", "blockPlant", "ammoPlant", "metalYard", "siliconStore", "fuelTank", "khariteVault", "blockYard", "ammoBunker", "partsLocker", "spaceport", "factory", "barracks", "matter", "lab", "radar" },
-	-- С какими юнитами игрок начинает, кроме грузовиков, и сколько грузовиков (SANDBOX_UNITS, SANDBOX_TRUCKS).
+	-- С какими юнитами игрок начинает, кроме грузовиков, и сколько грузовиков.
 	units = { "builder", "builder", "infantry", "infantry", "rocketeer", "buggy", "tank", "tesla", "carrier" },
 	trucks = 4,
 }
 
--- Месторождение, у которого поместится база (findBaseSpot): металл, вокруг шахты проходимо. Левый верхний тайл.
+-- Месторождение, у которого поместится база: металл, вокруг шахты проходимо. Левый верхний тайл.
 local function baseSpot(ctx): { x: number, y: number }?
 	local reach = sandbox.data.searchCells * deposits.CELL
 	local spots = {}
@@ -63,7 +63,7 @@ local function baseSpot(ctx): { x: number, y: number }?
 	return nil
 end
 
--- Не подходит ли здание к шахте ближе mineRoom тайлов (clearOfMine).
+-- Не подходит ли здание к шахте ближе mineRoom тайлов.
 local function clearOfMine(ctx, spot, name: string, x: number, y: number): boolean
 	local kind, mine = ctx.protos.buildings[name].data, ctx.protos.buildings.mine.data
 	local room = sandbox.data.mineRoom
@@ -85,7 +85,7 @@ local function servable(ctx, reach: { [string]: boolean }, name: string, x: numb
 	return false
 end
 
--- Ставит здание на ближайшее к (x, y) место с проходом gap, куда подъедет техника (placeNear); nil — места нет.
+-- Ставит здание на ближайшее к (x, y) место с проходом gap, куда подъедет техника; nil — места нет.
 local function placeNear(ctx, spot, reach, name: string, x: number, y: number, player: number, gap: number): number?
 	local tiles = scenery.around(math.round(x), math.round(y), 14)
 	for i = 1, #tiles - 1, 2 do
@@ -97,7 +97,7 @@ local function placeNear(ctx, spot, reach, name: string, x: number, y: number, p
 	return nil
 end
 
--- Тестовая карта игрока player (spawnSandbox): где база — туда смотрит камера; nil — подходящего месторождения нет.
+-- Тестовая карта игрока player: где база — туда смотрит камера; nil — подходящего месторождения нет.
 function sandbox.spawn(ctx, player: number): { x: number, y: number }?
 	local data = sandbox.data
 	local spot = baseSpot(ctx)

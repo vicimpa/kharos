@@ -1,8 +1,8 @@
 --!strict
--- Покрытие тайлов — перенос paved.ts и правил paving.ts, общий хосту (ctx) и клиенту (c). Фундамент: на нём здания
--- строятся быстрее, на песке он вообще разрешает стройку, а зону строительства не заменяет; ходят по нему чуть быстрее,
--- чем по скале. Дорога: наземные по ней едут быстрее, а положенная на болото — это мост, по которому болото не вязнет
--- и не жжёт. Покрытие — не здание: по нему не стреляют, оно не видит и не мешает ходить.
+-- Покрытие тайлов, общий хосту (ctx) и клиенту (c). Фундамент: на нём здания строятся быстрее, на песке он вообще
+-- разрешает стройку, а зону строительства не заменяет; ходят по нему чуть быстрее, чем по скале. Дорога: наземные по
+-- ней едут быстрее, а положенная на болото — это мост, по которому болото не вязнет и не жжёт. Покрытие — не здание: по
+-- нему не стреляют, оно не видит и не мешает ходить.
 --
 -- Готовое покрытие — слой карты layers/paving (канал 0 — вид: 1 фундамент, 2 дорога; канал 1 — хозяин): его на большой
 -- базе десятки тысяч тайлов, и сущностями оно отягощало бы каждый обход мира. Скорость по нему считает ход движка
@@ -21,17 +21,16 @@ local paving = {}
 paving.KINDS = { "foundation", "road" }
 paving.CODE = { foundation = 1, road = 2 }
 
--- Цена тайла фундамента, дороги и моста — дороги по болоту (FOUNDATION_COST, ROAD_COST, BRIDGE_COST).
+-- Цена тайла фундамента, дороги и моста — дороги по болоту.
 paving.FOUNDATION_COST = 15
 paving.ROAD_COST = 5
 paving.BRIDGE_COST = 20
--- Во сколько раз быстрее строится здание на фундаменте на скале; на песке — доля скорости на голой скале
--- (FOUNDATION_ROCK, FOUNDATION_SAND).
+-- Во сколько раз быстрее строится здание на фундаменте на скале; на песке — доля скорости на голой скале.
 paving.FOUNDATION_ROCK = 2
 paving.FOUNDATION_SAND = 0.8
--- Сколько тайлов можно заложить одной командой (PAVE_LIMIT).
+-- Сколько тайлов можно заложить одной командой.
 paving.LIMIT = 400
--- Темы, которые открывают покрытие: фундамент, дороги и дорогу по болоту — мосты (PAVE_RESEARCH).
+-- Темы, которые открывают покрытие: фундамент, дороги и дорогу по болоту — мосты.
 paving.RESEARCH = { foundation = "foundation", road = "roads", bridge = "bridges", peak = "earthworks", cliff = "earthworks" }
 
 -- Что открывают темы покрытия — названия (grid.tools) и значки по порядку PAVE_RESEARCH.
@@ -39,7 +38,7 @@ paving.OPENS = { "foundation", "road", "bridge", "peak", "cliff" }
 paving.TITLES = { foundation = "grid.tools.foundation", road = "grid.tools.road", bridge = "grid.tools.bridge", remove = "grid.remove", peak = "grid.tools.peak", cliff = "grid.tools.cliff" }
 paving.ICONS = { foundation = "foundation", road = "roads", bridge = "bridges", remove = "remove", peak = "peak", cliff = "cliff" }
 
--- Что из покрытия открывает тема: foundation, road, bridge (paves у вида темы в hud.ts).
+-- Что из покрытия открывает тема: foundation, road, bridge.
 function paving.opens(topic: string): { string }
 	local list = {}
 	for _, kind in paving.OPENS do
@@ -57,7 +56,7 @@ local enabled, laid, at, ownerAt = surface.enabled, surface.laid, surface.at, su
 paving.enabled, paving.laid, paving.at, paving.ownerAt = enabled, laid, at, ownerAt
 paving.isPaved, paving.isRoadway, paving.tileOf, paving.drawnAt = surface.isPaved, surface.isRoadway, surface.tileOf, surface.drawnAt
 
--- Что стоит тайл покрытия (paveCost): дорога по болоту — мост — дороже.
+-- Что стоит тайл покрытия: дорога по болоту — мост — дороже.
 function paving.cost(w, kind: string, x: number, y: number): number
 	if kind == "foundation" then
 		return paving.FOUNDATION_COST
@@ -76,11 +75,11 @@ local function standingAt(w, x: number, y: number): number?
 	return w:occupant(x, y) or construction.siteAt(w, x, y)
 end
 
--- Можно ли игроку заложить покрытие в тайл (canPave): внутри карты, не в чужой зоне и не у подножия обрыва; на тайле
--- нет работы над покрытием, а готовое покрытие — разве что своё другого вида: фундамент меняют на дорогу и обратно, и
--- прежнее действует, пока новое не готово. Фундамент — на скале или песке, дорога — где угодно, кроме гор. Дорогу
--- кладут только на свободное от зданий и площадок, фундамент — и под свои здания и площадки: строители кладут его с
--- края. Своей зоны покрытию не нужно. all — зоны (zones.all), чтобы не собирать их на каждый тайл.
+-- Можно ли игроку заложить покрытие в тайл: внутри карты, не в чужой зоне и не у подножия обрыва; на тайле нет работы
+-- над покрытием, а готовое покрытие — разве что своё другого вида: фундамент меняют на дорогу и обратно, и прежнее
+-- действует, пока новое не готово. Фундамент — на скале или песке, дорога — где угодно, кроме гор. Дорогу кладут только
+-- на свободное от зданий и площадок, фундамент — и под свои здания и площадки: строители кладут его с края. Своей зоны
+-- покрытию не нужно. all — зоны (zones.all), чтобы не собирать их на каждый тайл.
 function paving.canPave(w, player: number, kind: string, x: number, y: number, all: { [number]: { number } }?): boolean
 	if x ~= math.floor(x) or y ~= math.floor(y) or not paving.CODE[kind] or not enabled(w) then
 		return false
@@ -119,8 +118,8 @@ function paving.canPave(w, player: number, kind: string, x: number, y: number, a
 	return not zones.inForeign(w, player, x, y, 1, 1, all)
 end
 
--- Своё здание или стройка в тайле, основание которого целиком лежит в covered («x:y» → true) (buildingWithin); нет —
--- nil. Главное здание и то, что уже разбирают, не в счёт.
+-- Своё здание или стройка в тайле, основание которого целиком лежит в covered («x:y» → true); нет — nil. Главное здание
+-- и то, что уже разбирают, не в счёт.
 function paving.buildingWithin(w, player: number, x: number, y: number, covered: { [string]: boolean }, core): number?
 	local e = standingAt(w, x, y)
 	if not e or not isOwn(w, player, e) or not w:has(e, "Building") then
@@ -156,8 +155,8 @@ function paving.removable(w, player: number, x: number, y: number, covered: { [s
 	return construction.pipeAt(w, player, x, y) ~= nil or paving.buildingWithin(w, player, x, y, covered, core) ~= nil
 end
 
--- Во сколько раз быстрее голой скалы строится здание вида kind с левым верхним тайлом (x, y) (buildSpeed): по самому
--- медленному тайлу основания. Фундамент на скале ускоряет, на песке — разрешает стройку, но чуть медленнее скалы.
+-- Во сколько раз быстрее голой скалы строится здание вида kind с левым верхним тайлом (x, y): по самому медленному
+-- тайлу основания. Фундамент на скале ускоряет, на песке — разрешает стройку, но чуть медленнее скалы.
 function paving.buildSpeed(w, kind, x: number, y: number): number
 	if not enabled(w) then
 		return 1
@@ -204,11 +203,11 @@ function paving.forget(ctx, e: number)
 	ctx:destroy(e)
 end
 
--- Наземный взрыв меньше этого — пуля: фундамент от неё не трескается (SLAB_BLAST).
+-- Наземный взрыв меньше этого — пуля: фундамент от неё не трескается.
 paving.SLAB_BLAST = 0.5
 
--- Хосту: наземный взрыв размером size разбивает фундамент (breakSlabs) — плиты, чьи центры в его радиусе, и ту, на
--- которую он пришёлся; с готовой плитой уходит и работа над ней — укладка или разбор.
+-- Хосту: наземный взрыв размером size разбивает фундамент — плиты, чьи центры в его радиусе, и ту, на которую он
+-- пришёлся; с готовой плитой уходит и работа над ней — укладка или разбор.
 function paving.breakSlabs(ctx, x: number, y: number, size: number)
 	if size < paving.SLAB_BLAST or not enabled(ctx) then
 		return

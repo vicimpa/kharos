@@ -1,7 +1,7 @@
 --!strict
 --!native
--- Звуки боя, интерфейса, фоновые петли и звуки дали — перенос packages/client/src/audio/synth.ts. Каждый — функция
--- (rate, variant) → сэмплы; variant меняет зерно шума: варианты одного звука не звучат одинаково.
+-- Звуки боя, интерфейса, фоновые петли и звуки дали. Каждый — функция (rate, variant) → сэмплы; variant меняет зерно
+-- шума: варианты одного звука не звучат одинаково.
 
 local dsp = require("lib/dsp")
 
@@ -295,7 +295,7 @@ local function loopSound(make: (number) -> buffer)
 	end }
 end
 
--- Петли шума — в стерео: у каждого уха своя, и ветер обступает со всех сторон (NOISE_SECONDS в bank.ts).
+-- Петли шума — в стерео: у каждого уха своя, и ветер обступает со всех сторон.
 local function noiseSound(color: string, seconds: number)
 	return { bus = "world", variants = 1, render = function(rate)
 		return { dsp.noiseLoop(rate, seconds, 1, color), dsp.noiseLoop(rate, seconds, 2, color) }
@@ -352,7 +352,7 @@ return {
 		reverb = { bus = "world", variants = 1, render = function(rate)
 			return dsp.reverbImpulse(rate, 4, 1)
 		end },
-		-- Эхо музыки меню — длиннее (MUSIC_REVERB_KEY).
+		-- Эхо музыки меню — длиннее.
 		["reverb:music"] = { bus = "music", variants = 1, render = function(rate)
 			return dsp.reverbImpulse(rate, 5, 3)
 		end },

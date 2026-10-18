@@ -1,8 +1,8 @@
 --!strict
--- Панель редактора — перенос editorPanel.ts и gui/screens/editor.ts: режим бога над миром. Кистью правится карта,
--- ставятся и сносятся здания, юниты и месторождения любого игрока, у выбранного — владелец, прочность, поворот, склад,
--- у игрока — кредиты и камера в начале игры. Каждая правка — приказ edit (mechanics/editor), мышь — controls/editor.
--- Внизу — «Выйти» (с несохранённым — дважды) и «Сохранить» в слот.
+-- Панель редактора: режим бога над миром. Кистью правится карта, ставятся и сносятся здания, юниты и месторождения
+-- любого игрока, у выбранного — владелец, прочность, поворот, склад, у игрока — кредиты и камера в начале игры. Каждая
+-- правка — приказ edit (mechanics/editor), мышь — controls/editor. Внизу — «Выйти» (с несохранённым — дважды) и
+-- «Сохранить» в слот.
 
 local editor = require("lib/editor")
 local form = require("lib/form")
@@ -16,7 +16,7 @@ local COLORS = widgets.COLORS
 
 local panel = {}
 
--- Ширина панели и её содержимого (EDITOR_WIDTH, INNER).
+-- Ширина панели и её содержимого.
 local WIDTH = 300
 local INNER = WIDTH - 24
 local DEGREE = math.pi / 180
@@ -71,14 +71,14 @@ local function nameOf(c, e: number): string
 	return if kind and c:t(kind.data.title) then c:t(kind.data.title) else "#" .. e
 end
 
--- Название приказа очереди: editor.orders по имени команды; точечный приказ — «ехать» (orderName).
+-- Название приказа очереди: editor.orders по имени команды; точечный приказ — «ехать».
 local function orderName(c, name: string): string
 	local key = "editor.orders." .. (if name == "order" then "move" else name)
 	local text = c:t(key)
 	return if text == key then name else text
 end
 
--- Что делает юнит сейчас и что у него в очереди: строки для панели (tasksOf).
+-- Что делает юнит сейчас и что у него в очереди: строки для панели.
 local function tasksOf(c, e: number): { string }
 	local tasks = {}
 	if c:has(e, "Converting") then

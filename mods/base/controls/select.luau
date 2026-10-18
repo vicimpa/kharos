@@ -11,7 +11,7 @@ select.data = {
 	double = 0.35,
 }
 
--- Вид отметок — как selectionPass.ts: приглушённый зелёный, яркость из настроек (0,7 по умолчанию).
+-- Вид отметок: приглушённый зелёный, яркость из настроек (0,7 по умолчанию).
 local SELECTED = 0x73eb8c
 local settings = require("lib/settings")
 local RING_MARGIN = 0.2
@@ -20,10 +20,10 @@ local HIT_ALPHA = 0.5
 local PATH_DOT, PATH_GAP, PATH_ALPHA, PATH_GOAL = 3, 14, 0.55, 0.4
 local BAR_HEIGHT, BAR_GAP = 4, 0.3
 local BAR_BACK, BAR_PRODUCING, BAR_CONVERTING = 0x080d14, 0x59a6ff, 0xffcc4d
--- Цели выбранных стрелков (TARGET в selectionPass.ts) и патруль (ROUTE в cursorPass.ts): остановки — тайлы в рамке.
+-- Цели выбранных стрелков и патруль: остановки — тайлы в рамке.
 local TARGET, TARGET_ALPHA = 0xff594d, 0.7
 local ROUTE, ROUTE_FILL, ROUTE_BORDER = 0xffd94d, 0.18, 0.85
--- Здания, которые обслуживают выбранные грузовики: только рамки (SERVE).
+-- Здания, которые обслуживают выбранные грузовики: только рамки.
 local SERVE = 0x73d9ff
 
 local start: { x: number, y: number, wx: number, wy: number }? = nil
@@ -131,8 +131,8 @@ local function aims(c, selection)
 	end
 end
 
--- Маршрут на карте (DrawnRoute в cursorPass.ts): остановки — прямоугольники (середина и размер) в рамке, между ними
--- пунктир; closed — замкнут по кругу, а не ещё набирается; only — только рамки, без пунктира (обслуживание).
+-- Маршрут на карте: остановки — прямоугольники (середина и размер) в рамке, между ними пунктир; closed — замкнут по
+-- кругу, а не ещё набирается; only — только рамки, без пунктира (обслуживание).
 local function route(c, stops, closed: boolean, color: number, only: boolean?)
 	local border = 1 / 16
 	for i, stop in stops do
@@ -157,8 +157,8 @@ local function stopOf(c, e: number)
 	return if building then { x = at.x, y = at.y, width = building.width, height = building.height } else nil
 end
 
--- Маршруты для показа (routesOf): набираемый игроком, отмечаемые и назначенные здания обслуживания, маршруты
--- выбранных грузовиков и патрули выбранных бойцов — каждый по разу.
+-- Маршруты для показа: набираемый игроком, отмечаемые и назначенные здания обслуживания, маршруты выбранных грузовиков
+-- и патрули выбранных бойцов — каждый по разу.
 local function routes(c, selection)
 	local seen = {}
 	local function add(entities: { number }, closed: boolean, color: number, only: boolean?)
@@ -262,7 +262,7 @@ local function marks(c, selection)
 			c.draw:rect(x + pixel, y - 0.9, x + pixel + 0.45, y - 0.6, SELECTED)
 		end
 	end
-	-- Полоски превращения над своими (BAR_CONVERTING).
+	-- Полоски превращения над своими.
 	for _, e in c:each({ "Converting", "Owner" }) do
 		if c:mine(e) then
 			local converting = c:get(e, "Converting")
@@ -279,7 +279,7 @@ local function marks(c, selection)
 	end
 end
 
--- Камера летит к середине выделенного (lookAtSelection).
+-- Камера летит к середине выделенного.
 local function lookAt(c, selection)
 	local x, y, count = 0, 0, 0
 	for _, e in selection do
@@ -384,8 +384,8 @@ function select.update(c)
 	if not input.down.left then
 		start = nil
 	end
-	-- Группы (assignGroup и selectGroup в controls.ts): Ctrl+цифра запоминает своих выделенных, цифра выбирает группу
-	-- (с Shift — добавляет), та же цифра ещё раз подряд — камера к ней.
+	-- Группы: Ctrl+цифра запоминает своих выделенных, цифра выбирает группу (с Shift — добавляет), та же цифра ещё раз
+	-- подряд — камера к ней.
 	for digit = 0, 9 do
 		local key = tostring(digit)
 		if input.hits[key] then

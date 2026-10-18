@@ -1,7 +1,6 @@
 --!strict
 -- Станция поставки: здесь машины снабжения грузятся вчетверо быстрее, чем у хранилищ сети. Без неё машину снабжения
 -- не заказать.
--- Данные — packages/base/data/buildings.json, облик — look.luau.
 
 local buildings = require("lib/buildings")
 

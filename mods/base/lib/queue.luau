@@ -1,14 +1,14 @@
 --!strict
--- Очередь приказов юнитов — перенос packages/sim-ts/src/orders.ts. Приказ с Shift встаёт юнитам в конец очереди, а
--- стройка из меню — в очередь занятым строителям; освободившиеся юниты берут следующий приказ сами (mechanics/orders,
--- система follow). Приказ без Shift очередь забывает. Очередь — компонент Orders: list — по порядку { group, name,
--- args }; group — номер группы: приказ группы ждёт, пока освободятся все её юниты, и они получают его вместе.
+-- Очередь приказов юнитов. Приказ с Shift встаёт юнитам в конец очереди, а стройка из меню — в очередь занятым
+-- строителям; освободившиеся юниты берут следующий приказ сами (mechanics/orders, система follow). Приказ без Shift
+-- очередь забывает. Очередь — компонент Orders: list — по порядку { group, name, args }; group — номер группы: приказ
+-- группы ждёт, пока освободятся все её юниты, и они получают его вместе.
 
 local queue = {}
 
--- Приказы, которые можно ставить в очередь: у них есть конец или их дело ведёт юнит сам (QUEUED).
+-- Приказы, которые можно ставить в очередь: у них есть конец или их дело ведёт юнит сам.
 queue.QUEUED = { move = true, attack = true, assist = true, haul = true, pickup = true }
--- Сколько приказов может ждать в очереди юнита: дальше новые не встают (ORDERS_LIMIT).
+-- Сколько приказов может ждать в очереди юнита: дальше новые не встают.
 queue.LIMIT = 32
 
 -- Копия таблицы мира: таблицы ctx:get защищены, table.clone их не берёт.
@@ -25,7 +25,7 @@ local function listOf(ctx, e: number): { any }
 	return if orders then orders.list else {}
 end
 
--- Приказ без Shift забывает очередь (clearOrders).
+-- Приказ без Shift забывает очередь.
 function queue.forget(ctx, units: { number })
 	for _, e in units do
 		if ctx:alive(e) and #listOf(ctx, e) > 0 then
@@ -34,8 +34,7 @@ function queue.forget(ctx, units: { number })
 	end
 end
 
--- Строитель на работе, которую дал ему игрок, или с приказами в очереди: новую стройку из меню он берёт в очередь
--- (isBusyBuilder).
+-- Строитель на работе, которую дал ему игрок, или с приказами в очереди: новую стройку из меню он берёт в очередь.
 function queue.busyBuilder(ctx, e: number): boolean
 	local builds = ctx:get(e, "Builds")
 	return (builds ~= nil and builds.ordered) or #listOf(ctx, e) > 0
@@ -51,8 +50,8 @@ local function nextGroup(ctx): number
 	return ctx.tick * 1024 + seq
 end
 
--- Ставит приказ name с args своим юнитам units в конец очереди (queueOrder). Кому он, решает номер группы: список
--- юнитов в каждом приказе каждого юнита раздувал бы мир квадратом от их числа. Возвращает, встал ли он хоть кому-то.
+-- Ставит приказ name с args своим юнитам units в конец очереди. Кому он, решает номер группы: список юнитов в каждом
+-- приказе каждого юнита раздувал бы мир квадратом от их числа. Возвращает, встал ли он хоть кому-то.
 function queue.push(ctx, player: number, name: string, args: { [string]: any }, units: { number }): boolean
 	if not queue.QUEUED[name] then
 		return false

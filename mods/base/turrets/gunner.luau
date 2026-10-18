@@ -1,6 +1,5 @@
 --!strict
--- Пассажир багги с миниганом: лёгкий, разворачивается быстро.
--- Данные — packages/base/data/turrets.json, чертёж — lib/units.
+-- Пассажир багги с миниганом: лёгкий, разворачивается быстро. Чертёж — lib/units.
 
 local units = require("lib/units")
 

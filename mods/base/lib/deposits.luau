@@ -1,7 +1,6 @@
 --!strict
--- Месторождения — перенос packages/sim-ts/src/deposits.ts (как их кладёт генератор) и game/depositsPass.ts (как они
--- выглядят). В каждой клетке CELL × CELL тайлов не больше одного месторождения SIZE × SIZE на скале, где можно
--- строить; вид — по биому, запас — по виду.
+-- Месторождения: как их кладёт генератор и как они выглядят. В каждой клетке CELL × CELL тайлов не больше одного
+-- месторождения SIZE × SIZE на скале, где можно строить; вид — по биому, запас — по виду.
 
 local deposits = {}
 
@@ -122,8 +121,8 @@ function deposits.setup(ctx)
 	return { config = config, bounds = { left = -size, top = -size, right = size, bottom = size } }
 end
 
--- Месторождение клетки (cellX, cellY) по генератору (generatedIn): левый верхний тайл, вид, запас; nil — нет. ctx
--- даёт местность (terrain) и hash, bounds — карта, kinds — виды раздела deposits, config — генератор.
+-- Месторождение клетки по генератору: левый верхний тайл, вид, запас; nil — нет. ctx даёт местность (terrain) и hash,
+-- bounds — карта, kinds — виды раздела deposits, config — генератор.
 function deposits.generate(ctx, kinds, config, bounds, cellX: number, cellY: number)
 	local seed = config.seed + SALT
 	if ctx.hash(cellX, cellY, seed) >= (config.depositChance or CHANCE) then
@@ -134,8 +133,8 @@ function deposits.generate(ctx, kinds, config, bounds, cellX: number, cellY: num
 	end)
 end
 
--- Месторождение в клетке (cellX, cellY) по случайным числам random(k) (placeIn): место — первое из ATTEMPTS, где
--- можно строить и где fits не против; вид — по биому; запас — по виду. Нет такого места — nil.
+-- Месторождение в клетке по случайным числам random(k): место — первое из ATTEMPTS, где можно строить и где fits не
+-- против; вид — по биому; запас — по виду. Нет такого места — nil.
 function deposits.placeIn(ctx, kinds, config, bounds, cellX: number, cellY: number, random: (number) -> number, fits: ((number, number) -> boolean)?)
 	local room = deposits.CELL - deposits.SIZE
 	for attempt = 0, ATTEMPTS - 1 do

@@ -1,6 +1,6 @@
 --!strict
 -- Сценка витрины: оборона — главное здание, перед ним случайное укрепление (lib/fortify) лицом к случайной стороне,
--- защитники за ним отбивают волну за волной; турели подпитываются патронами «за кадром» (defense в sim-ts/showcase.ts).
+-- защитники за ним отбивают волну за волной; турели подпитываются патронами «за кадром».
 
 local battle = require("lib/battle")
 local fortify = require("lib/fortify")
@@ -8,15 +8,15 @@ local goods = require("lib/goods")
 local kinds = require("lib/kinds")
 local scenery = require("lib/scenery")
 
--- Стороны, откуда может идти враг (SIDES); насколько волна приходит в стороне от оси обороны (WAVE_SPREAD).
+-- Стороны, откуда может идти враг; насколько волна приходит в стороне от оси обороны.
 local SIDES = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
 local WAVE_SPREAD = 8
--- Чем идут волны, бюджет первой и прибавка к каждой следующей, сколько волн (WAVE_WEIGHTS, WAVE_BUDGET, WAVE_GROWTH, WAVES).
+-- Чем идут волны, бюджет первой и прибавка к каждой следующей, сколько волн.
 local WAVE_WEIGHTS = { infantry = 2, rocketeer = 1, buggy = 1, lancer = 1, tank = 1, tesla = 0.5 }
 local WAVE_BUDGET, WAVE_GROWTH, WAVES = 1200, 500, 6
--- Откуда идут волны: тайлов перед самой дальней постройкой обороны (WAVE_DISTANCE).
+-- Откуда идут волны: тайлов перед самой дальней постройкой обороны.
 local WAVE_DISTANCE = 20
--- Кто защищает базу вместе с турелями: случайный отряд такой цены, и при нём строители (GUARD_BUDGET, GUARD_WEIGHTS).
+-- Кто защищает базу вместе с турелями: случайный отряд такой цены, и при нём строители.
 local GUARD_BUDGET = 1500
 local GUARD_WEIGHTS = { infantry = 2, rocketeer = 2, buggy = 1, lancer = 1, tank = 1, tesla = 0.5 }
 

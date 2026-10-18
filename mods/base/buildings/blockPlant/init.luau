@@ -1,6 +1,5 @@
 --!strict
 -- Заводы изделий: каждый собирает своё изделие из ресурсов (§3.7 design.md). Склад общий на сырьё и готовое.
--- Данные — packages/base/data/buildings.json, облик — look.luau.
 
 local buildings = require("lib/buildings")
 

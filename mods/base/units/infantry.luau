@@ -1,6 +1,5 @@
 --!strict
--- Пехотинец.
--- Данные — packages/base/data/units.json, мотор и тон — motors.ts, чертёж — lib/units.
+-- Пехотинец. Мотор и тон — sounds/motors, чертёж — lib/units.
 
 local units = require("lib/units")
 

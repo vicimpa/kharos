@@ -1,6 +1,5 @@
 --!strict
--- Общие кусочки панелей — перенос packages/client/src/gui/widgets.ts: цвета текста, тень подписей, монета, полоса
--- готовности, подпись клавиши.
+-- Общие кусочки панелей: цвета текста, тень подписей, монета, полоса готовности, подпись клавиши.
 
 local widgets = {}
 
@@ -41,8 +40,8 @@ function widgets.coin(ui, size: number?)
 	ui:image("coin", size or 16, size or 16)
 end
 
--- Полоса готовности с подписью: утопленное окно, внутри — полоса огней команды на долю value, поверх — подпись.
--- Срок для интерфейса: минуты и секунды, от часа — часы, минуты и секунды (clockOf).
+-- Полоса готовности с подписью: утопленное окно, внутри — полоса огней команды на долю value, поверх — подпись. Срок
+-- для интерфейса: минуты и секунды, от часа — часы, минуты и секунды.
 function widgets.clock(seconds: number): string
 	local whole = math.floor(seconds + 0.5)
 	if whole < 3600 then
@@ -54,7 +53,6 @@ end
 function widgets.bar(ui, value: number, label: string, width: number?)
 	local fill = math.clamp(value, 0, 1)
 	ui:box({ skin = "well", width = width, height = 24, padding = 4, direction = "stack", clip = true }, function()
-		-- В widgets.ts у ряда нет align = "stretch", и заливка там нулевой высоты — полоса пустая; здесь она видна.
 		ui:box({ grow = 1, direction = "row", align = "stretch" }, function()
 			ui:box({ grow = fill, background = COLORS.teamMid })
 			ui:box({ grow = 1 - fill })
@@ -70,8 +68,8 @@ function widgets.key(ui, label: string, color: string?)
 	ui:text(label, widgets.shadow({ color = color or COLORS.gold }))
 end
 
--- Строка словаря вокруг подстановки, на месте которой рисуется не текст (значки грузов — rich в TS): что до «{name}»
--- и что после. Подстановки нет — всё до.
+-- Строка словаря вокруг подстановки, на месте которой рисуется не текст (значки грузов): что до «{name}» и что после.
+-- Подстановки нет — всё до.
 function widgets.split(text: string, name: string): (string, string)
 	local from, to = string.find(text, "{" .. name .. "}", 1, true)
 	if not from then
@@ -97,7 +95,7 @@ function widgets.capital(text: string): string
 	return utf8.char(upper) .. string.sub(text, utf8.offset(text, 2) or #text + 1)
 end
 
--- Строчными, с кириллицей (toLowerCase в TS): string.lower меняет только латиницу.
+-- Строчными, с кириллицей: string.lower меняет только латиницу.
 function widgets.lower(text: string): string
 	local out = {}
 	for _, code in utf8.codes(text) do

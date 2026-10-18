@@ -1,6 +1,5 @@
 --!strict
--- Приказы грузовикам мышью (scene.routing, scene.serving, scene.carrying и truckMenu в controls.ts). Кнопки сетки
--- включают режим c.shared.mode:
+-- Приказы грузовикам мышью. Кнопки сетки включают режим c.shared.mode:
 --   routing — левый щелчок по своему зданию со складом — ещё остановка; правая кнопка или Enter — маршрут готов;
 --   serving — левый щелчок отмечает здание или снимает отметку; правая кнопка или Enter — готово;
 --   carrySource — щелчок по складу, откуда взять: откроется окно приказа (c.shared.truckMenu);
@@ -25,7 +24,7 @@ local MODES = { routing = true, serving = true, carrySource = true, carryTarget 
 local pressed: { x: number, y: number }? = nil
 local rightPress: { x: number, y: number }? = nil
 
--- Свои выбранные грузовики (trucksSelected).
+-- Свои выбранные грузовики.
 function trucks.selected(c): { number }
 	local list = {}
 	for _, e in c.shared.selection or {} do
@@ -36,7 +35,7 @@ function trucks.selected(c): { number }
 	return list
 end
 
--- Склад на тайле (storeAt): здание, стройка или дроп.
+-- Склад на тайле: здание, стройка или дроп.
 function trucks.storeAt(c, x: number, y: number): number?
 	local tx, ty = math.floor(x), math.floor(y)
 	local found = c:occupant(tx, ty) or construction.siteAt(c, tx, ty) or drops.at(c, tx, ty)
@@ -46,7 +45,7 @@ function trucks.storeAt(c, x: number, y: number): number?
 	return nil
 end
 
--- Годится ли склад отдать по приказу: своё здание или стройка со складом, или дроп (isCarrySource).
+-- Годится ли склад отдать по приказу: своё здание или стройка со складом, или дроп.
 function trucks.isCarrySource(c, e: number?): boolean
 	if not e or not c:alive(e) or not c:has(e, "Inventory") then
 		return false
@@ -55,7 +54,7 @@ function trucks.isCarrySource(c, e: number?): boolean
 end
 
 -- Годится ли склад принять груз по приказу: своё здание или стройка со складом, где груз поместится; стройке — только
--- её материалы (isCarryTarget).
+-- её материалы.
 function trucks.isCarryTarget(c, e: number?, good: string): boolean
 	if not e or not c:alive(e) or not c:mine(e) or c:has(e, "Hauler") then
 		return false
@@ -67,13 +66,13 @@ function trucks.isCarryTarget(c, e: number?, good: string): boolean
 	return goods.room(stock, good) > goods.EPSILON
 end
 
--- Годится ли здание в остановку маршрута или обслуживание: своё готовое со складом (isStop).
+-- Годится ли здание в остановку маршрута или обслуживание: своё готовое со складом.
 function trucks.isStop(c, e: number?): boolean
 	return e ~= nil and logistics.isReady(c, c.player, e) and c:has(e, "Inventory")
 end
 
--- Отдаёт набранный маршрут или список обслуживания выбранным грузовикам (finishRoute, finishServe): меньше двух
--- остановок или ничего не отмечено — набор просто кончается.
+-- Отдаёт набранный маршрут или список обслуживания выбранным грузовикам: меньше двух остановок или ничего не отмечено —
+-- набор просто кончается.
 function trucks.finish(c)
 	local mode = c.shared.mode
 	c.shared.mode = nil

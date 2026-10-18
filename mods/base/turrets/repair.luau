@@ -1,6 +1,5 @@
 --!strict
--- Турель repair.
--- Данные — packages/base/data/turrets.json, чертёж — lib/units.
+-- Турель repair. Чертёж — lib/units.
 
 local units = require("lib/units")
 

@@ -1,6 +1,5 @@
 --!strict
--- Турель rocket.
--- Данные — packages/base/data/turrets.json, чертёж — lib/units.
+-- Турель rocket. Чертёж — lib/units.
 
 local units = require("lib/units")
 

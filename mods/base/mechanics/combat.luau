@@ -1,8 +1,8 @@
 --!strict
--- Бой — перенос combat.ts: стрелки ищут цели, гонятся, стреляют, снаряды летят и бьют, погибшие пропадают — это
--- система движка fight (crates/world/src/combat.rs), виды оружия — раздел weapons/. Здесь — что вокруг неё: турели
--- без цели разворачиваются по корпусу (restTurrets, тоже движок), прочность сама понемногу восстанавливается
--- (recover), приказы атаковать и сменить стойку.
+-- Бой: стрелки ищут цели, гонятся, стреляют, снаряды летят и бьют, погибшие пропадают — это система движка fight
+-- (crates/world/src/combat.rs), виды оружия — раздел weapons/. Здесь — что вокруг неё: турели без цели разворачиваются
+-- по корпусу (restTurrets, тоже движок), прочность сама понемногу восстанавливается (recover), приказы атаковать и
+-- сменить стойку.
 
 local conversion = require("lib/conversion")
 local queue = require("lib/queue")
@@ -38,7 +38,7 @@ combat.systems = {
 	},
 }
 
--- Свои юниты и их турели берут цель и идут к ней (orderAttack); посланный разворачиваться MCV забывает поездку.
+-- Свои юниты и их турели берут цель и идут к ней; посланный разворачиваться MCV забывает поездку.
 local function attack(ctx, player: number, units: any, target: any)
 	if type(units) ~= "table" or type(target) ~= "number" or not ctx:alive(target) then
 		return
@@ -63,7 +63,7 @@ combat.on = {
 }
 
 combat.commands = {
-	-- Атаковать цель: { units = { … }, target = сущность, queue } (orderAttack); с Shift — в очередь.
+	-- Атаковать цель: { units = { … }, target = сущность, queue }; с Shift — в очередь.
 	attack = function(ctx, player, args)
 		if type(args.units) ~= "table" then
 			return
@@ -75,7 +75,7 @@ combat.commands = {
 		queue.forget(ctx, args.units)
 		attack(ctx, player, args.units, args.target)
 	end,
-	-- Стойка: { units = { … }, stance = "aggressive" | "defensive" | "hold" | "passive" } (setStance).
+	-- Стойка: { units = { … }, stance = "aggressive" | "defensive" | "hold" | "passive" }.
 	stance = function(ctx, player, args)
 		ctx:stance(player, args.units, args.stance)
 	end,

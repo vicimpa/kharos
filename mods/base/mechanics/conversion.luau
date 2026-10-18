@@ -1,9 +1,9 @@
 --!strict
--- Разворачивание и сворачивание — перенос conversion.ts: MCV разворачивается в главное здание за 3 секунды, здание
--- сворачивается обратно за 10. Посланный развернуться в другом месте MCV едет туда (Deploys) и, доехав,
--- разворачивается; не доехал — пробует снова, всё реже, и бросает. Свои стоящие юниты уходят из-под будущего здания
--- сами, чужих MCV ждёт. Очередь производства и прочность переезжают вместе: заказы не теряются, а свернув разбитое
--- здание, целую машину не получить. Правила места — lib/conversion.
+-- Разворачивание и сворачивание: MCV разворачивается в главное здание за 3 секунды, здание сворачивается обратно за 10.
+-- Посланный развернуться в другом месте MCV едет туда (Deploys) и, доехав, разворачивается; не доехал — пробует снова,
+-- всё реже, и бросает. Свои стоящие юниты уходят из-под будущего здания сами, чужих MCV ждёт. Очередь производства и
+-- прочность переезжают вместе: заказы не теряются, а свернув разбитое здание, целую машину не получить. Правила места —
+-- lib/conversion.
 
 local conversion = require("lib/conversion")
 local placement = require("lib/placement")
@@ -18,14 +18,14 @@ mechanic.data = {
 	-- Что во что превращается: юнит и здание.
 	unit = "mcv",
 	building = "command",
-	-- Сколько секунд MCV разворачивается и сколько здание сворачивается (DEPLOY_SECONDS, PACK_SECONDS).
+	-- Сколько секунд MCV разворачивается и сколько здание сворачивается.
 	deploySeconds = 3,
 	packSeconds = 10,
-	-- Раз во сколько тиков недоехавший MCV пробует снова; с каждым промахом — вдвое реже (DEPLOY_RETRY_TICKS).
+	-- Раз во сколько тиков недоехавший MCV пробует снова; с каждым промахом — вдвое реже.
 	retryTicks = 20,
-	-- После скольких промахов подряд MCV бросает поездку (DEPLOY_MISSES).
+	-- После скольких промахов подряд MCV бросает поездку.
 	misses = 5,
-	-- Раз во сколько тиков разворачивающийся MCV просит своих уйти из-под будущего здания (EVICT_TICKS).
+	-- Раз во сколько тиков разворачивающийся MCV просит своих уйти из-под будущего здания.
 	evictTicks = 20,
 }
 
@@ -36,7 +36,7 @@ mechanic.components = {
 	Deploys = { x = 0, y = 0, misses = 0 },
 }
 
--- Тик сущности: раз в ticks тиков, у каждой в свой (onTurn).
+-- Тик сущности: раз в ticks тиков, у каждой в свой.
 local function onTurn(ctx, entity: number, ticks: number): boolean
 	return (ctx.tick + entity) % ticks == 0
 end
@@ -46,7 +46,7 @@ local function start(ctx, entity: number, seconds: number)
 	local ticks = math.round(seconds / ctx.dt)
 	ctx:stop(entity)
 	ctx:add(entity, "Converting", { left = ticks, total = ticks })
-	-- Юнит, который разворачивается, с места не трогается (orderMove).
+	-- Юнит, который разворачивается, с места не трогается.
 	if ctx:has(entity, "Mover") then
 		ctx:set(entity, "Mover", { rooted = true })
 	end
@@ -84,8 +84,8 @@ local function isTile(value: any): boolean
 	return type(value) == "number" and value == math.floor(value)
 end
 
--- Освобождает место под главное здание и говорит, свободно ли оно (clearGround): свои стоящие с evict уходят, тех,
--- кто едет, не трогают, чужих остаётся ждать.
+-- Освобождает место под главное здание и говорит, свободно ли оно: свои стоящие с evict уходят, тех, кто едет, не
+-- трогают, чужих остаётся ждать.
 local function clearSite(ctx, mcv: number, evict: boolean): boolean
 	local x, y = conversion.site(ctx, mcv)
 	local data = conversion.building(ctx).data
@@ -113,8 +113,8 @@ local function clearSite(ctx, mcv: number, evict: boolean): boolean
 end
 
 mechanic.commands = {
-	-- { unit, x?, y? } — с местом (левый верхний тайл здания) ехать туда и развернуться, без него — на месте. Годится ли
-	-- место, решается на месте: в тумане там может стоять чужое, и отказ сразу выдал бы это (orderDeploy).
+	-- { unit, x?, y? } — с местом (левый верхний тайл здания) ехать туда и развернуться, без него — на месте. Годится
+	-- ли место, решается на месте: в тумане там может стоять чужое, и отказ сразу выдал бы это.
 	deploy = function(ctx, player, args)
 		local unit = args.unit
 		if type(unit) ~= "number" or not ctx:alive(unit) then
@@ -148,7 +148,7 @@ mechanic.commands = {
 		ctx:move(unit, middleOf(ctx, x, y))
 	end,
 
-	-- { unit } — отменить разворачивание или поездку на него: MCV остаётся машиной и стоит (cancelDeploy).
+	-- { unit } — отменить разворачивание или поездку на него: MCV остаётся машиной и стоит.
 	cancelDeploy = function(ctx, player, args)
 		local unit = args.unit
 		if type(unit) ~= "number" or not ctx:alive(unit) or not ctx:has(unit, "Unit") then
@@ -180,7 +180,7 @@ mechanic.commands = {
 
 mechanic.systems = {
 	-- Посланные разворачиваться MCV, доехав, разворачиваются; место негодно — приказ снимается. Не доехал — пробует
-	-- снова, всё реже, и после misses промахов бросает (deployOrders). До превращений: доехавший начнёт в этот же тик.
+	-- снова, всё реже, и после misses промахов бросает. До превращений: доехавший начнёт в этот же тик.
 	deploy_orders = {
 		query = { "Deploys", "Position" },
 		write = { "Deploys" },
@@ -277,7 +277,7 @@ mechanic.systems = {
 	},
 }
 
--- На клиенте: превращение началось — лязг разворачивания, кончилось — новое встаёт на место (worldSounds.ts).
+-- На клиенте: превращение началось — лязг разворачивания, кончилось — новое встаёт на место.
 mechanic.signals = {
 	converting = function(c, signal)
 		c:sound("deploy", { x = signal.x, y = signal.y, volume = 0.5 })

@@ -1,6 +1,5 @@
 --!strict
--- Панель игрока — перенос packages/client/src/gui/hud.ts (верхняя полоса) и gui/bar.ts (нижняя: мини-карта,
--- сведения о выбранном, сетка команд 4 × 3). Те же размеры, рамки скина, шрифты и цвета.
+-- Панель игрока: верхняя полоса и нижняя — мини-карта, сведения о выбранном, сетка команд 4 × 3.
 
 local widgets = require("lib/widgets")
 local stats = require("lib/stats")
@@ -31,7 +30,7 @@ local COLORS, shadow = widgets.COLORS, widgets.shadow
 
 local hud = {}
 
--- Верхняя полоса и нижняя панель: высоты, ячейки, портреты — как в hud.ts и bar.ts.
+-- Верхняя полоса и нижняя панель: высоты, ячейки, портреты.
 local TOP_HEIGHT = 38
 local INNER = 140
 local CELL_WIDTH = 132
@@ -40,20 +39,18 @@ local BAR_SPACING = 16 + 8 + 8
 local PORTRAIT = 96
 local TILE = 32
 local QUEUED = 24
--- Сторона мини-карты: из настроек игрока, но не больше, чем оставляет сведениям ширина экрана (minimapSide).
+-- Сторона мини-карты: из настроек игрока, но не больше, чем оставляет сведениям ширина экрана.
 local settings = require("lib/settings")
 local INFO_MIN = 104 + 10 + 24 + 150
 local GRID_KEYS = { "T", "Y", "U", "I", "G", "H", "J", "K", "B", "N", "M", "," }
--- Постоянные места сетки: превращение, отмена, разбор и «Назад» (CONVERT, CANCEL, DEMOLISH, BACK в commands.ts);
--- выключатель — на месте «Назад» (SWITCH).
+-- Постоянные места сетки: превращение, отмена, разбор и «Назад»; выключатель — на месте «Назад».
 local CONVERT, CANCEL, DEMOLISH, BACK = 9, 10, 11, 12
--- Улучшение здания: конец второго ряда корня — у зданий, которые улучшают, списков там нет (UPGRADE).
+-- Улучшение здания: конец второго ряда корня — у зданий, которые улучшают, списков там нет.
 local UPGRADE = 8
 local SWITCH = BACK
--- Названия инструментов протяжки: стена и ворота — как здание (toolName).
+-- Названия инструментов протяжки: стена и ворота — как здание.
 local TOOL_NAMES = { pipe = "grid.tools.pipe", well = "grid.tools.well", foundation = paving.TITLES.foundation, road = paving.TITLES.road, remove = paving.TITLES.remove, peak = paving.TITLES.peak, cliff = paving.TITLES.cliff }
--- Инструменты раздела «Покрытие» и их подсказки (PAVE_TOOLS, grid.toolTips в commands.ts): цена тайла — {cost},
--- моста — {bridge}.
+-- Инструменты раздела «Покрытие» и их подсказки: цена тайла — {cost}, моста — {bridge}.
 local PAVE_TOOLS = { "foundation", "road", "peak", "cliff" }
 local PAVE_TIPS = {
 	foundation = "grid.toolTips.foundation",
@@ -63,10 +60,10 @@ local PAVE_TIPS = {
 }
 -- Цена тайла инструмента «Покрытия».
 local PAVE_COSTS = { foundation = paving.FOUNDATION_COST, road = paving.ROAD_COST, peak = earthworks.PEAK_COST, cliff = earthworks.CLIFF_COST }
--- С какой доли выработки полная нагрузка сети уже тесна: число энергии на полосе желтеет (GRID_TIGHT).
+-- С какой доли выработки полная нагрузка сети уже тесна: число энергии на полосе желтеет.
 local GRID_TIGHT = 0.8
--- Разделы строителя: в какой странице какое здание; остальное — хозяйство (SECTIONS в commands.ts). Раздел — с
--- картинкой здания, по порядку кнопок.
+-- Разделы строителя: в какой странице какое здание; остальное — хозяйство. Раздел — с картинкой здания, по порядку
+-- кнопок.
 local SECTIONS = {
 	{ page = "economy", label = "grid.sections.economy", tip = "grid.sectionTips.economy", picture = "generator" },
 	{ page = "storage", label = "grid.sections.storage", tip = "grid.sectionTips.storage", picture = "metalYard", list = { "metalYard", "siliconStore", "fuelTank", "khariteVault", "lithiumStore", "uraniumCask", "blockYard", "ammoBunker", "partsLocker", "rodRack", "requestStation" } },
@@ -84,8 +81,8 @@ local STANCES = {
 	passive = { label = "grid.stances.passive", tip = "grid.stanceTips.passive" },
 }
 
--- Пульс подсказки «Первых шагов» (pulse в hud.ts и bar.ts): обводка огнями команды разгорается и гаснет раз в
--- секунду от low до high; восемь ступеней — плавнее не разглядеть.
+-- Пульс подсказки «Первых шагов»: обводка огнями команды разгорается и гаснет раз в секунду от low до high; восемь
+-- ступеней — плавнее не разглядеть.
 local function pulse(ui, low: number, high: number, color: string?, period: number?): string
 	local phase = (ui.now / (period or 1)) % 1
 	local level = math.round((low + (high - low) * (0.5 - 0.5 * math.cos(phase * math.pi * 2))) * 8) / 8
@@ -107,7 +104,7 @@ local function sectionOf(name: string): string
 	return "economy"
 end
 
--- Доля процентом (percent в bar.ts).
+-- Доля процентом.
 local function percent(value: number): string
 	return math.floor(value * 100 + 0.5) .. "%"
 end
@@ -123,8 +120,8 @@ local function number(value: number): string
 	return (string.gsub(string.format("%.2f", rounded), "0+$", ""))
 end
 
--- Энергия сети для подписи (gridState): выработка повреждённых станций дробная — до десятых и вниз, а спрос — вверх,
--- чтобы нехватка не выглядела как «20 из 20».
+-- Энергия сети для подписи: выработка повреждённых станций дробная — до десятых и вниз, а спрос — вверх, чтобы нехватка
+-- не выглядела как «20 из 20».
 local function gridState(e: economy.Economy)
 	return {
 		produced = math.floor(e.produced * 10) / 10,
@@ -135,7 +132,7 @@ local function gridState(e: economy.Economy)
 	}
 end
 
--- Подпись энергии сети (gridText).
+-- Подпись энергии сети.
 local function gridText(c, grid): string
 	return c:t("hud.zonePower", { demand = number(grid.demand), produced = number(grid.produced) })
 		.. (if grid.stored > 0 then c:t("hud.zoneStored", { stored = number(grid.stored) }) else "")
@@ -171,7 +168,7 @@ local function credits(c): number
 	return 0
 end
 
--- Значок груза с количеством (res в widgets.ts).
+-- Значок груза с количеством.
 local function goodWith(c, good: string, amount: number?, size: number?, of: number?)
 	local ui = c.ui
 	local kind = c.protos.goods[good]
@@ -185,7 +182,7 @@ local function goodWith(c, good: string, amount: number?, size: number?, of: num
 	end)
 end
 
--- Запас груза и что с ним (hint в bar.ts): «Название: значок есть/из» строкой, пояснение — абзацем под ней.
+-- Запас груза и что с ним: «Название: значок есть/из» строкой, пояснение — абзацем под ней.
 local function stockHint(c, label: string, good: string, have: number, capacity: number, note: string, tone: string, width: number)
 	local ui = c.ui
 	ui:box({ direction = "row", align = "center", gap = 6, width = width }, function()
@@ -271,7 +268,7 @@ local function topBar(c)
 	end)
 end
 
--- Превращение выбранного (conversion в hud.ts): MCV разворачивается, главное здание сворачивается; nil — не то.
+-- Превращение выбранного: MCV разворачивается, главное здание сворачивается; nil — не то.
 local function conversionOf(c, e: number)
 	local kind = c:proto(e)
 	local unit = c:has(e, "Unit")
@@ -302,7 +299,7 @@ local function buildersOf(c, selection): { number }
 	return list
 end
 
--- Описание здания для карточки: что делает и какие здания открывает (aboutOf).
+-- Описание здания для карточки: что делает и какие здания открывает.
 local function aboutOf(c, kind): string
 	local info = c:t(kind.data.info) or ""
 	local opens = {}
@@ -535,7 +532,7 @@ local function constructionSlots(c, list, selection)
 				c.shared.mode = if placing == kind.name then nil else { kind = "placing", building = kind.name }
 			end,
 		}
-		-- Стену и ворота не ставят по одной, а тянут мышью линией, как трубу: их кнопка включает протяжку (wallSlot).
+		-- Стену и ворота не ставят по одной, а тянут мышью линией, как трубу: их кнопка включает протяжку.
 		if kind.name == "wall" or kind.name == "gate" then
 			local slot = list[index]
 			local active = stroking == kind.name
@@ -561,15 +558,14 @@ local function constructionSlots(c, list, selection)
 	}
 end
 
--- Ячейки сетки команд для выбранного: у строителей — стройка, у своего завода — заказ юнитов, у MCV и главного
--- здания — превращение, у своей стройки — отмена, у готового здания — разбор.
--- Торговля у космопорта (commands.ts): страница — корень, продажа или закупка; deal — набираемая сделка: что и
--- сколько. Сбрасывается, когда выбран другой космопорт.
+-- Ячейки сетки команд для выбранного: у строителей — стройка, у своего завода — заказ юнитов, у MCV и главного здания —
+-- превращение, у своей стройки — отмена, у готового здания — разбор. Торговля у космопорта: страница — корень, продажа
+-- или закупка; deal — набираемая сделка: что и сколько. Сбрасывается, когда выбран другой космопорт.
 local DEAL_STEPS = { 10, 50, 100 }
 local DEAL_START = 50
 local market = { port = -1, page = "root", deal = nil :: { resource: string, amount: number }? }
 
--- Что можно продать из запаса игрока: сколько всего, сколько в сети космопорта и почём (offers в hud.ts).
+-- Что можно продать из запаса игрока: сколько всего, сколько в сети космопорта и почём.
 local function offersOf(c, port: number)
 	local items = logistics.stockOf(c, c.player)
 	local network = logistics.networkOf(c, port)
@@ -584,7 +580,7 @@ local function offersOf(c, port: number)
 	return list
 end
 
--- Что можно купить с орбиты: почём, сколько влезет в склад космопорта и что надо изучить (purchases в hud.ts).
+-- Что можно купить с орбиты: почём, сколько влезет в склад космопорта и что надо изучить.
 local function purchasesOf(c, port: number)
 	local hold = c:get(port, "Inventory")
 	local list = {}
@@ -596,8 +592,8 @@ local function purchasesOf(c, port: number)
 	return list
 end
 
--- Сделка в пределах возможного (dealOf): продажа — не больше запаса, закупка — на сколько хватает кредитов и трюма.
--- nil — такого ресурса космопорт сейчас не предлагает.
+-- Сделка в пределах возможного: продажа — не больше запаса, закупка — на сколько хватает кредитов и трюма. nil — такого
+-- ресурса космопорт сейчас не предлагает.
 local function dealOf(c, port: number, buying: boolean, deal)
 	local item, room = nil, 0
 	for _, purchase in purchasesOf(c, port) do
@@ -622,7 +618,7 @@ local function dealOf(c, port: number, buying: boolean, deal)
 	return { resource = item.resource, amount = math.max(0, math.min(max, math.floor(deal.amount))), price = item.price, max = max, room = room }
 end
 
--- Сетка космопорта (trade в commands.ts): продажа и закупка — каждая на своей странице, набор количества, заявка.
+-- Сетка космопорта: продажа и закупка — каждая на своей странице, набор количества, заявка.
 local function tradeSlots(c, list, port: number)
 	if market.port ~= port then
 		market.port, market.page, market.deal = port, "root", nil
@@ -742,8 +738,8 @@ local function tradeSlots(c, list, port: number)
 	end
 end
 
--- Уничтожить выбранных своих юнитов (scuttle в commands.ts): сначала кнопка, потом подтверждение на своей странице —
--- и на другой клавише. key — выделение, для которого открыто подтверждение; сменилось — страница закрыта.
+-- Уничтожить выбранных своих юнитов: сначала кнопка, потом подтверждение на своей странице — и на другой клавише. key —
+-- выделение, для которого открыто подтверждение; сменилось — страница закрыта.
 local scuttling = { key = "" }
 
 local function scuttleSlots(c, selection): { any }?
@@ -775,9 +771,9 @@ local function scuttleSlots(c, selection): { any }?
 	return list
 end
 
--- Уровень выбранных своих готовых зданий, которые улучшают (level в hud.ts): level, gain и factor — первого из них;
--- next — заказ следующего уровня всем, кого можно поднять сейчас: цена вместе и чего не хватает; raising — те, что уже
--- поднимают, и как идёт работа у первого из них. nil — таких зданий не выбрано.
+-- Уровень выбранных своих готовых зданий, которые улучшают: level, gain и factor — первого из них; next — заказ
+-- следующего уровня всем, кого можно поднять сейчас: цена вместе и чего не хватает; raising — те, что уже поднимают, и
+-- как идёт работа у первого из них. nil — таких зданий не выбрано.
 local function levelState(c, selection)
 	local state = nil
 	local materials = {}
@@ -819,11 +815,11 @@ local function levelState(c, selection)
 	return state
 end
 
--- Страницы сетки грузовиков, хранилищ и станций запроса (page в hud.ts: filter, reserve, request): key — выделение,
--- для которого открыта страница; deal — груз, заказ которого набирают.
+-- Страницы сетки грузовиков, хранилищ и станций запроса (filter, reserve, request): key — выделение, для которого
+-- открыта страница; deal — груз, заказ которого набирают.
 local cargo: { key: string, page: string, deal: string? } = { key = "", page = "root", deal = nil }
 
--- Готовое и руда по порядку грузов (WARES, ORES).
+-- Готовое и руда по порядку грузов.
 local function waresOf(c): ({ string }, { string })
 	local wares, ores = {}, {}
 	for _, kind in goods.list(c) do
@@ -832,7 +828,7 @@ local function waresOf(c): ({ string }, { string })
 	return wares, ores
 end
 
--- Чем занят грузовик (jobOf): carry, route, serve, mine, supply, pickup или auto.
+-- Чем занят грузовик: carry, route, serve, mine, supply, pickup или auto.
 local function jobOf(c, truck: number): string
 	local hauler = c:get(truck, "Hauler")
 	if c:has(truck, "Carry") then
@@ -867,8 +863,7 @@ local function back(c, list, run: () -> ())
 	list[BACK] = { label = c:t("common.back"), run = run }
 end
 
--- Сетка выбранных грузовиков (haul в commands.ts): верхний ряд — режим работы, подсвечен тот, в котором грузовик;
--- ниже — что возить.
+-- Сетка выбранных грузовиков: верхний ряд — режим работы, подсвечен тот, в котором грузовик; ниже — что возить.
 local function truckSlots(c, list, selection, units: { number })
 	local page = cargoPage(selection)
 	local filter = c:get(units[1], "Hauler").filter or {}
@@ -976,8 +971,7 @@ local function truckSlots(c, list, selection, units: { number })
 	end
 end
 
--- Резерв выбранных своих готовых хранилищ (reserve в commands.ts): сколько груза не выдавать; первое из них и
--- наименьшая вместимость.
+-- Резерв выбранных своих готовых хранилищ: сколько груза не выдавать; первое из них и наименьшая вместимость.
 local function reserveSlots(c, list, selection)
 	local buildings, amount, capacity = {}, 0, math.huge
 	for _, e in selection do
@@ -1028,8 +1022,7 @@ local function reserveSlots(c, list, selection)
 	end
 end
 
--- Заказ выбранных своих станций запроса (request в commands.ts): какой груз и сколько держать; заказ первой из них и
--- наименьшая вместимость.
+-- Заказ выбранных своих станций запроса: какой груз и сколько держать; заказ первой из них и наименьшая вместимость.
 local function requestSlots(c, list, selection)
 	local buildings, wanted, capacity = {}, {}, math.huge
 	for _, e in selection do
@@ -1157,7 +1150,7 @@ local function slots(c, selection)
 			}
 		end
 	end
-	-- Свои бойцы без строителей: стойки — общая горит, если она у всех одна, — и патруль (tactics в hud.ts).
+	-- Свои бойцы без строителей: стойки — общая горит, если она у всех одна, — и патруль.
 	if #buildersOf(c, selection) == 0 then
 		local units, stance, patrolling = {}, nil, 0
 		local turrets = tactics.mounts(c)
@@ -1205,7 +1198,7 @@ local function slots(c, selection)
 		end
 	end
 	-- Свои производители: один или несколько зданий одного вида — заказ получает наименее занятый, очередь видна и
-	-- отменяется у самого занятого (production в hud.ts).
+	-- отменяется у самого занятого.
 	local producers = {}
 	for _, e in selection do
 		if c:has(e, "Producer") and c:mine(e) and not c:has(e, "Site") then
@@ -1233,7 +1226,7 @@ local function slots(c, selection)
 		local kind = c:proto(building)
 		local money = credits(c)
 		local orders = ordersOf(busiest)
-		-- Очередь полна — заказывать некуда (QUEUE_LIMIT).
+		-- Очередь полна — заказывать некуда.
 		local full = ordersOf(building) >= c.protos.mechanics.production.data.queue
 		local productionLib = c.protos.mechanics.production
 		local limit = productionLib.limit(c)
@@ -1284,7 +1277,7 @@ local function slots(c, selection)
 			}
 		end
 	end
-	-- Своя готовая ракетная шахта: боеголовка, пуск и отмена (silo в commands.ts).
+	-- Своя готовая ракетная шахта: боеголовка, пуск и отмена.
 	local silo = #selection == 1 and selection[1]
 	local state = silo and c:mine(silo) and logistics.isReady(c, c.player, silo) and c:get(silo, "Silo")
 	local warhead = state and c:proto(silo).data.warhead
@@ -1341,7 +1334,7 @@ local function slots(c, selection)
 		market.port = -1
 	end
 	local root = page.name == "root" and (not trading or market.page == "root") and (cargo.key ~= table.concat(selection, ",") or cargo.page == "root")
-	-- Свои готовые здания, которые улучшают: следующий уровень или отмена начатого (level в commands.ts).
+	-- Свои готовые здания, которые улучшают: следующий уровень или отмена начатого.
 	local raise = root and #buildersOf(c, selection) == 0 and levelState(c, selection)
 	local upcoming = raise and raise.next
 	if upcoming then
@@ -1457,7 +1450,7 @@ local function slots(c, selection)
 	return list
 end
 
--- Карточка ячейки (slotCard в bar.ts): название с клавишей, пояснение, параметры юнита, цена.
+-- Карточка ячейки: название с клавишей, пояснение, параметры юнита, цена.
 local function card(ui, c, slot, hotkey: string)
 	local WIDTH = 264
 	ui:box({ direction = "column", gap = 4, width = WIDTH, align = "stretch" }, function()
@@ -1534,7 +1527,7 @@ local function commandGrid(c, list, width: number, height: number)
 						continue
 					end
 					local id = "cell:" .. i
-					-- Подсказка шага — синим, новая кнопка — золотом (fresh в bar.ts).
+					-- Подсказка шага — синим, новая кнопка — золотом.
 					local outline = if slot.hint and not slot.disabled then pulse(ui, 0.3, 1) elseif slot.fresh and not slot.disabled then pulse(ui, 0.2, 0.95, "240 201 90", 1.6) else nil
 					local click = ui:button(id, { width = cellWidth, height = cellHeight, padding = { 0, 6, 0, if slot.picture then 4 else 8 }, gap = 6, justify = "start", active = slot.active, disabled = slot.disabled, outline = outline }, function()
 						if slot.picture then
@@ -1660,7 +1653,7 @@ local function info(c, selection, width: number, height: number)
 				end)
 				ui:tip("info:stats", stats.text(c, unitKind))
 			end
-			-- Боеприпасы своих выбранных юнитов с магазинами: сколько в среднем осталось (army.ammo в hud.ts).
+			-- Боеприпасы своих выбранных юнитов с магазинами: сколько в среднем осталось.
 			if supply.enabled(c) then
 				local magazines, filled = 0, 0
 				for _, e in selection do
@@ -1703,7 +1696,7 @@ local function info(c, selection, width: number, height: number)
 				widgets.bar(ui, progress, label, text)
 			end
 			-- Энергия: у электростанции и накопителя — их сети; генератор материи вне сети с главным зданием; подмога;
-			-- нехватка; выключено (bar.ts).
+			-- нехватка; выключено.
 			local built = not many and not site and kind and c:has(first, "Building")
 			if built and ((kind.data.power or 0) > 0 or kind.data.battery) then
 				local _, zone = economy.gridOf(c, first)
@@ -1871,7 +1864,7 @@ local function info(c, selection, width: number, height: number)
 						else c:t("hud.interceptorReady", { count = count, capacity = capacity, radius = guard.radius }), { color = COLORS.soft, wrap = text })
 				end
 			end
-			-- Космопорт: рейс, набираемая сделка или что тут можно (trade в bar.ts).
+			-- Космопорт: рейс, набираемая сделка или что тут можно.
 			if built and c:mine(first) and trade.isPort(c, c.player, first) then
 				local order = c:get(first, "Trade")
 				if order then
@@ -1979,7 +1972,7 @@ local function info(c, selection, width: number, height: number)
 					for _, name in goods.names(c) do
 						seconds += product.data.recipe[name] or 0
 					end
-					-- «{inputs} → {output} за {seconds} с»: на месте подстановок — значки (rich в TS).
+					-- «{inputs} → {output} за {seconds} с»: на месте подстановок — значки.
 					local before, rest = widgets.split(c:t("hud.recipe", { seconds = seconds }), "inputs")
 					local middle, after = widgets.split(rest, "output")
 					if string.find(before, "%S") then
@@ -2078,8 +2071,8 @@ local function nothing(c, width: number, height: number)
 	end)
 end
 
--- Мини-карта — как minimap.ts и minimapView в bar.ts: местность, здания и юниты цветом стороны, рамка экрана;
--- левая кнопка (и протяжка) ставит туда камеру, правая шлёт выделенных.
+-- Мини-карта: местность, здания и юниты цветом стороны, рамка экрана; левая кнопка (и протяжка) ставит туда камеру,
+-- правая шлёт выделенных.
 local SIDE_COLORS = { own = "#5aa9ff", foe = "#ff6b5a", neutral = "#c8c8c8" }
 
 -- Уведомления этого кадра (lib/alerts): их строки в ленте и кольца на мини-карте.
@@ -2145,7 +2138,7 @@ local function minimapView(c, side: number)
 				end
 			end
 			-- Метки ядерного удара, которые игрок видит: место пуска — крестик, точка удара — круг взрыва; ракеты в
-			-- полёте — белые точки (minimap.ts).
+			-- полёте — белые точки.
 			local function mark(x: number, y: number, w: number, h: number, color: string, alpha: number?)
 				ui:box({ self = { "start", "start" }, padding = { math.floor(y - h / 2), 0, 0, math.floor(x - w / 2) } }, function()
 					ui:box({ width = w, height = h, background = color, alpha = alpha })
@@ -2252,7 +2245,7 @@ local function bottomBar(c)
 	end)
 end
 
--- Ширина экрана, ниже которой список шагов сжимается до текущего (NARROW).
+-- Ширина экрана, ниже которой список шагов сжимается до текущего.
 local NARROW = 1000
 
 -- Виден ли список «Первых шагов»: не скрыт в настройках и не пройден ещё до входа в мир.
@@ -2268,9 +2261,8 @@ local function stepsShown(c): boolean
 	return not (finished and c.shared.stepsKnown)
 end
 
--- Первые шаги новичка в углу (steps в hud.ts): список с галочками, у текущего — что сделать и зачем. Заголовок
--- сворачивает список, крестик прячет совсем (вернуть — в настройках). Мир, где всё уже пройдено при входе, списка не
--- показывает.
+-- Первые шаги новичка в углу: список с галочками, у текущего — что сделать и зачем. Заголовок сворачивает список,
+-- крестик прячет совсем (вернуть — в настройках). Мир, где всё уже пройдено при входе, списка не показывает.
 local function stepsPanel(c)
 	if not stepsShown(c) then
 		return
@@ -2348,7 +2340,7 @@ local function stepsPanel(c)
 	end)
 end
 
--- Режимы наведения: название и что делать (mode в hud.ts) — ключи словаря; у покрытия название — сам инструмент.
+-- Режимы наведения: название и что делать — ключи словаря; у покрытия название — сам инструмент.
 local MODES = {
 	deploying = { name = "mode.deploying", tip = "mode.tips.deploying" },
 	patrolling = { name = "mode.patrolling", tip = "mode.tips.patrolling" },
@@ -2362,8 +2354,8 @@ local MODES = {
 }
 
 
--- Полоса режима над полем (modeBar в hud.ts): какой режим, что делать дальше и как выйти. Esc и правая кнопка
--- работают и так, но на сенсорном экране их нет.
+-- Полоса режима над полем: какой режим, что делать дальше и как выйти. Esc и правая кнопка работают и так, но на
+-- сенсорном экране их нет.
 local function modeBar(c)
 	local mode = c.shared.mode
 	local spec = mode and MODES[mode.kind]
@@ -2420,11 +2412,10 @@ local function modeBar(c)
 	end)
 end
 
--- Сколько секунд сообщение о награде висит на экране (TOAST_SECONDS).
+-- Сколько секунд сообщение о награде висит на экране.
 local TOAST_SECONDS = 5
 
--- Награды под полосой режима (toastColumn в hud.ts): монета, сумма и за что; mechanics/economy кладёт их в
--- c.shared.rewards.
+-- Награды под полосой режима: монета, сумма и за что; mechanics/economy кладёт их в c.shared.rewards.
 local function rewards(c)
 	local list = c.shared.rewards or {}
 	local learned = c.shared.learned or {}
@@ -2489,8 +2480,7 @@ local function rewards(c)
 	end)
 end
 
--- Уведомления слева под полосой (alerts в hud.ts): строка цвета вида с маркером; щелчок ведёт камеру к месту. Со
--- временем гаснут.
+-- Уведомления слева под полосой: строка цвета вида с маркером; щелчок ведёт камеру к месту. Со временем гаснут.
 local ALERT_COLORS = { attacked = COLORS.bad, spotted = COLORS.warn, found = COLORS.good, ping = COLORS.ally }
 local function alertList(c)
 	local list = shownAlerts
@@ -2518,8 +2508,8 @@ local function alertList(c)
 	end)
 end
 
--- Остаток, каким игрок видел месторождение в последний раз (knownReserve.ts): пока видит хоть тайл — настоящий, в
--- тумане — прежний; так туман не выдаёт, копают ли его чужие. Ключ — сущность месторождения.
+-- Остаток, каким игрок видел месторождение в последний раз: пока видит хоть тайл — настоящий, в тумане — прежний; так
+-- туман не выдаёт, копают ли его чужие. Ключ — сущность месторождения.
 local seenReserve: { [number]: number } = {}
 
 local function knownReserve(c, e: number, x: number, y: number): number?
@@ -2535,7 +2525,7 @@ local function knownReserve(c, e: number, x: number, y: number): number?
 	return seenReserve[e]
 end
 
--- Что выйдет из месторождения и через что (chainOf): «Металлическая руда → Плавильня → Металл».
+-- Что выйдет из месторождения и через что: «Металлическая руда → Плавильня → Металл».
 local function chainOf(c, resource: string): string
 	local ore = goods.oreOf(c, resource)
 	local refinery = "?"
@@ -2552,8 +2542,8 @@ local function chainOf(c, resource: string): string
 	return title(ore) .. " → " .. refinery .. " → " .. title(resource)
 end
 
--- Подсказки у указателя над картой (hoverTips в hud.ts): месторождение — какое, сколько осталось и что из него выйдет;
--- своя труба или колодец — сколько зданий в сети и что в её хранилищах.
+-- Подсказки у указателя над картой: месторождение — какое, сколько осталось и что из него выйдет; своя труба или
+-- колодец — сколько зданий в сети и что в её хранилищах.
 local function hoverTips(c)
 	local input = c.input
 	if not input.inside or input.over_ui then
@@ -2617,13 +2607,13 @@ local function hoverTips(c)
 	end)
 end
 
--- Сколько груза за щелчок «±» в окне приказа (CARRY_STEP).
+-- Сколько груза за щелчок «±» в окне приказа.
 local CARRY_STEP = 10
 -- Что выбрано в окне приказа: здание, груз и сколько.
 local picked: { building: number, resource: string, amount: number }? = nil
 
--- Окно приказа выбранным грузовикам по зданию (truckMenu в hud.ts): что оттуда взять и сколько, что выгрузить туда из
--- кузовов, возить ли руду отсюда, обеспечивать ли его.
+-- Окно приказа выбранным грузовикам по зданию: что оттуда взять и сколько, что выгрузить туда из кузовов, возить ли
+-- руду отсюда, обеспечивать ли его.
 local function truckMenu(c)
 	local building = c.shared.truckMenu
 	if not building or not c:alive(building) then

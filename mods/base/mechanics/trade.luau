@@ -1,6 +1,6 @@
 --!strict
--- Торговля — перенос trade.ts: заявки на продажу и закупку с орбиты, корабли космопорта. Расчёты — lib/trade, подвоз
--- товара в трюм — заявка космопорта в lib/logistics: из своей сети он идёт по трубам, из других — грузовиками.
+-- Торговля: заявки на продажу и закупку с орбиты, корабли космопорта. Расчёты — lib/trade, подвоз товара в трюм —
+-- заявка космопорта в lib/logistics: из своей сети он идёт по трубам, из других — грузовиками.
 
 local goods = require("lib/goods")
 local logistics = require("lib/logistics")
@@ -63,8 +63,8 @@ mechanic.commands = {
 		ctx:add(port, "Trade", { resource = resource, wanted = wanted, left = ticks, total = ticks, buy = true })
 	end,
 
-	-- { port } — закрыть заявку раньше срока (closeSale): корабль улетит с тем, что уже привезли, а не привезли ничего —
-	-- заявка снимается. Улетевший корабль не вернуть.
+	-- { port } — закрыть заявку раньше срока: корабль улетит с тем, что уже привезли, а не привезли ничего — заявка
+	-- снимается. Улетевший корабль не вернуть.
 	closeSale = function(ctx, player, args)
 		local port = args.port
 		if type(port) ~= "number" or not ctx:alive(port) or not trade.isPort(ctx, player, port) then
@@ -135,7 +135,7 @@ mechanic.systems = {
 }
 
 -- На клиенте: корабль взлетел с товаром — рёв старта; закупка села — посадка и «доставлено»; за проданное заплатили —
--- звон монет (worldSounds.ts).
+-- звон монет.
 mechanic.signals = {
 	launched = function(c, signal)
 		c:sound("shipLaunch", { x = signal.x, y = signal.y, volume = 0.8 })

@@ -1,9 +1,9 @@
 --!strict
--- Ядерный удар — перенос silos.ts. Ракетная шахта (data.warhead) собирает боеголовку, как лаборатория тему: цена —
--- кредиты и готовое из сети шахты — списывается сразу, сборка идёт при полной энергии warhead.seconds секунд, при
--- нехватке медленнее, в выключенной шахте стоит. Боеголовка одна за раз. Готовую игрок наводит на любую точку карты:
--- через launch секунд после приказа ракета стартует — до этого пуск можно отменить, — и шахта снова пуста. Шахта с
--- готовой боеголовкой, разбитая, взрывается, как реактор (Meltdown).
+-- Ядерный удар. Ракетная шахта (data.warhead) собирает боеголовку, как лаборатория тему: цена — кредиты и готовое из
+-- сети шахты — списывается сразу, сборка идёт при полной энергии warhead.seconds секунд, при нехватке медленнее, в
+-- выключенной шахте стоит. Боеголовка одна за раз. Готовую игрок наводит на любую точку карты: через launch секунд
+-- после приказа ракета стартует — до этого пуск можно отменить, — и шахта снова пуста. Шахта с готовой боеголовкой,
+-- разбитая, взрывается, как реактор (Meltdown).
 --
 -- Ракета летит по прямой speed тайлов в секунду; её весь полёт видят все игроки. Со старта место пуска на launchMark
 -- секунд отмечено у всех, у кого есть готовый радар (Mark launch). Точку удара весь полёт видят те, чьи здания или
@@ -28,12 +28,12 @@ local readf64 = buffer.readf64
 local mechanic = {}
 
 mechanic.data = {
-	-- Сколько секунд место пуска отмечено у игроков с радаром (LAUNCH_MARK); раз во сколько секунд сверяется, чьё под
-	-- ударом (WATCH); сколько секунд вспышка взрыва открывает всем его круг (GLARE).
+	-- Сколько секунд место пуска отмечено у игроков с радаром; раз во сколько секунд сверяется, чьё под ударом; сколько
+	-- секунд вспышка взрыва открывает всем его круг.
 	launchMark = 60,
 	watch = 1,
 	glare = 5,
-	-- Размер вспышки сбитой ракеты, в тайлах: картинка, урона нет (AIRBURST).
+	-- Размер вспышки сбитой ракеты, в тайлах: картинка, урона нет.
 	airburst = 1.5,
 }
 
@@ -46,8 +46,8 @@ mechanic.components = {
 	-- Ядерная ракета в полёте: откуда, куда, с какого тика, где сейчас, чья; mark — метка точки удара, hunted — тик,
 	-- когда её собьёт уже выпущенный перехватчик, −1 — по ней не стреляли.
 	Missile = { fromX = 0, fromY = 0, toX = 0, toY = 0, born = 0, x = 0, y = 0, player = 0, mark = -1, hunted = -1 },
-	-- Ракета-перехватчик: летит из (fromX, fromY) с тика born и встречает ракету missile над (toX, toY) на высоте lift в
-	-- тик arrive.
+	-- Ракета-перехватчик: летит из (fromX, fromY) с тика born и встречает ракету missile над (toX, toY) на высоте lift
+	-- в тик arrive.
 	Chaser = { fromX = 0, fromY = 0, toX = 0, toY = 0, lift = 0, born = 0, arrive = 0, player = 0, missile = -1 },
 	-- Метка на карте до тика until: место пуска (launch) или точка удара (strike); viewers — кому видна.
 	Mark = { kind = "", ["until"] = 0, player = 0, viewers = {} },
@@ -61,7 +61,7 @@ local function warheadOf(w, e: number)
 	return kind and kind.data.warhead
 end
 
--- Своя готовая шахта игрока: её состояние и боеголовка вида (ownSilo).
+-- Своя готовая шахта игрока: её состояние и боеголовка вида.
 local function ownSilo(ctx, player: number, silo: any)
 	if type(silo) ~= "number" or not ctx:alive(silo) then
 		return nil, nil
@@ -74,7 +74,7 @@ local function ownSilo(ctx, player: number, silo: any)
 	return state, warhead
 end
 
--- Что мешает начать сборку боеголовки: "busy", "credits", "materials"; nil — ничего (warheadLack).
+-- Что мешает начать сборку боеголовки: "busy", "credits", "materials"; nil — ничего.
 function mechanic.warheadLack(w, player: number, silo: number): string?
 	local warhead = warheadOf(w, silo)
 	local state = w:get(silo, "Silo")
@@ -88,7 +88,7 @@ function mechanic.warheadLack(w, player: number, silo: number): string?
 end
 
 -- Что мешает перехватчику начать сборку следующей ракеты: "off", "credits", "materials"; nil — ничего, он уже собирает
--- или полон (interceptorLack).
+-- или полон.
 function mechanic.interceptorLack(w, e: number): string?
 	local kind = kinds.of(w, e)
 	local spec = kind and kind.data.intercept
@@ -112,7 +112,7 @@ local function inBounds(ctx, x: number, y: number): boolean
 end
 
 mechanic.commands = {
-	-- { silo } — начать сборку боеголовки в своей пустой шахте: кредиты и готовое списываются сразу (startWarhead).
+	-- { silo } — начать сборку боеголовки в своей пустой шахте: кредиты и готовое списываются сразу.
 	warhead = function(ctx, player, args)
 		local state, warhead = ownSilo(ctx, player, args.silo)
 		if not state or mechanic.warheadLack(ctx, player, args.silo) or not wallet.pay(ctx, player, warhead.cost) then
@@ -124,7 +124,7 @@ mechanic.commands = {
 		ctx:set(args.silo, "Silo", { progress = 0, ticks = math.floor(warhead.seconds / ctx.dt + 0.5), cost = warhead.cost })
 	end,
 
-	-- { silo } — бросить сборку: цена возвращается целиком, вложенное время пропадает (cancelWarhead).
+	-- { silo } — бросить сборку: цена возвращается целиком, вложенное время пропадает.
 	cancelWarhead = function(ctx, player, args)
 		local state, warhead = ownSilo(ctx, player, args.silo)
 		if not state or state.ticks <= 0 or state.ready then
@@ -138,7 +138,7 @@ mechanic.commands = {
 	end,
 
 	-- { silo, x, y } — пуск готовой боеголовки в тайл (x, y): ракета стартует через warhead.launch секунд; наведённую
-	-- можно навести заново, пока она не стартовала (orderLaunch).
+	-- можно навести заново, пока она не стартовала.
 	launch = function(ctx, player, args)
 		local state = ownSilo(ctx, player, args.silo)
 		local x, y = args.x, args.y
@@ -155,7 +155,7 @@ mechanic.commands = {
 		end
 	end,
 
-	-- { silo } — отменить пуск, пока ракета не стартовала: боеголовка остаётся в шахте (abortLaunch).
+	-- { silo } — отменить пуск, пока ракета не стартовала: боеголовка остаётся в шахте.
 	abortLaunch = function(ctx, player, args)
 		local state = ownSilo(ctx, player, args.silo)
 		if state and state.start >= 0 then
@@ -164,7 +164,7 @@ mechanic.commands = {
 	end,
 }
 
--- Игроки, у которых есть готовый радар: им видно место пуска (radarOwners).
+-- Игроки, у которых есть готовый радар: им видно место пуска.
 local function radarOwners(ctx): { number }
 	local players, list = {}, {}
 	for _, e in ctx:each({ "Building", "Owner" }) do
@@ -178,7 +178,7 @@ local function radarOwners(ctx): { number }
 	return list
 end
 
--- Игроки, чьи здания или юниты не дальше radius от точки (x, y), кроме except (playersNear).
+-- Игроки, чьи здания или юниты не дальше radius от точки (x, y), кроме except.
 local function playersNear(ctx, x: number, y: number, radius: number, except: number): { number }
 	local players, list = {}, {}
 	local all = ctx:query({ "Owner", "Position" })
@@ -202,8 +202,8 @@ local function playersNear(ctx, x: number, y: number, radius: number, except: nu
 	return list
 end
 
--- Через сколько тиков ракета-перехватчик со скоростью speed из (x, y) встретит ядерную ракету (meetTicks): не успевает
--- — встреча в последний тик до удара: перехват уже решён. Ноль — сбить сразу.
+-- Через сколько тиков ракета-перехватчик со скоростью speed из (x, y) встретит ядерную ракету: не успевает — встреча в
+-- последний тик до удара: перехват уже решён. Ноль — сбить сразу.
 local function meetTicks(ctx, missile, x: number, y: number, speed: number, warheadSpeed: number): number
 	local flight = warheadSpeed * ctx.dt
 	local reach = math.sqrt((missile.toX - missile.x) ^ 2 + (missile.toY - missile.y) ^ 2)
@@ -220,8 +220,8 @@ local function meetTicks(ctx, missile, x: number, y: number, speed: number, warh
 end
 
 mechanic.systems = {
-	-- До боя: шахты собирают боеголовки и пускают ракеты, перехватчики собирают свои и стреляют, ракеты летят и рвутся —
-	-- их взрыв бьёт в этот же бой, — или гибнут от перехватчика; метки, чей срок вышел, пропадают (launchMissiles).
+	-- До боя: шахты собирают боеголовки и пускают ракеты, перехватчики собирают свои и стреляют, ракеты летят и рвутся
+	-- — их взрыв бьёт в этот же бой, — или гибнут от перехватчика; метки, чей срок вышел, пропадают.
 	missiles = {
 		query = { "Silo", "Building", "Position", "Owner" },
 		after = { "supply" },
@@ -425,8 +425,8 @@ mechanic.systems = {
 	},
 }
 
--- На клиенте (worldSounds.ts): старт ракеты из шахты — рёв, слышный далеко; ракета-перехватчик со станка — тот же
--- рёв, но ближе; ядерный взрыв слышен ещё дальше; своя боеголовка готова — уведомление.
+-- На клиенте: старт ракеты из шахты — рёв, слышный далеко; ракета-перехватчик со станка — тот же рёв, но ближе; ядерный
+-- взрыв слышен ещё дальше; своя боеголовка готова — уведомление.
 mechanic.signals = {
 	liftoff = function(c, signal)
 		c:sound("liftoff", { x = signal.x, y = signal.y, volume = 1.1, reach = 3 })

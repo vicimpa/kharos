@@ -1,6 +1,6 @@
 --!strict
 -- Схватка: каждый вошедший появляется со стартовым набором — MCV, две багги и взвод пехоты, — и стартовыми кредитами
--- (spawnStartingUnits); первый — у начала мира, но не в кармане за обрывами (openSpawn). Подача — камера RTS,
+--; первый — у начала мира, но не в кармане за обрывами. Подача — камера RTS,
 -- выделение рамкой и приказы мышью, панель с кредитами, производством и стройкой, погода и звук как в Kharos.
 
 local skirmish = {}
@@ -8,7 +8,7 @@ local skirmish = {}
 skirmish.data = {
 	-- STARTING_CREDITS: строителей заказывают в развёрнутом главном здании, на это кредиты и есть.
 	credits = 1500,
-	-- С чем появляется игрок, по порядку: MCV встаёт на само место, остальные — вокруг (STARTING_UNITS).
+	-- С чем появляется игрок, по порядку: MCV встаёт на само место, остальные — вокруг.
 	start = { "mcv", "buggy", "buggy", "infantry", "infantry", "infantry" },
 	-- Места остальных игроков — по кругу такого радиуса, в тайлах.
 	radius = 24,
@@ -18,8 +18,8 @@ skirmish.data = {
 	land = "desert",
 	-- Правила мира: замедление на местности по родам юнитов.
 	rules = require("lib/rules"),
-	-- Сколько тайлов вокруг места появления должно быть доступно технике, иначе база заперта обрывами (SPAWN_ROOM);
-	-- шаг и радиус поиска такого места (openSpawn).
+	-- Сколько тайлов вокруг места появления должно быть доступно технике, иначе база заперта обрывами; шаг и радиус
+	-- поиска такого места.
 	room = 2000,
 	spawnStep = 4,
 	spawnRadius = 64,
@@ -34,12 +34,12 @@ local function home(player: number): (number, number)
 	return math.floor(math.cos(angle) * skirmish.data.radius), math.floor(math.sin(angle) * skirmish.data.radius)
 end
 
--- Не заперто ли место: техника отсюда доедет хотя бы до room тайлов (notWalledIn).
+-- Не заперто ли место: техника отсюда доедет хотя бы до room тайлов.
 local function open(ctx, x: number, y: number): boolean
 	return ctx:can_stand("vehicle", x, y) and ctx:reach(x, y, skirmish.data.room) >= skirmish.data.room
 end
 
--- Ближайшее к (x, y) незапертое место кольцами наружу; не нашлось — сама точка (openSpawn).
+-- Ближайшее к (x, y) незапертое место кольцами наружу; не нашлось — сама точка.
 local function openSpawn(ctx, x: number, y: number): (number, number)
 	local step = skirmish.data.spawnStep
 	for ring = 0, skirmish.data.spawnRadius, step do
@@ -55,7 +55,7 @@ local function openSpawn(ctx, x: number, y: number): (number, number)
 end
 
 skirmish.on = {
-	-- Стартовый набор — на свободных тайлах вокруг места, через тайл (spawnStartingUnits); не хватило мест — меньше.
+	-- Стартовый набор — на свободных тайлах вокруг места, через тайл; не хватило мест — меньше.
 	player_joined = function(ctx, event)
 		local x, y = openSpawn(ctx, home(event.player))
 		local list = skirmish.data.start
@@ -77,12 +77,12 @@ skirmish.client = {
 	ui = { "hud", "tech", "pause" },
 	atmosphere = { "weather" },
 	effects = { "traces", "paving", "drops", "construction", "power", "logistics", "connections", "flow", "combat", "conversion", "silos", "steps" },
-	-- Звук — как в TS: интерфейс, моторы, работа зданий, фон с подложкой и эхом, ветер полёта.
+	-- Звук: интерфейс, моторы, работа зданий, фон с подложкой и эхом, ветер полёта.
 	audio = { "levels", "interface", "motors", "machines", "world", "battle", "ambience", "flight" },
 }
 
--- Редактор этой партии (gui/screens/editor.ts): мир стоит, вместо нижней панели — панель редактора справа, мышь —
--- инструменты редактора; тумана нет.
+-- Редактор этой партии: мир стоит, вместо нижней панели — панель редактора справа, мышь — инструменты редактора; тумана
+-- нет.
 skirmish.editor = {
 	camera = "rts",
 	controls = { "editor" },

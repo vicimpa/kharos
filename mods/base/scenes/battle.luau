@@ -1,5 +1,5 @@
 --!strict
--- Сценка витрины: бой двух случайных армий одной цены (battle в sim-ts/showcase.ts).
+-- Сценка витрины: бой двух случайных армий одной цены.
 
 local battle = require("lib/battle")
 

@@ -1,6 +1,5 @@
 --!strict
 -- Дешёвая стена не расширяет зону: иначе цепочкой стен можно было бы бесплатно протянуть контроль через карту.
--- Данные — packages/base/data/buildings.json, облик — look.luau.
 
 local buildings = require("lib/buildings")
 

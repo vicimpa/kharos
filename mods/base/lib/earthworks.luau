@@ -1,9 +1,9 @@
 --!strict
--- Землеройные работы — перенос earthworks.ts, общий хосту (ctx) и клиенту (c): строители срывают горы и сглаживают
--- обрывы. Гору срывают целиком — она рисуется от вершины, и кусок горы остался бы обрубком; на её месте — скала того
--- же яруса, что вокруг. Обрыв сглаживают по тайлу кромки: кромка становится пологой, и подножие под ней — проездом
--- для техники. Работа — сущность с Dig, её строят строители, как покрытие; плата — сразу при заказе. Правку другие
--- видят, только когда увидят её место (память земли движка). Открывает их исследование earthworks.
+-- Землеройные работы, общий хосту (ctx) и клиенту (c): строители срывают горы и сглаживают обрывы. Гору срывают целиком
+-- — она рисуется от вершины, и кусок горы остался бы обрубком; на её месте — скала того же яруса, что вокруг. Обрыв
+-- сглаживают по тайлу кромки: кромка становится пологой, и подножие под ней — проездом для техники. Работа — сущность с
+-- Dig, её строят строители, как покрытие; плата — сразу при заказе. Правку другие видят, только когда увидят её место
+-- (память земли движка). Открывает их исследование earthworks.
 --
 -- Тайл — хранимые байты (w:tile): вид, биом, байт вершины, рельеф (ярус в двух младших битах, CLIFF_BIT, барханы с
 -- DUNE_SHIFT). У клиента это земля, какой её знает свой игрок.
@@ -14,10 +14,10 @@ local zones = require("lib/zones")
 local earthworks = {}
 
 earthworks.KINDS = { "peak", "cliff" }
--- Цена срытия горы за каждый её тайл и сглаживания тайла кромки (PEAK_COST, CLIFF_COST).
+-- Цена срытия горы за каждый её тайл и сглаживания тайла кромки.
 earthworks.PEAK_COST = 40
 earthworks.CLIFF_COST = 25
--- Какое исследование открывает землеройные работы (DIG_RESEARCH).
+-- Какое исследование открывает землеройные работы.
 earthworks.RESEARCH = "earthworks"
 earthworks.TITLES = { peak = "grid.tools.peak", cliff = "grid.tools.cliff" }
 
@@ -48,7 +48,7 @@ function earthworks.peakOf(w, x: number, y: number)
 	return if px then { x = px, y = py, radius = radius } else nil
 end
 
--- Тайлы горы с вершиной peak: x и y подряд (peakTiles).
+-- Тайлы горы с вершиной peak: x и y подряд.
 function earthworks.peakTiles(w, peak): { number }
 	local tiles = {}
 	local span = math.ceil(peak.radius + 1)
@@ -66,7 +66,7 @@ function earthworks.peakTiles(w, peak): { number }
 	return tiles
 end
 
--- Кромка ли обрыва тайл: обрывистая, а рядом есть тайл ниже — подножие под ней (isCliffEdge).
+-- Кромка ли обрыва тайл: обрывистая, а рядом есть тайл ниже — подножие под ней.
 function earthworks.isCliffEdge(w, x: number, y: number): boolean
 	if not inside(w, x, y) then
 		return false
@@ -86,7 +86,7 @@ function earthworks.isCliffEdge(w, x: number, y: number): boolean
 end
 
 -- Тайлы кромки, которые сгладит рамка tiles (x и y подряд): кромки в рамке и кромки над подножиями в ней — стенку
--- обрыва рисуют на подножии, и рамку игрок тянет по ней (cliffEdgesIn). x и y подряд, без повторов.
+-- обрыва рисуют на подножии, и рамку игрок тянет по ней. x и y подряд, без повторов.
 function earthworks.cliffEdgesIn(w, tiles: { number }): { number }
 	local found, seen = {}, {}
 	local function add(x: number, y: number)
@@ -112,7 +112,7 @@ function earthworks.cliffEdgesIn(w, tiles: { number }): { number }
 	return found
 end
 
--- Работа, которая уже идёт на тайле: кромку сглаживают или гору, частью которой он стоит, срывают (digAt).
+-- Работа, которая уже идёт на тайле: кромку сглаживают или гору, частью которой он стоит, срывают.
 function earthworks.digAt(w, x: number, y: number): number?
 	local peak = earthworks.peakOf(w, x, y)
 	for _, e in w:each({ "Dig", "Position" }) do
@@ -124,8 +124,7 @@ function earthworks.digAt(w, x: number, y: number): number?
 	return nil
 end
 
--- Можно ли игроку начать работу kind на тайле: исследовано, не в чужой зоне, есть что делать и это ещё не делают
--- (canDig).
+-- Можно ли игроку начать работу kind на тайле: исследовано, не в чужой зоне, есть что делать и это ещё не делают.
 function earthworks.canDig(w, player: number, kind: string, x: number, y: number, all: any?): boolean
 	if x ~= math.floor(x) or y ~= math.floor(y) or not table.find(earthworks.KINDS, kind) or not inside(w, x, y) then
 		return false
@@ -142,7 +141,7 @@ function earthworks.canDig(w, player: number, kind: string, x: number, y: number
 	return not zones.inForeign(w, player, x, y, 1, 1, all)
 end
 
--- Работы, которые закажет рамка tiles: на каждую гору — одна, на тайл кромки — своя; место, вершина и цена (digsIn).
+-- Работы, которые закажет рамка tiles: на каждую гору — одна, на тайл кромки — своя; место, вершина и цена.
 function earthworks.digsIn(w, player: number, kind: string, tiles: { number })
 	local jobs = {}
 	local all = zones.all(w)
@@ -168,7 +167,7 @@ function earthworks.digsIn(w, player: number, kind: string, tiles: { number })
 	return jobs
 end
 
--- Над какими тайлами идёт работа: прямоугольник для строителей; nil — делать уже нечего (гору сорвали) (digArea).
+-- Над какими тайлами идёт работа: прямоугольник для строителей; nil — делать уже нечего (гору сорвали).
 function earthworks.area(w, e: number)
 	local dig, at = w:get(e, "Dig"), w:get(e, "Position")
 	if not dig or not at then
@@ -190,7 +189,7 @@ function earthworks.area(w, e: number)
 	return { x = left, y = top, width = right - left, height = bottom - top }
 end
 
--- Самый частый ярус соседей горы: скала на её месте ложится вровень с плато вокруг (tierAround).
+-- Самый частый ярус соседей горы: скала на её месте ложится вровень с плато вокруг.
 local function tierAround(w, tiles: { number }): number
 	local counts = { [0] = 0, 0, 0, 0 }
 	local own = {}
@@ -217,7 +216,7 @@ local function tierAround(w, tiles: { number }): number
 	return best
 end
 
--- Работа сделана (finishDig): гора становится скалой, кромка — пологой. Сущность работы исчезает. Только хост.
+-- Работа сделана: гора становится скалой, кромка — пологой. Сущность работы исчезает. Только хост.
 function earthworks.finish(ctx, e: number)
 	local dig, at = ctx:get(e, "Dig"), ctx:get(e, "Position")
 	if dig and at and earthworks.area(ctx, e) then

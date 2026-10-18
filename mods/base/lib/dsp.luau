@@ -1,7 +1,7 @@
 --!strict
 --!native
--- Синтез звука в сэмплах — перенос packages/client/src/audio/synth.ts: звуки игры считаются кодом, как и графика,
--- один раз при загрузке. Запись — буфер f32 (моно) или таблица буферов (стерео); значения от −1 до 1.
+-- Синтез звука в сэмплах: звуки игры считаются кодом, как и графика, один раз при загрузке. Запись — буфер f32 (моно)
+-- или таблица буферов (стерео); значения от −1 до 1.
 
 local dsp = {}
 
@@ -9,7 +9,7 @@ local exp, sin, floor, ceil, abs, min, max = math.exp, math.sin, math.floor, mat
 local readf32, writef32 = buffer.readf32, buffer.writef32
 local TWO_PI = 2 * math.pi
 
--- Генератор случайных чисел от 0 до 1 с зерном: один вариант звука всегда одинаков. Тот же xorshift, что в TS.
+-- Генератор случайных чисел от 0 до 1 с зерном: один вариант звука всегда одинаков. Это xorshift.
 function dsp.random(seed: number): () -> number
 	local state = floor(seed * 2654435761) % 4294967296
 	if state == 0 then

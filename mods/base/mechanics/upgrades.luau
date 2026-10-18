@@ -1,7 +1,7 @@
 --!strict
--- Уровни зданий — перенос upgrades.ts: приказы поднять здание на уровень и отменить подъём. Цена, что уровень даёт и
--- чего не хватает — lib/levels; работу делают строители, как стройку (mechanics/construction): здание всё это время
--- работает, а повреждённое сначала чинят.
+-- Уровни зданий: приказы поднять здание на уровень и отменить подъём. Цена, что уровень даёт и чего не хватает —
+-- lib/levels; работу делают строители, как стройку (mechanics/construction): здание всё это время работает, а
+-- повреждённое сначала чинят.
 
 local levels = require("lib/levels")
 
@@ -14,8 +14,8 @@ mechanic.components = {
 }
 
 mechanic.commands = {
-	-- { building, builders } — поднять своё готовое здание на следующий уровень (orderUpgrade): цена списывается сразу,
-	-- готовое — со складов его энергосети; строители — к нему, а без них возьмутся свободные поблизости.
+	-- { building, builders } — поднять своё готовое здание на следующий уровень: цена списывается сразу, готовое — со
+	-- складов его энергосети; строители — к нему, а без них возьмутся свободные поблизости.
 	upgrade = function(ctx, player, args)
 		local building = args.building
 		if type(building) ~= "number" or not ctx:alive(building) or not levels.order(ctx, player, building) then
@@ -27,7 +27,7 @@ mechanic.commands = {
 		end
 	end,
 
-	-- { building } — отменить подъём (cancelUpgrade): цена вернётся целиком, вложенная работа пропадёт.
+	-- { building } — отменить подъём: цена вернётся целиком, вложенная работа пропадёт.
 	cancelUpgrade = function(ctx, player, args)
 		if type(args.building) == "number" and ctx:alive(args.building) then
 			levels.cancel(ctx, player, args.building)

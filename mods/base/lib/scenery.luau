@@ -1,7 +1,7 @@
 --!strict
--- Готовые базы — помощники сценок витрины (showcase.ts) и песочницы (sandbox.ts): ставят здания сразу, без стройки,
--- соединяют базу трубами (connectAll, pipeRoute в piping.ts), выводят отряды и открывают исследования. Только хосту:
--- правки мира применяются сразу (ctx:flush), чтобы следующее здание видело, что место занято.
+-- Готовые базы — помощники сценок витрины и песочницы: ставят здания сразу, без стройки, соединяют базу трубами,
+-- выводят отряды и открывают исследования. Только хосту: правки мира применяются сразу (ctx:flush), чтобы следующее
+-- здание видело, что место занято.
 
 local placement = require("lib/placement")
 local kinds = require("lib/kinds")
@@ -9,7 +9,7 @@ local battle = require("lib/battle")
 
 local scenery = {}
 
--- Дальше скольких тайлов трасса трубы не ищется (ROUTE_REACH).
+-- Дальше скольких тайлов трасса трубы не ищется.
 scenery.ROUTE_REACH = 16
 
 local SIDES = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
@@ -30,13 +30,13 @@ function scenery.around(x: number, y: number, radius: number): { number }
 	return tiles
 end
 
--- Можно ли поставить здание вида name с левым верхним тайлом (x, y) и проходом gap вокруг (canPlace).
+-- Можно ли поставить здание вида name с левым верхним тайлом (x, y) и проходом gap вокруг.
 function scenery.canPlace(ctx, name: string, x: number, y: number, gap: number?): boolean
 	local kind = ctx.protos.buildings[name]
 	return kind ~= nil and placement.canPlace(ctx, kind, x, y, gap)
 end
 
--- Ставит готовое здание вида name с левым верхним тайлом (x, y) игроку player (placeBuilding) — сразу.
+-- Ставит готовое здание вида name с левым верхним тайлом (x, y) игроку player — сразу.
 function scenery.place(ctx, name: string, x: number, y: number, player: number): number
 	local kind = ctx.protos.buildings[name]
 	local e = ctx:spawn(kind, {
@@ -47,7 +47,7 @@ function scenery.place(ctx, name: string, x: number, y: number, player: number):
 	return e
 end
 
--- Ближайшее к началу мира место, где встаёт здание name с проходом gap вокруг (openSpot); nil — нет.
+-- Ближайшее к началу мира место, где встаёт здание name с проходом gap вокруг; nil — нет.
 function scenery.openSpot(ctx, name: string, gap: number, radius: number?): { x: number, y: number }?
 	local tiles = scenery.around(0, 0, radius or 40)
 	for i = 1, #tiles - 1, 2 do
@@ -58,7 +58,7 @@ function scenery.openSpot(ctx, name: string, gap: number, radius: number?): { x:
 	return nil
 end
 
--- Отряд из видов names игрока player на свободных тайлах у (x, y), не ближе from (spawnGroup); бойцы агрессивны.
+-- Отряд из видов names игрока player на свободных тайлах у (x, y), не ближе from; бойцы агрессивны.
 function scenery.spawnGroup(ctx, names: { string }, player: number, x: number, y: number, from: number?): { number }
 	local tiles = ctx:free_tiles(math.floor(x), math.floor(y), #names, from or 0)
 	local units = battle.spawn(ctx, names, player, tiles)
@@ -77,7 +77,7 @@ function scenery.addCredits(ctx, player: number, amount: number)
 	ctx:flush()
 end
 
--- Открывает игроку все исследования (grantResearch): сценка их не показывает.
+-- Открывает игроку все исследования: сценка их не показывает.
 function scenery.grantResearch(ctx, player: number)
 	local topics = {}
 	for name in ctx.protos.research do
@@ -103,9 +103,9 @@ local function networkIndex(ctx): { [number]: any }
 	return index
 end
 
--- Трасса наземной трубы от основания (x, y, width, height) до узла сети игрока (pipeRoute): тайлы x, y подряд, от
--- основания к сети. Пусто — к основанию уже подходит своя труба; nil — сети ближе ROUTE_REACH нет. Узел — готовое своё
--- здание сети; joins — какую сеть годится брать.
+-- Трасса наземной трубы от основания (x, y, width, height) до узла сети игрока: тайлы x, y подряд, от основания к сети.
+-- Пусто — к основанию уже подходит своя труба; nil — сети ближе ROUTE_REACH нет. Узел — готовое своё здание сети; joins
+-- — какую сеть годится брать.
 function scenery.pipeRoute(ctx, player: number, x: number, y: number, width: number, height: number, joins: (any) -> boolean): { number }?
 	local function inside(tx: number, ty: number): boolean
 		return tx >= x and tx < x + width and ty >= y and ty < y + height
@@ -194,8 +194,8 @@ function scenery.pipeRoute(ctx, player: number, x: number, y: number, width: num
 	return nil
 end
 
--- Соединяет трубами все сети игрока с первой — с главным зданием (connectAll): готовые трубы сразу, без стройки. Сеть,
--- до которой трассы не нашлось, остаётся отдельной.
+-- Соединяет трубами все сети игрока с первой — с главным зданием: готовые трубы сразу, без стройки. Сеть, до которой
+-- трассы не нашлось, остаётся отдельной.
 function scenery.connectAll(ctx, player: number)
 	local joined = true
 	while joined do

@@ -1,6 +1,5 @@
 --!strict
 -- Оружие machinegun.
--- Данные — packages/base/data/weapons.json.
 
 return {
 	data = {

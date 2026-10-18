@@ -1,11 +1,11 @@
 --!strict
--- Стройка, разбор и починка — перенос construction.ts. Площадка (Site) закладывается приказом build в своей зоне и
--- тайлов не занимает, пока к ней не приступили; с первой работой она становится недостроенным зданием (Footprint,
--- прочность от SITE_FLOOR). Ремонтники (Repair — строители, ремонтные турели) вкладывают работу во всё своё, до чего
--- дотягиваются, глядя на него: чем их больше, тем быстрее. Платят по ходу: за построенную долю — та же доля цены;
--- кредитов нет — стройка стоит. Разбор возвращает половину цены, отмена недостроенного — уплаченное, по ходу.
--- Повреждённое чинят быстрее, чем строят, за долю цены и не под огнём. Свободные строители сами берутся за работу
--- поблизости. Правила места и кредитов — lib/construction.
+-- Стройка, разбор и починка. Площадка (Site) закладывается приказом build в своей зоне и тайлов не занимает, пока к ней
+-- не приступили; с первой работой она становится недостроенным зданием (Footprint, прочность от SITE_FLOOR). Ремонтники
+-- (Repair — строители, ремонтные турели) вкладывают работу во всё своё, до чего дотягиваются, глядя на него: чем их
+-- больше, тем быстрее. Платят по ходу: за построенную долю — та же доля цены; кредитов нет — стройка стоит. Разбор
+-- возвращает половину цены, отмена недостроенного — уплаченное, по ходу. Повреждённое чинят быстрее, чем строят, за
+-- долю цены и не под огнём. Свободные строители сами берутся за работу поблизости. Правила места и кредитов —
+-- lib/construction.
 --
 -- Материалы стройке подвозят грузовики и сами строители (mechanics/fetching): дальше привезённого она не идёт.
 --
@@ -16,10 +16,8 @@
 -- повреждённое сначала чинят, станция его не делает.
 --
 -- Покрытие (lib/paving) — тоже работа строителей: тайл фундамента или дороги оплачен сразу и ничего не ждёт; готовое
--- уходит в слой карты, разбор снимает его оттуда. Фундамент под основанием ускоряет стройку (buildSpeed). Инструмент
--- «Снять» разбирает рамкой покрытие, трубы и здания.
---
--- Пока нет: землеройных работ.
+-- уходит в слой карты, разбор снимает его оттуда. Фундамент под основанием ускоряет стройку. Инструмент «Снять»
+-- разбирает рамкой покрытие, трубы и здания.
 
 local construction = require("lib/construction")
 local placement = require("lib/placement")
@@ -41,19 +39,19 @@ local readf64, writef64 = buffer.readf64, buffer.writef64
 local mechanic = {}
 
 mechanic.data = {
-	-- С какого расстояния до работы свободный строитель сам берётся за неё, в тайлах (WORK_RADIUS).
+	-- С какого расстояния до работы свободный строитель сам берётся за неё, в тайлах.
 	workRadius = 10,
-	-- Раз во сколько тиков не дошедший до работы пробует подъехать снова и свободный смотрит вокруг (RETRY_TICKS).
+	-- Раз во сколько тиков не дошедший до работы пробует подъехать снова и свободный смотрит вокруг.
 	retryTicks = 20,
-	-- Самая долгая отсрочка подъезда после промахов — 2^5 попыток (MAX_BACKOFF).
+	-- Самая долгая отсрочка подъезда после промахов — 2^5 попыток.
 	maxBackoff = 5,
 	-- На сколько тайлов ближе своего радиуса встаёт ремонтник: юнит, которого он чинит, может сдвинуться.
 	approachMargin = 0.5,
-	-- На сколько тайлов вглубь основания приходится точка, над которой работают (WORK_INSET).
+	-- На сколько тайлов вглубь основания приходится точка, над которой работают.
 	workInset = 0.4,
-	-- Насколько точно ремонтник должен смотреть на цель, чтобы работать, в радианах (REPAIR_AIM).
+	-- Насколько точно ремонтник должен смотреть на цель, чтобы работать, в радианах.
 	repairAim = 0.2,
-	-- Обзор недостроенного: половина основания и ещё столько тайлов (SITE_SIGHT).
+	-- Обзор недостроенного: половина основания и ещё столько тайлов.
 	siteSight = 2,
 }
 
@@ -100,7 +98,7 @@ local function isOwn(ctx, player: number, e: number): boolean
 	return ctx:alive(e) and ownerOf(ctx, e) == player
 end
 
--- Расстояние от точки до прямоугольника; внутри — ноль (rectDistance).
+-- Расстояние от точки до прямоугольника; внутри — ноль.
 local function rectDistance(left: number, top: number, width: number, height: number, x: number, y: number): number
 	local dx = math.max(left - x, 0, x - left - width)
 	local dy = math.max(top - y, 0, y - top - height)
@@ -109,9 +107,8 @@ end
 
 type Work = { x: number, y: number, width: number, height: number, radius: number, cost: number }
 
--- Улучшение, над которым здесь сейчас работают (upgradeAt): его компонент, цена в кредитах и сколько тиков работы
--- одного строителя оно стоит. Повреждённое здание сначала чинят, а здание под разбором не улучшают: тогда улучшения в
--- работе нет.
+-- Улучшение, над которым здесь сейчас работают: его компонент, цена в кредитах и сколько тиков работы одного строителя
+-- оно стоит. Повреждённое здание сначала чинят, а здание под разбором не улучшают: тогда улучшения в работе нет.
 local function upgradeAt(ctx, e: number)
 	local upgrade = ctx:get(e, "Upgrade")
 	if not upgrade or ctx:has(e, "Site") or not ctx:has(e, "Building") or construction.isRepairable(ctx, e) then
@@ -125,8 +122,8 @@ local function upgradeAt(ctx, e: number)
 	return { upgrade = upgrade, cost = cost, ticks = construction.workTicks(cost, ctx.dt) }
 end
 
--- Над чем здесь работают: стройка, разбор, починка или улучшение; nil — работы нет (workAt). Прямоугольник основания
--- в тайлах; у юнита — точка в его центре и радиус.
+-- Над чем здесь работают: стройка, разбор, починка или улучшение; nil — работы нет. Прямоугольник основания в тайлах; у
+-- юнита — точка в его центре и радиус.
 local function workAt(ctx, e: number): Work?
 	if not ctx:alive(e) then
 		return nil
@@ -173,7 +170,7 @@ local function distanceTo(work: Work, x: number, y: number): number
 	return math.max(0, rectDistance(work.x, work.y, work.width, work.height, x, y) - work.radius)
 end
 
--- Попадали ли по этому в последние repairPause секунд: такое не чинят и к нему не едут (underFire).
+-- Попадали ли по этому в последние repairPause секунд: такое не чинят и к нему не едут.
 local function underFire(ctx, e: number, rules): boolean
 	local health = ctx:get(e, "Health")
 	if not health or health.hit < 0 then
@@ -182,7 +179,7 @@ local function underFire(ctx, e: number, rules): boolean
 	return ctx.tick - health.hit < rules.repairPause / ctx.dt
 end
 
--- Тайлы, где стоят юниты, кроме ignore: на них не встают (standingUnits). radius — запас вокруг.
+-- Тайлы, где стоят юниты, кроме ignore: на них не встают. radius — запас вокруг.
 local function standingTiles(ctx, ignore: number, radius: number): { [string]: boolean }
 	local tiles = {}
 	for _, e in ctx:each({ "Unit", "Position", "Mover" }) do
@@ -256,8 +253,8 @@ local function approach(ctx, builder: number, site: number, claimed: { [string]:
 	return points ~= nil and #points >= 2 and distanceTo(work, points[#points - 1], points[#points]) <= repair.radius
 end
 
--- Посылает своих ремонтников на стройку, разбор или чинить (assignBuilders). Чужие, без Repair и разворачивающиеся
--- выбрасываются; сам себя ремонтник не чинит.
+-- Посылает своих ремонтников на стройку, разбор или чинить. Чужие, без Repair и разворачивающиеся выбрасываются; сам
+-- себя ремонтник не чинит.
 local function assignBuilders(ctx, player: number, site: number, units: { number }, ordered: boolean): boolean
 	if not isOwn(ctx, player, site) or not workAt(ctx, site) then
 		return false
@@ -277,8 +274,8 @@ local function assignBuilders(ctx, player: number, site: number, units: { number
 	return #builders > 0
 end
 
--- Освобождает основание площадки и говорит, свободно ли оно (clearSite): свои стоящие с evict уходят, едущих не
--- трогают, чужих остаётся ждать.
+-- Освобождает основание площадки и говорит, свободно ли оно: свои стоящие с evict уходят, едущих не трогают, чужих
+-- остаётся ждать.
 local function clearSite(ctx, site: number, evict: boolean): boolean
 	local x, y = construction.corner(ctx, site)
 	local size = ctx:get(site, "Building")
@@ -299,12 +296,12 @@ local function clearSite(ctx, site: number, evict: boolean): boolean
 	return false
 end
 
--- Строитель занят работой, которую дал ему игрок, или ждёт приказов в очереди: новую стройку из меню он не бросает,
--- она встаёт ему в очередь (isBusyBuilder).
+-- Строитель занят работой, которую дал ему игрок, или ждёт приказов в очереди: новую стройку из меню он не бросает, она
+-- встаёт ему в очередь.
 local isBusy = queue.busyBuilder
 
 -- Стоит ли работа, хотя ремонтник до неё дотянулся: стройка вне зоны или с юнитами на ещё пустой площадке, починка —
--- без кредитов (isStalled). Покрытие и улучшение оплачены сразу и ничего не ждут.
+-- без кредитов. Покрытие и улучшение оплачены сразу и ничего не ждут.
 local function isStalled(ctx, e: number, rules, purse, all): boolean
 	if ctx:has(e, "Pave") or ctx:has(e, "Dig") or upgradeAt(ctx, e) then
 		return false
@@ -346,8 +343,8 @@ end
 
 type Link = { from: number, to: number, rate: number, demolish: boolean, fromX: number, fromY: number, toX: number, toY: number, stalled: boolean }
 
--- Над чем сейчас работает каждый ремонтник (repairLinks): над той работой, к которой его послали, если дотягивается,
--- а иначе — над ближайшей из тех, до которых дотягивается и которые не стоят.
+-- Над чем сейчас работает каждый ремонтник: над той работой, к которой его послали, если дотягивается, а иначе — над
+-- ближайшей из тех, до которых дотягивается и которые не стоят.
 local function repairLinks(ctx, rules, purse, all): { Link }
 	local links = {}
 	local repairers = {}
@@ -360,7 +357,7 @@ local function repairLinks(ctx, rules, purse, all): { Link }
 		end
 		local at = ctx:get(e, "Position")
 		local repair = ctx:get(e, "Repair")
-		-- Ремонтная станция (repairStations): готовая, не выключенная и с энергией — чинит на свою долю энергии.
+		-- Ремонтная станция: готовая, не выключенная и с энергией — чинит на свою долю энергии.
 		if ctx:has(e, "Building") then
 			local share = if economy.switchedOff(ctx, e) then 0 else economy.shareOf(ctx, e)
 			if share > 0 then
@@ -617,8 +614,8 @@ local function finish(ctx, e: number, kind, player: number)
 	ctx:signal("built", { entity = e, player = player, building = kind.name, x = at.x, y = at.y })
 end
 
--- Закладывает площадку вида kind левым верхним тайлом в (x, y) без проверок (orderBuild): материалы привезут
--- грузовики, трубы и строители. Номер известен сразу, а площадка появится после системы.
+-- Закладывает площадку вида kind левым верхним тайлом в (x, y) без проверок: материалы привезут грузовики, трубы и
+-- строители. Номер известен сразу, а площадка появится после системы.
 local function laySite(ctx, player: number, kind, x: number, y: number): number
 	local data = kind.data
 	return ctx:spawn(nil, {
@@ -643,8 +640,8 @@ local function freeBuilders(ctx, list): { number }
 	return free
 end
 
--- Убирает трубу, вместо которой кладут другую, сразу: заложенную — даром, начатую — с возвратом уплаченного, готовую — с
--- возвратом как за разбор (replacePipe).
+-- Убирает трубу, вместо которой кладут другую, сразу: заложенную — даром, начатую — с возвратом уплаченного, готовую —
+-- с возвратом как за разбор.
 local function replacePipe(ctx, player: number, e: number)
 	local kind = kinds.of(ctx, e)
 	local site = ctx:get(e, "Site")
@@ -714,8 +711,8 @@ local function strokeTiles(list): { number }?
 	return if #tiles >= 2 then tiles else nil
 end
 
--- Строители протяжки: свои юниты из списка; без Shift занятые делом игрока (busy) получат работу в очередь, а
--- свободные (free) поедут сразу; с Shift (queued) в очередь встаёт всем (lay в commands.ts).
+-- Строители протяжки: свои юниты из списка; без Shift занятые делом игрока (busy) получат работу в очередь, а свободные
+-- (free) поедут сразу; с Shift (queued) в очередь встаёт всем.
 local function split(ctx, player: number, list, queued: boolean): ({ number }, { number })
 	local free, busy = {}, {}
 	for _, e in (if type(list) == "table" then list else {}) do
@@ -734,9 +731,9 @@ local function dispatch(ctx, player: number, first: number, free: { number }, bu
 	ctx:emit("laid", { site = first, player = player, builders = free })
 end
 
--- Отменяет стройку (cancelBuild). Не начатая исчезает сразу; начатая разбирается, и уплаченное за неё возвращается по
--- ходу разбора; отмена разбора оставляет здание целым. Разбор отменённой стройки не отменить. Возвращает, стала ли
--- стройка работой — разбором начатого.
+-- Отменяет стройку. Не начатая исчезает сразу; начатая разбирается, и уплаченное за неё возвращается по ходу разбора;
+-- отмена разбора оставляет здание целым. Разбор отменённой стройки не отменить. Возвращает, стала ли стройка работой —
+-- разбором начатого.
 local function cancelSite(ctx, site: number): boolean
 	local state = ctx:get(site, "Site")
 	if not state or state.undo then
@@ -780,8 +777,8 @@ end
 
 mechanic.commands = {
 	-- { kind, tiles, builders, queue } — заложить покрытие (foundation, road) в тайлы x, y подряд и послать к нему
-	-- строителей (orderPave). Платят за каждый тайл сразу; на что не хватило кредитов и куда нельзя — не кладут.
-	-- Дальше по соседним тайлам строители пойдут сами.
+	-- строителей. Платят за каждый тайл сразу; на что не хватило кредитов и куда нельзя — не кладут. Дальше по соседним
+	-- тайлам строители пойдут сами.
 	pave = function(ctx, player, args)
 		local tiles = strokeTiles(args.tiles)
 		local kind = args.kind
@@ -808,9 +805,9 @@ mechanic.commands = {
 		end
 	end,
 
-	-- { kind, tiles, builders, queue } — землеройные работы в рамке тайлов x, y подряд (orderDigs): kind — peak (срыть
-	-- горы, по работе на гору) или cliff (сгладить кромки обрыва, по работе на тайл). Платят за каждую сразу; на что
-	-- не хватило кредитов — не заказывают. К первой посылают строителей.
+	-- { kind, tiles, builders, queue } — землеройные работы в рамке тайлов x, y подряд: kind — peak (срыть горы, по
+	-- работе на гору) или cliff (сгладить кромки обрыва, по работе на тайл). Платят за каждую сразу; на что не хватило
+	-- кредитов — не заказывают. К первой посылают строителей.
 	dig = function(ctx, player, args)
 		local tiles = strokeTiles(args.tiles)
 		local kind = args.kind
@@ -832,10 +829,10 @@ mechanic.commands = {
 		end
 	end,
 
-	-- { tiles, builders, queue } — снять своё на тайлах (removePave): покрытие, трубы с колодцами и здания, основание
-	-- которых целиком попало в тайлы (главное здание не разбирают — его сворачивают). Недостроенное покрытие и не
-	-- начатые стройки отменяются сразу, с возвратом кредитов целиком; готовое покрытие строители разбирают без
-	-- возврата, готовые трубы и здания — с возвратом половины цены. Без своих строителей не снимают ничего.
+	-- { tiles, builders, queue } — снять своё на тайлах: покрытие, трубы с колодцами и здания, основание которых
+	-- целиком попало в тайлы (главное здание не разбирают — его сворачивают). Недостроенное покрытие и не начатые
+	-- стройки отменяются сразу, с возвратом кредитов целиком; готовое покрытие строители разбирают без возврата,
+	-- готовые трубы и здания — с возвратом половины цены. Без своих строителей не снимают ничего.
 	remove = function(ctx, player, args)
 		local tiles = strokeTiles(args.tiles)
 		if not tiles then
@@ -870,7 +867,7 @@ mechanic.commands = {
 				seen[building] = true
 				table.insert(taken, building)
 			end
-			-- Землеройную работу отменяют: кредиты возвращаются целиком, как у не начатой площадки (cancelDig).
+			-- Землеройную работу отменяют: кредиты возвращаются целиком, как у не начатой площадки.
 			local dug = earthworks.digAt(ctx, x, y)
 			if dug and not seen[dug] and isOwn(ctx, player, dug) then
 				seen[dug] = true
@@ -928,7 +925,7 @@ mechanic.commands = {
 	end,
 
 	-- { tiles, builders } — колодец (x, y) или пара — концы подземного отрезка на одной прямой. Конец, где свой колодец
-	-- уже стоит, остаётся; пару кладут целиком или никак (orderWells).
+	-- уже стоит, остаётся; пару кладут целиком или никак.
 	wells = function(ctx, player, args)
 		local tiles = strokeTiles(args.tiles)
 		local kind = ctx.protos.buildings.well
@@ -951,7 +948,7 @@ mechanic.commands = {
 		end
 	end,
 
-	-- { tiles, builders, gate } — протянутая стена или ворота (orderWalls).
+	-- { tiles, builders, gate } — протянутая стена или ворота.
 	walls = function(ctx, player, args)
 		local tiles = strokeTiles(args.tiles)
 		local kind = ctx.protos.buildings[if args.gate == true then "gate" else "wall"]
@@ -999,8 +996,8 @@ mechanic.commands = {
 		end
 	end,
 
-	-- { site } — отменить стройку (cancelBuild). Не начатая исчезает сразу; начатая разбирается, и уплаченное за неё
-	-- возвращается по ходу разбора; отмена разбора оставляет здание целым. Разбор отменённой стройки не отменить.
+	-- { site } — отменить стройку. Не начатая исчезает сразу; начатая разбирается, и уплаченное за неё возвращается по
+	-- ходу разбора; отмена разбора оставляет здание целым. Разбор отменённой стройки не отменить.
 	cancelBuild = function(ctx, player, args)
 		local site = args.site
 		if type(site) == "number" and isOwn(ctx, player, site) then
@@ -1149,7 +1146,7 @@ mechanic.systems = {
 					if work < construction.workTicks(paving.cost(ctx, pave.kind, x, y), dt) then
 						ctx:set(e, "Pave", { work = work })
 					else
-						-- Уложили: тайл становится готовым покрытием хозяина работы (settlePave).
+						-- Уложили: тайл становится готовым покрытием хозяина работы.
 						paving.lay(ctx, x, y, pave.kind, ownerOf(ctx, e))
 						paving.forget(ctx, e)
 					end
@@ -1245,7 +1242,7 @@ mechanic.systems = {
 	},
 }
 
--- На клиенте: здание достроено — звук готового (worldSounds.ts); своё отвергнутое место — жужжание.
+-- На клиенте: здание достроено — звук готового; своё отвергнутое место — жужжание.
 mechanic.signals = {
 	built = function(c, signal)
 		c:sound("built", { x = signal.x, y = signal.y, volume = 0.5 })

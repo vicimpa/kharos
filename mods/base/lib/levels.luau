@@ -1,10 +1,10 @@
 --!strict
--- Уровни зданий — перенос levelFactor, levelGain, upgradeCost из buildings.ts и upgrades.ts. Шахту, переработку,
--- хранилище, космопорт, электростанцию и радар поднимают до MAX_LEVEL: каждый уровень прибавляет LEVEL_BONUS к тому,
--- что здание делает. Цена — кредиты и готовое: стройблоки, выше — ещё и компоненты. Списывается она сразу при заказе,
--- и готовое берётся со складов энергосети здания — сначала его сети труб, потом сетей, задевших её зоной: как энергия,
--- электростанции труба ни к чему. Работу делают строители, как стройку (mechanics/construction); здание всё это время
--- работает. Второй и третий уровни открывают исследования levels2 и levels3.
+-- Уровни зданий. Шахту, переработку, хранилище, космопорт, электростанцию и радар поднимают до MAX_LEVEL: каждый
+-- уровень прибавляет LEVEL_BONUS к тому, что здание делает. Цена — кредиты и готовое: стройблоки, выше — ещё и
+-- компоненты. Списывается она сразу при заказе, и готовое берётся со складов энергосети здания — сначала его сети труб,
+-- потом сетей, задевших её зоной: как энергия, электростанции труба ни к чему. Работу делают строители, как стройку
+-- (mechanics/construction); здание всё это время работает. Второй и третий уровни открывают исследования levels2 и
+-- levels3.
 
 local kinds = require("lib/kinds")
 local logistics = require("lib/logistics")
@@ -30,12 +30,12 @@ local function round(x: number): number
 	return math.floor(x + 0.5)
 end
 
--- Во сколько раз здание этого уровня сильнее первого (levelFactor).
+-- Во сколько раз здание этого уровня сильнее первого.
 function levels.factor(level: number): number
 	return 1 + levels.LEVEL_BONUS * (level - 1)
 end
 
--- Уровень здания; у стройки и у того, что не здание, — первый (levelOf).
+-- Уровень здания; у стройки и у того, что не здание, — первый.
 function levels.of(w, e: number): number
 	local building = w:get(e, "Building")
 	return if building and building.level then building.level else 1
@@ -46,9 +46,9 @@ function levels.factorOf(w, e: number): number
 	return levels.factor(levels.of(w, e))
 end
 
--- Что уровень поднимает у здания вида kind (levelGain): "extract" — добычу, "refine" — скорость переработки, "store" —
--- ёмкость, "trade" — трюм и скорость рейсов, "scan" — радиус разведки (и потребление), "power" — выработку; nil — его
--- не улучшают. Реактор не улучшают: выработка с уровнем росла бы, а расход стержней — нет.
+-- Что уровень поднимает у здания вида kind: "extract" — добычу, "refine" — скорость переработки, "store" — ёмкость,
+-- "trade" — трюм и скорость рейсов, "scan" — радиус разведки (и потребление), "power" — выработку; nil — его не
+-- улучшают. Реактор не улучшают: выработка с уровнем росла бы, а расход стержней — нет.
 function levels.gain(kind): string?
 	local data = kind and kind.data
 	if not data then
@@ -86,9 +86,9 @@ end
 
 export type Cost = { credits: number, materials: { [string]: number } }
 
--- Цена подъёма здания вида kind с уровня level на следующий (upgradeCost): стройблоки нужны всегда, с третьего уровня
--- — ещё и компоненты: первый подъём по силам базе с одним цехом, дальше нужна вся цепочка изделий. scale — во сколько
--- раз дороже по правилам мира.
+-- Цена подъёма здания вида kind с уровня level на следующий: стройблоки нужны всегда, с третьего уровня — ещё и
+-- компоненты: первый подъём по силам базе с одним цехом, дальше нужна вся цепочка изделий. scale — во сколько раз
+-- дороже по правилам мира.
 function levels.cost(kind, level: number, scale: number?): Cost
 	local cost = kind.data.cost
 	local times = scale or 1
@@ -99,8 +99,8 @@ function levels.cost(kind, level: number, scale: number?): Cost
 	return { credits = round(cost * UPGRADE_SHARE * level * times), materials = materials }
 end
 
--- Сколько кредитов вложено в уровни здания сверх его цены — по цене матча (upgradeSpent): по какой цене поднимали на
--- самом деле, здание не помнит. Разбор возвращает долю этого.
+-- Сколько кредитов вложено в уровни здания сверх его цены — по цене матча: по какой цене поднимали на самом деле,
+-- здание не помнит. Разбор возвращает долю этого.
 function levels.spent(kind, level: number): number
 	local spent = 0
 	for below = 1, level - 1 do
@@ -109,13 +109,13 @@ function levels.spent(kind, level: number): number
 	return spent
 end
 
--- Какое исследование открывает подъём здания с уровня level (levelTopic).
+-- Какое исследование открывает подъём здания с уровня level.
 function levels.topic(level: number): string
 	return if level >= 2 then "levels3" else "levels2"
 end
 
--- Склад хранилища и трюм космопорта с уровнем вмещают больше (applyLevel). level — новый уровень, если он ещё не
--- записан (ctx:set откладывается до конца системы).
+-- Склад хранилища и трюм космопорта с уровнем вмещают больше. level — новый уровень, если он ещё не записан (ctx:set
+-- откладывается до конца системы).
 function levels.apply(w, e: number, level: number?)
 	local kind = kinds.of(w, e)
 	local stock = w:get(e, "Inventory")
@@ -125,8 +125,8 @@ function levels.apply(w, e: number, level: number?)
 	w:set(e, "Inventory", { capacity = round(kind.data.inventory * levels.factor(level or levels.of(w, e))) })
 end
 
--- Поднимают ли это здание игрока сейчас (isUpgradable): своё, готовое, из тех, что улучшают, не на верхнем уровне,
--- не разворачивается и не улучшается.
+-- Поднимают ли это здание игрока сейчас: своё, готовое, из тех, что улучшают, не на верхнем уровне, не разворачивается
+-- и не улучшается.
 function levels.upgradable(w, player: number, e: number): boolean
 	if not logistics.isReady(w, player, e) or w:has(e, "Converting") or w:has(e, "Upgrade") then
 		return false
@@ -134,8 +134,8 @@ function levels.upgradable(w, player: number, e: number): boolean
 	return levels.gain(kinds.of(w, e)) ~= nil and levels.of(w, e) < levels.MAX_LEVEL
 end
 
--- Чего не хватает на следующий уровень здания (upgradeLack): "research", "credits" или "materials" — готового в его
--- энергосети; nil — всего хватает.
+-- Чего не хватает на следующий уровень здания: "research", "credits" или "materials" — готового в его энергосети; nil —
+-- всего хватает.
 function levels.lack(w, player: number, e: number): string?
 	local kind = kinds.of(w, e)
 	if not kind or not w:has(e, "Building") then
@@ -152,8 +152,8 @@ function levels.lack(w, player: number, e: number): string?
 	return if logistics.networkHas(w, e, price.materials, true) then nil else "materials"
 end
 
--- Заказывает следующий уровень своего готового здания (orderUpgrade): кредиты и готовое списываются сразу, готовое —
--- со складов энергосети здания, сначала из хранилищ. Возвращает, принят ли заказ.
+-- Заказывает следующий уровень своего готового здания: кредиты и готовое списываются сразу, готовое — со складов
+-- энергосети здания, сначала из хранилищ. Возвращает, принят ли заказ.
 function levels.order(ctx, player: number, e: number): boolean
 	if not levels.upgradable(ctx, player, e) or levels.lack(ctx, player, e) then
 		return false
@@ -170,8 +170,8 @@ function levels.order(ctx, player: number, e: number): boolean
 	return true
 end
 
--- Отменяет улучшение (cancelUpgrade): кредиты возвращаются целиком, готовое — в хранилища энергосети здания, а чему там
--- нет места — на землю у здания. Вложенная работа пропадает.
+-- Отменяет улучшение: кредиты возвращаются целиком, готовое — в хранилища энергосети здания, а чему там нет места — на
+-- землю у здания. Вложенная работа пропадает.
 function levels.cancel(ctx, player: number, e: number): boolean
 	local upgrade = ctx:get(e, "Upgrade")
 	local kind = kinds.of(ctx, e)
@@ -187,8 +187,8 @@ function levels.cancel(ctx, player: number, e: number): boolean
 	return true
 end
 
--- Значок модернизации (levelCanvas в portraits.ts): корпус здания и над ним шевроны цвета команды, по одному на
--- уровень, до которого исследование поднимает. Рисунок 32×32.
+-- Значок модернизации: корпус здания и над ним шевроны цвета команды, по одному на уровень, до которого исследование
+-- поднимает. Рисунок 32×32.
 function levels.drawIcon(g, level: number)
 	local INK = 0x0b111b
 	-- Корпус с окнами.

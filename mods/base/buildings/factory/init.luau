@@ -1,6 +1,5 @@
 --!strict
 -- Машинный завод: машинки и тяжёлая техника. Строится из стройблоков: военная промышленность требует цеха.
--- Данные — packages/base/data/buildings.json, облик — look.luau.
 
 local buildings = require("lib/buildings")
 

@@ -1,7 +1,7 @@
 --!strict
--- Добыча, переработка и грузовики — перенос hauling.ts, refining.ts и dispatch из logistics.ts. Шахты добывают руду из
--- месторождения под собой в свой склад, переработка превращает свою руду в ресурс, а груз между складом и грузовиком
--- переносит луч грузовика: ему достаточно встать в радиусе, очередей нет.
+-- Добыча, переработка и грузовики. Шахты добывают руду из месторождения под собой в свой склад, переработка превращает
+-- свою руду в ресурс, а груз между складом и грузовиком переносит луч грузовика: ему достаточно встать в радиусе,
+-- очередей нет.
 --
 -- Привязанный к шахте грузовик (приказ haul) возит её руду на переработку. Свободному работу даёт диспетчер: подвезти
 -- заказанное или увезти готовое из переработки в хранилище (lib/logistics). Работа — забрать груз со склада from и
@@ -10,10 +10,10 @@
 -- Дропы (lib/drops) в своих зонах свободные грузовики вывозят сами, приказ pickup — где бы те ни лежали. Груз, который
 -- некуда везти, потому что к принимающему не подъехать, грузовик бросает на землю.
 --
--- Приказы игрока (routes.ts, carrying.ts): маршрут — здания-остановки по кругу; обслуживание — возить только по заявкам
--- этих зданий, беря груз где угодно у игрока; «обеспечить» — то же для одного здания, пока его заявки не кончатся;
--- ручная перевозка (Carry) — взять здесь, отвезти туда; фильтр — какие грузы возить; резерв хранилищ и заказ станций
--- запроса. Пока нет: нормы поиска подъезда на тик.
+-- Приказы игрока: маршрут — здания-остановки по кругу; обслуживание — возить только по заявкам этих зданий, беря груз
+-- где угодно у игрока; «обеспечить» — то же для одного здания, пока его заявки не кончатся; ручная перевозка (Carry) —
+-- взять здесь, отвезти туда; фильтр — какие грузы возить; резерв хранилищ и заказ станций запроса. Пока нет: нормы
+-- поиска подъезда на тик.
 
 local goods = require("lib/goods")
 local logistics = require("lib/logistics")
@@ -36,18 +36,18 @@ local EPSILON = goods.EPSILON
 
 mechanic.data = {
 	-- Раз во сколько тиков грузовик, не дотянувшийся до луча или не нашедший, куда выгрузиться, пробует снова
-	-- (RETRY_TICKS), и раз во сколько диспетчер раздаёт работу (DISPATCH_TICKS).
+	--, и раз во сколько диспетчер раздаёт работу.
 	retryTicks = 20,
 	dispatchTicks = 10,
-	-- После скольких промахов подъезда подряд подъезда нет (GIVE_UP), самая долгая отсрочка — 2^maxBackoff попыток
-	-- (MAX_BACKOFF), сколько секунд к зданию не дают работы (UNREACHABLE_SECONDS).
+	-- После скольких промахов подъезда подряд подъезда нет, самая долгая отсрочка — 2^maxBackoff попыток
+	--, сколько секунд к зданию не дают работы.
 	giveUp = 3,
 	maxBackoff = 5,
 	unreachableSeconds = 120,
-	-- Сколько руды переработка принимает в секунду и сколько её уходит на единицу ресурса (REFINE_RATE, REFINE_RATIO).
+	-- Сколько руды переработка принимает в секунду и сколько её уходит на единицу ресурса.
 	refineRate = 1.5,
 	refineRatio = 1,
-	-- Сколько остановок в маршруте и зданий в обслуживании (ROUTE_LIMIT, SERVE_LIMIT).
+	-- Сколько остановок в маршруте и зданий в обслуживании.
 	routeLimit = 8,
 	serveLimit = 16,
 }
@@ -64,8 +64,8 @@ mechanic.components = {
 	-- велено вывезти; route — остановки маршрута по кругу, stop — к какой едет сейчас; serve — здания, которые он
 	-- обслуживает; supply — здание, которое велено обеспечить.
 	Hauler = { mine = -1, from = -1, to = -1, resource = "", amount = 0, full = false, loading = false, waiting = false, misses = 0, filter = {}, trapped = false, pickup = -1, route = {}, stop = 0, serve = {}, supply = -1 },
-	-- Ручной приказ грузовику (carrying.ts): left груза resource со склада from (-1 — что уже в кузове) на склад to;
-	-- full — набрал и едет к получателю.
+	-- Ручной приказ грузовику: left груза resource со склада from (-1 — что уже в кузове) на склад to; full — набрал и
+	-- едет к получателю.
 	Carry = { from = -1, to = -1, resource = "", left = 0, full = false },
 	-- Заказ станции запроса: груз → сколько держать.
 	Wanted = { items = {} },
@@ -82,7 +82,7 @@ local function ownerOf(w, e: number): number
 	return if owner then owner.player else 0
 end
 
--- Может ли игрок привязать грузовики к этому зданию: его готовая шахта (canHaul).
+-- Может ли игрок привязать грузовики к этому зданию: его готовая шахта.
 local function canHaul(w, player: number, mine: number): boolean
 	return logistics.isReady(w, player, mine) and logistics.dataOf(w, mine).extract == true
 end
@@ -101,7 +101,7 @@ local function carriedBy(w, truck: number): string?
 	return nil
 end
 
--- Бросает работу; груз остаётся в кузове (dropJob).
+-- Бросает работу; груз остаётся в кузове.
 local function dropJob(w, truck: number)
 	local hauler = w:get(truck, "Hauler")
 	hauler.from, hauler.to = NONE, NONE
@@ -109,8 +109,7 @@ local function dropJob(w, truck: number)
 	hauler.full, hauler.loading, hauler.waiting = false, false, false
 end
 
--- Снимает грузовик с работы, шахты, маршрута, обслуживания и ручного приказа (releaseHauler): дальше работу ему даст
--- диспетчер.
+-- Снимает грузовик с работы, шахты, маршрута, обслуживания и ручного приказа: дальше работу ему даст диспетчер.
 local function release(w, truck: number)
 	local hauler = w:get(truck, "Hauler")
 	if not hauler then
@@ -142,7 +141,7 @@ local function freed(ctx, truck: number, fields: { [string]: any }?)
 	ctx:stop(truck)
 end
 
--- Можно ли вывозить этот дроп (canPickup): он ещё лежит. Дропы ничьи, так что забрать его может любой.
+-- Можно ли вывозить этот дроп: он ещё лежит. Дропы ничьи, так что забрать его может любой.
 local function canPickup(w, drop: number): boolean
 	return w:alive(drop) and drops.is(w, drop)
 end
@@ -158,7 +157,7 @@ local function unload(w, truck: number)
 	dropJob(w, truck)
 end
 
--- Принимает ли этот груз хоть одно здание игрока, к которому его грузовикам сейчас не подъехать (blockedTaker).
+-- Принимает ли этот груз хоть одно здание игрока, к которому его грузовикам сейчас не подъехать.
 local function blockedTaker(w, player: number, good: string): boolean
 	for _, e in w:each({ "Unreachable" }) do
 		if logistics.unreachable(w, e) and logistics.accepts(w, player, e, good) then
@@ -174,7 +173,7 @@ local function returnsTo(w, building: number, good: string): boolean
 	return stock ~= nil and stock ~= false and w:has(building, "Building") and goods.room(stock, good) > EPSILON
 end
 
--- Ближайший заказчик этого груза; nil — никто не ждёт (requesterFor).
+-- Ближайший заказчик этого груза; nil — никто не ждёт.
 local function requesterFor(w, truck: number, good: string): number?
 	local at = w:get(truck, "Position")
 	local best, bestDistance = nil, math.huge
@@ -191,7 +190,7 @@ local function requesterFor(w, truck: number, good: string): number?
 	return best
 end
 
--- Пора ли снова искать подъезд (seekDue): получивший работу трогается сразу, остальные — всё реже после промахов.
+-- Пора ли снова искать подъезд: получивший работу трогается сразу, остальные — всё реже после промахов.
 local function seekDue(ctx, truck: number, hauler): boolean
 	if not hauler.waiting then
 		return true
@@ -199,14 +198,14 @@ local function seekDue(ctx, truck: number, hauler): boolean
 	return onTurn(ctx, truck, mechanic.data.retryTicks * 2 ^ math.min(hauler.misses, mechanic.data.maxBackoff))
 end
 
--- Заперт ли грузовик: из его тайла технике не выехать дальше кармана (walledIn).
+-- Заперт ли грузовик: из его тайла технике не выехать дальше кармана.
 local function walledIn(ctx, truck: number): boolean
 	local at = ctx:get(truck, "Position")
 	return at ~= nil and (ctx:reach(at.x, at.y, approach.POCKET)) < approach.POCKET
 end
 
--- Подводит грузовик к зданию на длину луча (seekBeam); после giveUp промахов подряд — заперт сам или здание
--- недоступно (Unreachable). Подъехал — отметки снимаются.
+-- Подводит грузовик к зданию на длину луча; после giveUp промахов подряд — заперт сам или здание недоступно
+-- (Unreachable). Подъехал — отметки снимаются.
 local function seekBeam(w, truck: number, building: number, beam: number?)
 	if not beam then
 		return
@@ -269,7 +268,7 @@ local function seek(w, truck: number, building: number, toBuilding: boolean)
 	end
 end
 
--- Выработана ли шахта: в месторождении и в её складе пусто (isSpent).
+-- Выработана ли шахта: в месторождении и в её складе пусто.
 local function isSpent(w, mine: number): boolean
 	local deposit = logistics.depositUnder(w, mine)
 	local ore = logistics.mineOre(w, mine)
@@ -358,7 +357,7 @@ local function dispatch(w)
 				end
 			end
 		end
-		-- Откуда брать готовое для заявки зоны: её здания и дропы в ней (sourcesIn); считается раз на зону.
+		-- Откуда брать готовое для заявки зоны: её здания и дропы в ней; считается раз на зону.
 		local zoneSources = {}
 		local function sourcesIn(network): { number }
 			local found = zoneSources[network]
@@ -584,8 +583,8 @@ local function assign(ctx, player: number, mine: number, units: { number })
 	return any
 end
 
--- Посылает грузовики игрока вывезти дроп (assignPickup): они бросают прежнюю работу и шахту и возят с него груз рейсами
--- в хранилища и на переработку, где бы он ни лежал, пока он не опустеет. Потом свободны.
+-- Посылает грузовики игрока вывезти дроп: они бросают прежнюю работу и шахту и возят с него груз рейсами в хранилища и
+-- на переработку, где бы он ни лежал, пока он не опустеет. Потом свободны.
 local function assignPickup(ctx, player: number, drop: number, units: { number })
 	if not canPickup(ctx, drop) then
 		return false
@@ -616,13 +615,13 @@ local function trucksOf(ctx, player: number, units: any): { number }
 	return list
 end
 
--- Годится ли здание в остановку маршрута или обслуживание: своё готовое здание со складом (isStop).
+-- Годится ли здание в остановку маршрута или обслуживание: своё готовое здание со складом.
 local function isStop(w, player: number, building: any): boolean
 	return type(building) == "number" and logistics.isReady(w, player, building) and w:has(building, "Inventory")
 end
 
--- Посылает грузовики игрока обеспечить здание или стройку (assignSupply): они бросают прежнюю работу и возят только по
--- его заявкам, беря груз где угодно у игрока, пока заявки не кончатся. У кого нужное уже в кузове — везёт сразу.
+-- Посылает грузовики игрока обеспечить здание или стройку: они бросают прежнюю работу и возят только по его заявкам,
+-- беря груз где угодно у игрока, пока заявки не кончатся. У кого нужное уже в кузове — везёт сразу.
 assignSupply = function(ctx, player: number, target: any, units: any): boolean
 	if not logistics.canSupply(ctx, player, target) then
 		return false
@@ -645,7 +644,7 @@ local function carries(filter: { string }, good: string): boolean
 end
 
 -- Что грузовику взять на остановке from, чтобы сгрузить на следующей to: первый груз из разрешённых фильтром, который
--- from отдаёт, у него есть и to примет (pickFor). nil — брать нечего.
+-- from отдаёт, у него есть и to примет. nil — брать нечего.
 local function pickFor(w, player: number, filter: { string }, from: number, to: number, except: string?): string?
 	for _, good in logistics.offers(w, from) do
 		if good ~= except and carries(filter, good) and logistics.given(w, from, good) > EPSILON and logistics.accepts(w, player, to, good) then
@@ -662,11 +661,11 @@ local function leave(hauler, stop: number)
 	hauler.amount = 0
 end
 
--- Грузовики с маршрутом объезжают его (runRoutes). На остановке грузовик сгружает то, что она принимает, и берёт то,
--- что примет следующая, кроме только что привезённого сюда; разгрузился и загрузился — едет дальше. Пустой, которому
--- здесь брать нечего, едет к ближайшей по кругу остановке, где груз для следующей есть; нет такой — ждёт. Пропавшие
--- остановки выпадают, и с одной маршрут кончается. Поля работы у такого грузовика свободны: full — разгрузка кончилась,
--- resource при amount > 0 — что он здесь сгрузил.
+-- Грузовики с маршрутом объезжают его. На остановке грузовик сгружает то, что она принимает, и берёт то, что примет
+-- следующая, кроме только что привезённого сюда; разгрузился и загрузился — едет дальше. Пустой, которому здесь брать
+-- нечего, едет к ближайшей по кругу остановке, где груз для следующей есть; нет такой — ждёт. Пропавшие остановки
+-- выпадают, и с одной маршрут кончается. Поля работы у такого грузовика свободны: full — разгрузка кончилась, resource
+-- при amount > 0 — что он здесь сгрузил.
 runRoutes = function(ctx, w)
 	local seeking, ended = {}, {}
 	for _, truck in ctx:each({ "Hauler", "Owner", "Inventory" }) do
@@ -764,9 +763,9 @@ local function foreignCargo(w, truck: number, good: string): string?
 	return nil
 end
 
--- Грузовики с ручным приказом возят по нему (runCarry): рейсами, пока не перевезут заданное. Приказ кончается, когда
--- перевезено всё, источник опустел, а кузов пуст, получателю некуда класть или здание пропало; чужой груз в кузове
--- приказ не возит. Груз в кузове тогда, как после любой отмены, грузовик отвезёт в хранилище сам.
+-- Грузовики с ручным приказом возят по нему: рейсами, пока не перевезут заданное. Приказ кончается, когда перевезено
+-- всё, источник опустел, а кузов пуст, получателю некуда класть или здание пропало; чужой груз в кузове приказ не
+-- возит. Груз в кузове тогда, как после любой отмены, грузовик отвезёт в хранилище сам.
 runCarry = function(ctx, w)
 	local seeking, ended = {}, {}
 	for _, truck in ctx:each({ "Carry", "Hauler", "Inventory" }) do
@@ -843,7 +842,7 @@ runCarry = function(ctx, w)
 	end
 end
 
--- Годится ли склад отдать по ручному приказу: своё здание или стройка со складом, или дроп (isCarrySource).
+-- Годится ли склад отдать по ручному приказу: своё здание или стройка со складом, или дроп.
 local function isCarrySource(ctx, player: number, e: any): boolean
 	if type(e) ~= "number" or not ctx:alive(e) or not ctx:has(e, "Inventory") then
 		return false
@@ -851,8 +850,8 @@ local function isCarrySource(ctx, player: number, e: any): boolean
 	return drops.is(ctx, e) or (ownerOf(ctx, e) == player and not ctx:has(e, "Unit"))
 end
 
--- Годится ли склад принять груз по ручному приказу: своё здание, стройка или юнит со складом, где груз поместится; стройке
--- — только её материалы (isCarryTarget).
+-- Годится ли склад принять груз по ручному приказу: своё здание, стройка или юнит со складом, где груз поместится;
+-- стройке — только её материалы.
 local function isCarryTarget(ctx, player: number, e: any, good: string): boolean
 	if type(e) ~= "number" or not ctx:alive(e) or ownerOf(ctx, e) ~= player or ctx:has(e, "Hauler") then
 		return false
@@ -1133,7 +1132,7 @@ mechanic.systems = {
 				local player = ownerOf(ctx, truck)
 				local cargo = w:get(truck, "Inventory")
 				hauler.loading = false
-				-- Грузовик с маршрутом ездит по нему сам, с ручным приказом — по приказу (runRoutes, runCarry).
+				-- Грузовик с маршрутом ездит по нему сам, с ручным приказом — по приказу.
 				if #hauler.route > 0 or w:has(truck, "Carry") then
 					continue
 				end

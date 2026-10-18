@@ -1,7 +1,6 @@
 --!strict
--- Главное меню — перенос packages/client/src/gui/screens/menu.ts: логотип, главное окно, новая игра (название, зерно,
--- размер карты, местность с готовыми вариантами и тонкой настройкой, сутки, начальное время, погода, схема карты) и
--- «Об игре». Те же окна, поля, кнопки и места.
+-- Главное меню: логотип, главное окно, новая игра (название, зерно, размер карты, местность с готовыми вариантами и
+-- тонкой настройкой, сутки, начальное время, погода, схема карты) и «Об игре». Те же окна, поля, кнопки и места.
 
 local form = require("lib/form")
 local settings = require("lib/settings")
@@ -121,7 +120,7 @@ local function playtime(c, tick: number): string
 	return c:t("menu.hours", { hours = math.floor(minutes / 60), minutes = minutes % 60 })
 end
 
--- Когда слот писали: «18 окт., 06:41» — месяц и порядок из словаря (toLocaleString в menu.ts).
+-- Когда слот писали: «18 окт., 06:41» — месяц и порядок из словаря.
 local function dateOf(c, millis: number): string
 	local parts = c.app:date(millis)
 	local months = string.split(c:t("menu.months"), ",")
@@ -295,7 +294,7 @@ local function newGameWindow(c)
 		end
 	end
 	local start = false
-	-- В редактор — мир без игроков (newWorldWindow в menu.ts: «В редактор»).
+	-- В редактор — мир без игроков.
 	local edit = false
 	local back = form.window(ui, {
 		id = "menu:new",

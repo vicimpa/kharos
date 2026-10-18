@@ -1,6 +1,5 @@
 --!strict
--- Настройки игрока — перенос packages/client/src/gui/screens/settings.ts, prefs.ts и хранения громкости из
--- audio/audio.ts: язык, звук (выключить, общая громкость, громкость групп), графика и интерфейс (яркость выделения,
+-- Настройки игрока: язык, звук (выключить, общая громкость, громкость групп), графика и интерфейс (яркость выделения,
 -- сторона мини-карты). Хранятся на диске (c.app:get и c.app:set); окно одно и в главном меню, и в меню партии.
 
 local form = require("lib/form")
@@ -18,7 +17,7 @@ local CHANNEL_NAMES = { music = "menu.channels.music", battle = "menu.channels.b
 -- крупнее — выступает над ней.
 settings.SELECTION_LEVELS = { 0.45, 0.7, 1 }
 settings.MINIMAP_SIDES = { 140, 200, 260 }
--- Список «Первых шагов» (lib/steps): развёрнут, свёрнут или скрыт (STEPS_SHOWN).
+-- Список «Первых шагов» (lib/steps): развёрнут, свёрнут или скрыт.
 settings.STEPS_SHOWN = { "open", "folded", "off" }
 local STEPS_NAMES = { open = "menu.stepsShown.open", folded = "menu.stepsShown.folded", off = "menu.stepsShown.off" }
 local DEFAULTS = { selection = 0.7, minimap = 200, steps = "open" }
@@ -77,9 +76,9 @@ local function choice(ui, id: string, label: string, tip: string, values: { any 
 	return form.chips(ui, id, options, value, INNER, { fill = true })
 end
 
--- Окно настроек. Возвращает true, если нажали «Назад».
--- Графика (graphics.ts): доля пикселей мира, детализация земли, теней и осадков (0 — низкая, 1 — средняя, 2 — высокая) и
--- предел кадров (0 — без предела). Хранится в c.app под ключом graphics; рендер и окно читают её каждый кадр.
+-- Окно настроек. Возвращает true, если нажали «Назад». Графика: доля пикселей мира, детализация земли, теней и осадков
+-- (0 — низкая, 1 — средняя, 2 — высокая) и предел кадров (0 — без предела). Хранится в c.app под ключом graphics;
+-- рендер и окно читают её каждый кадр.
 settings.PRESETS = {
 	{ "low", "menu.qualities.low", { resolution = 0.5, terrain = 0, shadows = 0, weather = 0, fps = 30 } },
 	{ "medium", "menu.qualities.medium", { resolution = 0.75, terrain = 1, shadows = 1, weather = 1, fps = 60 } },
@@ -102,7 +101,7 @@ function settings.graphics(c)
 	return value
 end
 
--- Какому набору соответствуют настройки; nil — подобраны вручную (presetOf).
+-- Какому набору соответствуют настройки; nil — подобраны вручную.
 local function presetOf(value): string?
 	for _, preset in settings.PRESETS do
 		local same = true

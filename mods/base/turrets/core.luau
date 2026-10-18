@@ -1,6 +1,5 @@
 --!strict
--- Пушка главного здания: тяжёлый купол со спаренным излучателем.
--- Данные — packages/base/data/turrets.json, чертёж — lib/units.
+-- Пушка главного здания: тяжёлый купол со спаренным излучателем. Чертёж — lib/units.
 
 local units = require("lib/units")
 

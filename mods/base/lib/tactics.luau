@@ -1,19 +1,18 @@
 --!strict
--- Тактика юнитов — общее хосту и клиенту из tactics.ts и turrets.ts: стойки по порядку кнопок, кто может воевать
--- (сам или турелями на нём), турели носителя. Стойку и бой ведёт движок (crates/world/src/combat.rs), патруль и
--- возвращение на место — mechanics/tactics.
+-- Тактика юнитов — общее хосту и клиенту: стойки по порядку кнопок, кто может воевать (сам или турелями на нём), турели
+-- носителя. Стойку и бой ведёт движок (crates/world/src/combat.rs), патруль и возвращение на место — mechanics/tactics.
 
 local tactics = {}
 
--- Стойки по порядку кнопок (STANCES).
+-- Стойки по порядку кнопок.
 tactics.stances = { "aggressive", "defensive", "hold", "passive" }
 
 -- Дальше этого от места, где стоял, юнит в обороне за врагом не гонится, в тайлах (LEASH — его держит движок).
 tactics.leash = 8
--- Сколько точек может быть в патруле (PATROL_LIMIT).
+-- Сколько точек может быть в патруле.
 tactics.patrolLimit = 8
 
--- Турели на носителе: сущности с Attached, у которых он — parent (turretsOf).
+-- Турели на носителе: сущности с Attached, у которых он — parent.
 function tactics.turretsOf(ctx, entity: number): { number }
 	local list = {}
 	for _, e in ctx:each({ "Attached" }) do
@@ -35,7 +34,7 @@ function tactics.mounts(ctx): { [number]: { number } }
 	return turrets
 end
 
--- Может ли юнит воевать: вооружён сам или несёт вооружённую турель (canFight).
+-- Может ли юнит воевать: вооружён сам или несёт вооружённую турель.
 function tactics.canFight(ctx, entity: number, turrets: { number }?): boolean
 	if ctx:has(entity, "Armed") then
 		return true
@@ -48,7 +47,7 @@ function tactics.canFight(ctx, entity: number, turrets: { number }?): boolean
 	return false
 end
 
--- Стойка юнита: без тактики — оборона (stanceOf).
+-- Стойка юнита: без тактики — оборона.
 function tactics.stanceOf(ctx, entity: number): string
 	local own = ctx:get(entity, "Tactics")
 	return if own then own.stance else "defensive"
@@ -65,7 +64,7 @@ function tactics.allied(ctx, player: number, other: number): boolean
 	return false
 end
 
--- Можно ли атаковать цель: живой юнит или здание чужого игрока, не союзника (canAttack).
+-- Можно ли атаковать цель: живой юнит или здание чужого игрока, не союзника.
 function tactics.canAttack(ctx, player: number, target: number): boolean
 	if not ctx:alive(target) or not ctx:has(target, "Health") or not ctx:has(target, "Position") then
 		return false
@@ -82,7 +81,7 @@ end
 
 -- Дальше — только хосту: правят мир.
 
--- Бросает цель — свою и турелей на нём (stopAttack).
+-- Бросает цель — свою и турелей на нём.
 function tactics.stopAttack(ctx, entity: number)
 	local gunners = tactics.turretsOf(ctx, entity)
 	table.insert(gunners, entity)
@@ -94,16 +93,16 @@ function tactics.stopAttack(ctx, entity: number)
 end
 
 -- Снимает патруль и возвращение на место (оно же — место назначения похода): юнит слушает приказ игрока. Стойка
--- остаётся (clearTactics).
+-- остаётся.
 function tactics.clear(ctx, entity: number)
 	if ctx:has(entity, "Tactics") then
 		ctx:set(entity, "Tactics", { patrol = {}, leg = 0, away = false, resupply = false })
 	end
 end
 
--- Поход (startMarch): свои вооружённые юниты в агрессивной стойке, посланные идти, запоминают, куда идут, — конец
--- своего пути. По дороге они бьют тех, кто им опасен, и гонятся за ними, а потом идут дальше (fight движка и
--- mechanics/tactics). В других стойках приказ идти — просто идти.
+-- Поход: свои вооружённые юниты в агрессивной стойке, посланные идти, запоминают, куда идут, — конец своего пути. По
+-- дороге они бьют тех, кто им опасен, и гонятся за ними, а потом идут дальше (fight движка и mechanics/tactics). В
+-- других стойках приказ идти — просто идти.
 function tactics.march(ctx, units: { number })
 	local turrets = tactics.mounts(ctx)
 	for _, entity in units do

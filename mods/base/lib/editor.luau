@@ -1,22 +1,22 @@
 --!strict
--- Редактор сохранений — перенос editor.ts, запросы, общие хосту (ctx) и клиенту (c): тайлы кисти, что под точкой,
--- месторождения под точкой и в рамке, можно ли туда положить месторождение, турели носителя. Правят мир — приказы
--- `edit` (mechanics/editor), подача — ui/editor и controls/editor.
+-- Редактор сохранений, запросы, общие хосту (ctx) и клиенту (c): тайлы кисти, что под точкой, месторождения под точкой
+-- и в рамке, можно ли туда положить месторождение, турели носителя. Правят мир — приказы `edit` (mechanics/editor),
+-- подача — ui/editor и controls/editor.
 
 local deposits = require("lib/deposits")
 local kinds = require("lib/kinds")
 
 local editor = {}
 
--- Самый большой радиус вершины, при котором все её тайлы укладываются в смещение до 4 тайлов (MAX_PEAK_RADIUS).
+-- Самый большой радиус вершины, при котором все её тайлы укладываются в смещение до 4 тайлов.
 editor.MAX_PEAK_RADIUS = 2.75
--- Какую долю тайлов круга красит разброс (SPRAY_SHARE).
+-- Какую долю тайлов круга красит разброс.
 editor.SPRAY_SHARE = 0.3
 
 local MOUNTAIN = 3
 
--- Тайлы кисти размера size с серединой в тайле (x, y), x и y подряд (brushTiles); shape — square, circle или spray.
--- random — случай разброса (на хосте — ctx:random).
+-- Тайлы кисти размера size с серединой в тайле (x, y), x и y подряд; shape — square, circle или spray. random — случай
+-- разброса (на хосте — ctx:random).
 function editor.brushTiles(x: number, y: number, size: number, shape: string?, random: (() -> number)?): { number }
 	local tiles = {}
 	local from = math.floor(size / 2)
@@ -39,7 +39,7 @@ function editor.inside(w, x: number, y: number): boolean
 	return size ~= nil and x >= -size and y >= -size and x < size and y < size
 end
 
--- Тайл для подписи в панели (describeTile): вид, биом, ярус (у горы — nil), обрыв и подножие.
+-- Тайл для подписи в панели: вид, биом, ярус (у горы — nil), обрыв и подножие.
 function editor.describeTile(w, x: number, y: number)
 	local terrain, biome, foot = w:terrain(x, y)
 	local _, _, _, relief = w:tile(x, y)
@@ -50,7 +50,7 @@ function editor.describeTile(w, x: number, y: number)
 	return { terrain = terrain, biome = biome, tier = if mountain then nil else bit32.band(relief or 0, 3), cliff = not mountain and bit32.band(relief or 0, 4) ~= 0, foot = foot == true }
 end
 
--- Что под точкой (x, y) для редактора (entityAt): юнит, если он там стоит, иначе здание или площадка.
+-- Что под точкой (x, y) для редактора: юнит, если он там стоит, иначе здание или площадка.
 function editor.entityAt(w, x: number, y: number): number?
 	local best, nearest = nil, math.huge
 	for _, e in w:each({ "Mover", "Position" }) do
@@ -92,7 +92,7 @@ local function spotOf(w, e: number): Spot?
 	return { entity = e, x = at.x - deposits.SIZE / 2, y = at.y - deposits.SIZE / 2, kind = kind.name, left = deposit.reserve }
 end
 
--- Месторождение с левым верхним тайлом ровно в (x, y) (depositAt).
+-- Месторождение с левым верхним тайлом ровно в (x, y).
 function editor.depositAt(w, x: number, y: number): Spot?
 	for _, e in w:each({ "Deposit", "Position" }) do
 		local spot = spotOf(w, e)
@@ -103,7 +103,7 @@ function editor.depositAt(w, x: number, y: number): Spot?
 	return nil
 end
 
--- Месторождение под точкой (x, y): то, на чьи тайлы она попала (depositUnder).
+-- Месторождение под точкой (x, y): то, на чьи тайлы она попала.
 function editor.depositUnder(w, x: number, y: number): Spot?
 	for _, e in w:each({ "Deposit", "Position" }) do
 		local spot = spotOf(w, e)
@@ -114,7 +114,7 @@ function editor.depositUnder(w, x: number, y: number): Spot?
 	return nil
 end
 
--- Месторождения, середина которых в прямоугольнике в тайлах (depositsInBox).
+-- Месторождения, середина которых в прямоугольнике в тайлах.
 function editor.depositsInBox(w, left: number, top: number, right: number, bottom: number): { Spot }
 	local found = {}
 	for _, e in w:each({ "Deposit", "Position" }) do
@@ -126,8 +126,8 @@ function editor.depositsInBox(w, left: number, top: number, right: number, botto
 	return found
 end
 
--- Можно ли положить месторождение левым верхним тайлом в (x, y) (canPutDeposit): там, где встала бы шахта, — скала не у
--- подножия обрыва, — и не внахлёст с другим. ignore — сущности месторождений, которые переносят.
+-- Можно ли положить месторождение левым верхним тайлом в (x, y): там, где встала бы шахта, — скала не у подножия
+-- обрыва, — и не внахлёст с другим. ignore — сущности месторождений, которые переносят.
 function editor.canPutDeposit(w, x: number, y: number, ignore: { [number]: boolean }?): boolean
 	local size = w.game.data and w.game.data.size
 	if not size or x < -size or y < -size or x + deposits.SIZE > size or y + deposits.SIZE > size then
@@ -153,7 +153,7 @@ function editor.canPutDeposit(w, x: number, y: number, ignore: { [number]: boole
 	return true
 end
 
--- Юниты и здания, середина которых в прямоугольнике в тайлах (entitiesIn); турели — нет: они на носителе.
+-- Юниты и здания, середина которых в прямоугольнике в тайлах; турели — нет: они на носителе.
 function editor.entitiesIn(w, left: number, top: number, right: number, bottom: number): { number }
 	local found = {}
 	for _, e in w:each({ "Position", "Owner" }) do
@@ -180,7 +180,7 @@ function editor.turretsOf(w, e: number): { number }
 	return list
 end
 
--- Куда смотрит каждая турель носителя, в радианах на карте (turretFacings).
+-- Куда смотрит каждая турель носителя, в радианах на карте.
 function editor.turretFacings(w, e: number): { number }
 	local base = w:get(e, "Facing")
 	local list = {}
@@ -190,7 +190,7 @@ function editor.turretFacings(w, e: number): { number }
 	return list
 end
 
--- Игроки мира по возрастанию номера (playersOf).
+-- Игроки мира по возрастанию номера.
 function editor.players(w): { number }
 	local seen, list = {}, {}
 	local function add(id: number)
@@ -209,7 +209,7 @@ function editor.players(w): { number }
 	return list
 end
 
--- Камера игрока в начале игры: { x, y, zoom }; nil — не задана (playerCamera).
+-- Камера игрока в начале игры: { x, y, zoom }; nil — не задана.
 function editor.camera(w, player: number)
 	for _, e in w:each({ "Player" }) do
 		local state = w:get(e, "Player")

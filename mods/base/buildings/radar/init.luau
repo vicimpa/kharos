@@ -1,6 +1,5 @@
 --!strict
 -- Радар открывает туман далеко вокруг: так видно, кто идёт к базе, и куда бить артиллерией.
--- Данные — packages/base/data/buildings.json, облик — look.luau.
 
 local buildings = require("lib/buildings")
 

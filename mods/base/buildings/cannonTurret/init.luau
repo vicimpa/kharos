@@ -1,6 +1,5 @@
 --!strict
 -- Пушечная турель.
--- Данные — packages/base/data/buildings.json, облик — look.luau.
 
 local buildings = require("lib/buildings")
 

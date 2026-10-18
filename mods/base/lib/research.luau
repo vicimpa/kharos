@@ -1,8 +1,10 @@
 --!strict
--- Темы исследований — перенос topics.ts, общий хосту (ctx) и клиенту (c). Тема — вид раздела research/: что нужно
--- раньше (after), что тратит (uses), открытие ли (trigger). Тема тратит то, из чего делают открываемое; чем глубже она
--- в дереве, тем дороже и дольше: ярус — на единицу глубже самого глубокого предшественника, каждый ярус умножает цену и
--- срок на researchGrowth. Темы-открытия лаборатории не ведут: они открываются сами (mechanics/research).
+-- Темы исследований, общий хосту (ctx) и клиенту (c). Тема — вид раздела research/: order — место в списке тем, after —
+-- темы, без которых эту не начать, uses — что она тратит за всё исследование на первом ярусе, trigger — тема-открытие:
+-- открывается сама, когда это случилось с игроком (построил лабораторию, нашёл месторождение, получил первый ресурс).
+-- Тема тратит то, из чего делают открываемое; чем глубже она в дереве, тем дороже и дольше: ярус — на единицу глубже
+-- самого глубокого предшественника, каждый ярус умножает цену и срок на researchGrowth. Темы-открытия лаборатории не
+-- ведут: они открываются сами (mechanics/research).
 --
 -- У игрока (Player): research — открытые темы по порядку, plan — очередь, progress — доля начатых, topic — тема,
 -- которую лаборатории ведут сейчас (её выбирает хост: головная или та, что её подменяет без сырья).
@@ -11,18 +13,17 @@ local kinds = require("lib/kinds")
 
 local research = {}
 
--- Цена темы первого яруса и её срок в секундах работы одной лаборатории при полной энергии (TIER_CREDITS,
--- TIER_SECONDS).
+-- Цена темы первого яруса и её срок в секундах работы одной лаборатории при полной энергии.
 research.TIER_CREDITS = 100
 research.TIER_SECONDS = 20
 
--- Темп исследований из правил партии (researchScale, researchGrowth, researchSlow).
+-- Темп исследований из правил партии.
 function research.rules(w)
 	local rules = w.game.data and w.game.data.rules or {}
 	return { scale = rules.researchScale or 1, growth = rules.researchGrowth or 1.6, slow = rules.researchSlow or 1 }
 end
 
--- Все темы по порядку (TOPICS).
+-- Все темы по порядку.
 local cache = setmetatable({}, { __mode = "k" }) :: { [any]: { any } }
 
 function research.list(w): { any }
@@ -50,7 +51,7 @@ function research.isTrigger(w, name: string): boolean
 	return kind ~= nil and kind.data.trigger ~= nil
 end
 
--- Ярус темы (tierOf): 1 — без предшественников; открытия сложности не добавляют.
+-- Ярус темы: 1 — без предшественников; открытия сложности не добавляют.
 local tiers = setmetatable({}, { __mode = "k" }) :: { [any]: { [string]: number } }
 
 function research.tier(w, name: string): number
@@ -75,7 +76,7 @@ end
 
 export type Price = { cost: number, materials: { [string]: number }, seconds: number }
 
--- Что тема стоит целиком (priceOf): кредиты, сырьё и секунды работы одной лаборатории.
+-- Что тема стоит целиком: кредиты, сырьё и секунды работы одной лаборатории.
 function research.price(w, name: string): Price
 	if research.isTrigger(w, name) then
 		return { cost = 0, materials = {}, seconds = 0 }
@@ -100,7 +101,7 @@ function research.player(w, player: number)
 	return nil, nil
 end
 
--- Открыта ли тема игроку; без дерева технологий открыто всё (hasResearch).
+-- Открыта ли тема игроку; без дерева технологий открыто всё.
 function research.has(w, player: number, name: string?): boolean
 	if name == nil then
 		return true
@@ -113,7 +114,7 @@ function research.has(w, player: number, name: string?): boolean
 	return state ~= nil and table.find(state.research or {}, name) ~= nil
 end
 
--- Темы, которые надо исследовать, чтобы открыть эту, вместе с ней, предшественники раньше (pathTo).
+-- Темы, которые надо исследовать, чтобы открыть эту, вместе с ней, предшественники раньше.
 function research.pathTo(w, name: string, done: { string }): { string }
 	local path = {}
 	local function visit(next: string)
@@ -129,7 +130,7 @@ function research.pathTo(w, name: string, done: { string }): { string }
 	return path
 end
 
--- Все предшественники темы вглубь (topicsUnder).
+-- Все предшественники темы вглубь.
 function research.under(w, name: string): { [string]: boolean }
 	local found = {}
 	local function visit(next: string)
@@ -144,7 +145,7 @@ function research.under(w, name: string): { [string]: boolean }
 	return found
 end
 
--- Темы плана, которые можно вести сейчас, в порядке плана (openTopics).
+-- Темы плана, которые можно вести сейчас, в порядке плана.
 function research.open(w, player: number): { string }
 	local state = research.player(w, player)
 	if not state then
@@ -170,7 +171,7 @@ function research.open(w, player: number): { string }
 	return list
 end
 
--- Тема, которую лаборатории игрока ведут сейчас (currentTopic): выбранная хостом, если она ещё открыта, иначе головная.
+-- Тема, которую лаборатории игрока ведут сейчас: выбранная хостом, если она ещё открыта, иначе головная.
 function research.current(w, player: number): string?
 	local open = research.open(w, player)
 	local state = research.player(w, player)
@@ -181,7 +182,7 @@ function research.current(w, player: number): string?
 	return open[1]
 end
 
--- Сколько чего ещё потратят нынешняя тема и головная, если ведут не её (researchNeeds).
+-- Сколько чего ещё потратят нынешняя тема и головная, если ведут не её.
 function research.needs(w, player: number): { [string]: number }
 	local current = research.current(w, player)
 	if not current then
@@ -203,7 +204,7 @@ function research.needs(w, player: number): { [string]: number }
 	return needs
 end
 
--- Что открывает тема: здания и юниты (unlockedBy).
+-- Что открывает тема: здания и юниты.
 function research.unlocks(w, name: string): ({ any }, { any })
 	local buildings, units = {}, {}
 	for _, kind in w.protos.buildings do
@@ -225,7 +226,7 @@ function research.unlocks(w, name: string): ({ any }, { any })
 	return buildings, units
 end
 
--- Лаборатория ли это игрока: готовая и своя (isLab).
+-- Лаборатория ли это игрока: готовая и своя.
 function research.isLab(w, player: number, e: number): boolean
 	local owner = w:get(e, "Owner")
 	if not owner or owner.player ~= player or not w:has(e, "Building") or w:has(e, "Site") then

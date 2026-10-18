@@ -1,7 +1,7 @@
 --!strict
--- Чертежи зданий — перенос packages/client/src/game/buildings/buildingArt.ts: ART_TILE пикселей на тайл, как у
--- местности; начало координат — левый верхний угол основания, высокие части уходят в y < 0. Кадров в цикле анимации —
--- FRAMES, чертёж получает фазу цикла t от 0 до 1 и обязан замыкаться при t = 1. Огни кадра — canvas:light.
+-- Чертежи зданий: ART_TILE пикселей на тайл, как у местности; начало координат — левый верхний угол основания, высокие
+-- части уходят в y < 0. Кадров в цикле анимации — FRAMES, чертёж получает фазу цикла t от 0 до 1 и обязан замыкаться
+-- при t = 1. Огни кадра — canvas:light.
 
 local goods = require("lib/goods")
 
@@ -48,7 +48,7 @@ function buildings.fireColor(level: number): number
 	return buildings.FIRE[math.min(4, math.max(0, math.floor(level * 5)))]
 end
 
--- Воспроизводимое случайное число от 0 до 1 по двум целым (hash в buildingArt.ts).
+-- Воспроизводимое случайное число от 0 до 1 по двум целым.
 function buildings.hash(a: number, b: number): number
 	local value = math.sin(a * 127.1 + b * 311.7) * 43758.5453
 	return value - math.floor(value)
@@ -142,11 +142,10 @@ function buildings.bulb(g, x: number, y: number, level: number)
 	g:light(x + 1, y + 1, 1, level)
 end
 
--- Сколько тайлов за краем видит здание без своего обзора (BUILDING_SIGHT).
+-- Сколько тайлов за краем видит здание без своего обзора.
 buildings.BUILDING_SIGHT = 4
 
--- Обзор здания (buildingSight): своё число или половина большей стороны и ещё BUILDING_SIGHT, и не меньше дальности
--- турелей.
+-- Обзор здания: своё число или половина большей стороны и ещё BUILDING_SIGHT, и не меньше дальности турелей.
 function buildings.sight(kind, protos): number
 	local data = kind.data
 	local range = 0
@@ -161,7 +160,7 @@ function buildings.sight(kind, protos): number
 	return math.max(data.sight or half + buildings.BUILDING_SIGHT, if range ~= 0 then range + 1.5 else 0)
 end
 
--- На сколько секунд гаснет пробитый до нуля купол щита (SHIELD_DOWN).
+-- На сколько секунд гаснет пробитый до нуля купол щита.
 buildings.SHIELD_DOWN = 10
 
 -- Сущность здания по данным вида: размер, основание (тайлы заняты для хода), обзор, производство.
@@ -171,12 +170,12 @@ function buildings.entity(kind, protos)
 		Position = {},
 		Owner = {},
 		Building = { width = data.width, height = data.height },
-		-- Стена и закрытые ворота останавливают выстрелы (isWall).
+		-- Стена и закрытые ворота останавливают выстрелы.
 		Footprint = { width = data.width, height = data.height, wall = kind.name == "wall" or kind.name == "gate" },
-		-- Чужое здание в тумане игрок помнит таким, каким видел (buildMemory.ts).
+		-- Чужое здание в тумане игрок помнит таким, каким видел.
 		Memorable = { width = data.width, height = data.height },
 		Sight = { radius = buildings.sight(kind, protos) },
-		-- Прочность без своей — от цены (buildingHp).
+		-- Прочность без своей — от цены.
 		Health = { hp = data.hp or data.cost * buildings.HP_PER_COST },
 	}
 	entity.Link = buildings.link(kind)
@@ -184,9 +183,9 @@ function buildings.entity(kind, protos)
 	if data.requester then
 		entity.Wanted = {}
 	end
-	-- Склад (equipStorage): шахта копит руду, переработка — руду и готовое, хранилище — свой груз.
+	-- Склад: шахта копит руду, переработка — руду и готовое, хранилище — свой груз.
 	entity.Inventory = goods.stock(data)
-	-- Производителю без своего склада — склад под материалы заказов (PRODUCER_HOLD).
+	-- Производителю без своего склада — склад под материалы заказов.
 	if data.produces and not entity.Inventory then
 		entity.Inventory = goods.stock({ inventory = buildings.PRODUCER_HOLD })
 	end
@@ -235,21 +234,21 @@ function buildings.entity(kind, protos)
 	if data.mounts then
 		entity.Throttle = {}
 	end
-	-- Ремонтная станция (equip в buildings.ts); чинит, когда придёт энергия зон (В4).
+	-- Ремонтная станция чинит своё вокруг (mechanics/construction).
 	if data.repair then
 		entity.Repair = { radius = data.repair }
 	end
 	return entity
 end
 
--- На сколько тайлов от своего центра расширяет зону готовое здание без своего радиуса (EXPAND_RADIUS).
+-- На сколько тайлов от своего центра расширяет зону готовое здание без своего радиуса.
 buildings.EXPAND_RADIUS = 5
--- Дальше скольких тайлов колодцы не связываются подземным отрезком (UNDERGROUND_REACH).
+-- Дальше скольких тайлов колодцы не связываются подземным отрезком.
 buildings.UNDERGROUND_REACH = 10
 
--- Связь здания в сеть (allZones в zones.ts): круг зоны — свой (data.zone), data.expand или EXPAND_RADIUS; стык — с
--- таким же зданием; труба и колодец — проводники, колодец ещё и подземным отрезком; главное здание — ядро. Стена и
--- ворота (data.isolated) в сеть не входят — nil. Получает готовое здание: стройка и разбор в сеть не входят.
+-- Связь здания в сеть: круг зоны — свой (data.zone), data.expand или EXPAND_RADIUS; стык — с таким же зданием; труба и
+-- колодец — проводники, колодец ещё и подземным отрезком; главное здание — ядро. Стена и ворота (data.isolated) в сеть
+-- не входят — nil. Получает готовое здание: стройка и разбор в сеть не входят.
 function buildings.link(kind): { [string]: any }?
 	local data = kind.data
 	if data.isolated then
@@ -271,15 +270,15 @@ function buildings.siteLink(kind): { [string]: any }
 	return { radius = 0, group = kind.name, leaf = true, width = kind.data.width, height = kind.data.height }
 end
 
--- Сколько груза держит производитель без своего склада (PRODUCER_HOLD).
+-- Сколько груза держит производитель без своего склада.
 buildings.PRODUCER_HOLD = 100
 
--- Сколько прочности здания на кредит цены, если своей у него нет (BUILDING_HP).
+-- Сколько прочности здания на кредит цены, если своей у него нет.
 buildings.HP_PER_COST = 2
 
--- Биты соседей стены, ворот, трубы и колодца: четыре направления дают 16 вариантов (WALL_CONNECTION).
+-- Биты соседей стены, ворот, трубы и колодца: четыре направления дают 16 вариантов.
 buildings.NORTH, buildings.EAST, buildings.SOUTH, buildings.WEST = 1, 2, 4, 8
--- Бит вида ворот поверх битов соседей: плита опущена (GATE_OPEN_VARIANT).
+-- Бит вида ворот поверх битов соседей: плита опущена.
 buildings.GATE_OPEN = 16
 
 -- Основание оборонительной турели (emplacement): само вращающееся оружие рисуется поверх отдельной сущностью.
@@ -321,7 +320,7 @@ function buildings.look(width: number, height: number, draw: (any, number, boole
 			local variant = math.floor(angle / TURN * variants + 0.5) % variants
 			draw(canvas, (phase % frames) / frames, phase >= frames, variant)
 		end,
-		-- Портрет: первый кадр работы с полем в 2 пикселя (buildingCanvas в portraits.ts).
+		-- Портрет: первый кадр работы с полем в 2 пикселя.
 		portrait = {
 			size = { width * tile + 4, height * tile + 4 },
 			origin = { 2, 2 },

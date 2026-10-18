@@ -1,7 +1,7 @@
 --!strict
--- Производство: здание с Producer выпускает юнитов за кредиты. Заказ платится сразу, очередь — по одному. Готовый
--- юнит появляется на ближайшем свободном тайле вокруг здания (emptyTileNear в production.ts), а есть точка сбора — едет
--- туда группой из одного (orderGroupMove); выйти некуда — ждёт внутри. Приказы: produce, cancel, rally.
+-- Производство: здание с Producer выпускает юнитов за кредиты. Заказ платится сразу, очередь — по одному. Готовый юнит
+-- появляется на ближайшем свободном тайле вокруг здания, а есть точка сбора — едет туда группой из одного; выйти некуда
+-- — ждёт внутри. Приказы: produce, cancel, rally.
 
 local wallet = require("lib/wallet")
 local economy = require("lib/economy")
@@ -18,11 +18,11 @@ local production = {}
 production.data = {
 	-- Сколько заказов держит очередь.
 	queue = 5,
-	-- Сколько свободных тайлов вокруг смотреть, куда выпустить готового (EXIT_CANDIDATES).
+	-- Сколько свободных тайлов вокруг смотреть, куда выпустить готового.
 	exits = 24,
 }
 
--- Сколько места в лимите армии занято у игрока (armyOf): его юниты и заказы во всех его очередях.
+-- Сколько места в лимите армии занято у игрока: его юниты и заказы во всех его очередях.
 function production.army(w, player: number): number
 	local used = 0
 	for _, e in w:each({ "Unit", "Owner", "Proto" }) do
@@ -49,7 +49,7 @@ function production.limit(w): number
 	return rules.armyLimit or 0
 end
 
--- Не влезет ли юнит name в лимит армии игрока (overLimit).
+-- Не влезет ли юнит name в лимит армии игрока.
 function production.overLimit(w, player: number, name: string): boolean
 	local limit = production.limit(w)
 	local unit = w.protos.units[name]
@@ -111,11 +111,11 @@ production.commands = {
 			return
 		end
 		local unit = ctx.protos.units[args.unit]
-		-- Юнит, чьё исследование не открыто или чьих зданий нет, не заказать (missingRequirements, missingResearch).
+		-- Юнит, чьё исследование не открыто или чьих зданий нет, не заказать.
 		if not construction.researched(ctx, player, unit.data.research) or (construction.rules(ctx).techTree and #construction.missing(ctx, player, unit.data.requires) > 0) then
 			return
 		end
-		-- Сверх лимита армии не заказать (overLimit).
+		-- Сверх лимита армии не заказать.
 		if production.overLimit(ctx, player, args.unit) then
 			ctx:signal("refused", { player = player, reason = "army" })
 			return
@@ -196,7 +196,7 @@ production.systems = {
 					continue
 				end
 				local unit = ctx.protos.units[ctx:text(current)]
-				-- Потребитель энергии при её нехватке работает на долю, вне сети и выключенный — стоит (speedOf).
+				-- Потребитель энергии при её нехватке работает на долю, вне сети и выключенный — стоит.
 				local progress = readf64(p.progress, at)
 				if progress <= 0 and unit.data.materials then
 					-- Заказ начинается, когда его материалы на месте, и сразу их тратит.
@@ -245,8 +245,8 @@ production.systems = {
 	},
 }
 
--- На клиенте: машина выехала из завода — шипит воротина и катится рольставня (worldSounds.ts), и своему игроку —
--- уведомление «машина готова»; отказ — жужжание.
+-- На клиенте: машина выехала из завода — шипит воротина и катится рольставня, и своему игроку — уведомление «машина
+-- готова»; отказ — жужжание.
 production.signals = {
 	produced = function(c, signal)
 		local at = c:get(signal.building, "Position")

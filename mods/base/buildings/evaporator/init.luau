@@ -1,6 +1,5 @@
 --!strict
 -- Выпарка лития из рассола солончаков и урановая фабрика: второй слой, база работает и без них.
--- Данные — packages/base/data/buildings.json, облик — look.luau.
 
 local buildings = require("lib/buildings")
 

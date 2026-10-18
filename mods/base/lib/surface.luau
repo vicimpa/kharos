@@ -1,7 +1,7 @@
 --!strict
 -- Покрытие на карте — чтение слоёв layers/paving (канал 0 — вид: 1 фундамент, 2 дорога; канал 1 — хозяин) и
--- layers/paveWork (номер работы над покрытием на тайле), как paving.laid и paving.at в paved.ts. Без зависимостей:
--- его читают и место под здание (lib/placement), и правила стройки; правила покрытия — lib/paving.
+-- layers/paveWork (номер работы над покрытием на тайле). Без зависимостей: его читают и место под здание
+-- (lib/placement), и правила стройки; правила покрытия — lib/paving.
 
 local surface = {}
 
@@ -26,7 +26,7 @@ function surface.laid(w, x: number, y: number): (string?, number)
 	return KINDS[code], w:layer("paving", x, y, 1)
 end
 
--- Лежит ли на тайле готовое покрытие этого вида (isPaved). Разбираемое ещё лежит и действует.
+-- Лежит ли на тайле готовое покрытие этого вида. Разбираемое ещё лежит и действует.
 function surface.isPaved(w, kind: string, x: number, y: number): boolean
 	return (surface.laid(w, x, y)) == kind
 end
@@ -49,7 +49,7 @@ function surface.tileOf(w, e: number): (number, number)
 	return math.floor(at.x), math.floor(at.y)
 end
 
--- Дорога ли на тайле — готовая или та, что кладут (isRoadway): по ней ездят, строить на ней нельзя.
+-- Дорога ли на тайле — готовая или та, что кладут: по ней ездят, строить на ней нельзя.
 function surface.isRoadway(w, x: number, y: number): boolean
 	if surface.isPaved(w, "road", x, y) then
 		return true
@@ -59,14 +59,14 @@ function surface.isRoadway(w, x: number, y: number): boolean
 	return pave ~= nil and pave.kind == "road" and not pave.remove
 end
 
--- Хозяин готового покрытия на тайле (paveOwnerAt); покрытия нет — nil.
+-- Хозяин готового покрытия на тайле; покрытия нет — nil.
 function surface.ownerAt(w, x: number, y: number): number?
 	local kind, owner = surface.laid(w, x, y)
 	return if kind then owner else nil
 end
 
--- Вид покрытия на тайле, как его рисуют (kindAt в pavingPass.ts): что на нём кладут или разбирают, а нет работы —
--- готовое; заменяемое рисуется новым. Второе — идёт ли над ним работа.
+-- Вид покрытия на тайле, как его рисуют: что на нём кладут или разбирают, а нет работы — готовое; заменяемое рисуется
+-- новым. Второе — идёт ли над ним работа.
 function surface.drawnAt(w, x: number, y: number): (string?, boolean)
 	local e = surface.at(w, x, y)
 	if e then

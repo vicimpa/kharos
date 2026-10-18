@@ -1,6 +1,5 @@
 --!strict
--- Лазеру нужен кремний.
--- Данные — packages/base/data/units.json, мотор и тон — motors.ts, чертёж — lib/units.
+-- Лазеру нужен кремний. Мотор и тон — sounds/motors, чертёж — lib/units.
 
 local units = require("lib/units")
 

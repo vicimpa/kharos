@@ -1,6 +1,5 @@
 --!strict
 -- Зенитка: частые разрывы по воздуху, далеко и сильно, по земле не стреляет.
--- Данные — packages/base/data/weapons.json.
 
 return {
 	data = {

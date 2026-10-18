@@ -1,5 +1,5 @@
 --!strict
--- Сценка витрины: бой пехоты — стрелки и ракетчики (infantry в sim-ts/showcase.ts).
+-- Сценка витрины: бой пехоты — стрелки и ракетчики.
 
 local battle = require("lib/battle")
 

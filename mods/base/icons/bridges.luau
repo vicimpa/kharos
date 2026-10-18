@@ -1,5 +1,5 @@
 --!strict
--- Значок «Мосты» (paveCanvas в portraits.ts): тема исследований — дорога по болоту.
+-- Значок «Мосты»: тема исследований — дорога по болоту.
 
 local paveArt = require("lib/paveArt")
 

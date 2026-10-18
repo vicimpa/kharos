@@ -1,16 +1,14 @@
 --!strict
--- Чертежи юнитов и турелей, вид сверху — перенос packages/client/src/game/units/unitArt.ts один в один: тот же холст
--- (canvas — как Pixmap), те же цвета и фигуры, поэтому и пиксели те же. Рисуются в пикселях спрайта, 16 на тайл,
--- начало координат — центр юнита; каждое направление — заново: повёрнутый чертёж растеризуется чище, чем повёрнутая
--- картинка. Массивы цветов — с нуля, как в TS.
+-- Чертежи юнитов и турелей, вид сверху: тот же холст (canvas — как Pixmap), те же цвета и фигуры, поэтому и пиксели те
+-- же. Рисуются в пикселях спрайта, 16 на тайл, начало координат — центр юнита; каждое направление — заново: повёрнутый
+-- чертёж растеризуется чище, чем повёрнутая картинка. Массивы цветов — с нуля.
 
 local goods = require("lib/goods")
 local supply = require("lib/supply")
 
 local units = {}
 
--- Сторона кадра в пикселях: два тайла.
--- Какую долю прочности в секунду пехотинец восстанавливает сам (INFANTRY_REGEN).
+-- Сторона кадра в пикселях: два тайла. Какую долю прочности в секунду пехотинец восстанавливает сам.
 units.INFANTRY_REGEN = 0.02
 
 units.FRAME = 32
@@ -341,8 +339,8 @@ function draw.tesla(g, angle, team, phase)
 	p.dot(0, 0, 5.8, IRON[1])
 end
 
--- Носитель: колёсное шасси танка — по три колеса с борта и плоская палуба с четырьмя гнёздами под турели.
--- Сами турели — отдельные сущности, их рисует turretArt.ts поверх.
+-- Носитель: колёсное шасси танка — по три колеса с борта и плоская палуба с четырьмя гнёздами под турели. Сами турели —
+-- отдельные сущности, их чертежи — ниже.
 function draw.carrier(g, angle, team, phase)
 	local p = pen(g, angle)
 	for _, side in { -9, 9 } do
@@ -578,7 +576,7 @@ for _, name in units.NAMES do
 end
 
 -- Чертёж юнита name и турели turret в цветах стороны team ({ тёмный, основной, светлый }), а не в маске: так рисуются
--- остовы (drawWreck в decalsPass.ts).
+-- остовы.
 local function palette(team: { number })
 	return { [0] = team[1], team[2], team[3] }
 end
@@ -707,7 +705,7 @@ units.lights = {
 local PORTRAIT_ANGLE = -math.pi / 4
 
 -- Облик юнита вида name: кадр, направления, фазы хода, огни — для поля look вида. mounts — турели на корпусе
--- (data.mounts): на портрете они рисуются на своих местах, как drawMounts в portraits.ts.
+-- (data.mounts): на портрете они рисуются на своих местах.
 function units.look(name: string, mounts: { any }?)
 	local gait = units.gaits[name]
 	local air = gait == "air"
@@ -740,12 +738,11 @@ function units.look(name: string, mounts: { any }?)
 	}
 end
 
--- Сколько тайлов видит юнит каждого рода, если у вида нет своего числа, и насколько обзор дальше оружия
--- (unitSight в vision.ts).
+-- Сколько тайлов видит юнит каждого рода, если у вида нет своего числа, и насколько обзор дальше оружия.
 local CLASS_SIGHT = { infantry = 7, air = 10 }
 local SIGHT_OVER_RANGE = 1.5
 
--- Дальность самого дальнобойного оружия — своего или на турелях (longestRange).
+-- Дальность самого дальнобойного оружия — своего или на турелях.
 function units.range(data, protos): number
 	local range = 0
 	local function arm(weapon: string?)
@@ -780,7 +777,7 @@ function units.entity(kind, protos)
 		Unit = {},
 		Mover = { speed = data.speed, turn = data.turn, radius = data.radius, class = data.kind },
 		Sight = { radius = units.sight(kind, protos) },
-		-- Пехоту не чинят, зато она понемногу поправляется сама (INFANTRY_REGEN).
+		-- Пехоту не чинят, зато она понемногу поправляется сама.
 		Health = { hp = data.hp, repairable = not infantry, regen = if infantry then units.INFANTRY_REGEN else 0 },
 	}
 	-- Своё оружие — у корпуса; выстрел вылетает с края юнита и стоит доли магазина.
@@ -796,7 +793,7 @@ function units.entity(kind, protos)
 	if data.repair then
 		entity.Repair = { radius = data.repair }
 	end
-	-- Склад и транспортный луч (equipStorage), грузовик — ещё и работа (mechanics/hauling).
+	-- Склад и транспортный луч, грузовик — ещё и работа (mechanics/hauling).
 	entity.Inventory = goods.stock(data)
 	if data.beam then
 		entity.Beam = { radius = data.beam.radius, rate = data.beam.rate, give = data.beam.give == true, take = data.beam.take == true }

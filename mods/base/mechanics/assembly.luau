@@ -1,8 +1,8 @@
 --!strict
--- Цеха — перенос assembly.ts: собирают изделие своего вида из ресурсов. Сборка начинается, когда на складе есть сырьё на
--- неё и место под готовое, — сырьё сразу уходит в работу; идёт на долю энергии. Готовое ложится на склад цеха, откуда
--- его разбирают заявки и вывозят грузовики. Новый цех стоит выключенным (Assembly.on), пока игрок его не включит:
--- иначе он сразу съел бы сырьё зоны.
+-- Цеха: собирают изделие своего вида из ресурсов. Сборка начинается, когда на складе есть сырьё на неё и место под
+-- готовое, — сырьё сразу уходит в работу; идёт на долю энергии. Готовое ложится на склад цеха, откуда его разбирают
+-- заявки и вывозят грузовики. Новый цех стоит выключенным (Assembly.on), пока игрок его не включит: иначе он сразу съел
+-- бы сырьё зоны.
 
 local goods = require("lib/goods")
 local economy = require("lib/economy")
@@ -14,7 +14,7 @@ local mechanic = {}
 local EPSILON = goods.EPSILON
 
 mechanic.data = {
-	-- Сколько единиц сырья цех перерабатывает в секунду, всех видов вместе (ASSEMBLE_RATE).
+	-- Сколько единиц сырья цех перерабатывает в секунду, всех видов вместе.
 	rate = 1,
 }
 
@@ -23,7 +23,7 @@ mechanic.components = {
 	Assembly = { recipe = "", on = false, progress = 0 },
 }
 
--- Сколько секунд идёт одна сборка изделия (cycleSeconds).
+-- Сколько секунд идёт одна сборка изделия.
 function mechanic.cycle(product): number
 	local total = 0
 	for _, amount in product.data.recipe do
@@ -32,7 +32,7 @@ function mechanic.cycle(product): number
 	return total / mechanic.data.rate
 end
 
--- Есть ли у цеха место под готовое одной сборки (hasRoom).
+-- Есть ли у цеха место под готовое одной сборки.
 local function hasRoom(stock, product): boolean
 	return goods.room(stock, product.name) >= product.data.yield - EPSILON
 end

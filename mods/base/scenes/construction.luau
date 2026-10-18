@@ -1,13 +1,13 @@
 --!strict
 -- Сценка витрины: стройка — главное здание и бригада строителей, которая поднимает вокруг него базу здание за зданием
--- (construction в sim-ts/showcase.ts). Порядок — по дереву технологий: каждое здание открывают уже стоящие перед ним.
+--. Порядок — по дереву технологий: каждое здание открывают уже стоящие перед ним.
 -- Исследования сценка открывает сразу.
 
 local construction = require("lib/construction")
 local scenery = require("lib/scenery")
 local kinds = require("lib/kinds")
 
--- Что строят по очереди (PLAN) и через сколько секунд после конца стройки сценка начинается заново (BUILT_PAUSE).
+-- Что строят по очереди и через сколько секунд после конца стройки сценка начинается заново.
 local PLAN = { "generator", "radar", "generator", "barracks", "smelter", "metalYard", "matter", "turret", "rocketTurret", "siliconWorks", "siliconStore", "cannonTurret" }
 local BUILT_PAUSE = 12
 

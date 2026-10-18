@@ -1,10 +1,10 @@
 --!strict
--- Показательный бой двух армий — перенос battle.ts: случайная армия на бюджет (randomArmy), строй двух сторон
--- (spawnBattle) и ведение боя (driveBattle). На нём стоят боевые сценки витрины (scenes/).
+-- Показательный бой двух армий: случайная армия на бюджет, строй двух сторон и ведение боя. На нём стоят боевые сценки
+-- витрины (scenes/).
 
 local battle = {}
 
--- Учебный противник: против него воюют сценки (TRAINING_PLAYER).
+-- Учебный противник: против него воюют сценки.
 battle.FOE = 9999
 -- Сколько кредитов стоит армия одной стороны показательного боя.
 battle.BUDGET = 3500
@@ -20,7 +20,7 @@ local function at(column: buffer, i: number): number
 	return readf64(column, (i - 1) * 8)
 end
 
--- Вооружён ли вид: своим оружием или турелями с оружием (isFighter).
+-- Вооружён ли вид: своим оружием или турелями с оружием.
 local function fighter(ctx, kind): boolean
 	if kind.data.weapon then
 		return true
@@ -251,7 +251,7 @@ function battle.drive(ctx, player: number): boolean
 end
 
 -- Сценка витрины — бой двух армий одной цены; weights — из кого они набираются. Виды, которых нет в weights, не
--- берутся (NONE в showcase.ts), а без weights — все боевые.
+-- берутся, а без weights — все боевые.
 function battle.scene(budget: number, weights: { [string]: number }?)
 	local scene = {}
 	function scene.create(ctx, player: number): boolean
