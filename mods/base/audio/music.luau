@@ -71,7 +71,13 @@ local NOTE = {
 }
 
 local bus = nil
-local next = dsp.random(math.floor(os.time() % 100000))
+-- Случайное звука — от math.random: его засевает приложение (в сценарии — постоянным зерном, звук прогона повторяется).
+-- Заводится при первом обращении: зерно задаётся после загрузки модов.
+local stream: (() -> number)? = nil
+local function next(): number
+	stream = stream or dsp.random(math.random(1, 99999))
+	return (stream :: () -> number)()
+end
 local function between(range: { number }): number
 	return range[1] + next() * (range[2] - range[1])
 end

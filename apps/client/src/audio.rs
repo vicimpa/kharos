@@ -14,8 +14,6 @@ use mlua::{Function, Lua, MetaMethod, RegistryKey, Table, UserData, UserDataFiel
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 use crate::webaudio::{AnalyserNode, AudioBuffer, AudioBufferSourceNode, AudioContext, AudioNode, AudioParam, AudioScheduledSourceNode, BaseAudioContext, BiquadFilterNode, BiquadFilterType, ConstantSourceNode, ConvolverNode, DelayNode, DynamicsCompressorNode, GainNode, OscillatorNode, OscillatorType, StereoPannerNode, WaveShaperNode};
 
 /// Шины: всё сходится в общую громкость.
@@ -108,12 +106,16 @@ pub struct Engine {
   /// Шум на две секунды по кругу: белый, розовый, коричневый.
   noise: [AudioBuffer; 3],
   pub bank: RefCell<HashMap<String, Record>>,
-  /// Сколько разовых звуков звучит.
-  voices: Arc<AtomicUsize>,
+  /// Когда кончатся звучащие разовые звуки, по часам звука: считаются на главном потоке, а не событием потока
+  /// звука, — так их число в каждый миг одно и то же от прогона к прогону (офлайновый звук сценария повторяется).
+  voices: RefCell<Vec<f64>>,
   /// Случайное для вариантов и разброса высоты.
   seed: std::cell::Cell<u32>,
   /// Замер уровня на выходе (KHAROS_AUDIO_LEVEL=1): проверить, что звук есть, не слушая его.
   meter: Option<RefCell<AnalyserNode>>,
+  /// Вывод на устройство, пока звучит; у офлайнового счёта его нет.
+  #[cfg(not(target_arch = "wasm32"))]
+  _device: Option<crate::webaudio::Device>,
 }
 
 impl Engine {
@@ -594,7 +596,27 @@ fn channels(value: Value) -> mlua::Result<Vec<Vec<f32>>> {
 impl Engine {
   /// Синтезатор или None, если звуку некуда выйти.
   pub fn new() -> Option<Rc<Self>> {
-    let ctx = crate::webaudio::new_context()?;
+    let seed = (crate::clock::epoch_millis() as u64 as u32).wrapping_mul(1_000_003) | 1;
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+      let (device, ctx) = crate::webaudio::new_context()?;
+      Some(Self::build(ctx, Some(device), seed))
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+      let ctx = crate::webaudio::new_context()?;
+      Some(Self::build(ctx, seed))
+    }
+  }
+
+  /// Синтезатор поверх готового контекста — офлайнового счёта режима сценария (crate::offline); зерно своё, чтобы
+  /// звук прогона повторялся.
+  #[cfg(not(target_arch = "wasm32"))]
+  pub fn offline(ctx: AudioContext) -> Rc<Self> {
+    Self::build(ctx, None, 1)
+  }
+
+  fn build(ctx: AudioContext, #[cfg(not(target_arch = "wasm32"))] device: Option<crate::webaudio::Device>, seed: u32) -> Rc<Self> {
     // Компрессор не даёт залпу перегрузить звук.
     let compressor = ctx.create_dynamics_compressor();
     compressor.threshold().set_value(-18.0);
@@ -616,8 +638,19 @@ impl Engine {
       compressor.connect(&analyser);
       RefCell::new(analyser)
     });
-    let seed = (crate::clock::epoch_millis() as u64 as u32).wrapping_mul(1_000_003) | 1;
-    Some(Rc::new(Engine { ctx, master, _compressor: compressor, buses, noise, bank: RefCell::new(HashMap::new()), voices: Arc::new(AtomicUsize::new(0)), seed: std::cell::Cell::new(seed), meter }))
+    Rc::new(Engine {
+      ctx,
+      master,
+      _compressor: compressor,
+      buses,
+      noise,
+      bank: RefCell::new(HashMap::new()),
+      voices: RefCell::new(Vec::new()),
+      seed: std::cell::Cell::new(seed),
+      meter,
+      #[cfg(not(target_arch = "wasm32"))]
+      _device: device,
+    })
   }
 
   /// Банки записей видов раздела `sounds` (`bank = { имя = { variants, bus, render = function(rate, variant) } }`):
@@ -747,7 +780,9 @@ impl Audio {
   /// Разовая запись банка: случайный вариант, громкость, сторона и скорость (высота), как play в audio.ts.
   pub fn play(&self, name: &str, volume: f32, pan: f32, rate: f32) {
     let engine = &self.engine;
-    if volume <= 0.01 || engine.voices.load(Ordering::Relaxed) >= MAX_VOICES {
+    let now = engine.now();
+    engine.voices.borrow_mut().retain(|&end| end > now);
+    if volume <= 0.01 || engine.voices.borrow().len() >= MAX_VOICES {
       return;
     }
     let bus = match engine.bank.borrow().get(name) {
@@ -755,6 +790,7 @@ impl Audio {
       None => return,
     };
     let Some(buffer) = engine.record(name, None) else { return };
+    let buffer_seconds = buffer.duration();
     let mut source = engine.ctx.create_buffer_source();
     source.set_buffer(buffer);
     source.playback_rate().set_value(rate);
@@ -765,11 +801,7 @@ impl Audio {
     source.connect(&gain);
     gain.connect(&panner);
     panner.connect(self.bus(&bus));
-    engine.voices.fetch_add(1, Ordering::Relaxed);
-    let voices = engine.voices.clone();
-    source.set_onended(move |_| {
-      voices.fetch_sub(1, Ordering::Relaxed);
-    });
+    engine.voices.borrow_mut().push(now + buffer_seconds / rate.max(0.01) as f64);
     source.start();
   }
 

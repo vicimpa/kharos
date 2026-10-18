@@ -4,7 +4,8 @@
 //!
 //! `--size` — кадр такого размера в логических пикселях в своём буфере, а не в окне (любой, хоть 540x960), `--scale`
 //! — физических пикселей на логический; `--no-ui` — мир без интерфейса (он считается, щелчки по нему работают);
-//! `--record файл.mp4` — видео всего прогона (нужен ffmpeg), из сценария — `s:record(файл)` и `s:stop()`.
+//! `--record файл.mp4` — видео всего прогона (нужен ffmpeg), из сценария — `s:record(файл)` и `s:stop()`; `--sound` —
+//! со звуком: граф звука считается офлайн кадр в кадр с картинкой (crate::offline), на `--timeout` секунд вперёд.
 //!
 //! Время игры — номер кадра ÷ fps, а не часы: прогон не зависит от скорости машины и повторяется кадр в кадр. Окно
 //! невидимо (`--show` — видно), настройки и сохранения — во временной папке, звука нет. Код выхода — итог: 0 — сценарий
@@ -33,6 +34,8 @@ pub struct Options {
   pub ui: bool,
   /// Видео всего прогона.
   pub record: Option<String>,
+  /// Звук: офлайновый счёт, в записи — дорожкой.
+  pub sound: bool,
 }
 
 /// Режим сценария, если он задан флагом `--scenario`.
@@ -50,6 +53,7 @@ pub fn options() -> Option<Options> {
     scale: value("--scale").and_then(|scale| scale.parse().ok()).unwrap_or(1.0),
     ui: !args.iter().any(|arg| arg == "--no-ui"),
     record: value("--record"),
+    sound: args.iter().any(|arg| arg == "--sound"),
   })
 }
 
@@ -146,6 +150,13 @@ pub struct Scenario {
   /// Запись: какую начать после кадра (размер кадра известен только тогда) и идущая.
   record: Option<String>,
   recorder: Option<crate::record::Recorder>,
+  /// Записи со звуком: видео дописано до кадра, звук к нему положат, когда счёт звука кончится.
+  sounded: Vec<(crate::record::Recorder, u64, u64)>,
+  /// Начало идущей записи — кадр.
+  recording_from: u64,
+  /// Офлайновый звук и его синтезатор.
+  offline: Option<crate::offline::Offline>,
+  engine: Option<std::rc::Rc<crate::audio::Engine>>,
   /// Таблица файла сценария в машинах клиента и хоста партии номер generation.
   loaded: Option<(u64, Option<Table>, Option<Table>)>,
   started: bool,
@@ -169,7 +180,37 @@ impl Scenario {
     let file: Table = lua.load(source.as_str()).set_name(format!("={}", options.path)).eval().map_err(lua_error(&options.path))?;
     let run: Function = file.get("run").map_err(|_| format!("{}: нет run(s)", options.path))?;
     let thread = lua.create_thread(run).map_err(lua_error("сопрограмма"))?;
-    Ok(Self { lua, thread, s, source, name, fps: options.fps, timeout: options.timeout, lang: options.lang.clone(), ui: options.ui, size: options.size, scale: options.scale, frame: 0, actions: Vec::new(), wait: None, reply: None, shots: Vec::new(), record: options.record.clone(), recorder: None, loaded: None, started: false, begun: false, reported: false, done: None })
+    // Звук — офлайн, на весь предел времени: синтезатор строится до начала счёта, чтобы граф был готов к кадру 0.
+    let (offline, engine) = if options.sound {
+      let offline = crate::offline::Offline::new(options.timeout, options.fps);
+      let engine = crate::audio::Engine::offline(offline.ctx.clone());
+      (Some(offline), Some(engine))
+    } else {
+      (None, None)
+    };
+    Ok(Self { lua, thread, s, source, name, fps: options.fps, timeout: options.timeout, lang: options.lang.clone(), ui: options.ui, size: options.size, scale: options.scale, frame: 0, actions: Vec::new(), wait: None, reply: None, shots: Vec::new(), record: options.record.clone(), recorder: None, sounded: Vec::new(), recording_from: 0, offline, engine, loaded: None, started: false, begun: false, reported: false, done: None })
+  }
+
+  /// Звук приложения: синтезатор офлайнового счёта или никакого.
+  pub fn sound(&self) -> crate::Sound {
+    match &self.engine {
+      Some(engine) => crate::Sound::Engine(engine.clone()),
+      None => crate::Sound::Off,
+    }
+  }
+
+  /// Перед кадром — звук дошёл до него и стоит; после — идёт дальше.
+  pub fn audio_begin(&mut self) {
+    let frame = self.frame;
+    if let Some(offline) = &mut self.offline {
+      offline.begin(frame);
+    }
+  }
+
+  pub fn audio_end(&mut self) {
+    if let Some(offline) = &mut self.offline {
+      offline.end();
+    }
   }
 
   /// Время игры этого кадра.
@@ -219,22 +260,41 @@ impl Scenario {
   pub fn report(&mut self) -> Option<Result<(), String>> {
     let mut done = self.done.take()?;
     self.reported = true;
-    if let Err(error) = self.stop_recording() {
+    if let Err(error) = self.stop_recording().and_then(|()| self.finish_sound()) {
       done = done.and(Err(error));
     }
     Some(done)
   }
 
   fn stop_recording(&mut self) -> Result<(), String> {
-    match self.recorder.take() {
-      Some(recorder) => {
-        let frames = recorder.frames;
-        recorder.finish(None)?;
-        eprintln!("сценарий: записано {frames} кадров ({:.1} с)", frames as f64 / self.fps);
-        Ok(())
-      }
-      None => Ok(()),
+    let Some(recorder) = self.recorder.take() else { return Ok(()) };
+    let frames = recorder.frames;
+    eprintln!("сценарий: записано {frames} кадров ({:.1} с)", frames as f64 / self.fps);
+    // Со звуком видео ждёт конца счёта звука.
+    if self.offline.is_some() {
+      self.sounded.push((recorder, self.recording_from, self.recording_from + frames));
+      return Ok(());
     }
+    recorder.finish(None)
+  }
+
+  /// Конец счёта звука: каждой записи со звуком — её кусок дорожки.
+  fn finish_sound(&mut self) -> Result<(), String> {
+    let Some(offline) = self.offline.take() else { return Ok(()) };
+    let channels = offline.finish()?;
+    let rate = crate::offline::RATE as f64;
+    for (recorder, from, to) in self.sounded.drain(..) {
+      let start = ((from as f64 / self.fps) * rate) as usize;
+      let end = ((to as f64 / self.fps) * rate) as usize;
+      let piece: Vec<Vec<f32>> = channels.iter().map(|channel| channel[start.min(channel.len())..end.min(channel.len())].to_vec()).collect();
+      let wav = std::env::temp_dir().join(format!("kharos-sound-{}-{from}.wav", std::process::id()));
+      let wav = wav.to_string_lossy().into_owned();
+      crate::record::write_wav(&wav, &piece, rate as u32)?;
+      let result = recorder.finish(Some(&wav));
+      let _ = std::fs::remove_file(&wav);
+      result?;
+    }
+    Ok(())
   }
 
   /// После кадра: снимки и запись этого кадра.
@@ -245,8 +305,11 @@ impl Scenario {
     // Запись — с кадров партии: экран до неё (меню под загрузкой) не нужен.
     if app.game().is_some() && self.started {
       if let Some(path) = self.record.take() {
-        match crate::record::Recorder::start(&path, size, self.fps, false) {
-          Ok(recorder) => self.recorder = Some(recorder),
+        match crate::record::Recorder::start(&path, size, self.fps, self.offline.is_some()) {
+          Ok(recorder) => {
+            self.recorder = Some(recorder);
+            self.recording_from = self.frame;
+          }
           Err(error) => self.done = Some(Err(error)),
         }
       }

@@ -15,6 +15,8 @@ mod loading;
 mod render;
 mod saves;
 #[cfg(not(target_arch = "wasm32"))]
+mod offline;
+#[cfg(not(target_arch = "wasm32"))]
 mod record;
 #[cfg(not(target_arch = "wasm32"))]
 mod scenario;
@@ -61,16 +63,32 @@ pub struct App {
   pub generation: u64,
   /// Рисовать ли интерфейс: без него — только мир (ролики); считается он всё равно, и щелчки по нему работают.
   pub show_ui: bool,
+  /// Загрузка считает звуки за один кадр.
+  patient: bool,
+  /// Зерно math.random клиентских скриптов партии.
+  seed: Option<u32>,
 }
 
-/// Как запускать приложение: со звуком ли (в режиме сценария звука нет).
+/// Откуда звук: на устройство, никакого или готовый синтезатор (офлайновый счёт режима сценария).
+pub enum Sound {
+  Device,
+  Off,
+  Engine(Rc<audio::Engine>),
+}
+
+/// Как запускать приложение: звук и терпеливая загрузка (звуки считаются за один кадр — так у снимков и сценариев
+/// счёт кадров не зависит от скорости машины).
 pub struct AppOptions {
-  pub sound: bool,
+  pub sound: Sound,
+  pub patient: bool,
+  /// Зерно `math.random` клиентских скриптов каждой партии: прогон сценария повторяется кадр в кадр (дым, петли
+  /// моторов со случайного места); None — случайное, как в игре.
+  pub seed: Option<u32>,
 }
 
 impl Default for AppOptions {
   fn default() -> Self {
-    Self { sound: true }
+    Self { sound: Sound::Device, patient: std::env::var_os("KHAROS_SHOT").is_some(), seed: None }
   }
 }
 
@@ -152,8 +170,13 @@ impl App {
     let mut renderer = Renderer::new(gl)?;
     renderer.load_skin(&gui::skin_pixels(), gui::SKIN_SIZE);
     let mods = mods()?;
-    let sound = if options.sound { audio::Engine::new() } else { None };
-    if sound.is_none() && options.sound {
+    let device = matches!(options.sound, Sound::Device);
+    let sound = match options.sound {
+      Sound::Device => audio::Engine::new(),
+      Sound::Off => None,
+      Sound::Engine(engine) => Some(engine),
+    };
+    if sound.is_none() && device {
       eprintln!("звука нет: некуда выводить");
     }
     let menu = menu_of(&mods)?;
@@ -170,7 +193,7 @@ impl App {
       }
       None => None,
     };
-    let mut app = Self { renderer, game: None, loading, first, mods, sound, link, quit: false, saved_at: 0.0, generation: 0, show_ui: true };
+    let mut app = Self { renderer, game: None, loading, first, mods, sound, link, quit: false, saved_at: 0.0, generation: 0, show_ui: true, patient: options.patient, seed: options.seed };
     if app.loading.is_none() {
       app.begin()?;
     }
@@ -180,7 +203,7 @@ impl App {
   /// Первая партия — после загрузки.
   fn begin(&mut self) -> Result<(), String> {
     self.loading = None;
-    let game = Self::launch(&mut self.renderer, &self.mods, self.first.as_deref(), &serde_json::Value::Object(Default::default()), None, self.sound.clone(), self.link.clone())?;
+    let game = Self::launch(&mut self.renderer, &self.mods, self.first.as_deref(), &serde_json::Value::Object(Default::default()), None, self.sound.clone(), self.link.clone(), self.seed)?;
     self.game = Some(game);
     self.generation += 1;
     Ok(())
@@ -216,7 +239,8 @@ impl App {
   }
 
   /// Новая партия: хост, клиентская машина, атлас, земля и мини-карта — в рендер.
-  fn launch(renderer: &mut Renderer, mods: &[Mod], game: Option<&str>, options: &serde_json::Value, slot: Option<String>, sound: Option<Rc<audio::Engine>>, link: AppLink) -> Result<Game, String> {
+  #[allow(clippy::too_many_arguments)]
+  fn launch(renderer: &mut Renderer, mods: &[Mod], game: Option<&str>, options: &serde_json::Value, slot: Option<String>, sound: Option<Rc<audio::Engine>>, link: AppLink, seed: Option<u32>) -> Result<Game, String> {
     let fonts = gui::Fonts::new(&FONTS)?;
     renderer.reset_font();
     // Мир слота — из сохранения; пустой слот заводит новый мир по настройкам.
@@ -228,6 +252,9 @@ impl App {
       (world, camera)
     };
     let mut game = Game::new(mods.to_vec(), game, options, world.as_ref(), 1, fonts, sound, link.clone())?;
+    // Зерно math.random скриптов: в сценарии — постоянное, в игре — от часов, каждая партия звучит по-своему.
+    let seed = seed.unwrap_or_else(|| crate::clock::epoch_millis() as u64 as u32);
+    game.client.lua.load(format!("math.randomseed({seed})")).exec().map_err(|error| format!("зерно скриптов: {error}"))?;
     if let Some(camera) = camera.filter(|_| world.is_some()) {
       game.set_camera(&camera);
     }
@@ -261,7 +288,7 @@ impl App {
   pub fn frame(&mut self, input: &Input, size: [u32; 2]) -> Result<(), String> {
     if let Some(loading) = &mut self.loading {
       // Снимок кадра ждёт загрузку целиком: так счёт его кадров не зависит от скорости расчёта.
-      loading.pump(std::env::var_os("KHAROS_SHOT").is_some())?;
+      loading.pump(self.patient)?;
       loading.draw(&mut self.renderer, input, size);
       if loading.finished() {
         self.begin()?;
@@ -301,7 +328,7 @@ impl App {
       Some(AppRequest::Start { game, options, slot, editor }) => {
         self.save();
         self.link.borrow_mut().editing = editor;
-        self.game = Some(Self::launch(&mut self.renderer, &self.mods, Some(&game), &options, slot, self.sound.clone(), self.link.clone())?);
+        self.game = Some(Self::launch(&mut self.renderer, &self.mods, Some(&game), &options, slot, self.sound.clone(), self.link.clone(), self.seed)?);
         self.generation += 1;
         self.saved_at = input.time;
       }
@@ -360,7 +387,7 @@ impl App {
   pub fn start(&mut self, game: &str, options: &serde_json::Value) -> Result<(), String> {
     self.link.borrow_mut().request = None;
     self.link.borrow_mut().editing = false;
-    self.game = Some(Self::launch(&mut self.renderer, &self.mods, Some(game), options, None, self.sound.clone(), self.link.clone())?);
+    self.game = Some(Self::launch(&mut self.renderer, &self.mods, Some(game), options, None, self.sound.clone(), self.link.clone(), self.seed)?);
     self.generation += 1;
     Ok(())
   }

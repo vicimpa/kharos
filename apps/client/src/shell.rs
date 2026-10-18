@@ -118,7 +118,11 @@ impl ApplicationHandler for Shell {
         return;
       }
     };
-    match App::with(context, AppOptions { sound: self.scenario.is_none() }) {
+    let options = match &self.scenario {
+      Some(scenario) => AppOptions { sound: scenario.sound(), patient: true, seed: Some(1) },
+      None => AppOptions::default(),
+    };
+    match App::with(context, options) {
       Ok(app) => self.app = Some(app),
       Err(error) => {
         eprintln!("{error}");
@@ -246,6 +250,7 @@ impl Shell {
       None => crate::clock::seconds(),
     };
     if let Some(scenario) = &mut self.scenario {
+      scenario.audio_begin();
       scenario.before(app, &mut self.input);
     }
     if self.shot.is_some() {
@@ -288,6 +293,7 @@ impl Shell {
     }
     self.frames += 1;
     if let Some(scenario) = &mut self.scenario {
+      scenario.audio_end();
       scenario.after(app, [size.width, size.height]);
       if let Some(done) = scenario.report() {
         match done {

@@ -1,17 +1,24 @@
 //! Web Audio для `audio.rs` — одни имена на обеих платформах: на нативе — крейт `web-audio-api` как есть, в браузере —
 //! те же типы и методы поверх `AudioContext` страницы (web-sys). Здесь только то, чем пользуется синтезатор.
 
+/// Контекст, через который строится граф: на нативе — базовый, общий у вывода на устройство и офлайнового счёта
+/// (режим сценария считает звук кадр в кадр с картинкой, crate::offline).
 #[cfg(not(target_arch = "wasm32"))]
-pub use web_audio_api::context::{AudioContext, BaseAudioContext};
+pub use web_audio_api::context::{BaseAudioContext, ConcreteBaseAudioContext as AudioContext};
+/// Вывод на устройство: его держат, пока звучит.
+#[cfg(not(target_arch = "wasm32"))]
+pub use web_audio_api::context::AudioContext as Device;
 #[cfg(not(target_arch = "wasm32"))]
 pub use web_audio_api::node::{AnalyserNode, AudioBufferSourceNode, AudioNode, AudioScheduledSourceNode, BiquadFilterNode, BiquadFilterType, ConstantSourceNode, ConvolverNode, DelayNode, DynamicsCompressorNode, GainNode, OscillatorNode, OscillatorType, StereoPannerNode, WaveShaperNode};
 #[cfg(not(target_arch = "wasm32"))]
 pub use web_audio_api::{AudioBuffer, AudioParam};
 
-/// Контекст звука или None, если звуку некуда выйти.
+/// Вывод на устройство и контекст его графа или None, если звуку некуда выйти.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn new_context() -> Option<AudioContext> {
-  std::panic::catch_unwind(AudioContext::default).ok()
+pub fn new_context() -> Option<(Device, AudioContext)> {
+  let device = std::panic::catch_unwind(Device::default).ok()?;
+  let ctx = device.base().clone();
+  Some((device, ctx))
 }
 
 /// Браузер не играет звук, пока страницу не тронули: при первом касании или клавише контекст просыпается.
@@ -23,8 +30,6 @@ pub use web::*;
 
 #[cfg(target_arch = "wasm32")]
 mod web {
-  use wasm_bindgen::closure::Closure;
-  use wasm_bindgen::JsCast as _;
 
   pub fn new_context() -> Option<AudioContext> {
     web_sys::AudioContext::new().ok().map(|ctx| AudioContext { destination: AudioDestinationNode(ctx.destination()), ctx })
@@ -67,12 +72,6 @@ mod web {
 
     fn stop_at(&mut self, at: f64) {
       let _ = self.scheduled().stop_with_when(at);
-    }
-
-    fn set_onended<F: FnOnce(web_sys::Event) + 'static>(&mut self, callback: F) {
-      let closure = Closure::once(callback);
-      self.scheduled().set_onended(Some(closure.as_ref().unchecked_ref()));
-      closure.forget();
     }
   }
 
