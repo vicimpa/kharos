@@ -1,15 +1,38 @@
 //! Хост с подключёнными игроками (createHost в host.ts). Про сокеты не знает: подключение приносит сообщения и
 //! забирает свои, сервер за WebSocket и петля в одном процессе (`KHAROS_NET=loopback`) зовут одно и то же.
+//!
+//! Кроме мира — чат и команды сервера: строка с «/» — команда (`help`, `list`, `me`, `msg`, `admin`, `logout`, `hide`,
+//! `say`, `kick`, `save`, `stop`), остальное — сообщение всем. Ответы сервера — ключами словаря (`host.*`): каждый
+//! игрок читает их на своём языке.
 
-use crate::protocol::{clean_name, mods_sum, ClientMessage, Message, ServerMessage, FRAME, VERSION};
+use crate::protocol::{clean_chat, clean_name, host_text, mods_sum, parse_command, ChatLine, ClientMessage, CommandInfo, Message, PlayerInfo, ServerMessage, FRAME, VERSION};
 use crate::{Rules, Shared, View};
 use kharos_content::Mod;
 use kharos_world::Host;
-use serde_json::Value as Json;
-use std::collections::BTreeMap;
+use serde_json::{json, Value as Json};
+use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 pub type PeerId = u64;
+
+/// Длина тика.
+pub const STEP: f64 = 0.05;
+
+/// Версия сохранения сервера.
+pub const SAVE_VERSION: u64 = 1;
+
+/// Как часто подключение может писать в чат, в секундах.
+const CHAT_GAP: f64 = 0.5;
+/// Длиннее скольких байт сообщение клиента не читается: приказ всем своим юнитам в разы короче.
+const MESSAGE_MOST: usize = 64 * 1024;
+/// Сколько сообщений в секунду подключение шлёт в среднем и сколько разом: что сверх — отбрасывается.
+const MESSAGE_RATE: f64 = 30.0;
+const MESSAGE_BURST: f64 = 120.0;
+/// Сколько отброшенных сообщений подключению прощается разом и сколько в секунду: дальше его отключают.
+const FLOOD_BURST: f64 = 300.0;
+const FLOOD_RATE: f64 = 1.0;
+/// Сколько секунд после неверного пароля администратора подключение не может попробовать снова.
+const ADMIN_LOCK: f64 = 3.0;
 
 /// Совпадают ли строки, за одно и то же время при любом месте расхождения: пароль не подобрать по задержке ответа.
 fn same(a: &str, b: &str) -> bool {
@@ -35,7 +58,57 @@ struct Peer {
   outbox: Vec<Message>,
   /// Пора закрыть: отказ ушёл или клиент прислал не то.
   closing: bool,
+  admin: bool,
+  /// Когда писал в чат и до какого времени не может пробовать пароль администратора.
+  chatted: f64,
+  locked: f64,
+  /// Ведро сообщений и ведро прощённых отброшенных (MESSAGE_*, FLOOD_*), когда их пополняли.
+  tokens: f64,
+  strikes: f64,
+  filled: f64,
 }
+
+/// Что сервер просит у того, кто его держит.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Request {
+  Save,
+  Stop,
+}
+
+/// Кто зовёт команду: подключение или консоль сервера (она всегда администратор).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Caller {
+  Peer(PeerId),
+  Console,
+}
+
+/// Команда сервера: только администратору, только из игры, только из консоли, ждёт ли пароль.
+struct Command {
+  name: &'static str,
+  args: &'static [&'static str],
+  admin: bool,
+  game: bool,
+  console: bool,
+  secret: bool,
+}
+
+const fn command(name: &'static str, args: &'static [&'static str]) -> Command {
+  Command { name, args, admin: false, game: false, console: false, secret: false }
+}
+
+const COMMANDS: &[Command] = &[
+  command("help", &[]),
+  command("list", &[]),
+  Command { game: true, ..command("me", &["<action>"]) },
+  Command { game: true, ..command("msg", &["<player>", "<text>"]) },
+  Command { game: true, secret: true, ..command("admin", &[]) },
+  Command { admin: true, game: true, ..command("logout", &[]) },
+  Command { admin: true, game: true, ..command("hide", &[]) },
+  Command { admin: true, ..command("say", &["<text>"]) },
+  Command { admin: true, ..command("kick", &["<player>"]) },
+  Command { admin: true, ..command("save", &[]) },
+  Command { admin: true, console: true, ..command("stop", &[]) },
+];
 
 pub struct Server {
   pub host: Host,
@@ -43,21 +116,26 @@ pub struct Server {
   options: Json,
   seed: u64,
   password: String,
+  /// Пароль режима администратора (/admin); пустой — режима нет.
+  pub admin: String,
+  /// Подпись сообщений администратора и консоли (/say) и ник игрока без ника — на языке сервера.
+  pub server_name: String,
+  pub default_name: String,
   rules: Rc<Rules>,
   mods: String,
   peers: BTreeMap<PeerId, Peer>,
   next_peer: PeerId,
   /// Под каким именем сервер помнит игрока → игрок.
   pub players: BTreeMap<String, Player>,
+  /// Скрытые администраторы (/hide): для остальных их нет — ни в списке, ни в сообщениях о входе. До перезапуска.
+  hidden: BTreeSet<u32>,
   /// Счётчик для новых имён.
   minted: u64,
+  started: std::time::Instant,
+  /// Что написать в консоль сервера: вход, выход, чат, ответы консоли.
+  pub log: Vec<String>,
+  pub requests: Vec<Request>,
 }
-
-/// Длина тика.
-pub const STEP: f64 = 0.05;
-
-/// Версия сохранения сервера.
-pub const SAVE_VERSION: u64 = 1;
 
 impl Server {
   /// Новый мир партии game: тот же `Host::new`, что соберёт себе каждый клиент для реплики.
@@ -91,13 +169,32 @@ impl Server {
   fn with(host: Host, mods: String, seed: u64, options: Json, password: String, players: BTreeMap<String, Player>) -> Result<Self, String> {
     let schema = host.state.borrow().world.schema.clone();
     let rules = Rc::new(Rules::of(&host.content, &schema)?);
-    Ok(Self { game: host.game.clone(), host, options, seed, password, rules, mods, peers: BTreeMap::new(), next_peer: 1, players, minted: 0 })
+    Ok(Self {
+      game: host.game.clone(),
+      host,
+      options,
+      seed,
+      password,
+      admin: String::new(),
+      server_name: "[Сервер]".into(),
+      default_name: "Игрок {number}".into(),
+      rules,
+      mods,
+      peers: BTreeMap::new(),
+      next_peer: 1,
+      players,
+      hidden: BTreeSet::new(),
+      minted: 0,
+      started: std::time::Instant::now(),
+      log: Vec::new(),
+      requests: Vec::new(),
+    })
   }
 
   /// Сохранение сервера: мир, игроки по именам, партия, её настройки и зерно.
   pub fn save(&self) -> Result<Json, String> {
-    let players: serde_json::Map<String, Json> = self.players.iter().map(|(id, player)| (id.clone(), serde_json::json!({ "number": player.number, "name": player.name }))).collect();
-    Ok(serde_json::json!({ "version": SAVE_VERSION, "game": self.game, "seed": self.seed, "options": self.options, "players": players, "world": self.host.snapshot()? }))
+    let players: serde_json::Map<String, Json> = self.players.iter().map(|(id, player)| (id.clone(), json!({ "number": player.number, "name": player.name }))).collect();
+    Ok(json!({ "version": SAVE_VERSION, "game": self.game, "seed": self.seed, "options": self.options, "players": players, "world": self.host.snapshot()? }))
   }
 
   /// Сколько подключений вошло в игру.
@@ -105,16 +202,31 @@ impl Server {
     self.peers.values().filter(|peer| peer.player.is_some()).count()
   }
 
+  fn now(&self) -> f64 {
+    self.started.elapsed().as_secs_f64()
+  }
+
   /// Новое подключение: ждёт входа.
   pub fn connect(&mut self) -> PeerId {
     let id = self.next_peer;
     self.next_peer += 1;
-    self.peers.insert(id, Peer { player: None, view: None, outbox: Vec::new(), closing: false });
+    let now = self.now();
+    self.peers.insert(id, Peer { player: None, view: None, outbox: Vec::new(), closing: false, admin: false, chatted: f64::NEG_INFINITY, locked: 0.0, tokens: MESSAGE_BURST, strikes: FLOOD_BURST, filled: now });
     id
   }
 
+  /// Подключение закрылось: игрок, у которого не осталось вкладок, выходит из игры.
   pub fn disconnect(&mut self, peer: PeerId) {
-    self.peers.remove(&peer);
+    let Some(state) = self.peers.remove(&peer) else { return };
+    let Some(player) = state.player else { return };
+    if self.peers.values().any(|other| other.player == Some(player)) {
+      return;
+    }
+    self.log.push(format!("{} выходит", self.name_of(player)));
+    if !self.hidden.contains(&player) {
+      self.notice(player, host_text("leaves", json!({})));
+    }
+    self.announce();
   }
 
   /// Что отправить подключению и не пора ли его закрыть.
@@ -153,15 +265,113 @@ impl Server {
     format!("{:016x}{:016x}", parts[0], parts[1])
   }
 
+  // Игроки и чат.
+
+  /// Ник игрока: свой, а без него — «Игрок N».
+  pub fn name_of(&self, player: u32) -> String {
+    self.players.values().find(|known| known.number == player).map(|known| known.name.clone()).filter(|name| !name.is_empty()).unwrap_or_else(|| self.default_name.replace("{number}", &player.to_string()))
+  }
+
+  /// Игрок по номеру или нику без учёта регистра; скрытых находит только администратор.
+  fn find(&self, text: &str, admin: bool) -> Option<u32> {
+    let numbers: BTreeSet<u32> = self.players.values().map(|player| player.number).collect();
+    let found = text.parse::<u32>().ok().filter(|number| numbers.contains(number)).or_else(|| {
+      let lower = text.to_lowercase();
+      numbers.iter().copied().find(|&number| self.name_of(number).to_lowercase() == lower)
+    })?;
+    (admin || !self.hidden.contains(&found)).then_some(found)
+  }
+
+  fn is_online(&self, player: u32) -> bool {
+    self.peers.values().any(|peer| peer.player == Some(player))
+  }
+
+  fn send_to(&mut self, filter: impl Fn(&Peer) -> bool, message: &ServerMessage) {
+    let text = message.text();
+    for peer in self.peers.values_mut().filter(|peer| peer.player.is_some() && !peer.closing) {
+      if filter(peer) {
+        peer.outbox.push(Message::Text(text.clone()));
+      }
+    }
+  }
+
+  /// Строки чата всем вошедшим.
+  fn broadcast(&mut self, lines: Vec<ChatLine>) {
+    self.send_to(|_| true, &ServerMessage::Chat { lines });
+  }
+
+  /// Сообщение сервера о игроке: «<ник> text».
+  fn notice(&mut self, about: u32, text: Json) {
+    let name = self.name_of(about);
+    self.broadcast(vec![ChatLine { player: about, name, text, system: true, whisper: None }]);
+  }
+
+  /// Ответ на команду только тому, кто её позвал.
+  fn reply(&mut self, caller: Caller, text: Json) {
+    match caller {
+      Caller::Console => self.log.push(match &text {
+        Json::String(line) => line.clone(),
+        other => other.to_string(),
+      }),
+      Caller::Peer(peer) => {
+        let line = ServerMessage::Chat { lines: vec![ChatLine { player: 0, name: String::new(), text, system: true, whisper: None }] };
+        if let Some(state) = self.peers.get_mut(&peer) {
+          state.outbox.push(Message::Text(line.text()));
+        }
+      }
+    }
+  }
+
+  /// Кто играет — каждому своими глазами: скрытых видит только сам скрытый.
+  fn announce(&mut self) {
+    let online: BTreeSet<u32> = self.peers.values().filter_map(|peer| peer.player).collect();
+    let mut all: Vec<(u32, String)> = self.players.values().map(|player| (player.number, self.name_of(player.number))).collect();
+    all.sort();
+    let hidden = self.hidden.clone();
+    for peer in self.peers.values_mut().filter(|peer| !peer.closing) {
+      let Some(viewer) = peer.player else { continue };
+      let players = all.iter().filter(|(number, _)| !hidden.contains(number) || *number == viewer).map(|(number, name)| PlayerInfo { player: *number, name: name.clone(), online: online.contains(number) }).collect();
+      peer.outbox.push(Message::Text(ServerMessage::Players { players }.text()));
+    }
+  }
+
+  /// Команды, которые подключению можно: для дописывания у клиента.
+  fn send_commands(&mut self, peer: PeerId) {
+    let Some(state) = self.peers.get_mut(&peer) else { return };
+    let admin = state.admin;
+    let commands = COMMANDS.iter().filter(|command| !command.console && (admin || !command.admin)).map(|command| CommandInfo { name: command.name.into(), args: command.args.iter().map(|arg| arg.to_string()).collect(), secret: command.secret }).collect();
+    state.outbox.push(Message::Text(ServerMessage::Commands { commands, admin }.text()));
+  }
+
+  /// Пропускает ли ведро сообщение подключения; не унимается — отказ и отключение.
+  fn admit(&mut self, peer: PeerId) -> bool {
+    let now = self.now();
+    let Some(state) = self.peers.get_mut(&peer) else { return false };
+    let dt = (now - state.filled).max(0.0);
+    state.filled = now;
+    state.tokens = (state.tokens + dt * MESSAGE_RATE).min(MESSAGE_BURST);
+    state.strikes = (state.strikes + dt * FLOOD_RATE).min(FLOOD_BURST);
+    if state.tokens >= 1.0 {
+      state.tokens -= 1.0;
+      return true;
+    }
+    state.strikes -= 1.0;
+    if state.strikes < 0.0 {
+      self.refuse(peer, "host.flood", false);
+    }
+    false
+  }
+
   /// Сообщение подключения.
   pub fn receive(&mut self, peer: PeerId, message: Message) -> Result<(), String> {
     let Some(state) = self.peers.get(&peer) else { return Ok(()) };
-    if state.closing {
+    if state.closing || !self.admit(peer) {
       return Ok(());
     }
+    let player = self.peers[&peer].player;
     let text = match message {
-      Message::Text(text) => text,
-      Message::Binary(_) => {
+      Message::Text(text) if text.len() <= MESSAGE_MOST => text,
+      _ => {
         self.refuse(peer, "net.garbled", false);
         return Ok(());
       }
@@ -173,10 +383,14 @@ impl Server {
         return Ok(());
       }
     };
-    match (state.player, message) {
+    match (player, message) {
       (None, ClientMessage::Hello { version, mods, name, id, password }) => self.hello(peer, version, mods, name, id, password),
       (Some(player), ClientMessage::Command { name, args }) => {
         self.host.send(player, &name, args);
+        Ok(())
+      }
+      (Some(player), ClientMessage::Chat { text }) => {
+        self.chat(peer, player, &text);
         Ok(())
       }
       _ => {
@@ -217,13 +431,172 @@ impl Server {
         (id, number)
       }
     };
+    let returning = self.is_online(player);
     let tick = self.host.state.borrow().tick;
     let welcome = ServerMessage::Welcome { player, id, game: self.game.clone(), options: self.options.clone(), seed: self.seed, tick };
     let state = self.peers.get_mut(&peer).expect("подключение");
     state.player = Some(player);
     state.view = Some(View::new(player));
     state.outbox.push(Message::Text(welcome.text()));
+    self.send_commands(peer);
+    if !returning {
+      self.log.push(format!("{} заходит", self.name_of(player)));
+      if !self.hidden.contains(&player) {
+        self.notice(player, host_text("joins", json!({})));
+      }
+    }
+    self.announce();
     Ok(())
+  }
+
+  /// Строка чата игрока: команда или сообщение всем.
+  fn chat(&mut self, peer: PeerId, player: u32, text: &str) {
+    if text.starts_with('/') {
+      self.command(text, Caller::Peer(peer));
+      return;
+    }
+    let now = self.now();
+    let Some(state) = self.peers.get_mut(&peer) else { return };
+    if now - state.chatted < CHAT_GAP {
+      return;
+    }
+    state.chatted = now;
+    let text = clean_chat(text);
+    if text.is_empty() {
+      return;
+    }
+    let name = self.name_of(player);
+    self.log.push(format!("<{name}> {text}"));
+    self.broadcast(vec![ChatLine { player, name, text: Json::String(text), system: false, whisper: None }]);
+  }
+
+  /// Команда сервера из чата или консоли.
+  pub fn command(&mut self, text: &str, caller: Caller) {
+    let line = if text.starts_with('/') { text.to_string() } else { format!("/{text}") };
+    let Some((name, args, rest)) = parse_command(&line) else { return };
+    let (admin, player) = match caller {
+      Caller::Console => (true, None),
+      Caller::Peer(peer) => (self.peers.get(&peer).is_some_and(|state| state.admin), self.player_of(peer)),
+    };
+    let found = COMMANDS.iter().find(|command| command.name == name);
+    let Some(command) = found.filter(|command| (admin || !command.admin) && if player.is_some() { !command.console } else { !command.game }) else {
+      self.reply(caller, host_text("noCommand", json!({ "name": name })));
+      return;
+    };
+    let usage = host_text("usage", json!({ "command": format!("/{} {}", command.name, command.args.join(" ")).trim_end() }));
+    match command.name {
+      "help" => {
+        for each in COMMANDS {
+          if (each.admin && !admin) || (if player.is_some() { each.console } else { each.game }) {
+            continue;
+          }
+          let shown = format!("/{} {}", each.name, each.args.join(" "));
+          self.reply(caller, host_text("help", json!({ "command": shown.trim_end(), "name": each.name, "help": { "key": format!("chat.help.{}", each.name) } })));
+        }
+      }
+      "list" => {
+        let present: BTreeSet<u32> = self.peers.values().filter_map(|peer| peer.player).collect();
+        let here: Vec<String> = present.iter().filter(|who| !self.hidden.contains(who)).map(|&who| self.name_of(who)).collect();
+        let reply = if here.is_empty() { host_text("listEmpty", json!({})) } else { host_text("list", json!({ "count": here.len(), "names": here.join(", ") })) };
+        self.reply(caller, reply);
+        let unseen: Vec<String> = present.iter().filter(|who| self.hidden.contains(who)).map(|&who| self.name_of(who)).collect();
+        if admin && !unseen.is_empty() {
+          self.reply(caller, host_text("listHidden", json!({ "names": unseen.join(", ") })));
+        }
+      }
+      "me" => {
+        let (Some(player), text) = (player, clean_chat(&rest(0))) else { return };
+        if !text.is_empty() {
+          let name = format!("* {}", self.name_of(player));
+          self.broadcast(vec![ChatLine { player, name, text: Json::String(text), system: true, whisper: None }]);
+        }
+      }
+      "msg" => {
+        let Some(player) = player else { return };
+        let Some(to) = args.first().and_then(|name| self.find(name, admin)) else {
+          self.reply(caller, host_text("noPlayer", json!({ "name": args.first().cloned().unwrap_or_default() })));
+          return;
+        };
+        let text = clean_chat(&rest(1));
+        if text.is_empty() {
+          self.reply(caller, usage);
+          return;
+        }
+        let line = ServerMessage::Chat { lines: vec![ChatLine { player, name: self.name_of(player), text: Json::String(text), system: false, whisper: Some(self.name_of(to)) }] };
+        self.send_to(|peer| peer.player == Some(to) || peer.player == Some(player), &line);
+        if !self.is_online(to) || (self.hidden.contains(&to) && !admin) {
+          self.reply(caller, host_text("notOnline", json!({ "name": self.name_of(to) })));
+        }
+      }
+      "admin" => {
+        let Caller::Peer(peer) = caller else { return };
+        let now = self.now();
+        if self.admin.is_empty() {
+          self.reply(caller, host_text("noAdminMode", json!({})));
+        } else if admin {
+          self.reply(caller, host_text("alreadyAdmin", json!({})));
+        } else if now < self.peers[&peer].locked {
+          self.reply(caller, host_text("wait", json!({})));
+        } else if !same(&args.join(" "), &self.admin) {
+          self.peers.get_mut(&peer).expect("подключение").locked = now + ADMIN_LOCK;
+          self.log.push(format!("! неверный пароль администратора от {}", self.name_of(player.unwrap_or(0))));
+          self.reply(caller, host_text("wrongPassword", json!({})));
+        } else {
+          self.peers.get_mut(&peer).expect("подключение").admin = true;
+          self.send_commands(peer);
+          self.log.push(format!("! {} — администратор", self.name_of(player.unwrap_or(0))));
+          self.reply(caller, host_text("adminOn", json!({})));
+        }
+      }
+      "logout" => {
+        let Caller::Peer(peer) = caller else { return };
+        self.peers.get_mut(&peer).expect("подключение").admin = false;
+        self.send_commands(peer);
+        self.reply(caller, host_text("adminOff", json!({})));
+      }
+      "hide" => {
+        let Some(who) = player else { return };
+        // Для остальных — как будто вышел или зашёл.
+        if self.hidden.remove(&who) {
+          self.notice(who, host_text("joins", json!({})));
+          self.reply(caller, host_text("shown", json!({})));
+        } else {
+          self.notice(who, host_text("leaves", json!({})));
+          self.hidden.insert(who);
+          self.reply(caller, host_text("hidden", json!({})));
+        }
+        self.announce();
+      }
+      "say" => {
+        let text = clean_chat(&rest(0));
+        if text.is_empty() {
+          self.reply(caller, usage);
+          return;
+        }
+        self.log.push(format!("{} {text}", self.server_name));
+        let name = self.server_name.clone();
+        self.broadcast(vec![ChatLine { player: 0, name, text: Json::String(text), system: true, whisper: None }]);
+      }
+      "kick" => {
+        let Some(who) = self.find(&args.join(" "), true) else {
+          self.reply(caller, host_text("noPlayer", json!({ "name": args.join(" ") })));
+          return;
+        };
+        let peers: Vec<PeerId> = self.peers.iter().filter(|(_, peer)| peer.player == Some(who)).map(|(&id, _)| id).collect();
+        if peers.is_empty() {
+          self.reply(caller, host_text("notOnline", json!({ "name": self.name_of(who) })));
+          return;
+        }
+        for peer in peers {
+          self.refuse(peer, "host.kickedYou", false);
+        }
+        self.notice(who, host_text("kicked", json!({})));
+        self.log.push(format!("! {} отключён", self.name_of(who)));
+      }
+      "save" => self.requests.push(Request::Save),
+      "stop" => self.requests.push(Request::Stop),
+      _ => {}
+    }
   }
 
   /// Тик мира и кадры всем вошедшим: каждый тик по кадру, даже пустому, — по ним клиент ведёт часы.
@@ -234,7 +607,7 @@ impl Server {
     let shared = Shared::after_tick(&mut state, self.rules.clone(), signals);
     let schema = state.world.schema.clone();
     for peer in self.peers.values_mut() {
-      let Some(view) = peer.view.as_mut() else { continue };
+      let Some(view) = peer.view.as_mut().filter(|_| !peer.closing) else { continue };
       let frame = view.frame(&mut state, &shared);
       let mut bytes = vec![FRAME];
       bytes.extend(frame.encode(&schema));

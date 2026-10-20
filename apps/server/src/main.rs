@@ -3,11 +3,12 @@
 //! nginx перед сервером.
 //!
 //! Настройки — settings.json в рабочей папке (SETTINGS меняет путь): нет файла — он пишется со значениями по
-//! умолчанию. Команды консоли: `save`, `stop`, `players`.
+//! умолчанию. Консоль — те же команды, что в чате у администратора (`help`, `say`, `kick`, `save`, `stop` …), и
+//! `players` — все игроки мира.
 
 use kharos_content::{discover, Mod};
 use kharos_net::protocol::{Message, DEFAULT_PORT};
-use kharos_net::server::{PeerId, Server, STEP};
+use kharos_net::server::{Caller, PeerId, Request, Server, STEP};
 use serde_json::{json, Value as Json};
 use std::collections::BTreeMap;
 use std::io::{BufRead, ErrorKind};
@@ -32,6 +33,8 @@ struct Settings {
   port: u16,
   /// Пароль на вход; пустой — заходит кто угодно.
   password: String,
+  /// Пароль режима администратора (/admin в чате); пустой — режима нет.
+  admin: String,
   /// Файл сохранения мира.
   save: PathBuf,
   /// Партия нового мира — вид из games/, её настройки (ложатся в data партии: size, fog …) и зерно.
@@ -44,7 +47,7 @@ struct Settings {
 
 fn defaults() -> Json {
   let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |time| time.as_secs() % 2_147_483_647);
-  json!({ "port": DEFAULT_PORT, "password": "", "save": "save.kharos.json", "game": "skirmish", "options": { "size": 512 }, "seed": seed, "mods": ["mods"] })
+  json!({ "port": DEFAULT_PORT, "password": "", "admin": "", "save": "save.kharos.json", "game": "skirmish", "options": { "size": 512 }, "seed": seed, "mods": ["mods"] })
 }
 
 /// Настройки: нет файла — пишется по умолчанию, чтобы было что править; неизвестные ключи — предупреждение, а не тишина.
@@ -71,6 +74,7 @@ fn settings() -> Result<Settings, String> {
   Ok(Settings {
     port: std::env::var("PORT").ok().and_then(|port| port.parse().ok()).or_else(|| all["port"].as_u64().map(|port| port as u16)).ok_or("port: ожидалось число")?,
     password: text("password")?,
+    admin: text("admin")?,
     save: PathBuf::from(std::env::var("SAVE").or_else(|_| text("save"))?),
     game: text("game")?,
     options: all["options"].clone(),
@@ -227,6 +231,7 @@ fn run() -> Result<(), String> {
   let settings = settings()?;
   let mods = mods(&settings.mods)?;
   let mut server = world(&settings, mods)?;
+  server.admin = settings.admin.clone();
   let (events, inbox): (Sender<Event>, Receiver<Event>) = channel();
   listen(settings.port, events.clone())?;
   console(events);
@@ -251,21 +256,25 @@ fn run() -> Result<(), String> {
         }
       }
       Ok(Event::Console(line)) => match line.trim() {
-        "save" => store(&server, &settings.save),
-        "stop" => {
-          store(&server, &settings.save);
-          return Ok(());
-        }
         "players" => {
           for (id, player) in &server.players {
             println!("{} «{}» — {}", player.number, player.name, &id[..8]);
           }
         }
         "" => {}
-        other => println!("нет команды {other}: save, stop, players"),
+        command => server.command(command, Caller::Console),
       },
       Err(RecvTimeoutError::Timeout) => {}
       Err(RecvTimeoutError::Disconnected) => return Err("потоки сети остановились".into()),
+    }
+    for line in server.log.drain(..) {
+      println!("{line}");
+    }
+    for request in std::mem::take(&mut server.requests) {
+      store(&server, &settings.save);
+      if request == Request::Stop {
+        return Ok(());
+      }
     }
     // Входящее разбирается до каждого тика, а тик — по часам: отстали больше чем на секунду — не догоняем.
     let now = Instant::now();

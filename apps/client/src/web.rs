@@ -162,6 +162,7 @@ fn key_name(event: &KeyboardEvent) -> Option<String> {
     "MetaLeft" | "MetaRight" => "meta",
     "Minus" => "-",
     "Equal" => "=",
+    "Slash" | "NumpadDivide" => "/",
     _ => "",
   };
   if !named.is_empty() {

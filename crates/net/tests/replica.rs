@@ -184,3 +184,56 @@ fn server_lets_players_in_and_remembers_them() {
   let units = server.host.state.borrow().world.query(&[server.host.state.borrow().world.schema.id("Unit").unwrap()]).len();
   assert_eq!(units, 12, "у двух игроков по стартовому набору, после загрузки — без новых");
 }
+
+/// Чат и команды: сообщение — всем, /msg — двоим, /admin с неверным и верным паролем, /kick закрывает подключение.
+#[test]
+fn server_chat_and_commands() {
+  use kharos_net::protocol::{mods_sum, ChatLine, ClientMessage, Message, ServerMessage, VERSION};
+  use kharos_net::Server;
+  let mut server = Server::new(mods(), Some("skirmish"), 7, json!({}), String::new()).unwrap();
+  server.admin = "тайна".into();
+  let enter = |server: &mut Server, name: &str| {
+    let peer = server.connect();
+    server.receive(peer, Message::Text(ClientMessage::Hello { version: VERSION, mods: mods_sum(&mods()), name: name.into(), id: None, password: String::new() }.text())).unwrap();
+    server.take(peer);
+    peer
+  };
+  let say = |server: &mut Server, peer, text: &str| server.receive(peer, Message::Text(ClientMessage::Chat { text: text.into() }.text())).unwrap();
+  let lines = |server: &mut Server, peer| -> Vec<ChatLine> {
+    server.take(peer).0.into_iter().filter_map(|message| match message {
+      Message::Text(text) => match ServerMessage::parse(&text).unwrap() {
+        ServerMessage::Chat { lines } => Some(lines),
+        _ => None,
+      },
+      _ => None,
+    }).flatten().collect()
+  };
+  let (vasya, petya) = (enter(&mut server, "Вася"), enter(&mut server, "Петя"));
+  let joined = lines(&mut server, vasya);
+  assert!(joined.iter().any(|line| line.name == "Петя" && line.system), "о входе Пети сказано: {joined:?}");
+  say(&mut server, vasya, "  привет \u{7} всем ");
+  let got = lines(&mut server, petya);
+  assert_eq!((got[0].name.as_str(), got[0].text.as_str()), ("Вася", Some("привет всем")));
+  let third = enter(&mut server, "Коля");
+  lines(&mut server, vasya);
+  lines(&mut server, petya);
+  say(&mut server, petya, "/msg вася секрет");
+  assert_eq!(lines(&mut server, vasya)[0].whisper.as_deref(), Some("Вася"));
+  assert!(lines(&mut server, third).is_empty(), "чужое личное не приходит");
+  assert_eq!(lines(&mut server, petya)[0].whisper.as_deref(), Some("Вася"), "личное — и автору");
+  say(&mut server, vasya, "/kick Петя");
+  assert_eq!(lines(&mut server, vasya)[0].text["key"], "host.noCommand", "без прав kick нет");
+  say(&mut server, vasya, "/admin не та");
+  assert_eq!(lines(&mut server, vasya)[0].text["key"], "host.wrongPassword");
+  say(&mut server, vasya, "/admin тайна");
+  assert_eq!(lines(&mut server, vasya)[0].text["key"], "host.wait", "после неверного — пауза");
+  server.command("say проверка", kharos_net::server::Caller::Console);
+  assert_eq!(lines(&mut server, petya)[0].text.as_str(), Some("проверка"));
+  assert_eq!(lines(&mut server, vasya)[0].name, "[Сервер]");
+  say(&mut server, vasya, "/list");
+  assert_eq!(lines(&mut server, vasya)[0].text["key"], "host.list");
+  server.command("kick Петя", kharos_net::server::Caller::Console);
+  assert!(server.take(petya).1, "выгнанного закрывают");
+  server.disconnect(petya);
+  assert!(lines(&mut server, vasya).iter().any(|line| line.text["key"] == "host.leaves" || line.text["key"] == "host.kicked"));
+}

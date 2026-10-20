@@ -39,6 +39,8 @@ pub enum ClientMessage {
   },
   /// Приказ игрока: имя обработчика `commands` и аргументы.
   Command { name: String, args: Json },
+  /// Строка чата: сообщение всем или команда серверу, если начинается с «/».
+  Chat { text: String },
 }
 
 /// Что сервер шлёт клиенту текстом.
@@ -54,6 +56,119 @@ pub enum ServerMessage {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     password: bool,
   },
+  /// Новые строки чата. Сервер их не хранит: вошедший позже прошлых не увидит.
+  Chat { lines: Vec<ChatLine> },
+  /// Кто играет на сервере: ники и кто сейчас в сети. Приходит после входа и при каждом изменении.
+  Players { players: Vec<PlayerInfo> },
+  /// Команды чата, которые подключению можно, — для дописывания; admin — оно сейчас администратор.
+  Commands { commands: Vec<CommandInfo>, admin: bool },
+}
+
+/// Строка чата: кто и что. text — что написал игрок, строкой; что пишет сервер — `{ key, params }` ключом словаря, и
+/// каждый читает это на своём языке.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ChatLine {
+  pub player: u32,
+  pub name: String,
+  pub text: Json,
+  /// Сообщение самого сервера: кто зашёл, вышел; пустой name — ответ на команду.
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub system: bool,
+  /// Личное сообщение (/msg): ник того, кому оно. Приходит только ему и автору.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub whisper: Option<String>,
+}
+
+/// Игрок сервера, каким его видят все.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PlayerInfo {
+  pub player: u32,
+  pub name: String,
+  pub online: bool,
+}
+
+/// Команда чата, какой её знает клиент: имя без «/», аргументы (`<player>` дописывается ником) и пароль ли она ждёт
+/// (клиент спрашивает его скрытым полем). Что делает — `chat.help.<имя>` словаря.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CommandInfo {
+  pub name: String,
+  pub args: Vec<String>,
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub secret: bool,
+}
+
+/// Самое длинное сообщение чата; длиннее обрезается.
+pub const CHAT_LENGTH: usize = 200;
+
+/// Сообщение чата, каким его примет хост: без управляющих символов и лишних пробелов, не длиннее CHAT_LENGTH.
+pub fn clean_chat(text: &str) -> String {
+  let words: Vec<&str> = text.split(|c: char| c.is_whitespace() || c.is_control()).filter(|word| !word.is_empty()).collect();
+  words.join(" ").chars().take(CHAT_LENGTH).collect()
+}
+
+/// Текст сервера ключом словаря: каждый игрок прочтёт его на своём языке.
+pub fn host_text(key: &str, params: Json) -> Json {
+  serde_json::json!({ "key": format!("host.{key}"), "params": params })
+}
+
+/// Слова строки: через пробел, а в двойных кавычках — вместе с пробелами, как ник «Игрок 3».
+pub fn split_words(text: &str) -> Vec<String> {
+  let mut words = Vec::new();
+  let mut chars = text.chars().peekable();
+  while let Some(&c) = chars.peek() {
+    if c.is_whitespace() {
+      chars.next();
+      continue;
+    }
+    let mut word = String::new();
+    if c == '"' {
+      chars.next();
+      for c in chars.by_ref() {
+        if c == '"' {
+          break;
+        }
+        word.push(c);
+      }
+    } else {
+      while let Some(&c) = chars.peek() {
+        if c.is_whitespace() {
+          break;
+        }
+        word.push(c);
+        chars.next();
+      }
+    }
+    words.push(word);
+  }
+  words
+}
+
+/// Строка чата командой: имя (строчными), слова после него и текст после skip слов как есть (у команд, чей последний
+/// аргумент — сообщение). Не команда — None.
+pub fn parse_command(text: &str) -> Option<(String, Vec<String>, impl Fn(usize) -> String + '_)> {
+  let body = text.strip_prefix('/')?;
+  let mut words = split_words(body);
+  if words.is_empty() {
+    return None;
+  }
+  let name = words.remove(0).to_lowercase();
+  let rest = move |skip: usize| -> String {
+    // Пропускаем имя и skip слов (слово в кавычках — целиком), остальное — как есть.
+    let mut left = body.trim_start();
+    for _ in 0..=skip {
+      if left.starts_with('"') {
+        left = match left[1..].find('"') {
+          Some(end) => &left[end + 2..],
+          None => "",
+        };
+      } else {
+        left = left.find(char::is_whitespace).map_or("", |end| &left[end..]);
+      }
+      left = left.trim_start();
+    }
+    left.trim().to_string()
+  };
+  Some((name, words, rest))
 }
 
 /// Сумма модов текстом, как её шлёт клиент: имена и содержимое всех файлов по порядку (FNV-1a). Совпала — у клиента
@@ -99,6 +214,17 @@ pub enum Message {
 mod tests {
   use super::*;
   use serde_json::json;
+
+  #[test]
+  fn commands_are_split_by_words_and_quotes() {
+    assert_eq!(split_words(r#"msg "Игрок 3" привет  всем"#), ["msg", "Игрок 3", "привет", "всем"]);
+    let (name, args, rest) = parse_command(r#"/MSG "Игрок 3" привет  всем"#).unwrap();
+    assert_eq!((name.as_str(), args.len()), ("msg", 3));
+    assert_eq!(rest(1), "привет  всем");
+    assert_eq!(rest(0), r#""Игрок 3" привет  всем"#);
+    assert!(parse_command("привет").is_none());
+    assert_eq!(clean_chat(" a \u{1}  b "), "a b");
+  }
 
   #[test]
   fn names_are_cleaned_and_messages_round_trip() {

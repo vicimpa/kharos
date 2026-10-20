@@ -200,6 +200,20 @@ pub struct ClientState {
   pub dressed: HashMap<Entity, Dress>,
   /// Облики видов вне сущностей этого кадра (`c:show`).
   pub shown: Vec<Shown>,
+  /// Партия по сети: чат, игроки и команды сервера; None — своя игра.
+  pub net: Option<NetInfo>,
+}
+
+/// Что сервер говорит помимо мира: чат, кто играет, какие команды можно.
+#[derive(Default)]
+pub struct NetInfo {
+  /// Строки чата и когда они пришли (`c.time`).
+  pub lines: Vec<(Json, f64)>,
+  pub players: Json,
+  pub commands: Json,
+  pub admin: bool,
+  /// Что игрок написал в чат: уйдёт серверу после кадра.
+  pub said: Vec<String>,
 }
 
 /// Издалека слышно тише: при таком масштабе громкость полная, при вдвое меньшем — вдвое тише (hearing.ts).
@@ -603,6 +617,8 @@ impl UserData for Ctx {
     // Шаг тика хоста в секундах: правилам, общим хосту и клиенту.
     fields.add_field_method_get("step", |_, _| Ok(crate::game::STEP));
     fields.add_field_method_get("player", |_, c| Ok(c.state.borrow().player));
+    // Партия по сети: есть чат и игроки сервера.
+    fields.add_field_method_get("online", |_, c| Ok(c.state.borrow().net.is_some()));
     fields.add_field_method_get("tick", |_, c| Ok(c.state.borrow().world.borrow().tick));
     // Секунды игры, сглаженные между тиками: по ним идут сутки и погода — у всех игроков одинаково.
     fields.add_field_method_get("clock", |_, c| {
@@ -654,6 +670,34 @@ impl UserData for Ctx {
         list.push(entry)?;
       }
       Ok(list)
+    });
+    // Чат партии по сети (chat.ts): c:chat() — строки { player, name, text, system, whisper, own, at }, где text —
+    // строка или { key, params } словаря; c:players() — { player, name, online }; c:commands() — { commands, admin };
+    // c:say(текст) — строку серверу (с «/» — команда). Своя игра — пусто, и c.online — ложь.
+    methods.add_method("chat", |lua, c, ()| {
+      let state = c.state.borrow();
+      let player = state.player;
+      let list: Vec<Json> = state.net.as_ref().map(|net| net.lines.iter().map(|(line, at)| {
+        let mut line = line.clone();
+        let own = line.get("player").and_then(Json::as_u64) == Some(player as u64) && line.get("system").and_then(Json::as_bool) != Some(true);
+        line["own"] = Json::Bool(own);
+        line["at"] = Json::from(*at);
+        line
+      }).collect()).unwrap_or_default();
+      kharos_content::vm::to_lua(lua, &Json::Array(list))
+    });
+    methods.add_method("players", |lua, c, ()| kharos_content::vm::to_lua(lua, &c.state.borrow().net.as_ref().map(|net| net.players.clone()).filter(|players| !players.is_null()).unwrap_or(Json::Array(Vec::new()))));
+    methods.add_method("commands", |lua, c, ()| {
+      let state = c.state.borrow();
+      let (commands, admin) = state.net.as_ref().map(|net| (net.commands.clone(), net.admin)).unwrap_or((Json::Null, false));
+      let commands = if commands.is_null() { Json::Array(Vec::new()) } else { commands };
+      kharos_content::vm::to_lua(lua, &serde_json::json!({ "commands": commands, "admin": admin }))
+    });
+    methods.add_method("say", |_, c, text: String| {
+      if let Some(net) = c.state.borrow_mut().net.as_mut() {
+        net.said.push(text);
+      }
+      Ok(())
     });
     methods.add_method("send", |lua, c, (name, args): (String, Option<Value>)| {
       let args: Json = lua.from_value(args.unwrap_or(Value::Nil))?;

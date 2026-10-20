@@ -522,6 +522,8 @@ local function bottomBar(c)
 	local selected = #selection > 0
 	local side = math.max(INNER, math.min(settings.prefs(c).minimap, ui.width - BAR_SPACING - GRID_WIDTH - INFO_MIN))
 	local infoWidth = ui.width - BAR_SPACING - side - GRID_WIDTH
+	-- Мини-карта выше панели: что стоит над панелью слева (чат), встаёт над ней.
+	c.shared.inset.minimap = side + 8
 	ui:box({ id = "bar", anchor = { left = 0, right = 0, bottom = 0 }, height = INNER + 16, skin = "panel", padding = { 4, 8 }, direction = "row", align = "end", gap = 8 }, function()
 		ui:box({ height = INNER, direction = "column", justify = "end" }, function()
 			minimapView(c, side)

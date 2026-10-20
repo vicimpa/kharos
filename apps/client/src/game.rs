@@ -86,6 +86,9 @@ struct Remote {
   gone: Option<String>,
 }
 
+/// Сколько строк чата клиент помнит.
+const CHAT_KEPT: usize = 200;
+
 /// Сколько кадров копится в очереди, прежде чем клиент догоняет сервер: запас на неровный приход — тик-два.
 const QUEUE_MOST: usize = 3;
 
@@ -216,7 +219,10 @@ impl Game {
     }
     let atlas = atlas::pack(&mut looks);
 
-    let state = Rc::new(RefCell::new(ClientState { world: host.state.clone(), prev: HashMap::new(), alpha: 0.0, view: View { x: 0.0, y: 0.0, zoom: 32.0, screen: [1280.0, 800.0], scale: 1.0 }, input: Input::default(), time: 0.0, dt: 0.0, player, outbox: Vec::new(), sounds: Vec::new(), particles: Vec::new(), decals: Default::default(), draw: Default::default(), glow: Default::default(), lights: Vec::new(), gui: Gui::new(fonts), looks: looks.iter().map(|look| (look.proto, look_info(look))).collect(), audio: None, land: None, preview: crate::script::Preview::new(), dressed: HashMap::new(), shown: Vec::new(), protos: client.list.iter().map(|proto| client.by_id(proto.id).expect("вид")).collect() }));
+    let state = Rc::new(RefCell::new(ClientState { world: host.state.clone(), prev: HashMap::new(), alpha: 0.0, view: View { x: 0.0, y: 0.0, zoom: 32.0, screen: [1280.0, 800.0], scale: 1.0 }, input: Input::default(), time: 0.0, dt: 0.0, player, outbox: Vec::new(), sounds: Vec::new(), particles: Vec::new(), decals: Default::default(), draw: Default::default(), glow: Default::default(), lights: Vec::new(), gui: Gui::new(fonts), looks: looks.iter().map(|look| (look.proto, look_info(look))).collect(), audio: None, land: None, preview: crate::script::Preview::new(), dressed: HashMap::new(), shown: Vec::new(), net: None, protos: client.list.iter().map(|proto| client.by_id(proto.id).expect("вид")).collect() }));
+    if remote.is_some() {
+      state.borrow_mut().net = Some(Default::default());
+    }
     let table = || Ok::<_, String>(lua.create_table());
     let ctx = Ctx { state: state.clone(), input: table()?, camera: table()?, shared: table()?, atmosphere: table()?, music: table()?, protos: client.protos.clone(), game: game_table.clone(), app, strings: Rc::new(crate::lang::Strings::load(&client.protos)) };
     ctx.camera.set("x", 0.0).map_err(error("камера"))?;
@@ -459,6 +465,12 @@ impl Game {
       let mut state = self.state.borrow_mut();
       (state.player, std::mem::take(&mut state.outbox))
     };
+    let said = self.state.borrow_mut().net.as_mut().map(|net| std::mem::take(&mut net.said)).unwrap_or_default();
+    if let Some(remote) = &mut self.remote {
+      for text in said {
+        remote.link.send(kharos_net::Message::Text(kharos_net::ClientMessage::Chat { text }.text()));
+      }
+    }
     for (name, args) in outbox {
       if let Some(remote) = &mut self.remote {
         remote.link.send(kharos_net::Message::Text(kharos_net::ClientMessage::Command { name, args }.text()));
@@ -488,9 +500,26 @@ impl Game {
         kharos_net::Message::Binary(bytes) if bytes.first() == Some(&kharos_net::protocol::FRAME) => remote.queue.push_back(kharos_net::Frame::decode(&bytes[1..], &remote.schema)?),
         kharos_net::Message::Binary(_) => {}
         kharos_net::Message::Text(text) => {
-          if let kharos_net::ServerMessage::Refused { reason, .. } = kharos_net::ServerMessage::parse(&text)? {
-            remote.gone = Some(reason);
-            return Ok(());
+          let mut state = self.state.borrow_mut();
+          let time = state.time;
+          let Some(net) = state.net.as_mut() else { continue };
+          match kharos_net::ServerMessage::parse(&text)? {
+            kharos_net::ServerMessage::Refused { reason, .. } => {
+              remote.gone = Some(reason);
+              return Ok(());
+            }
+            kharos_net::ServerMessage::Chat { lines } => {
+              net.lines.extend(lines.into_iter().map(|line| (serde_json::to_value(line).expect("JSON"), time)));
+              // Длинная история не нужна: чат показывает последние строки.
+              let excess = net.lines.len().saturating_sub(CHAT_KEPT);
+              net.lines.drain(..excess);
+            }
+            kharos_net::ServerMessage::Players { players } => net.players = serde_json::to_value(players).expect("JSON"),
+            kharos_net::ServerMessage::Commands { commands, admin } => {
+              net.commands = serde_json::to_value(commands).expect("JSON");
+              net.admin = admin;
+            }
+            kharos_net::ServerMessage::Welcome { .. } => {}
           }
         }
       }

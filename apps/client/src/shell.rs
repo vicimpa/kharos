@@ -358,6 +358,7 @@ fn key_name(physical: &PhysicalKey, logical: &Key) -> Option<String> {
       KeyCode::SuperLeft | KeyCode::SuperRight => "meta",
       KeyCode::Minus => "-",
       KeyCode::Equal => "=",
+      KeyCode::Slash | KeyCode::NumpadDivide => "/",
       _ => "",
     };
     if !named.is_empty() {

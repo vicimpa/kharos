@@ -39,6 +39,7 @@ pub fn welcome(message: &Message) -> Result<Option<Welcome>, String> {
   match ServerMessage::parse(text)? {
     ServerMessage::Welcome { player, id, game, options, seed, .. } => Ok(Some(Welcome { player, id, game, options, seed })),
     ServerMessage::Refused { reason, .. } => Err(reason),
+    _ => Ok(None),
   }
 }
 
@@ -84,11 +85,12 @@ impl Loopback {
   /// Входит, как вошёл бы клиент по сети: приветствие — сразу.
   pub fn enter(&mut self, mods: &[Mod]) -> Result<Welcome, String> {
     self.send(hello(mods, "", None, ""));
-    let messages = self.receive();
     let mut found = None;
-    for message in &messages {
-      if let Some(welcome) = welcome(message)? {
-        found = Some(welcome);
+    for message in self.receive() {
+      match found {
+        // Пришедшее вместе с приветствием (команды, игроки) — партии.
+        Some(_) => self.inbox.push(message),
+        None => found = welcome(&message)?,
       }
     }
     found.ok_or_else(|| "сервер не ответил на вход".into())
