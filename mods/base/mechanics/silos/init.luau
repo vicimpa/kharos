@@ -453,4 +453,15 @@ mechanic.signals = {
 	end,
 }
 
+-- По сети: у чужой шахты виден только пуск — створки открываются у всех на глазах; готова ли боеголовка и куда
+-- она полетит, знает хозяин. Перехватчик — хозяину. Метка — хозяину, союзникам и тем, кто в списке, сквозь туман.
+-- Ракета и перехватчик — чьи, по полю player.
+mechanic.net = {
+	Silo = { fields = { progress = "owner", ticks = "owner", cost = "owner", ready = "owner", toX = "owner", toY = "owner" } },
+	Interceptor = "owner",
+	Mark = { audience = "viewers", owner = "player" },
+	Missile = { owner = "player" },
+	Chaser = { owner = "player" },
+}
+
 return mechanic

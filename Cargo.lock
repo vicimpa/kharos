@@ -1125,6 +1125,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "kharos-net"
+version = "0.1.0"
+dependencies = [
+ "kharos-content",
+ "kharos-engine",
+ "kharos-world",
+ "serde_json",
+ "ulua-rt",
+]
+
+[[package]]
 name = "kharos-world"
 version = "0.1.0"
 dependencies = [

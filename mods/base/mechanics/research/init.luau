@@ -489,4 +489,7 @@ mechanic.signals = {
 	end,
 }
 
+-- По сети: исследование лаборатории — только хозяину.
+mechanic.net = { Research = "owner" }
+
 return mechanic

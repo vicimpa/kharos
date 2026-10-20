@@ -1257,4 +1257,7 @@ mechanic.signals = {
 	end,
 }
 
+-- По сети: работа строителя и ремонт — только хозяину.
+mechanic.net = { Builds = "owner", Repair = "owner" }
+
 return mechanic

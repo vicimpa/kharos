@@ -281,4 +281,7 @@ mechanic.signals = {
 	end,
 }
 
+-- По сети: куда едет разворачиваться MCV — тайна; где он уже разворачивается, видно всем (Converting).
+mechanic.net = { Deploys = "owner" }
+
 return mechanic

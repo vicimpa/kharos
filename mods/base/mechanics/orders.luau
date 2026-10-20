@@ -282,4 +282,7 @@ orders.systems = {
 -- Обработчик приказа игрока по имени (редактор отдаёт приказы сразу, mechanics/editor).
 orders.handler = handlerOf
 
+-- По сети: очередь приказов — только хозяину.
+orders.net = { Orders = "owner" }
+
 return orders

@@ -43,11 +43,13 @@ pub struct Vision {
   pub changed: BTreeMap<u32, u64>,
   /// Ячейки CELL, где игрок видит хоть один тайл.
   pub visible: BTreeMap<u32, BTreeSet<(i32, i32)>>,
+  /// Чьи глаза считать; None — всех. Реплика клиента считает только своего игрока: чужие глаза в ней тоже есть.
+  pub only: Option<u32>,
 }
 
 impl Vision {
   pub fn new(bounds: Bounds, fog: bool) -> Self {
-    Self { bounds, fog, cells: BTreeMap::new(), changed: BTreeMap::new(), visible: BTreeMap::new() }
+    Self { bounds, fog, cells: BTreeMap::new(), changed: BTreeMap::new(), visible: BTreeMap::new(), only: None }
   }
 
   fn index(&self, x: i32, y: i32) -> Option<usize> {
@@ -64,7 +66,7 @@ impl Vision {
     for (row, &entity) in store.entities.iter().enumerate() {
       let radius = store.nums[0][row];
       let (Some(player), Some(x), Some(y)) = (world.num(entity, owner, "player"), world.num(entity, position, "x"), world.num(entity, position, "y")) else { continue };
-      if player <= 0.0 || radius <= 0.0 {
+      if player <= 0.0 || radius <= 0.0 || self.only.is_some_and(|only| only != player as u32) {
         continue;
       }
       let player = player as u32;

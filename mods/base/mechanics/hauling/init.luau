@@ -484,4 +484,13 @@ mechanic.systems = {
 	},
 }
 
+-- По сети (crates/net, rules.rs): склад, работа грузовиков и заявки — только хозяину; склад ящика с грузом виден
+-- всем — это не тайна хозяина.
+mechanic.net = {
+	Inventory = { to = "owner", public = { "Drop" } },
+	Hauler = "owner",
+	Unreachable = "owner",
+	Wanted = "owner",
+}
+
 return mechanic

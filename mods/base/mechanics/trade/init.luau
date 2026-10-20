@@ -156,4 +156,7 @@ mechanic.signals = {
 	end,
 }
 
+-- По сети: заказ космопорта — только хозяину.
+mechanic.net = { Trade = "owner" }
+
 return mechanic

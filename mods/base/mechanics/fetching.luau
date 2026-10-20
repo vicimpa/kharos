@@ -181,4 +181,7 @@ mechanic.systems = {
 	},
 }
 
+-- По сети: что везёт копатель — только хозяину.
+mechanic.net = { Fetch = "owner" }
+
 return mechanic

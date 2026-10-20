@@ -82,6 +82,9 @@ pub struct State {
   pub layers: kharos_engine::layers::Layers,
   /// Что игроки помнят о чужом в тумане (memory.rs).
   pub memory: crate::memory::Memory,
+  /// Реплика: мир клиента по сети — только то, что прислал сервер (crates/net). Систем у неё нет, обзор — по своим
+  /// глазам (`Vision::only`), память — присланная.
+  pub replica: bool,
 }
 
 impl State {
@@ -167,7 +170,7 @@ impl Host {
     }
     content.apply_options(game, options)?;
     let schema = Rc::new(schema_of(&content)?);
-    let state = Rc::new(RefCell::new(State { world: World::new(schema.clone()), ops: Vec::new(), events: Vec::new(), signals: Vec::new(), tick: 0, dt: 0.05, rng: seed.max(1), grid: None, vision: None, land: None, motion: Default::default(), rules: Default::default(), weapons: Default::default(), networks: Default::default(), layers: crate::tiles::of(&content)?, memory: Default::default() }));
+    let state = Rc::new(RefCell::new(State { world: World::new(schema.clone()), ops: Vec::new(), events: Vec::new(), signals: Vec::new(), tick: 0, dt: 0.05, rng: seed.max(1), grid: None, vision: None, land: None, motion: Default::default(), rules: Default::default(), weapons: Default::default(), networks: Default::default(), layers: crate::tiles::of(&content)?, memory: Default::default(), replica: false }));
     {
       let mut state = state.borrow_mut();
       state.memory = crate::memory::Memory::new(&state.layers);

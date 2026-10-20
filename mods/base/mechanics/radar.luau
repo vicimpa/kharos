@@ -139,4 +139,7 @@ mechanic.signals = {
 	end,
 }
 
+-- По сети: куда смотрит радар — только хозяину.
+mechanic.net = { Scan = "owner" }
+
 return mechanic

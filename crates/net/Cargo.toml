@@ -1,0 +1,15 @@
+# Сеть Kharos (docs/net.md): что из мира хоста видит подключение, кадры изменений, кодек и реплика мира у клиента.
+# Про сокеты не знает: сервер и клиент дают и забирают байты.
+[package]
+name = "kharos-net"
+version = "0.1.0"
+edition = "2021"
+license = "MPL-2.0"
+description = "Сеть Kharos: кадры мира по обзору игрока, кодек и реплика"
+
+[dependencies]
+kharos-content = { path = "../content" }
+kharos-engine = { path = "../engine" }
+kharos-world = { path = "../world" }
+mlua = { package = "ulua-rt", version = "0.1.7", features = ["serde"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }

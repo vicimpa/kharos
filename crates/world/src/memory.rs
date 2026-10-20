@@ -80,6 +80,8 @@ pub struct Recall {
   stale: BTreeMap<u32, BTreeMap<Tile, BTreeSet<Tile>>>,
   /// Тайлы, изменившиеся с прошлой сверки.
   changed: BTreeSet<Tile>,
+  /// Растёт, когда меняется знание любого игрока: сети — сверить, что знает подключение.
+  pub edits: u64,
 }
 
 fn cell_of((x, y): Tile) -> Tile {
@@ -196,6 +198,7 @@ impl Recall {
       } else {
         known.insert((y, x), now);
       }
+      self.edits += 1;
       settle(stale, (x, y));
     }
   }
@@ -343,7 +346,7 @@ pub struct Memory {
 impl Memory {
   /// Память под запоминаемые слои партии.
   pub fn new(layers: &Layers) -> Self {
-    let recalls = layers.specs().enumerate().filter(|(_, spec)| spec.remember && matches!(spec.shape, Shape::Grid { .. })).map(|(layer, spec)| Recall { layer, owner: spec.owner, known: BTreeMap::new(), stale: BTreeMap::new(), changed: BTreeSet::new() }).collect();
+    let recalls = layers.specs().enumerate().filter(|(_, spec)| spec.remember && matches!(spec.shape, Shape::Grid { .. })).map(|(layer, spec)| Recall { layer, owner: spec.owner, known: BTreeMap::new(), stale: BTreeMap::new(), changed: BTreeSet::new(), edits: 0 }).collect();
     Self { layers: recalls, ..Default::default() }
   }
 
@@ -376,6 +379,7 @@ impl Memory {
     for recall in &mut self.layers {
       recall.known.remove(&player);
       recall.stale.remove(&player);
+      recall.edits += 1;
     }
     self.land.known.remove(&player);
     self.land.stale.remove(&player);
@@ -518,6 +522,7 @@ impl Memory {
           known.insert((y as i32, x as i32), tile[2..].iter().map(|value| value.as_f64().unwrap_or(0.0)).collect());
         }
       }
+      recall.edits += 1;
     }
   }
 }
@@ -556,6 +561,10 @@ impl crate::host::State {
   /// тайл под ней.
   pub fn shows(&self, player: u32, entity: Entity) -> bool {
     let world = &self.world;
+    // В реплике (клиент по сети) только то, что игроку прислали: оно всё перед ним.
+    if self.replica {
+      return world.alive(entity);
+    }
     let Some(vision) = self.vision.as_ref().filter(|vision| vision.fog) else { return true };
     if world.schema.id("Owner").and_then(|owner| world.num(entity, owner, "player")).is_some_and(|owner| owner as u32 == player) {
       return true;

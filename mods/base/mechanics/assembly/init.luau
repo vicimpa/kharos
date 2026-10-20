@@ -100,4 +100,7 @@ mechanic.systems = {
 	},
 }
 
+-- По сети: сборка цеха — только хозяину.
+mechanic.net = { Assembly = "owner" }
+
 return mechanic

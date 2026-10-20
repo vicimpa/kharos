@@ -68,4 +68,7 @@ mechanic.systems = {
 	},
 }
 
+-- По сети: стержень реактора — только хозяину.
+mechanic.net = { Reactor = "owner" }
+
 return mechanic

@@ -277,4 +277,7 @@ production.signals = {
 	end,
 }
 
+-- По сети: очередь завода — только хозяину.
+production.net = { Producer = "owner" }
+
 return production

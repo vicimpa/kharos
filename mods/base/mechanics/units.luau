@@ -9,4 +9,11 @@ return {
 		-- Здание: размер в тайлах, место — центр; level — уровень, с единицы (lib/levels).
 		Building = { width = 1, height = 1, level = 1 },
 	},
+	-- По сети (crates/net, rules.rs) о компонентах движка: стойка, патруль и магазин — только хозяину; в кого целится
+	-- стрелок, тоже: чужой узнал бы это раньше выстрела.
+	net = {
+		Tactics = "owner",
+		Magazine = "owner",
+		Armed = { fields = { target = "owner" } },
+	},
 }

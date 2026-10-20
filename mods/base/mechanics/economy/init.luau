@@ -397,4 +397,7 @@ mechanic.signals = {
 	end,
 }
 
+-- По сети: заряд накопителя — только хозяину.
+mechanic.net = { Accumulator = "owner" }
+
 return mechanic
