@@ -20,6 +20,56 @@ struct Sent {
   anys: Vec<Json>,
 }
 
+/// Сущность глазами того, кем она ему приходится: компоненты и их хеш. Собирается раз за тик на каждое отношение и
+/// общая для всех подключений; подключению хватает сравнить хеш с тем, что ушло.
+struct Seen {
+  hash: u64,
+  parts: Vec<Sent>,
+}
+
+/// FNV-1a: хеш того, что уходит, — чтобы не сравнивать поле за полем то, что не менялось.
+struct Fnv(u64);
+
+impl Fnv {
+  fn bytes(&mut self, bytes: &[u8]) {
+    for &byte in bytes {
+      self.0 = (self.0 ^ byte as u64).wrapping_mul(0x0100_0000_01b3);
+    }
+  }
+
+  fn json(&mut self, value: &Json) {
+    match value {
+      Json::Null => self.bytes(&[0]),
+      Json::Bool(flag) => self.bytes(&[1, *flag as u8]),
+      Json::Number(number) => {
+        self.bytes(&[2]);
+        self.bytes(&number.as_f64().unwrap_or(0.0).to_bits().to_le_bytes());
+      }
+      Json::String(text) => {
+        self.bytes(&[3]);
+        self.bytes(text.as_bytes());
+        self.bytes(&[0xff]);
+      }
+      Json::Array(list) => {
+        self.bytes(&[4]);
+        self.bytes(&(list.len() as u64).to_le_bytes());
+        for item in list {
+          self.json(item);
+        }
+      }
+      Json::Object(map) => {
+        self.bytes(&[5]);
+        self.bytes(&(map.len() as u64).to_le_bytes());
+        for (key, item) in map {
+          self.bytes(key.as_bytes());
+          self.bytes(&[0xff]);
+          self.json(item);
+        }
+      }
+    }
+  }
+}
+
 /// Общее для всех подключений за тик: правила, союзы, чанки слоёв, сигналы, сущности.
 pub struct Shared {
   pub rules: Rc<Rules>,
@@ -29,6 +79,8 @@ pub struct Shared {
   entities: Vec<Entity>,
   /// Значения по умолчанию для скрытых полей и новых компонентов: по компоненту — числа столбцов и таблицы.
   defaults: Vec<(Vec<f64>, Vec<Json>)>,
+  /// Собранные за этот тик сущности по отношению к смотрящему.
+  seen: std::cell::RefCell<HashMap<(Entity, Relation), Rc<Seen>>>,
 }
 
 impl Shared {
@@ -54,7 +106,28 @@ impl Shared {
         (nums, anys)
       })
       .collect();
-    Self { friends: rules.friends(world), rules, layers, signals, entities: world.entities(), defaults }
+    Self { friends: rules.friends(world), rules, layers, signals, entities: world.entities(), defaults, seen: Default::default() }
+  }
+
+  /// Сущность глазами того, кем она ему приходится relation, — раз за тик.
+  fn seen_of(&self, world: &World, entity: Entity, relation: Relation) -> Rc<Seen> {
+    if let Some(seen) = self.seen.borrow().get(&(entity, relation)) {
+      return seen.clone();
+    }
+    let parts = View::parts(world, self, entity, relation);
+    let mut hash = Fnv(0xcbf2_9ce4_8422_2325);
+    for part in &parts {
+      hash.bytes(&(part.component as u64).to_le_bytes());
+      for number in &part.nums {
+        hash.bytes(&number.to_bits().to_le_bytes());
+      }
+      for value in &part.anys {
+        hash.json(value);
+      }
+    }
+    let seen = Rc::new(Seen { hash: hash.0, parts });
+    self.seen.borrow_mut().insert((entity, relation), seen.clone());
+    seen
   }
 }
 
@@ -62,7 +135,7 @@ impl Shared {
 pub struct View {
   pub player: u32,
   started: bool,
-  known: HashMap<Entity, Vec<Sent>>,
+  known: HashMap<Entity, Rc<Seen>>,
   strings: HashSet<u32>,
   ghosts: BTreeMap<Entity, Rc<Remembered>>,
   /// Запоминаемые слои: номер слоя, какую правку памяти видели, что ушло ((y, x) → каналы).
@@ -176,11 +249,17 @@ impl View {
     for &entity in &shared.entities {
       let Some(relation) = self.relation(state, shared, entity) else { continue };
       seen.insert(entity);
-      let parts = Self::parts(world, shared, entity, relation);
+      let current = shared.seen_of(world, entity, relation);
       let was = self.known.get(&entity);
+      // Не менялась — нечего и сравнивать.
+      if was.is_some_and(|was| was.hash == current.hash) {
+        self.known.insert(entity, current);
+        continue;
+      }
+      let parts = &current.parts;
       let mut change = Change { entity, ..Default::default() };
-      for part in &parts {
-        let old = was.and_then(|was| was.iter().find(|old| old.component == part.component));
+      for part in parts {
+        let old = was.and_then(|was| was.parts.iter().find(|old| old.component == part.component));
         let fields = &world.schema.components[part.component].fields;
         let (base_nums, base_anys) = match old {
           Some(old) => (&old.nums, &old.anys),
@@ -208,12 +287,12 @@ impl View {
         }
       }
       if let Some(was) = was {
-        change.unset = was.iter().filter(|old| !parts.iter().any(|part| part.component == old.component)).map(|old| old.component).collect();
+        change.unset = was.parts.iter().filter(|old| !parts.iter().any(|part| part.component == old.component)).map(|old| old.component).collect();
       }
       if !change.parts.is_empty() || !change.unset.is_empty() || was.is_none() {
         frame.changes.push(change);
       }
-      self.known.insert(entity, parts);
+      self.known.insert(entity, current);
     }
     let mut removed: Vec<Entity> = self.known.keys().copied().filter(|entity| !seen.contains(entity)).collect();
     removed.sort_unstable();
