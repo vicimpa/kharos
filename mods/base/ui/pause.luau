@@ -15,19 +15,25 @@ local settingsOpen = false
 -- «Сдаться» нажато один раз: второе нажатие подтверждает.
 local surrendering = false
 
--- Окно поражения под верхней полосой. Начать заново — новый мир этой же партии с теми же настройками.
+-- Окно поражения под верхней полосой. Начать заново — новый мир этой же партии с теми же настройками, а на сервере —
+-- новое место в этом мире.
 local function defeated(c)
 	local ui = c.ui
 	ui:box({ anchor = { centerX = 0, top = 56 }, skin = "panel", padding = { 20, 28 }, direction = "column", align = "center", gap = 10 }, function()
 		ui:text(c:t("game.defeat"), { font = "title", color = COLORS.bad })
-		ui:text(c:t("game.defeatLocal"), { wrap = 360 })
+		ui:text(c:t(if c.online then "game.defeatServer" else "game.defeatLocal"), { wrap = 360 })
 		ui:box({ direction = "row", gap = 8 }, function()
 			if c.app.menu and form.button(ui, "play:defeat:menu", c:t("common.toMenu")) then
 				c.app:to_menu()
 			end
 			if form.button(ui, "play:defeat:again", c:t("game.startOver")) then
 				c.shared.paused = false
-				c.app:reset(c.app.options)
+				-- На сервере мир один на всех: начинают заново в новом месте этого мира.
+				if c.online then
+					c:send("respawn", {})
+				else
+					c.app:reset(c.app.options)
+				end
 			end
 		end)
 	end)

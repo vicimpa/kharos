@@ -40,6 +40,8 @@ alerts.TEXTS = {
 	nukeImminent = "hud.alerts.nukeImminent",
 	nukeIntercepted = "hud.alerts.nukeIntercepted",
 	nukeDowned = "hud.alerts.nukeDowned",
+	allyPing = "hud.alerts.allyPing",
+	ownPing = "hud.alerts.ownPing",
 }
 
 export type Alert = { kind: string, text: string, x: number, y: number, at: number }
@@ -109,6 +111,15 @@ function alerts.update(c): { Alert }
 	local nextMarks, nextImminent = {}, {}
 	for _, e in c:each({ "Mark", "Position" }) do
 		local mark = c:get(e, "Mark")
+		-- Сигнал союзника или свой: строка, звук и кольцо — раз, когда метка появилась.
+		if mark.kind == "ping" then
+			if not marks[e] then
+				local at = c:get(e, "Position")
+				raise(c, "ping", if mark.player == c.player then "ownPing" else "allyPing", at.x, at.y)
+			end
+			nextMarks[e] = true
+			continue
+		end
 		if mark.kind ~= "strike" or friendly(c, mark.player) or not table.find(mark.viewers or {}, c.player) then
 			continue
 		end

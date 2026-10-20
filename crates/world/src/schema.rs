@@ -94,7 +94,9 @@ pub fn builtin() -> Vec<(&'static str, Vec<(&'static str, Value)>)> {
     ("Path", vec![("points", json!([])), ("goalX", json!(0)), ("goalY", json!(0)), ("wait", json!(0)), ("tries", json!(0)), ("near", json!(0)), ("roads", json!(false)), ("direct", json!(false)), ("stuck", json!(false)), ("best", json!(-1)), ("slot", json!(false))]),
     // Основание здания: тайлы вокруг центра (Position), занятые для хода; passable — проезд открыт (ворота).
     ("Footprint", vec![("width", json!(1)), ("height", json!(1)), ("passable", json!(false)), ("wall", json!(false))]),
-    ("Player", vec![("id", json!(0)), ("allies", json!([]))]),
+    // Игрок: номер, союзники (им уступают дорогу, их не бьют, разведка общая) и до какого тика он под защитой новичка —
+    // его нельзя атаковать, и сам он не стреляет (combat).
+    ("Player", vec![("id", json!(0)), ("allies", json!([])), ("safe", json!(0))]),
     // Запоминаемое (memory.rs): чужое, ушедшее в туман, игрок помнит таким, каким видел, пока не увидит его место —
     // width × height тайлов вокруг Position.
     ("Memorable", vec![("width", json!(1)), ("height", json!(1))]),

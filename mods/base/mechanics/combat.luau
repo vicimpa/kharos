@@ -7,6 +7,8 @@
 local conversion = require("lib/conversion")
 local queue = require("lib/queue")
 
+local wallet = require("lib/wallet")
+
 local combat = {}
 
 combat.components = {
@@ -42,6 +44,11 @@ combat.systems = {
 local function attack(ctx, player: number, units: any, target: any)
 	if type(units) ~= "table" or type(target) ~= "number" or not ctx:alive(target) then
 		return
+	end
+	-- Приказ атаки снимает защиту новичка досрочно.
+	local record = wallet.of(ctx, player)
+	if record and ctx:get(record, "Player").safe > ctx.tick then
+		ctx:set(record, "Player", { safe = 0 })
 	end
 	if ctx:attack(player, units, target) then
 		local own = {}

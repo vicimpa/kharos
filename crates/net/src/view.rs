@@ -143,6 +143,8 @@ pub struct View {
   /// Земля: с какой правкой знания сверяли и что ушло.
   land_seen: Option<(u64, u64)>,
   land: BTreeMap<(i32, i32), [u8; 4]>,
+  /// С какого сброса разведанного прислано (Vision::resets).
+  resets: u64,
 }
 
 fn fogged(state: &State) -> bool {
@@ -156,7 +158,7 @@ fn sees(state: &State, viewer: u32, x: f64, y: f64) -> bool {
 
 impl View {
   pub fn new(player: u32) -> Self {
-    Self { player, started: false, known: HashMap::new(), strings: HashSet::new(), ghosts: BTreeMap::new(), recalls: BTreeMap::new(), land_seen: None, land: BTreeMap::new() }
+    Self { player, started: false, known: HashMap::new(), strings: HashSet::new(), ghosts: BTreeMap::new(), recalls: BTreeMap::new(), land_seen: None, land: BTreeMap::new(), resets: 0 }
   }
 
   /// Уходит ли сущность игроку и кем она ему приходится: со списком зрителей — по нему, своё и игроки — всегда,
@@ -236,9 +238,15 @@ impl View {
     self.layers(state, shared, first, &mut frame);
     self.land(state, &mut frame);
     self.signals(state, shared, &mut frame);
-    if first && fogged(state) {
+    // Разведанное — в первом кадре и когда его заменили целиком (начал заново, открыли карту).
+    if fogged(state) {
       let vision = state.vision.as_ref().expect("туман — у партии с картой");
-      frame.explored = vision.cells.get(&self.player).map(|cells| runs_of(&cells.bytes()));
+      let resets = vision.resets.get(&self.player).copied().unwrap_or(0);
+      if first || self.resets != resets {
+        self.resets = resets;
+        let size = (vision.bounds.width() * vision.bounds.height()).max(0) as usize;
+        frame.explored = Some(vision.cells.get(&self.player).map_or_else(|| vec![size as u32], |cells| runs_of(&cells.bytes())));
+      }
     }
     frame
   }

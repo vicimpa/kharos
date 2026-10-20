@@ -237,3 +237,48 @@ fn server_chat_and_commands() {
   server.disconnect(petya);
   assert!(lines(&mut server, vasya).iter().any(|line| line.text["key"] == "host.leaves" || line.text["key"] == "host.kicked"));
 }
+
+/// Сервер с правилами сессии: игроки появляются далеко друг от друга и под защитой новичка, союз по /ally с обеих
+/// сторон, перевод /give, а проигравший по respawn начинает заново в новом месте.
+#[test]
+fn server_alliances_spawn_and_respawn() {
+  use kharos_net::protocol::{mods_sum, ClientMessage, Message, VERSION};
+  use kharos_net::Server;
+  let mut server = Server::new(mods(), Some("skirmish"), 7, json!({ "size": 256, "spread": true, "protection": 10 }), String::new()).unwrap();
+  server.admin = "тайна".into();
+  let enter = |server: &mut Server, name: &str| {
+    let peer = server.connect();
+    server.receive(peer, Message::Text(ClientMessage::Hello { version: VERSION, mods: mods_sum(&mods()), name: name.into(), id: None, password: String::new() }.text())).unwrap();
+    server.take(peer);
+    peer
+  };
+  let say = |server: &mut Server, peer, text: &str| server.receive(peer, Message::Text(ClientMessage::Chat { text: text.into() }.text())).unwrap();
+  let player = |server: &Server, number: u32| -> serde_json::Map<String, serde_json::Value> {
+    let state = server.host.state.borrow();
+    let id = state.world.schema.id("Player").unwrap();
+    state.world.query(&[id]).into_iter().map(|e| state.world.get(e, id).unwrap()).find(|info| info["id"] == json!(number as f64)).unwrap()
+  };
+  let (vasya, petya) = (enter(&mut server, "Вася"), enter(&mut server, "Петя"));
+  server.tick().unwrap();
+  let (one, two) = (place(&server.host, units(&server.host, 1, "mcv")[0]), place(&server.host, units(&server.host, 2, "mcv")[0]));
+  assert!((one.0 - two.0).hypot(one.1 - two.1) >= 48.0, "появились рядом: {one:?} {two:?}");
+  assert!(player(&server, 1)["safe"].as_f64().unwrap() > server.host.state.borrow().tick as f64, "новичок под защитой");
+  say(&mut server, vasya, "/ally Петя");
+  say(&mut server, petya, "/ally Вася");
+  server.tick().unwrap();
+  assert_eq!(player(&server, 1)["allies"], json!([2]));
+  assert_eq!(player(&server, 2)["allies"], json!([1]));
+  say(&mut server, vasya, "/give Петя 100");
+  server.tick().unwrap();
+  assert_eq!(player(&server, 2)["credits"].as_f64().unwrap() - player(&server, 1)["credits"].as_f64().unwrap(), 200.0, "перевод дошёл");
+  // Админ стирает юниты Пети — без зданий и MCV он проиграл; respawn — новый набор и союзы забыты.
+  server.command("killunits Петя", kharos_net::server::Caller::Console);
+  server.tick().unwrap();
+  assert!(units(&server.host, 2, "mcv").is_empty());
+  server.receive(petya, Message::Text(ClientMessage::Command { name: "respawn".into(), args: json!({}) }.text())).unwrap();
+  for _ in 0..3 {
+    server.tick().unwrap();
+  }
+  assert_eq!(units(&server.host, 2, "mcv").len(), 1, "новый стартовый набор");
+  assert_eq!(player(&server, 1)["allies"], json!([]), "союз распался");
+}

@@ -27,6 +27,15 @@ skirmish.data = {
 	room = 2000,
 	spawnStep = 4,
 	spawnRadius = 64,
+	-- Сервер (spawnPoint в host.ts): каждый новый игрок — в случайной точке карты на скале, где хватит места под базу
+	-- (spawnRock тайлов скалы в квадрате spawnArea вокруг), не ближе spawnApart тайлов к чужим и не ближе spawnMargin к
+	-- краю; не нашлось за spawnTries попыток — требование к расстоянию слабеет вдвое. Без spread — круг у начала мира.
+	spread = false,
+	spawnApart = 96,
+	spawnTries = 400,
+	spawnArea = 6,
+	spawnRock = 100,
+	spawnMargin = 16,
 }
 
 -- Место игрока: первый — в начале мира, остальные — по кругу.
@@ -58,10 +67,69 @@ local function openSpawn(ctx, x: number, y: number): (number, number)
 	return x, y
 end
 
+-- Скала ли тайл (вид местности — младшие два бита первого байта, 2 — скала).
+local function rock(ctx, x: number, y: number): boolean
+	local terrain = ctx:tile(x, y)
+	return terrain ~= nil and terrain % 4 == 2
+end
+
+-- Случайная точка появления на сервере: на скале, просторная и подальше от чужих; не нашлась — nil.
+local function farSpawn(ctx): (number?, number?)
+	local d = skirmish.data
+	local others = {}
+	for _, e in ctx:each({ "Owner", "Position" }) do
+		if ctx:get(e, "Owner").player ~= 0 then
+			table.insert(others, ctx:get(e, "Position"))
+		end
+	end
+	local half = math.max(0, d.size - d.spawnMargin)
+	local apart = d.spawnApart
+	while apart >= 8 do
+		for _ = 1, d.spawnTries do
+			local x, y = ctx:random(-half, half), ctx:random(-half, half)
+			if not rock(ctx, x, y) or not ctx:can_stand("vehicle", x, y) then
+				continue
+			end
+			local near = false
+			for _, other in others do
+				if (other.x - x) ^ 2 + (other.y - y) ^ 2 < apart * apart then
+					near = true
+					break
+				end
+			end
+			if near then
+				continue
+			end
+			local count = 0
+			for dy = -d.spawnArea, d.spawnArea do
+				for dx = -d.spawnArea, d.spawnArea do
+					if rock(ctx, x + dx, y + dy) then
+						count += 1
+					end
+				end
+			end
+			if count >= d.spawnRock and open(ctx, x, y) then
+				return x, y
+			end
+		end
+		apart /= 2
+	end
+	return nil, nil
+end
+
 skirmish.on = {
 	-- Стартовый набор — на свободных тайлах вокруг места, через тайл; не хватило мест — меньше.
 	player_joined = function(ctx, event)
-		local x, y = openSpawn(ctx, home(event.player))
+		local fx, fy = nil, nil
+		if skirmish.data.spread then
+			fx, fy = farSpawn(ctx)
+		end
+		local x: number, y: number
+		if fx and fy then
+			x, y = fx, fy
+		else
+			x, y = openSpawn(ctx, home(event.player))
+		end
 		local list = skirmish.data.start
 		local tiles = ctx:free_tiles(x, y, #list)
 		for i, name in list do
@@ -77,7 +145,7 @@ skirmish.on = {
 skirmish.client = {
 	camera = "rts",
 	-- Выбор места — первым: его Esc и щелчки не достаются выделению.
-	controls = { "deploy", "build", "stroke", "patrol", "trucks", "aim", "select", "orders" },
+	controls = { "ping", "deploy", "build", "stroke", "patrol", "trucks", "aim", "select", "orders" },
 	ui = { "hud", "chat", "tech", "pause" },
 	atmosphere = { "weather" },
 	effects = effects,

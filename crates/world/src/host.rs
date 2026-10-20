@@ -123,6 +123,8 @@ pub struct Host {
   systems: Vec<System>,
   handlers: HashMap<String, Vec<(String, Function)>>,
   commands: HashMap<String, (String, Function)>,
+  /// Команды чата модов (поле `chat` видов): имя → вид и объявление { args, admin, run }.
+  chat: BTreeMap<String, (String, Table)>,
   orders: Vec<(u32, String, Json)>,
   ctx: AnyUserData,
   /// Что `ctx.storage` — память модов, уходит в сохранение.
@@ -183,6 +185,7 @@ impl Host {
     let mut systems = Vec::new();
     let mut handlers: HashMap<String, Vec<(String, Function)>> = HashMap::new();
     let mut commands = HashMap::new();
+    let mut chat = BTreeMap::new();
     for proto in content.list.iter().filter(|proto| proto.section != "games" || proto.name == game) {
       let table = content.by_id(proto.id).expect("вид");
       let label = format!("{}/{}", proto.section, proto.name);
@@ -204,6 +207,12 @@ impl Host {
         for pair in list.pairs::<String, Function>() {
           let (name, handler) = pair.map_err(lua_error(format!("{label}.commands: команда — функция")))?;
           commands.insert(name, (label.clone(), handler));
+        }
+      }
+      if let Some(list) = table.get::<Option<Table>>("chat").map_err(lua_error(format!("{label}.chat")))? {
+        for pair in list.pairs::<String, Table>() {
+          let (name, spec) = pair.map_err(lua_error(format!("{label}.chat: команда — таблица {{ args, admin, run }}")))?;
+          chat.insert(name, (label.clone(), spec));
         }
       }
     }
@@ -232,7 +241,7 @@ impl Host {
         state.borrow_mut().land = Some(kharos_engine::terrain::Land::new(config, kharos_engine::terrain::LandArea::of(-size, -size, size, size)));
       }
     }
-    Ok(Self { content, game: game.to_string(), state, systems, handlers, commands, orders: Vec::new(), ctx, storage })
+    Ok(Self { content, game: game.to_string(), state, systems, handlers, commands, chat, orders: Vec::new(), ctx, storage })
   }
 
   pub fn lua(&self) -> &Lua {
@@ -264,6 +273,28 @@ impl Host {
   /// Игрок вошёл: событие `player_joined { player }`.
   pub fn join(&mut self, player: u32) -> Result<(), Error> {
     self.emit("player_joined", serde_json::json!({ "player": player }))
+  }
+
+  /// Команды чата модов: имя, аргументы (`<player>` — игрок, `[player]` — игрок или тот, кто зовёт) и только ли
+  /// администратору.
+  pub fn chat_commands(&self) -> Vec<(String, Vec<String>, bool)> {
+    self.chat.iter().map(|(name, (_, spec))| (name.clone(), spec.get::<Option<Vec<String>>>("args").ok().flatten().unwrap_or_default(), spec.get::<Option<bool>>("admin").ok().flatten().unwrap_or(false))).collect()
+  }
+
+  /// Команда чата мода: `run(ctx, caller, args)` сразу, как приказ редактора; caller 0 — консоль сервера. Отдаёт, что
+  /// ответить: список { to, key, params } (to нет — тому, кто звал; −1 — всем).
+  pub fn chat(&mut self, name: &str, caller: u32, args: &Json) -> Result<Json, Error> {
+    let Some((label, spec)) = self.chat.get(name).cloned() else { return Ok(Json::Array(Vec::new())) };
+    let label = format!("{label}.chat.{name}");
+    let run: Function = spec.get("run").map_err(lua_error(&label))?;
+    {
+      let mut state = self.state.borrow_mut();
+      state.grid = None;
+    }
+    let args = kharos_content::vm::to_lua(self.lua(), args).map_err(lua_error(&label))?;
+    let result = run.call::<Value>((&self.ctx, caller, args)).map_err(lua_error(&label))?;
+    self.settle(&label)?;
+    self.lua().from_value::<Json>(result).map_err(lua_error(format!("{label}: ответ")))
   }
 
   /// Приказ игрока: выполнится в начале следующего тика.
@@ -1188,6 +1219,26 @@ impl UserData for Ctx {
     // Проходим ли тайл наземному (isWalkable): внутри карты, по проходимой местности, не сквозь здание; foot — пехоте
     // можно и у подножия обрыва.
     methods.add_method("walkable", |_, this, (x, y, foot): (f64, f64, Option<bool>)| Ok(this.state.borrow_mut().scene().walkable(x.floor() as i32, y.floor() as i32, foot.unwrap_or(false))));
+    // Игрок начинает заново: обзор, память о чужом и свои слои забыты (forgetBuildings, vision.forget).
+    methods.add_method("forget", |_, this, player: f64| {
+      let mut state = this.state.borrow_mut();
+      let player = player as u32;
+      let State { vision, memory, layers, .. } = &mut *state;
+      if let Some(vision) = vision.as_mut() {
+        vision.forget(player);
+      }
+      memory.forget_player(player);
+      layers.forget_player(player);
+      Ok(())
+    });
+    // Открыть игроку всю карту (/reveal).
+    methods.add_method("reveal", |_, this, player: f64| {
+      if let Some(vision) = this.state.borrow_mut().vision.as_mut() {
+        let size = (vision.bounds.width() * vision.bounds.height()).max(0) as usize;
+        vision.set_explored(player as u32, vec![1; size]);
+      }
+      Ok(())
+    });
     // Видит ли игрок тайл сейчас; без тумана — всё.
     methods.add_method("sees", |_, this, (player, x, y): (f64, f64, f64)| Ok(this.state.borrow().vision.as_ref().is_none_or(|vision| vision.sees(player as u32, x, y))));
     // Бывал ли тайл в виду игрока; без тумана — всё.

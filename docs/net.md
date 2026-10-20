@@ -117,9 +117,20 @@ lockstep не ложится.
       `host` и `hud.admin*` — из словарей TS. Тест `server_chat_and_commands`.
       Открыто: команды правил (`credits`, `spawn`, `killunits`, `heal`, `reset`, `reveal`, `editor`, `players`) — модом,
       с Н7; список игроков на панели.
-- [ ] Н7. **Что держится на сервере** (port.md, В9 и В11): союзы, подарки и сигналы союзникам (allies.ts, gift.ts,
+- [x] Н7. **Что держится на сервере** (port.md, В9 и В11): союзы, подарки и сигналы союзникам (allies.ts, gift.ts,
       ferry.ts, pings.ts), защита новичка (shelter.ts), поражение на сервере — `wipePlayer` и новое место
       (`respawn`), место появления нового игрока (SPAWN_* в host.ts), строка «терпит поражение» в чате.
+      **[2026-10-20]** Движок: команды чата модов (поле `chat`, `Host::chat`, сервер разбирает ники и рассылает ответы),
+      `ctx:forget` и `ctx:reveal`, разведка у союза общая (Vision по `Player.allies`), защита новичка в бою
+      (`Player.safe`), разведанное присылается заново после сброса (`Vision::resets`). Мод: `lib/allies` и
+      `mechanics/allies` — /ally, /unally, /give; `mechanics/players` — respawn проигравшего (остатки исчезают, груз
+      падает, союзы и обзор забыты, новый набор — партией) и админские /credits, /spawn, /killunits, /heal, /reset,
+      /reveal; защита новичка (`data.protection`, минуты), приказ атаки снимает её; строка «Защита M:SS» на полосе;
+      `mechanics/pings` и `controls/ping` — Alt+щелчок, метка союзникам, строка и кольцо в ленте; место появления на
+      сервере — `data.spread` в skirmish (spawnPoint из TS); в окне поражения по сети — «Начать заново» на этом сервере.
+      Настройки сервера по умолчанию — `{ size: 512, spread: true, protection: 10 }`. Тест
+      `server_alliances_spawn_and_respawn`. Не перенесено: передача юнитов союзнику (gift.ts) и корабль с грузом
+      (ferry.ts), список игроков с «под защитой» на панели.
 - [ ] Н8. **Выкладка**: сборка сервера в CI (linux x86_64, релиз GitHub), на 109.73.207.218 — вместо TS-сервера за тем
       же nginx; мир TS не переносится (новый мир). Потом пуш в `main` — Pages переходит на Rust-клиент; пост в Discord.
 

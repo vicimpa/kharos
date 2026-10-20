@@ -135,6 +135,8 @@ pub struct Server {
   /// Что написать в консоль сервера: вход, выход, чат, ответы консоли.
   pub log: Vec<String>,
   pub requests: Vec<Request>,
+  /// Команды чата модов (`Host::chat_commands`): имя, аргументы, только ли администратору.
+  mod_commands: Vec<(String, Vec<String>, bool)>,
 }
 
 impl Server {
@@ -169,7 +171,9 @@ impl Server {
   fn with(host: Host, mods: String, seed: u64, options: Json, password: String, players: BTreeMap<String, Player>) -> Result<Self, String> {
     let schema = host.state.borrow().world.schema.clone();
     let rules = Rc::new(Rules::of(&host.content, &schema)?);
+    let mod_commands = host.chat_commands();
     Ok(Self {
+      mod_commands,
       game: host.game.clone(),
       host,
       options,
@@ -339,7 +343,8 @@ impl Server {
   fn send_commands(&mut self, peer: PeerId) {
     let Some(state) = self.peers.get_mut(&peer) else { return };
     let admin = state.admin;
-    let commands = COMMANDS.iter().filter(|command| !command.console && (admin || !command.admin)).map(|command| CommandInfo { name: command.name.into(), args: command.args.iter().map(|arg| arg.to_string()).collect(), secret: command.secret }).collect();
+    let mut commands: Vec<CommandInfo> = COMMANDS.iter().filter(|command| !command.console && (admin || !command.admin)).map(|command| CommandInfo { name: command.name.into(), args: command.args.iter().map(|arg| arg.to_string()).collect(), secret: command.secret }).collect();
+    commands.extend(self.mod_commands.iter().filter(|(_, _, only)| admin || !only).map(|(name, args, _)| CommandInfo { name: name.clone(), args: args.clone(), secret: false }));
     state.outbox.push(Message::Text(ServerMessage::Commands { commands, admin }.text()));
   }
 
@@ -478,6 +483,16 @@ impl Server {
       Caller::Console => (true, None),
       Caller::Peer(peer) => (self.peers.get(&peer).is_some_and(|state| state.admin), self.player_of(peer)),
     };
+    if !COMMANDS.iter().any(|command| command.name == name) {
+      if let Some((_, spec, only)) = self.mod_commands.iter().find(|(known, _, _)| *known == name).cloned() {
+        if only && !admin {
+          self.reply(caller, host_text("noCommand", json!({ "name": name })));
+        } else {
+          self.mod_command(&name, &spec, &args, &rest, caller, player, admin);
+        }
+        return;
+      }
+    }
     let found = COMMANDS.iter().find(|command| command.name == name);
     let Some(command) = found.filter(|command| (admin || !command.admin) && if player.is_some() { !command.console } else { !command.game }) else {
       self.reply(caller, host_text("noCommand", json!({ "name": name })));
@@ -492,6 +507,13 @@ impl Server {
           }
           let shown = format!("/{} {}", each.name, each.args.join(" "));
           self.reply(caller, host_text("help", json!({ "command": shown.trim_end(), "name": each.name, "help": { "key": format!("chat.help.{}", each.name) } })));
+        }
+        for (name, spec, only) in self.mod_commands.clone() {
+          if only && !admin {
+            continue;
+          }
+          let shown = format!("/{name} {}", spec.join(" "));
+          self.reply(caller, host_text("help", json!({ "command": shown.trim_end(), "name": name, "help": { "key": format!("chat.help.{name}") } })));
         }
       }
       "list" => {
@@ -596,6 +618,67 @@ impl Server {
       "save" => self.requests.push(Request::Save),
       "stop" => self.requests.push(Request::Stop),
       _ => {}
+    }
+  }
+
+  /// Команда чата мода: аргументы по объявлению — `<player>` (ник или номер, обязателен), `[player]` (без него — тот,
+  /// кто зовёт), `<text>` (остаток строки), остальное — слово как есть. Ответы мода — { to, key, params }: to нет — тому,
+  /// кто звал, −1 — всем, номер — этому игроку; параметр { player = N } — ником игрока.
+  #[allow(clippy::too_many_arguments)]
+  fn mod_command(&mut self, name: &str, spec: &[String], words: &[String], rest: &dyn Fn(usize) -> String, caller: Caller, player: Option<u32>, admin: bool) {
+    let mut values = Vec::new();
+    for (index, arg) in spec.iter().enumerate() {
+      let word = words.get(index);
+      let value = match arg.as_str() {
+        "<player>" | "[player]" => match (word, arg.as_str()) {
+          (Some(word), _) => match self.find(word, admin) {
+            Some(found) => json!(found),
+            None => {
+              self.reply(caller, host_text("noPlayer", json!({ "name": word })));
+              return;
+            }
+          },
+          (None, "[player]") if player.is_some() => json!(player),
+          _ => {
+            self.reply(caller, host_text(if player.is_none() && arg == "[player]" { "needPlayer" } else { "usage" }, json!({ "command": format!("/{name} {}", spec.join(" ")) })));
+            return;
+          }
+        },
+        "<text>" => json!(rest(index)),
+        _ => word.map_or(Json::Null, |word| json!(word)),
+      };
+      values.push(value);
+    }
+    let replies = match self.host.chat(name, player.unwrap_or(0), &Json::Array(values)) {
+      Ok(replies) => replies,
+      Err(error) => {
+        self.log.push(format!("/{name}: {error}"));
+        self.reply(caller, host_text("order", json!({})));
+        return;
+      }
+    };
+    for reply in replies.as_array().into_iter().flatten() {
+      let Some(key) = reply.get("key").and_then(Json::as_str) else { continue };
+      let mut params = reply.get("params").cloned().unwrap_or(json!({}));
+      if let Some(map) = params.as_object_mut() {
+        for value in map.values_mut() {
+          if let Some(number) = value.get("player").and_then(Json::as_u64) {
+            *value = json!(self.name_of(number as u32));
+          }
+        }
+      }
+      let text = json!({ "key": key, "params": params });
+      match reply.get("to").and_then(Json::as_i64) {
+        None => self.reply(caller, text),
+        Some(-1) => {
+          let line = ChatLine { player: 0, name: String::new(), text, system: true, whisper: None };
+          self.broadcast(vec![line]);
+        }
+        Some(to) => {
+          let line = ServerMessage::Chat { lines: vec![ChatLine { player: 0, name: String::new(), text, system: true, whisper: None }] };
+          self.send_to(|peer| peer.player == Some(to as u32), &line);
+        }
+      }
     }
   }
 

@@ -111,13 +111,16 @@ pub struct Vision {
   pub visible: BTreeMap<u32, BTreeSet<(i32, i32)>>,
   /// Чьи глаза считать; None — всех. Реплика клиента считает только своего игрока: чужие глаза в ней тоже есть.
   pub only: Option<u32>,
+  /// Растёт, когда разведанное игрока заменили целиком (сохранение, начал заново, открыли карту): сети — прислать его
+  /// заново.
+  pub resets: BTreeMap<u32, u64>,
   /// Тайлы, зажжённые при прошлом пересчёте, по возрастанию: гасятся только они, а не вся карта.
   lit: BTreeMap<u32, Vec<u32>>,
 }
 
 impl Vision {
   pub fn new(bounds: Bounds, fog: bool) -> Self {
-    Self { bounds, fog, cells: BTreeMap::new(), changed: BTreeMap::new(), rect: BTreeMap::new(), visible: BTreeMap::new(), only: None, lit: BTreeMap::new() }
+    Self { bounds, fog, cells: BTreeMap::new(), changed: BTreeMap::new(), rect: BTreeMap::new(), visible: BTreeMap::new(), only: None, resets: BTreeMap::new(), lit: BTreeMap::new() }
   }
 
   fn index(&self, x: i32, y: i32) -> Option<usize> {
@@ -128,11 +131,21 @@ impl Vision {
   pub fn set_explored(&mut self, player: u32, cells: Vec<u8>) {
     self.cells.insert(player, Cells::from_bytes(&cells));
     self.lit.remove(&player);
+    *self.resets.entry(player).or_default() += 1;
     *self.changed.entry(player).or_default() += 1;
     self.rect.insert(player, [0, 0, self.bounds.width(), self.bounds.height()]);
   }
 
-  /// Пересчёт: глаза каждого игрока зажигают свои круги; что было видно в прошлый раз и не видно теперь, гаснет до
+  /// Игрок начинает заново: разведанное забыто.
+  pub fn forget(&mut self, player: u32) {
+    self.cells.remove(&player);
+    self.lit.remove(&player);
+    *self.resets.entry(player).or_default() += 1;
+    *self.changed.entry(player).or_default() += 1;
+    self.rect.insert(player, [0, 0, self.bounds.width(), self.bounds.height()]);
+  }
+
+  /// Пересчёт: глаза каждого игрока зажигают свои круги — и его союзникам (allies.ts: разведка у союза общая); что было видно в прошлый раз и не видно теперь, гаснет до
   /// разведанного. Работа — по зажжённым тайлам, а не по всей карте: на карте 3072 у каждого игрока девять миллионов
   /// тайлов, а видит он десятки тысяч.
   pub fn update(&mut self, world: &World) {
@@ -142,16 +155,40 @@ impl Vision {
     let width = bounds.width();
     let mut lit: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
     let mut visible: BTreeMap<u32, BTreeSet<(i32, i32)>> = BTreeMap::new();
+    // Союзы: игрок → он сам и его союзники — кому светят его глаза.
+    let mut teams: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+    if let Some(id) = world.schema.id("Player") {
+      let store = &world.stores[id];
+      let fields = &world.schema.components[id];
+      if let (Some(number), Some(allies)) = (fields.field("id"), fields.field("allies")) {
+        for row in 0..store.len() {
+          let player = store.nums[number.slot][row] as u32;
+          let mut team = vec![player];
+          team.extend(store.anys[allies.slot][row].as_array().into_iter().flatten().filter_map(serde_json::Value::as_f64).map(|ally| ally as u32));
+          teams.insert(player, team);
+        }
+      }
+    }
     let store = &world.stores[sight];
     for (row, &entity) in store.entities.iter().enumerate() {
       let radius = store.nums[0][row];
       let (Some(player), Some(x), Some(y)) = (world.num(entity, owner, "player"), world.num(entity, position, "x"), world.num(entity, position, "y")) else { continue };
-      if player <= 0.0 || radius <= 0.0 || self.only.is_some_and(|only| only != player as u32) {
+      if player <= 0.0 || radius <= 0.0 {
         continue;
       }
       let player = player as u32;
-      let tiles = lit.entry(player).or_default();
-      let seen = visible.entry(player).or_default();
+      let alone = [player];
+      let team = teams.get(&player).map_or(&alone[..], Vec::as_slice);
+      for &viewer in team {
+        if self.only.is_some_and(|only| only != viewer) {
+          continue;
+        }
+        light(bounds, width, x, y, radius, lit.entry(viewer).or_default(), visible.entry(viewer).or_default());
+      }
+    }
+    // Помощник ниже — круг глаза в тайлы и ячейки.
+    #[allow(clippy::too_many_arguments)]
+    fn light(bounds: Bounds, width: i32, x: f64, y: f64, radius: f64, tiles: &mut Vec<u32>, seen: &mut BTreeSet<(i32, i32)>) {
       let reach = radius * radius;
       let from_y = bounds.top.max((y - radius).floor() as i32);
       let to_y = (bounds.bottom - 1).min((y + radius).floor() as i32);

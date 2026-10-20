@@ -143,6 +143,7 @@ struct Cols {
   wall: usize,
   player_id: usize,
   allies: usize,
+  safe: usize,
   parent: usize,
   angle: usize,
   value: usize,
@@ -207,6 +208,7 @@ impl Cols {
       wall: slot(world, footprint, "wall"),
       player_id: slot(world, player, "id"),
       allies: slot(world, player, "allies"),
+      safe: slot(world, player, "safe"),
       parent: slot(world, attached, "parent"),
       angle: slot(world, attached, "angle"),
       value: slot(world, health, "value"),
@@ -491,6 +493,8 @@ struct Fight<'a> {
   dead_set: HashSet<Entity>,
   blasts: Vec<Blast>,
   friends: HashMap<u64, Vec<f64>>,
+  /// Игроки под защитой новичка: их не бьют, и сами они не стреляют.
+  safe: HashSet<u64>,
   turrets: HashMap<Entity, Vec<Entity>>,
   tick: u64,
   step: f64,
@@ -611,7 +615,12 @@ impl Fight<'_> {
 
   fn can_hit(&self, weapon: &Weapon, player: f64, mark: usize) -> bool {
     let mark = &self.marks[mark];
-    hostile(player, mark.player) && !friend(&self.friends, player, mark.player) && (if mark.air { weapon.air } else { !weapon.only_air }) && !self.dead_set.contains(&mark.entity)
+    hostile(player, mark.player) && !self.peace(player, mark.player) && (if mark.air { weapon.air } else { !weapon.only_air }) && !self.dead_set.contains(&mark.entity)
+  }
+
+  /// Не воюют ли игроки: союзники или кто-то из них под защитой новичка.
+  fn peace(&self, a: f64, b: f64) -> bool {
+    friend(&self.friends, a, b) || self.safe.contains(&(a as u64)) || self.safe.contains(&(b as u64))
   }
 
   /// Может ли метка навредить такому стрелку (`threatens`).
@@ -759,6 +768,12 @@ fn collect_marks(cols: &Cols, world: &World) -> (Vec<Mark>, HashMap<Entity, usiz
   (sorted, index)
 }
 
+/// Игроки под защитой новичка в тик tick (shelter.ts): Player.safe дальше него.
+fn sheltered(cols: &Cols, world: &World, tick: u64) -> HashSet<u64> {
+  let store = &world.stores[cols.player];
+  (0..store.len()).filter(|&row| store.nums[cols.safe][row] > tick as f64).map(|row| store.nums[cols.player_id][row] as u64).collect()
+}
+
 /// Союзы: игрок → его союзники (`alliances`).
 fn alliances(cols: &Cols, world: &World) -> HashMap<u64, Vec<f64>> {
   let store = &world.stores[cols.player];
@@ -885,7 +900,7 @@ fn slots_around(scene: &mut Scene, fight: &mut Fight, target: usize, pursuers: &
 fn guarded(fight: &mut Fight, target: Entity, x: f64, y: f64, player: f64) -> bool {
   fight.grid.near(x, y, GUARD_RANGE).into_iter().any(|index| {
     let mark = &fight.marks[index];
-    mark.entity != target && hostile(player, mark.player) && !friend(&fight.friends, player, mark.player) && !fight.dead_set.contains(&mark.entity) && distance_to(mark, x, y) <= GUARD_RANGE
+    mark.entity != target && hostile(player, mark.player) && !fight.peace(player, mark.player) && !fight.dead_set.contains(&mark.entity) && distance_to(mark, x, y) <= GUARD_RANGE
   })
 }
 
@@ -944,6 +959,7 @@ pub fn fight(state: &mut State) {
   let (marks, index) = collect_marks(&cols, scene.world);
   let grid = Grid::new(&marks);
   let friends = alliances(&cols, scene.world);
+  let safe = sheltered(&cols, scene.world, tick);
   let mut turrets: HashMap<Entity, Vec<Entity>> = HashMap::new();
   {
     let store = &scene.world.stores[cols.attached];
@@ -952,7 +968,7 @@ pub fn fight(state: &mut State) {
     }
   }
   let domes = collect_domes(&cols, scene.world, tick);
-  let mut fight = Fight { cols, weapons, marks, index, grid, dead: Vec::new(), dead_set: HashSet::new(), blasts: Vec::new(), friends, turrets, tick, step, domes, signals: Vec::new() };
+  let mut fight = Fight { cols, weapons, marks, index, grid, dead: Vec::new(), dead_set: HashSet::new(), blasts: Vec::new(), friends, safe, turrets, tick, step, domes, signals: Vec::new() };
 
   fly(&mut scene, &mut fight, step);
   shoot(&mut scene, &mut fight, tick, step);
@@ -1515,13 +1531,15 @@ fn finish(scene: &mut Scene, fight: &mut Fight, step: f64, events: &mut Vec<(Str
 /// может её достать.
 pub fn order_attack(state: &mut State, player: f64, units: &[Entity], target: Entity) -> bool {
   let cols = Cols::of(&state.world);
+  let tick = state.tick;
   let world = &mut state.world;
   if !world.alive(target) || !world.has(target, cols.health) {
     return false;
   }
   let owner = cols.owner(world, target);
   let friends = alliances(&cols, world);
-  if !hostile(player, owner) || friend(&friends, player, owner) {
+  // Под защитой новичка цель нельзя атаковать; свою защиту приказ атаки снимает раньше (mechanics/shelter).
+  if !hostile(player, owner) || friend(&friends, player, owner) || sheltered(&cols, world, tick).contains(&(owner as u64)) {
     return false;
   }
   let air = cols.flies(world, target);

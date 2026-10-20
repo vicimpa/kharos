@@ -77,6 +77,16 @@ local function topBar(c)
 			end
 		end)
 		ui:tip("credits", c:t("common.credits"))
+		-- Защита новичка: сколько осталось, до десятков секунд.
+		local record = wallet.of(c, c.player)
+		local safe = record and c:get(record, "Player").safe or 0
+		if safe > c.tick then
+			local seconds = math.ceil((safe - c.tick) * c.step / 10) * 10
+			ui:box({ id = "protection" }, function()
+				ui:text(c:t("hud.protection", { left = string.format("%d:%02d", seconds // 60, seconds % 60) }), { color = COLORS.good })
+			end)
+			ui:tip("protection", c:t("hud.protectionTip"))
+		end
 		local grid = shownGrid(c)
 		if grid then
 			local color = if grid.demand > grid.produced or grid.overload then COLORS.bad elseif grid.peak > grid.produced * GRID_TIGHT then COLORS.warn else COLORS.power

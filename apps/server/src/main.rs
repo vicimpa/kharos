@@ -47,7 +47,7 @@ struct Settings {
 
 fn defaults() -> Json {
   let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |time| time.as_secs() % 2_147_483_647);
-  json!({ "port": DEFAULT_PORT, "password": "", "admin": "", "save": "save.kharos.json", "game": "skirmish", "options": { "size": 512 }, "seed": seed, "mods": ["mods"] })
+  json!({ "port": DEFAULT_PORT, "password": "", "admin": "", "save": "save.kharos.json", "game": "skirmish", "options": { "size": 512, "spread": true, "protection": 10 }, "seed": seed, "mods": ["mods"] })
 }
 
 /// Настройки: нет файла — пишется по умолчанию, чтобы было что править; неизвестные ключи — предупреждение, а не тишина.
