@@ -1,5 +1,6 @@
 //! Связь клиента с сервером (connect.ts): сообщения туда и обратно. Петля (`KHAROS_NET=loopback`) держит сервер в том
-//! же процессе и ведёт его тики по часам кадров — так игра через реплику проверяется без сокетов.
+//! же процессе и ведёт его тики по часам кадров — так игра через реплику проверяется без сокетов; `Socket` — WebSocket
+//! в своём потоке (окно).
 
 use kharos_content::Mod;
 use kharos_net::protocol::{mods_sum, ClientMessage, Message, ServerMessage, VERSION};
@@ -105,5 +106,96 @@ impl Link for Loopback {
 
   fn closed(&self) -> Option<String> {
     None
+  }
+}
+
+/// WebSocket в своём потоке: поток пишет накопленное и ждёт входящее попеременно, с игрой говорит каналами.
+#[cfg(not(target_arch = "wasm32"))]
+pub struct Socket {
+  out: std::sync::mpsc::Sender<Message>,
+  inbox: std::sync::mpsc::Receiver<Message>,
+  closed: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Socket {
+  /// Подключается к url (ws://адрес:порт) и сразу шлёт вход.
+  pub fn connect(url: &str, hello: Message) -> Result<Self, String> {
+    use std::io::ErrorKind;
+    let (mut socket, _) = tungstenite::connect(url).map_err(|error| format!("{url}: {error}"))?;
+    if let tungstenite::stream::MaybeTlsStream::Plain(stream) = socket.get_ref() {
+      let _ = stream.set_nodelay(true);
+      let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(5)));
+    }
+    let (out, outbox) = std::sync::mpsc::channel::<Message>();
+    let (deliver, inbox) = std::sync::mpsc::channel();
+    let closed = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let flag = closed.clone();
+    out.send(hello).map_err(|error| error.to_string())?;
+    std::thread::spawn(move || {
+      let reason = 'live: loop {
+        while let Ok(message) = outbox.try_recv() {
+          let frame = match message {
+            Message::Text(text) => tungstenite::Message::text(text),
+            Message::Binary(bytes) => tungstenite::Message::binary(bytes),
+          };
+          if let Err(error) = socket.write(frame) {
+            break 'live error.to_string();
+          }
+        }
+        match socket.flush() {
+          Ok(()) => {}
+          Err(tungstenite::Error::Io(error)) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
+          Err(error) => break error.to_string(),
+        }
+        match socket.read() {
+          Ok(tungstenite::Message::Text(text)) => {
+            let _ = deliver.send(Message::Text(text.to_string()));
+          }
+          Ok(tungstenite::Message::Binary(bytes)) => {
+            let _ = deliver.send(Message::Binary(bytes.to_vec()));
+          }
+          Ok(tungstenite::Message::Close(_)) => break "сервер закрыл соединение".into(),
+          Ok(_) => {}
+          Err(tungstenite::Error::Io(error)) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
+          Err(error) => break error.to_string(),
+        }
+      };
+      *flag.lock().expect("флаг") = Some(reason);
+    });
+    Ok(Self { out, inbox, closed })
+  }
+
+  /// Ждёт приветствия до timeout: вошли — приветствие, отказ или тишина — ошибка. Пришедшее после приветствия
+  /// остаётся в очереди.
+  pub fn welcome(&mut self, timeout: std::time::Duration) -> Result<Welcome, String> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+      let left = deadline.saturating_duration_since(std::time::Instant::now());
+      match self.inbox.recv_timeout(left) {
+        Ok(message) => {
+          if let Some(welcome) = welcome(&message)? {
+            return Ok(welcome);
+          }
+        }
+        Err(_) => return Err(self.closed().unwrap_or_else(|| "сервер не ответил на вход".into())),
+      }
+    }
+  }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Link for Socket {
+  fn send(&mut self, message: Message) {
+    let _ = self.out.send(message);
+  }
+
+  fn receive(&mut self) -> Vec<Message> {
+    self.inbox.try_iter().collect()
+  }
+
+  fn closed(&self) -> Option<String> {
+    // Что пришло до обрыва, игра разберёт раньше: обрыв — когда очередь пуста.
+    self.closed.lock().expect("флаг").clone()
   }
 }

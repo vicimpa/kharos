@@ -252,8 +252,8 @@ impl App {
       let camera = slot.as_ref().and_then(|id| saves.and_then(|saves| saves.get(id)).and_then(|meta| meta.get("camera").cloned()));
       (world, camera)
     };
-    let mut game = match Self::loopback(mods, game, options, world.is_some(), &link)? {
-      Some((welcome, loopback)) => Game::join(mods.to_vec(), welcome, Box::new(loopback), fonts, sound, link.clone())?,
+    let mut game = match Self::remote(mods, game, options, world.is_some(), &link)? {
+      Some((welcome, remote)) => Game::join(mods.to_vec(), welcome, remote, fonts, sound, link.clone())?,
       None => Game::new(mods.to_vec(), game, options, world.as_ref(), 1, fonts, sound, link.clone())?,
     };
     // Зерно math.random скриптов: в сценарии — постоянное, в игре — от часов, каждая партия звучит по-своему.
@@ -278,20 +278,36 @@ impl App {
     Ok(game)
   }
 
-  /// KHAROS_NET=loopback: новая партия (не меню, не редактор, не из сохранения) — через сервер в том же процессе, как
-  /// по сети: клиент видит реплику, приказы идут сообщениями.
-  fn loopback(mods: &[Mod], game: Option<&str>, options: &serde_json::Value, saved: bool, link: &AppLink) -> Result<Option<(net::Welcome, net::Loopback)>, String> {
+  /// Партия по сети. KHAROS_SERVER=ws://адрес:порт — на сервер (ник — KHAROS_NAME; под каким именем сервер помнит
+  /// игрока, хранится в настройках по адресу). KHAROS_NET=loopback — новая партия (не меню, не редактор, не из
+  /// сохранения) через сервер в том же процессе: клиент видит реплику, приказы идут сообщениями.
+  fn remote(mods: &[Mod], game: Option<&str>, options: &serde_json::Value, saved: bool, link: &AppLink) -> Result<Option<(net::Welcome, Box<dyn net::Link>)>, String> {
     #[cfg(not(target_arch = "wasm32"))]
     {
-      let state = link.borrow();
-      if std::env::var("KHAROS_NET").as_deref() != Ok("loopback") || saved || state.editing || game.is_some_and(|game| state.menu.as_deref() == Some(game)) {
+      let mut state = link.borrow_mut();
+      if saved || state.editing || game.is_some_and(|game| state.menu.as_deref() == Some(game)) {
+        return Ok(None);
+      }
+      if let Ok(url) = std::env::var("KHAROS_SERVER") {
+        let ids = state.prefs.get("servers").cloned().unwrap_or_default();
+        let id = ids.get(&url).and_then(|entry| entry.get("id")).and_then(serde_json::Value::as_str).map(str::to_string);
+        let name = std::env::var("KHAROS_NAME").unwrap_or_default();
+        let password = std::env::var("KHAROS_PASSWORD").unwrap_or_default();
+        let mut socket = net::Socket::connect(&url, net::hello(mods, &name, id, &password))?;
+        let welcome = socket.welcome(std::time::Duration::from_secs(10))?;
+        let mut ids = ids.as_object().cloned().unwrap_or_default();
+        ids.insert(url, serde_json::json!({ "id": welcome.id }));
+        state.prefs.set("servers", serde_json::Value::Object(ids));
+        return Ok(Some((welcome, Box::new(socket))));
+      }
+      if std::env::var("KHAROS_NET").as_deref() != Ok("loopback") {
         return Ok(None);
       }
       let seed = options.get("seed").and_then(serde_json::Value::as_f64).map_or(1, |seed| seed as u64);
       let server = kharos_net::Server::new(mods.to_vec(), game, seed, options.clone(), String::new())?;
       let mut loopback = net::Loopback::new(server);
       let welcome = loopback.enter(mods)?;
-      Ok(Some((welcome, loopback)))
+      Ok(Some((welcome, Box::new(loopback))))
     }
     #[cfg(target_arch = "wasm32")]
     {

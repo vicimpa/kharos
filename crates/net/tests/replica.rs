@@ -145,3 +145,42 @@ fn replica_matches_what_the_player_sees() {
   println!("{ticks} тиков: {bytes} байт, в среднем {} на тик, самый большой кадр {biggest}; ушло из виду {removed}, призраков {ghosts}", bytes / ticks);
   assert!(removed > 0 && ghosts > 0 && foreign > 0, "проверка должна видеть уход из обзора, призраков и чужих: ушло {removed}, призраков {ghosts}, чужих {foreign}");
 }
+
+/// Сервер с подключениями: вход, приказ, кадры; после сохранения и загрузки тот же id — тот же игрок.
+#[test]
+fn server_lets_players_in_and_remembers_them() {
+  use kharos_net::protocol::{mods_sum, ClientMessage, Message, ServerMessage, VERSION};
+  use kharos_net::Server;
+  let hello = |id: Option<String>, password: &str| Message::Text(ClientMessage::Hello { version: VERSION, mods: mods_sum(&mods()), name: "  Вася ".into(), id, password: password.into() }.text());
+  let welcome = |messages: Vec<Message>| -> ServerMessage {
+    let Some(Message::Text(text)) = messages.into_iter().next() else { panic!("нет ответа") };
+    ServerMessage::parse(&text).unwrap()
+  };
+  let mut server = Server::new(mods(), Some("skirmish"), 7, json!({}), "тайна".into()).unwrap();
+  let peer = server.connect();
+  server.receive(peer, hello(None, "не та")).unwrap();
+  assert_eq!(welcome(server.take(peer).0), ServerMessage::Refused { reason: "net.password".into(), password: true });
+  assert!(server.take(peer).1, "после отказа — закрыть");
+  let peer = server.connect();
+  server.receive(peer, Message::Text(ClientMessage::Hello { version: VERSION + 1, mods: mods_sum(&mods()), name: String::new(), id: None, password: "тайна".into() }.text())).unwrap();
+  assert_eq!(welcome(server.take(peer).0), ServerMessage::Refused { reason: "net.newer".into(), password: false });
+  let peer = server.connect();
+  server.receive(peer, hello(None, "тайна")).unwrap();
+  let ServerMessage::Welcome { player, id, .. } = welcome(server.take(peer).0) else { panic!("не пустил") };
+  assert_eq!(player, 1);
+  assert_eq!(server.players[&id].name, "Вася");
+  server.tick().unwrap();
+  let (messages, closing) = server.take(peer);
+  assert!(!closing && matches!(&messages[..], [Message::Binary(bytes)] if bytes[0] == kharos_net::protocol::FRAME && bytes.len() > 100), "первый кадр — весь видимый мир");
+  // Второй игрок, потом сохранение и загрузка: первый входит тем же id и остаётся первым.
+  let other = server.connect();
+  server.receive(other, hello(None, "тайна")).unwrap();
+  assert!(matches!(welcome(server.take(other).0), ServerMessage::Welcome { player: 2, .. }));
+  let saved = server.save().unwrap();
+  let mut server = Server::load(mods(), &serde_json::from_str(&saved.to_string()).unwrap(), "тайна".into()).unwrap();
+  let peer = server.connect();
+  server.receive(peer, hello(Some(id.clone()), "тайна")).unwrap();
+  assert!(matches!(welcome(server.take(peer).0), ServerMessage::Welcome { player: 1, .. }));
+  let units = server.host.state.borrow().world.query(&[server.host.state.borrow().world.schema.id("Unit").unwrap()]).len();
+  assert_eq!(units, 12, "у двух игроков по стартовому набору, после загрузки — без новых");
+}

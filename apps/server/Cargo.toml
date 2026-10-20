@@ -1,0 +1,17 @@
+# Сервер Kharos (docs/net.md, Н3): мир считает он, игроки подключаются по WebSocket. TLS — снаружи (nginx).
+[package]
+name = "kharos-server"
+version = "0.1.0"
+edition = "2021"
+license = "MPL-2.0"
+description = "Сервер Kharos: хост мира и игроки по WebSocket"
+
+[[bin]]
+name = "kharos-server"
+path = "src/main.rs"
+
+[dependencies]
+kharos-content = { path = "../../crates/content" }
+kharos-net = { path = "../../crates/net" }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }

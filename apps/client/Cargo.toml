@@ -31,6 +31,7 @@ glutin = "0.32"
 glutin-winit = "0.5"
 raw-window-handle = "0.6"
 # Язык системы — языку интерфейса по умолчанию; в браузере — navigator.languages.
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 sys-locale = "0.3"
 web-audio-api = { version = "1.7", default-features = false, features = ["cpal"] }
 winit = "0.30"

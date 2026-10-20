@@ -11,6 +11,16 @@ use std::rc::Rc;
 
 pub type PeerId = u64;
 
+/// Совпадают ли строки, за одно и то же время при любом месте расхождения: пароль не подобрать по задержке ответа.
+fn same(a: &str, b: &str) -> bool {
+  let (a, b) = (a.as_bytes(), b.as_bytes());
+  let mut differ = (a.len() != b.len()) as u8;
+  for index in 0..a.len().max(b.len()) {
+    differ |= a.get(index).copied().unwrap_or(0) ^ b.get(index).copied().unwrap_or(0);
+  }
+  differ == 0
+}
+
 /// Игрок сервера: номер в мире и ник.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Player {
@@ -46,15 +56,53 @@ pub struct Server {
 /// Длина тика.
 pub const STEP: f64 = 0.05;
 
+/// Версия сохранения сервера.
+pub const SAVE_VERSION: u64 = 1;
+
 impl Server {
   /// Новый мир партии game: тот же `Host::new`, что соберёт себе каждый клиент для реплики.
   pub fn new(mods: Vec<Mod>, game: Option<&str>, seed: u64, options: Json, password: String) -> Result<Self, String> {
     let sum = mods_sum(&mods);
     let mut host = Host::new(mods, game, seed, &options)?;
     host.start()?;
+    Self::with(host, sum, seed, options, password, BTreeMap::new())
+  }
+
+  /// Мир из сохранения (`save`): партия, настройки и зерно — оттуда, игроки — те же.
+  pub fn load(mods: Vec<Mod>, saved: &Json, password: String) -> Result<Self, String> {
+    if saved.get("version").and_then(Json::as_u64) != Some(SAVE_VERSION) {
+      return Err("сохранение другой версии".into());
+    }
+    let game = saved.get("game").and_then(Json::as_str).ok_or("в сохранении нет партии")?;
+    let seed = saved.get("seed").and_then(Json::as_u64).unwrap_or(1);
+    let options = saved.get("options").cloned().unwrap_or(Json::Null);
+    let sum = mods_sum(&mods);
+    let mut host = Host::new(mods, Some(game), seed, &options)?;
+    host.restore(saved.get("world").ok_or("в сохранении нет мира")?)?;
+    let mut players = BTreeMap::new();
+    for (id, player) in saved.get("players").and_then(Json::as_object).into_iter().flatten() {
+      let number = player.get("number").and_then(Json::as_u64).ok_or("игрок без номера")? as u32;
+      let name = player.get("name").and_then(Json::as_str).unwrap_or("").to_string();
+      players.insert(id.clone(), Player { number, name });
+    }
+    Self::with(host, sum, seed, options, password, players)
+  }
+
+  fn with(host: Host, mods: String, seed: u64, options: Json, password: String, players: BTreeMap<String, Player>) -> Result<Self, String> {
     let schema = host.state.borrow().world.schema.clone();
     let rules = Rc::new(Rules::of(&host.content, &schema)?);
-    Ok(Self { game: host.game.clone(), host, options, seed, password, rules, mods: sum, peers: BTreeMap::new(), next_peer: 1, players: BTreeMap::new(), minted: 0 })
+    Ok(Self { game: host.game.clone(), host, options, seed, password, rules, mods, peers: BTreeMap::new(), next_peer: 1, players, minted: 0 })
+  }
+
+  /// Сохранение сервера: мир, игроки по именам, партия, её настройки и зерно.
+  pub fn save(&self) -> Result<Json, String> {
+    let players: serde_json::Map<String, Json> = self.players.iter().map(|(id, player)| (id.clone(), serde_json::json!({ "number": player.number, "name": player.name }))).collect();
+    Ok(serde_json::json!({ "version": SAVE_VERSION, "game": self.game, "seed": self.seed, "options": self.options, "players": players, "world": self.host.snapshot()? }))
+  }
+
+  /// Сколько подключений вошло в игру.
+  pub fn online(&self) -> usize {
+    self.peers.values().filter(|peer| peer.player.is_some()).count()
   }
 
   /// Новое подключение: ждёт входа.
@@ -147,7 +195,7 @@ impl Server {
       self.refuse(peer, "net.mods", false);
       return Ok(());
     }
-    if !self.password.is_empty() && password != self.password {
+    if !self.password.is_empty() && !same(&password, &self.password) {
       self.refuse(peer, "net.password", true);
       return Ok(());
     }

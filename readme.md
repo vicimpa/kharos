@@ -46,6 +46,9 @@ trunk serve --release              # http://127.0.0.1:8090
 trunk build --release --public-url ./   # страница в target/web — её выкладывает GitHub Pages
 ```
 
+Сервер для игры по сети — `cargo run --release -p kharos-server` (настройки — `settings.json` в рабочей папке, пишется
+при первом запуске; [docs/net.md](docs/net.md)); окно подключается к нему с `KHAROS_SERVER=ws://адрес:8787`.
+
 Переменные окружения окна: `KHAROS_GAME` — сразу в партию (`skirmish`, `sandbox`, `battle`), `KHAROS_MODS` — папки
 модов, `KHAROS_CONFIG` — папка настроек и сохранений (по умолчанию `~/.config/kharos`), `KHAROS_SHOT` — снять кадр и
 выйти (подробнее — в начале `apps/client/src/shell.rs`). В браузере партию задаёт `?game=`.
@@ -59,6 +62,7 @@ trunk build --release --public-url ./   # страница в target/web — е�
 - `apps/client` — клиент: окно (winit, glutin, glow) и браузер (wasm32, web-sys), рендер, свой интерфейс, звук,
   подача из модов;
 - `crates/world` — мир столбцами по схеме из модов и хост: системы, команды, события, сигналы, обзор и память игроков;
+- `crates/net` — сеть: что видит игрок, кадры, реплика у клиента; `apps/server` — сервер по WebSocket;
 - `crates/content` — загрузка модов в машину Luau; `crates/engine` — земля, слои и счёт;
 - `mods/base` — сама игра: механики, интерфейс, звук, облик, словари;
 - `vendor/ulua-rt` — Luau на чистом Rust с нашими правками.
