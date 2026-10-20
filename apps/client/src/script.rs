@@ -345,6 +345,19 @@ pub enum AppRequest {
   Reset { options: Json },
   /// Закрыть игру.
   Quit,
+  /// Войти на сервер по адресу: ник и пароль.
+  Join { url: String, name: String, password: String },
+}
+
+/// Сетевая игра для меню: куда подключаемся, где играем, что пошло не так.
+#[derive(Default)]
+pub struct NetState {
+  /// Адрес сервера, к которому идёт подключение.
+  pub connecting: Option<String>,
+  /// Адрес сервера идущей партии.
+  pub server: Option<String>,
+  /// Почему не вышло или оборвалось: { key — ключ словаря, url, seconds, password — дело в пароле }.
+  pub error: Option<Json>,
 }
 
 /// Что приложение знает и о чём его просят — общее у всех партий запуска.
@@ -366,6 +379,7 @@ pub struct AppState {
   /// Язык, выбранный игроком (`lang` в настройках), и языки системы — кому говорить, если не выбран.
   pub language: Option<String>,
   pub system_languages: Vec<String>,
+  pub net: NetState,
 }
 
 /// Настройки игрока: объект JSON под ключом `client.json` (store.rs): на десктопе — `~/.config/kharos/client.json`
@@ -417,6 +431,15 @@ impl UserData for AppApi {
     fields.add_field_method_get("editing", |_, app| Ok(app.0.borrow().editing));
     // Язык, который выбрал игрок (nil — как у системы).
     fields.add_field_method_get("language", |_, app| Ok(app.0.borrow().language.clone()));
+    // Сетевая игра: адрес, к которому подключаемся, адрес идущей партии и ошибка — { key, url, seconds, password }.
+    // Версия сетевого провода (crates/net): «Об игре».
+    fields.add_field_method_get("protocol", |_, _| Ok(kharos_net::protocol::VERSION));
+    fields.add_field_method_get("connecting", |_, app| Ok(app.0.borrow().net.connecting.clone()));
+    fields.add_field_method_get("server", |_, app| Ok(app.0.borrow().net.server.clone()));
+    fields.add_field_method_get("net_error", |lua, app| match &app.0.borrow().net.error {
+      Some(error) => kharos_content::vm::to_lua(lua, error),
+      None => Ok(Value::Nil),
+    });
     fields.add_field_method_get("last", |_, app| {
       let state = app.0.borrow();
       let last = state.prefs.get("last").and_then(Json::as_str).map(str::to_string);
@@ -443,6 +466,18 @@ impl UserData for AppApi {
       if let Some(menu) = state.menu.clone() {
         state.request = Some(AppRequest::Start { game: menu, options: Json::Object(Default::default()), slot: None, editor: false });
       }
+      Ok(())
+    });
+    // c.app:join(адрес, ник, пароль) — войти на сервер: подключение идёт между кадрами, партия меню живёт.
+    methods.add_method("join", |_, app, (url, name, password): (String, Option<String>, Option<String>)| {
+      let mut state = app.0.borrow_mut();
+      state.net.error = None;
+      state.request = Some(AppRequest::Join { url, name: name.unwrap_or_default(), password: password.unwrap_or_default() });
+      Ok(())
+    });
+    // Забыть ошибку сети: меню её показало.
+    methods.add_method("clear_net_error", |_, app, ()| {
+      app.0.borrow_mut().net.error = None;
       Ok(())
     });
     // Настройки игрока на диске: c.app:get(ключ) → значение или nil, c.app:set(ключ, значение) — nil удаляет.

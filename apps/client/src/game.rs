@@ -82,6 +82,8 @@ struct Remote {
   /// Пришедшие кадры: по одному на тик, как шли бы тики своего хоста.
   queue: std::collections::VecDeque<kharos_net::Frame>,
   schema: Rc<kharos_world::Schema>,
+  /// Связь кончилась: почему (ключ словаря `net.*`).
+  gone: Option<String>,
 }
 
 /// Сколько кадров копится в очереди, прежде чем клиент догоняет сервер: запас на неровный приход — тик-два.
@@ -170,7 +172,7 @@ impl Game {
     let host = Host::new(mods.clone(), Some(&welcome.game), welcome.seed, &welcome.options)?;
     let replica = kharos_net::Replica::new(&mut host.state.borrow_mut(), welcome.player);
     let schema = host.state.borrow().world.schema.clone();
-    let remote = Remote { link, replica, queue: std::collections::VecDeque::new(), schema };
+    let remote = Remote { link, replica, queue: std::collections::VecDeque::new(), schema, gone: None };
     Self::assemble(host, mods, &welcome.options, welcome.player, false, fonts, sound, app, Some(remote))
   }
 
@@ -302,6 +304,11 @@ impl Game {
     let (land, minimap, land_colors) = land_of(&client, &game_table, &state)?;
 
     Ok(Self { host, client, state, ctx, ctx_data, camera, panels, controls, atmosphere, effects, sounds, music, signals, looks, look_of, atlas: Some(atlas), land, minimap, audio, walked: HashMap::new(), drift: [0.0; 2], fog_seen: None, ghost_dress: HashMap::new(), land_seen: None, land_colors, editor, bar: 0, next_bar: 0.0, accumulator: 0.0, last: None, pending, palette, remote })
+  }
+
+  /// Партия по сети, у которой кончилась связь: почему (ключ словаря `net.*`).
+  pub fn disconnected(&self) -> Option<String> {
+    self.remote.as_ref().and_then(|remote| remote.gone.clone())
   }
 
   /// `c` клиентских скриптов партии — для функций сценария (`s:client`).
@@ -472,6 +479,9 @@ impl Game {
   /// QUEUE_MOST — догоняет, кончились — ждёт на последнем.
   fn receive(&mut self, now: f64) -> Result<(), String> {
     let remote = self.remote.as_mut().expect("партия по сети");
+    if remote.gone.is_some() {
+      return Ok(());
+    }
     remote.link.update(now)?;
     for message in remote.link.receive() {
       match message {
@@ -479,13 +489,14 @@ impl Game {
         kharos_net::Message::Binary(_) => {}
         kharos_net::Message::Text(text) => {
           if let kharos_net::ServerMessage::Refused { reason, .. } = kharos_net::ServerMessage::parse(&text)? {
-            return Err(format!("сервер закрыл связь: {reason}"));
+            remote.gone = Some(reason);
+            return Ok(());
           }
         }
       }
     }
     if let Some(reason) = remote.link.closed() {
-      return Err(format!("связь с сервером оборвалась: {reason}"));
+      remote.gone = Some(reason);
     }
     let mut ticks = 0;
     while let Some(frame) = (self.accumulator >= STEP || remote.queue.len() > QUEUE_MOST).then(|| remote.queue.pop_front()).flatten() {

@@ -196,7 +196,7 @@ impl Server {
       return Ok(());
     }
     if !self.password.is_empty() && !same(&password, &self.password) {
-      self.refuse(peer, "net.password", true);
+      self.refuse(peer, if password.is_empty() { "net.passwordNeeded" } else { "net.wrongPassword" }, true);
       return Ok(());
     }
     let name = clean_name(&name);

@@ -1,6 +1,7 @@
 --!strict
 -- Главное меню: логотип, главное окно, новая игра (название, зерно, размер карты, местность с готовыми вариантами и
--- тонкой настройкой, сутки, начальное время, погода, схема карты) и «Об игре». Те же окна, поля, кнопки и места.
+-- тонкой настройкой, сутки, начальное время, погода, схема карты), сетевая игра и «Об игре». Те же окна, поля, кнопки и
+-- места.
 
 local form = require("lib/form")
 local settings = require("lib/settings")
@@ -22,7 +23,10 @@ menu.data = {
 	weather = { dayLength = 1200, startHour = 9, changes = true },
 	repository = "https://github.com/vicimpa/kharos",
 	authors = { { name = "vicimpa", url = "https://github.com/vicimpa" } },
-	protocol = 52,
+	-- Сервер, который окно «Сеть» предлагает, пока игрок не ввёл свой.
+	server = "wss://109-73-207-218.sslip.io",
+	-- Сервер на этом компьютере.
+	localServer = "ws://127.0.0.1:8787",
 }
 
 -- Уже скольких пикселей экран узкий: окна по центру, схема над полями.
@@ -110,6 +114,8 @@ local seeds = 0
 -- Сохранения: подтверждение удаления, переименование.
 local confirming: string? = nil
 local renaming: { id: string, name: string }? = nil
+-- Окно «Сеть»: адрес, ник и пароль, которые сейчас в полях.
+local server = { url = "", name = "", password = "" }
 
 -- Симуляция идёт 20 тиков в секунду: время игры по тику слота.
 local function playtime(c, tick: number): string
@@ -184,6 +190,10 @@ local function open(c, nextScreen: string)
 		confirming = nil
 		renaming = nil
 	end
+	if nextScreen == "network" then
+		local saved = c.app:get("server") or {}
+		server = { url = saved.url or menu.data.server, name = saved.name or "", password = server.password }
+	end
 end
 
 -- Место окна: у широкого экрана — слева, у узкого — по центру; над окном — логотип.
@@ -221,6 +231,9 @@ local function mainWindow(c)
 			end
 			if form.button(ui, "menu:saves", c:t("menu.saves")) then
 				open(c, "saves")
+			end
+			if form.button(ui, "menu:network", c:t("menu.network")) then
+				open(c, "network")
 			end
 			if form.button(ui, "menu:settings", c:t("common.settings")) then
 				open(c, "settings")
@@ -494,6 +507,85 @@ local function savesWindow(c)
 	end
 end
 
+-- Недавние серверы — свежие первыми: адрес, когда играли, под каким ником.
+local function recentServers(c)
+	local list = {}
+	for url, entry in c.app:get("servers") or {} do
+		table.insert(list, { url = url, played = entry.played or 0, name = entry.name or "" })
+	end
+	table.sort(list, function(a, b)
+		return a.played > b.played
+	end)
+	return list
+end
+
+local function networkWindow(c)
+	local ui = c.ui
+	local width = math.min(440, ui.width - 32)
+	local connecting = c.app.connecting ~= nil
+	local valid = string.match(server.url, "^wss?://.") ~= nil
+	local join = function(url: string)
+		server.url = url
+		c.app:set("server", { url = url, name = server.name })
+		c.app:join(url, server.name, server.password)
+	end
+	local back = form.window(ui, { id = "menu:network", title = c:t("menu.network"), width = width, anchor = place(ui), back = c:t("common.back"), actions = function()
+		if form.button(ui, "menu:network:connect", c:t("common.connect"), { primary = true, disabled = not valid or connecting }) and valid and not connecting then
+			join(server.url)
+		end
+	end }, function()
+		local recent = recentServers(c)
+		if #recent > 0 then
+			ui:text(c:t("menu.recentServers"), { color = COLORS.dim })
+			for _, item in recent do
+				ui:box({ skin = "well", padding = 10, direction = "row", align = "center", gap = 8 }, function()
+					ui:box({ direction = "column", gap = 2, grow = 1 }, function()
+						ui:text(item.url, { color = COLORS.bright, ellipsis = true })
+						ui:text(dateOf(c, item.played) .. (if item.name ~= "" then " · " .. item.name else ""), { font = "small", color = COLORS.muted, wrap = true })
+					end)
+					if form.button(ui, "recent:" .. item.url .. ":play", c:t("common.play"), { primary = true, disabled = connecting }) and not connecting then
+						if server.name == "" then
+							server.name = item.name
+						end
+						join(item.url)
+					end
+					if form.button(ui, "recent:" .. item.url .. ":forget", "×", { tip = c:t("menu.forget") }) then
+						local servers = c.app:get("servers") or {}
+						servers[item.url] = nil
+						c.app:set("servers", servers)
+					end
+				end)
+			end
+		end
+		ui:text(c:t("menu.nick"), { color = COLORS.dim })
+		server.name = form.textField(ui, "menu:network:nick", server.name, { maxLength = 24, placeholder = c:t("menu.nickHint") }).value
+		ui:text(c:t("menu.serverAddress"), { color = COLORS.dim })
+		ui:box({ direction = "row", gap = 6, align = "center" }, function()
+			local field = form.textField(ui, "menu:network:url", server.url, { placeholder = "wss://host:port", width = width - 36 - form.buttonWidth(ui, c:t("menu.thisComputer")) - 6 })
+			server.url = string.gsub(field.value, "^%s*(.-)%s*$", "%1")
+			if table.find(field.keys, "Enter") and valid and not connecting then
+				join(server.url)
+			end
+			if form.button(ui, "menu:network:local", c:t("menu.thisComputer")) then
+				server.url = menu.data.localServer
+			end
+		end)
+		ui:text(c:t("net.password"), { color = COLORS.dim })
+		server.password = form.textField(ui, "menu:network:password", server.password, { password = true, maxLength = 64 }).value
+		local error = c.app.net_error
+		if connecting then
+			ui:text(c:t("net.connecting"), { color = COLORS.dim, wrap = true })
+		elseif error then
+			ui:text(c:t(error.key, { url = error.url or "", seconds = error.seconds or 0 }), { color = COLORS.bad, wrap = true })
+		end
+		ui:text(c:t("menu.sharedWorld"), { font = "small", color = COLORS.muted, wrap = true })
+	end)
+	if back then
+		c.app:clear_net_error()
+		screen = "main"
+	end
+end
+
 local function aboutWindow(c)
 	local ui = c.ui
 	local width = if ui.width < NARROW then math.min(280, ui.width - 32) else 300
@@ -505,7 +597,7 @@ local function aboutWindow(c)
 		end
 		ui:text(ui:upper(c:t("menu.sourceCode")), { color = COLORS.muted })
 		form.link(ui, c.app, "about:repo", "github.com/vicimpa/kharos", menu.data.repository)
-		ui:text(c:t("menu.protocolVersion", { version = menu.data.protocol }), { color = COLORS.muted })
+		ui:text(c:t("menu.protocolVersion", { version = c.app.protocol }), { color = COLORS.muted })
 	end)
 	if back then
 		screen = "main"
@@ -513,6 +605,10 @@ local function aboutWindow(c)
 end
 
 function menu.draw(c)
+	-- Связь с сервером кончилась или вход не удался — окно «Сеть» с причиной.
+	if c.app.net_error and screen ~= "network" then
+		open(c, "network")
+	end
 	logoRow(c)
 	if screen == "main" then
 		mainWindow(c)
@@ -522,6 +618,8 @@ function menu.draw(c)
 		aboutWindow(c)
 	elseif screen == "saves" then
 		savesWindow(c)
+	elseif screen == "network" then
+		networkWindow(c)
 	elseif screen == "settings" then
 		local ui = c.ui
 		if settings.window(c, place(ui)) then

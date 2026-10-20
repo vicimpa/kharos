@@ -58,6 +58,8 @@ pub struct App {
   link: AppLink,
   /// Пора закрыть игру.
   pub quit: bool,
+  /// Идёт вход на сервер: ждём приветствия, партия меню живёт.
+  joining: Option<Joining>,
   /// Когда партию слота сохраняли в последний раз, секунды запуска.
   saved_at: f64,
   /// Сколько партий запущено: по нему сценарий узнаёт, что новая партия появилась.
@@ -194,7 +196,7 @@ impl App {
       }
       None => None,
     };
-    let mut app = Self { renderer, game: None, loading, first, mods, sound, link, quit: false, saved_at: 0.0, generation: 0, show_ui: true, patient: options.patient, seed: options.seed };
+    let mut app = Self { renderer, game: None, loading, first, mods, sound, link, quit: false, joining: None, saved_at: 0.0, generation: 0, show_ui: true, patient: options.patient, seed: options.seed };
     if app.loading.is_none() {
       app.begin()?;
     }
@@ -204,9 +206,16 @@ impl App {
   /// Первая партия — после загрузки.
   fn begin(&mut self) -> Result<(), String> {
     self.loading = None;
-    let game = Self::launch(&mut self.renderer, &self.mods, self.first.as_deref(), &serde_json::Value::Object(Default::default()), None, self.sound.clone(), self.link.clone(), self.seed)?;
+    let game = Self::launch(&mut self.renderer, &self.mods, self.first.as_deref(), &serde_json::Value::Object(Default::default()), None, self.sound.clone(), self.link.clone(), self.seed, None)?;
     self.game = Some(game);
     self.generation += 1;
+    // В браузере ?server=адрес (и ?name=ник) — сразу на сервер: ссылка «играть на сервере».
+    #[cfg(target_arch = "wasm32")]
+    if let Some(url) = web::query("server") {
+      let mut state = self.link.borrow_mut();
+      let name = web::query("name").or_else(|| state.prefs.get("server").and_then(|server| server.get("name")).and_then(serde_json::Value::as_str).map(str::to_string)).unwrap_or_default();
+      self.joining = Some(Joining::new(&self.mods, &mut state, &url, &name, "", crate::clock::seconds()));
+    }
     Ok(())
   }
 
@@ -241,7 +250,8 @@ impl App {
 
   /// Новая партия: хост, клиентская машина, атлас, земля и мини-карта — в рендер.
   #[allow(clippy::too_many_arguments)]
-  fn launch(renderer: &mut Renderer, mods: &[Mod], game: Option<&str>, options: &serde_json::Value, slot: Option<String>, sound: Option<Rc<audio::Engine>>, link: AppLink, seed: Option<u32>) -> Result<Game, String> {
+  /// remote — партия по сети: приветствие сервера и связь с ним.
+  fn launch(renderer: &mut Renderer, mods: &[Mod], game: Option<&str>, options: &serde_json::Value, slot: Option<String>, sound: Option<Rc<audio::Engine>>, link: AppLink, seed: Option<u32>, remote: Option<(net::Welcome, Box<dyn net::Link>)>) -> Result<Game, String> {
     let fonts = gui::Fonts::new(&FONTS)?;
     renderer.reset_font();
     // Мир слота — из сохранения; пустой слот заводит новый мир по настройкам.
@@ -252,7 +262,11 @@ impl App {
       let camera = slot.as_ref().and_then(|id| saves.and_then(|saves| saves.get(id)).and_then(|meta| meta.get("camera").cloned()));
       (world, camera)
     };
-    let mut game = match Self::remote(mods, game, options, world.is_some(), &link)? {
+    let remote = match remote {
+      Some(remote) => Some(remote),
+      None => Self::remote(mods, game, options, world.is_some(), &link)?,
+    };
+    let mut game = match remote {
       Some((welcome, remote)) => Game::join(mods.to_vec(), welcome, remote, fonts, sound, link.clone())?,
       None => Game::new(mods.to_vec(), game, options, world.as_ref(), 1, fonts, sound, link.clone())?,
     };
@@ -289,16 +303,21 @@ impl App {
         return Ok(None);
       }
       if let Ok(url) = std::env::var("KHAROS_SERVER") {
-        let ids = state.prefs.get("servers").cloned().unwrap_or_default();
-        let id = ids.get(&url).and_then(|entry| entry.get("id")).and_then(serde_json::Value::as_str).map(str::to_string);
+        // Проверки и снимки: вход ждём здесь же, а не между кадрами.
         let name = std::env::var("KHAROS_NAME").unwrap_or_default();
         let password = std::env::var("KHAROS_PASSWORD").unwrap_or_default();
-        let mut socket = net::Socket::connect(&url, net::hello(mods, &name, id, &password))?;
-        let welcome = socket.welcome(std::time::Duration::from_secs(10))?;
-        let mut ids = ids.as_object().cloned().unwrap_or_default();
-        ids.insert(url, serde_json::json!({ "id": welcome.id }));
-        state.prefs.set("servers", serde_json::Value::Object(ids));
-        return Ok(Some((welcome, Box::new(socket))));
+        let mut joining = Joining::new(mods, &mut state, &url, &name, &password, crate::clock::seconds());
+        drop(state);
+        loop {
+          match joining.poll(crate::clock::seconds()) {
+            Ok(Some(welcome)) => {
+              let (welcome, link) = joining.enter(welcome, &mut link.borrow_mut());
+              return Ok(Some((welcome, link)));
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(5)),
+            Err(error) => return Err(format!("{url}: {error}")),
+          }
+        }
       }
       if std::env::var("KHAROS_NET").as_deref() != Ok("loopback") {
         return Ok(None);
@@ -313,6 +332,34 @@ impl App {
     {
       let _ = (mods, game, options, saved, link);
       Ok(None)
+    }
+  }
+
+  /// Вход на сервер между кадрами: ждём приветствия; вошли — партия по сети, нет — ошибка для окна «Сеть».
+  fn join(&mut self, now: f64) -> Result<(), String> {
+    let Some(joining) = self.joining.as_mut() else { return Ok(()) };
+    match joining.poll(now) {
+      Ok(None) => Ok(()),
+      Ok(Some(welcome)) => {
+        let joining = self.joining.take().expect("вход");
+        let url = joining.url.clone();
+        let remote = joining.enter(welcome, &mut self.link.borrow_mut());
+        self.save();
+        self.link.borrow_mut().editing = false;
+        self.game = Some(Self::launch(&mut self.renderer, &self.mods, None, &serde_json::Value::Null, None, self.sound.clone(), self.link.clone(), self.seed, Some(remote))?);
+        self.generation += 1;
+        let mut state = self.link.borrow_mut();
+        state.net.connecting = None;
+        state.net.server = Some(url);
+        Ok(())
+      }
+      Err(error) => {
+        self.joining = None;
+        let mut state = self.link.borrow_mut();
+        state.net.connecting = None;
+        state.net.error = Some(error);
+        Ok(())
+      }
     }
   }
 
@@ -339,8 +386,18 @@ impl App {
     }
     // Графика игрока (settings.graphics в моде): рендер читает её каждый кадр, смена видна сразу.
     self.renderer.graphics = self.graphics();
+    self.join(input.time)?;
     let Some(game) = &mut self.game else { return Ok(()) };
     let (frame, view) = game.frame(input)?;
+    // Связь с сервером кончилась — в меню, к окну «Сеть» с причиной.
+    if let Some(reason) = game.disconnected() {
+      let mut state = self.link.borrow_mut();
+      let url = state.net.server.take();
+      state.net.error = Some(serde_json::json!({ "key": reason, "url": url, "password": reason.contains("assword") }));
+      if let Some(menu) = state.menu.clone() {
+        state.request = Some(AppRequest::Start { game: menu, options: serde_json::Value::Object(Default::default()), slot: None, editor: false });
+      }
+    }
     let size = [size[0] as i32, size[1] as i32];
     self.renderer.draw_world(&view, &frame, size);
     {
@@ -369,8 +426,9 @@ impl App {
     match request {
       Some(AppRequest::Start { game, options, slot, editor }) => {
         self.save();
+        self.link.borrow_mut().net.server = None;
         self.link.borrow_mut().editing = editor;
-        self.game = Some(Self::launch(&mut self.renderer, &self.mods, Some(&game), &options, slot, self.sound.clone(), self.link.clone(), self.seed)?);
+        self.game = Some(Self::launch(&mut self.renderer, &self.mods, Some(&game), &options, slot, self.sound.clone(), self.link.clone(), self.seed, None)?);
         self.generation += 1;
         self.saved_at = input.time;
       }
@@ -381,6 +439,14 @@ impl App {
           Self::upload_land(&mut self.renderer, game);
         }
         self.link.borrow_mut().options = options;
+      }
+      Some(AppRequest::Join { url, name, password }) => {
+        let mut state = self.link.borrow_mut();
+        if let Some(error) = net::refuse_url(&url) {
+          state.net.error = Some(error);
+        } else {
+          self.joining = Some(Joining::new(&self.mods, &mut state, &url, &name, &password, input.time));
+        }
       }
       Some(AppRequest::Quit) => {
         self.save();
@@ -429,7 +495,7 @@ impl App {
   pub fn start(&mut self, game: &str, options: &serde_json::Value) -> Result<(), String> {
     self.link.borrow_mut().request = None;
     self.link.borrow_mut().editing = false;
-    self.game = Some(Self::launch(&mut self.renderer, &self.mods, Some(game), options, None, self.sound.clone(), self.link.clone(), self.seed)?);
+    self.game = Some(Self::launch(&mut self.renderer, &self.mods, Some(game), options, None, self.sound.clone(), self.link.clone(), self.seed, None)?);
     self.generation += 1;
     Ok(())
   }
@@ -452,4 +518,65 @@ pub fn run() {
 #[cfg(target_arch = "wasm32")]
 pub fn run() {
   web::run();
+}
+
+/// Вход на сервер: связь открыта, вход послан, ждём приветствия.
+struct Joining {
+  link: Box<dyn net::Link>,
+  url: String,
+  name: String,
+  started: f64,
+  /// Пришедшее вместе с приветствием: первые кадры.
+  pending: Vec<kharos_net::Message>,
+}
+
+/// Сколько ждать приветствия.
+const JOIN_WAIT: f64 = 10.0;
+
+impl Joining {
+  /// Открывает связь и шлёт вход: под каким именем сервер помнит игрока — из настроек по адресу.
+  fn new(mods: &[Mod], state: &mut AppState, url: &str, name: &str, password: &str, now: f64) -> Self {
+    let id = state.prefs.get("servers").and_then(|servers| servers.get(url)).and_then(|entry| entry.get("id")).and_then(serde_json::Value::as_str).map(str::to_string);
+    state.net.connecting = Some(url.to_string());
+    state.net.error = None;
+    let link = net::open(url, net::hello(mods, name, id, password));
+    Self { link, url: url.to_string(), name: name.to_string(), started: now, pending: Vec::new() }
+  }
+
+  /// Вошли — приветствие; отказ, обрыв или тишина дольше JOIN_WAIT — ошибка { key, url, seconds, password }.
+  fn poll(&mut self, now: f64) -> Result<Option<net::Welcome>, serde_json::Value> {
+    let failed = |key: &str| serde_json::json!({ "key": key, "url": self.url, "seconds": JOIN_WAIT, "password": key.contains("assword") });
+    self.link.update(now).map_err(|error| serde_json::json!({ "key": error }))?;
+    let mut found = None;
+    for message in self.link.receive() {
+      if found.is_some() {
+        self.pending.push(message);
+        continue;
+      }
+      match net::welcome(&message) {
+        Ok(Some(welcome)) => found = Some(welcome),
+        Ok(None) => {}
+        Err(reason) => return Err(failed(&reason)),
+      }
+    }
+    if found.is_some() {
+      return Ok(found);
+    }
+    if let Some(reason) = self.link.closed() {
+      return Err(failed(&reason));
+    }
+    if now - self.started > JOIN_WAIT {
+      return Err(failed("net.noReply"));
+    }
+    Ok(None)
+  }
+
+  /// Вошли: имя игрока на этом сервере, ник и адрес — в настройки (недавние серверы); связь — партии.
+  fn enter(self, welcome: net::Welcome, state: &mut AppState) -> (net::Welcome, Box<dyn net::Link>) {
+    let mut servers = state.prefs.get("servers").and_then(serde_json::Value::as_object).cloned().unwrap_or_default();
+    servers.insert(self.url.clone(), serde_json::json!({ "id": welcome.id, "played": crate::clock::epoch_millis(), "name": self.name }));
+    state.prefs.set("servers", serde_json::Value::Object(servers));
+    state.prefs.set("server", serde_json::json!({ "url": self.url, "name": self.name }));
+    (welcome, Box::new(net::Buffered { link: self.link, pending: self.pending }))
+  }
 }

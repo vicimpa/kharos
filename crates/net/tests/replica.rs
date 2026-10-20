@@ -159,7 +159,7 @@ fn server_lets_players_in_and_remembers_them() {
   let mut server = Server::new(mods(), Some("skirmish"), 7, json!({}), "тайна".into()).unwrap();
   let peer = server.connect();
   server.receive(peer, hello(None, "не та")).unwrap();
-  assert_eq!(welcome(server.take(peer).0), ServerMessage::Refused { reason: "net.password".into(), password: true });
+  assert_eq!(welcome(server.take(peer).0), ServerMessage::Refused { reason: "net.wrongPassword".into(), password: true });
   assert!(server.take(peer).1, "после отказа — закрыть");
   let peer = server.connect();
   server.receive(peer, Message::Text(ClientMessage::Hello { version: VERSION + 1, mods: mods_sum(&mods()), name: String::new(), id: None, password: "тайна".into() }.text())).unwrap();
