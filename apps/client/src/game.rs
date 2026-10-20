@@ -16,6 +16,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+/// Сторона мини-карты в точках, больше которой она не бывает: у карты больше — точка на несколько тайлов.
+const MINIMAP_MOST: usize = 1024;
+
 /// Длина тика хоста.
 pub const STEP: f64 = 0.05;
 /// С какой доли срока следы на земле растворяются: пиксель за пикселем, каждый в свой случайный момент.
@@ -67,8 +70,8 @@ pub struct Game {
   ghost_dress: HashMap<Entity, crate::script::Dress>,
   /// С какой правкой знания своего игрока о земле она нарисована (memory.rs, LandRecall).
   land_seen: Option<(u64, u64)>,
-  /// Палитра мини-карты (minimap вида lands/) и data.size — перекрашивать пиксели правок земли.
-  land_colors: (Vec<Vec<Vec<u8>>>, i32),
+  /// Палитра мини-карты (minimap вида lands/), data.size и сколько тайлов в точке — перекрашивать точки правок земли.
+  land_colors: (Vec<Vec<Vec<u8>>>, i32, i32),
   /// Партия — редактор: мир стоит, приказы — сразу.
   editor: bool,
   /// Партия по сети: связь, реплика и кадры, которые ещё не показаны.
@@ -111,11 +114,11 @@ fn error(what: impl std::fmt::Display) -> impl FnOnce(mlua::Error) -> String {
 /// Земля партии и её мини-карта: генератор из вида `lands/` (data.land), карта — data.size тайлов от центра. Своя
 /// копия генератора уходит в состояние клиента — для скриптов (c:terrain).
 #[allow(clippy::type_complexity)]
-fn land_of(client: &Content, game_table: &Table, state: &Rc<RefCell<ClientState>>) -> Result<(Option<Land>, Option<(Vec<u8>, [usize; 2])>, (Vec<Vec<Vec<u8>>>, i32)), String> {
+fn land_of(client: &Content, game_table: &Table, state: &Rc<RefCell<ClientState>>) -> Result<(Option<Land>, Option<(Vec<u8>, [usize; 2])>, (Vec<Vec<Vec<u8>>>, i32, i32)), String> {
   let data = game_table.get::<Option<Table>>("data").map_err(error("data партии"))?;
   let Some(name) = data.as_ref().and_then(|data| data.get::<Option<String>>("land").ok().flatten()) else {
     state.borrow_mut().land = None;
-    return Ok((None, None, (Vec::new(), 0)));
+    return Ok((None, None, (Vec::new(), 0, 1)));
   };
   let kind = named(client, "lands", &name)?;
   let config: GeneratorConfig = kharos_world::land_config(client, data.as_ref().expect("data"))?.expect("местность");
@@ -123,18 +126,28 @@ fn land_of(client: &Content, game_table: &Table, state: &Rc<RefCell<ClientState>
   let mut land = Land::new(config, LandArea::of(-size, -size, size, size));
   // Мини-карта: тайл — пиксель цветом своей местности и биома (палитра — minimap вида, как PALETTE в minimap.ts).
   let palette: Vec<Vec<Vec<u8>>> = kind.get::<Option<Vec<Vec<Vec<u8>>>>>("minimap").map_err(error(format!("lands/{name}.minimap")))?.unwrap_or_default();
+  // Большая карта — точка на квадрат step × step тайлов по его середине и по генератору без гор (sample_terrain, как
+  // схема карты): тайлы всей карты считались бы секунды, а текстура весила бы десятки мегабайт.
   let side = (size * 2) as usize;
-  let mut pixels = vec![0u8; side * side * 4];
-  for y in 0..side {
-    for x in 0..side {
-      let tile = land.tile(x as i32 - size, y as i32 - size);
-      let (terrain, biome) = (tile[0] as usize & 3, (tile[1] >> 6) as usize);
+  let step = side.div_ceil(MINIMAP_MOST).max(1);
+  let pixels_side = side.div_ceil(step);
+  let mut pixels = vec![0u8; pixels_side * pixels_side * 4];
+  for py in 0..pixels_side {
+    for px in 0..pixels_side {
+      let (x, y) = ((px * step + step / 2) as i32 - size, (py * step + step / 2) as i32 - size);
+      let (terrain, biome) = if step == 1 {
+        let tile = land.tile(x, y);
+        (tile[0] as usize & 3, (tile[1] >> 6) as usize)
+      } else {
+        let (terrain, biome) = kharos_engine::terrain::sample_terrain(&land.config, x as f64 + 0.5, y as f64 + 0.5);
+        (terrain as usize, biome as usize)
+      };
       let color = palette.get(biome).and_then(|row| row.get(terrain)).cloned().unwrap_or(vec![128, 128, 128]);
-      pixels[(y * side + x) * 4..(y * side + x) * 4 + 4].copy_from_slice(&[color[0], color[1], color[2], 255]);
+      pixels[(py * pixels_side + px) * 4..(py * pixels_side + px) * 4 + 4].copy_from_slice(&[color[0], color[1], color[2], 255]);
     }
   }
   state.borrow_mut().land = Some(RefCell::new(Land::new(land.config.clone(), land.area)));
-  Ok((Some(land), Some((pixels, [side, side])), (palette, size)))
+  Ok((Some(land), Some((pixels, [pixels_side, pixels_side])), (palette, size, step as i32)))
 }
 
 /// Вид раздела по имени из настроек партии.
@@ -640,18 +653,23 @@ impl Game {
       frame.fog = Some([(bounds.left - 1) as f32, (bounds.top - 1) as f32]);
       let changed = vision.changed.get(&state.player).copied().unwrap_or(0);
       if self.fog_seen != Some(changed) {
+        // Следующая правка за той, что уже нарисована, — только её прямоугольник; пропустили — весь туман.
+        let rect = vision.rect.get(&state.player).copied().filter(|_| self.fog_seen.map(|seen| seen + 1) == Some(changed));
         self.fog_seen = Some(changed);
         let (w, h) = (bounds.width() + 2, bounds.height() + 2);
-        let mut pixels = vec![(0.94f32 * 255.0).round() as u8; (w * h) as usize];
-        if let Some(cells) = vision.cells.get(&state.player) {
-          for y in 0..bounds.height() {
-            for x in 0..bounds.width() {
+        let cells = vision.cells.get(&state.player);
+        let [left, top, right, bottom] = rect.unwrap_or([-1, -1, bounds.width() + 1, bounds.height() + 1]);
+        let (rw, rh) = (right - left, bottom - top);
+        let mut pixels = vec![(0.94f32 * 255.0).round() as u8; (rw * rh) as usize];
+        if let Some(cells) = cells {
+          for y in top.max(0)..bottom.min(bounds.height()) {
+            for x in left.max(0)..right.min(bounds.width()) {
               let cell = cells[(y * bounds.width() + x) as usize];
-              pixels[((y + 1) * w + x + 1) as usize] = [240u8, 128, 0][cell as usize];
+              pixels[((y - top) * rw + x - left) as usize] = [240u8, 128, 0][cell as usize];
             }
           }
         }
-        frame.fog_update = Some((pixels, [w, h]));
+        frame.fog_update = Some((pixels, [rw, rh], [left + 1, top + 1], [w, h]));
       }
     }
     let schema = &world.world.schema;
@@ -877,12 +895,12 @@ impl Game {
       }
     }
     mine.end_batch();
-    let (palette, size) = &self.land_colors;
+    let (palette, size, step) = &self.land_colors;
     for &(x, y, _) in &frame.land_edits {
       let tile = mine.tile(x, y);
       let (terrain, biome) = (tile[0] as usize & 3, (tile[1] >> 6) as usize);
       let color = palette.get(biome).and_then(|row| row.get(terrain)).cloned().unwrap_or(vec![128, 128, 128]);
-      frame.minimap_edits.push((x + size, y + size, [color[0], color[1], color[2], 255]));
+      frame.minimap_edits.push(((x + size) / step, (y + size) / step, [color[0], color[1], color[2], 255]));
     }
   }
 

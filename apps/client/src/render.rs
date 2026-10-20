@@ -85,7 +85,8 @@ pub struct Frame {
   /// Туман войны: левый верхний угол текстуры в тайлах (рамка в тайл за краем карты) и новая картинка, если обзор
   /// поменялся (альфа на тайл, размер). None — тумана нет.
   pub fog: Option<[f32; 2]>,
-  pub fog_update: Option<(Vec<u8>, [i32; 2])>,
+  /// Новый туман: пиксели прямоугольника, его размер, место в текстуре и размер всей текстуры.
+  pub fog_update: Option<(Vec<u8>, [i32; 2], [i32; 2], [i32; 2])>,
   /// Правки земли, которые узнал свой игрок: тайл и хранимые байты; окно перезальёт тронутые чанки.
   pub land_edits: Vec<(i32, i32, [u8; 4])>,
   /// Пиксели мини-карты, сменившие цвет с правками земли: место на картинке и цвет.
@@ -721,13 +722,16 @@ impl Renderer {
 
   /// Туман войны поверх освещённого мира (fogPass.ts).
   unsafe fn fog(&mut self, view: &View, frame: &Frame, size: [i32; 2]) {
-    if let Some((pixels, fog_size)) = &frame.fog_update {
+    if let Some((pixels, part, at, fog_size)) = &frame.fog_update {
       match &self.fog {
+        // Текстура того же размера — заливается только поменявшийся прямоугольник.
         Some((texture, old)) if old == fog_size => {
           self.gl.gl.bind_texture(glow::TEXTURE_2D, Some(*texture));
           self.gl.gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
-          self.gl.gl.tex_sub_image_2d(glow::TEXTURE_2D, 0, 0, 0, fog_size[0], fog_size[1], glow::RED, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(Some(pixels)));
+          self.gl.gl.tex_sub_image_2d(glow::TEXTURE_2D, 0, at[0], at[1], part[0], part[1], glow::RED, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(Some(pixels)));
         }
+        // Новая текстура — только из всего тумана: кусок без остального не нарисовать.
+        _ if part != fog_size => {}
         _ => {
           if let Some((texture, _)) = self.fog.take() {
             self.gl.gl.delete_texture(texture);

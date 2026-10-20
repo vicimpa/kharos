@@ -110,7 +110,7 @@ impl Replica {
     if let Some(vision) = vision.as_mut() {
       if let Some(runs) = &frame.explored {
         let size = (vision.bounds.width() * vision.bounds.height()).max(0) as usize;
-        vision.cells.insert(player, cells_of(runs, size));
+        vision.set_explored(player, cells_of(runs, size));
       }
       if vision.fog && (frame.explored.is_some() || frame.tick % kharos_world::vision::TICKS == 1) {
         vision.update(world);

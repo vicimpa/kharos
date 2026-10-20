@@ -538,8 +538,7 @@ impl Host {
       if let (Some(vision), Some(Json::Object(saved))) = (state.vision.as_mut(), snapshot.get("vision")) {
         for (player, cells) in saved {
           let (Ok(player), Some(cells)) = (player.parse::<u32>(), cells.as_array()) else { continue };
-          vision.cells.insert(player, run_length_decode(cells));
-          *vision.changed.entry(player).or_default() += 1;
+          vision.set_explored(player, run_length_decode(cells));
         }
       }
     }

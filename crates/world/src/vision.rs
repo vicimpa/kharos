@@ -41,26 +41,46 @@ pub struct Vision {
   pub cells: BTreeMap<u32, Vec<u8>>,
   /// Растёт, когда у игрока поменялось видимое: клиенту — перерисовать туман.
   pub changed: BTreeMap<u32, u64>,
+  /// Где поменялось в последний раз: тайлы [left, top, right, bottom) от угла карты. Клиент, пропустивший правку,
+  /// перерисовывает туман целиком.
+  pub rect: BTreeMap<u32, [i32; 4]>,
   /// Ячейки CELL, где игрок видит хоть один тайл.
   pub visible: BTreeMap<u32, BTreeSet<(i32, i32)>>,
   /// Чьи глаза считать; None — всех. Реплика клиента считает только своего игрока: чужие глаза в ней тоже есть.
   pub only: Option<u32>,
+  /// Тайлы, зажжённые при прошлом пересчёте, по возрастанию: гасятся только они, а не вся карта.
+  lit: BTreeMap<u32, Vec<u32>>,
 }
 
 impl Vision {
   pub fn new(bounds: Bounds, fog: bool) -> Self {
-    Self { bounds, fog, cells: BTreeMap::new(), changed: BTreeMap::new(), visible: BTreeMap::new(), only: None }
+    Self { bounds, fog, cells: BTreeMap::new(), changed: BTreeMap::new(), rect: BTreeMap::new(), visible: BTreeMap::new(), only: None, lit: BTreeMap::new() }
   }
 
   fn index(&self, x: i32, y: i32) -> Option<usize> {
     self.bounds.contains(x, y).then(|| ((y - self.bounds.top) * self.bounds.width() + x - self.bounds.left) as usize)
   }
 
-  /// Пересчёт: видимое гаснет до разведанного, глаза каждого игрока зажигают свои круги.
+  /// Разведанное игрока из сохранения или от сервера: видимое пересчитается при следующем пересчёте.
+  pub fn set_explored(&mut self, player: u32, mut cells: Vec<u8>) {
+    for cell in &mut cells {
+      *cell = (*cell).min(1);
+    }
+    self.cells.insert(player, cells);
+    self.lit.remove(&player);
+    *self.changed.entry(player).or_default() += 1;
+    self.rect.insert(player, [0, 0, self.bounds.width(), self.bounds.height()]);
+  }
+
+  /// Пересчёт: глаза каждого игрока зажигают свои круги; что было видно в прошлый раз и не видно теперь, гаснет до
+  /// разведанного. Работа — по зажжённым тайлам, а не по всей карте: на карте 3072 у каждого игрока девять миллионов
+  /// тайлов, а видит он десятки тысяч.
   pub fn update(&mut self, world: &World) {
     let (Some(sight), Some(owner), Some(position)) = (world.schema.id("Sight"), world.schema.id("Owner"), world.schema.id("Position")) else { return };
     let size = (self.bounds.width() * self.bounds.height()).max(0) as usize;
-    let mut fresh: BTreeMap<u32, Vec<u8>> = BTreeMap::new();
+    let bounds = self.bounds;
+    let width = bounds.width();
+    let mut lit: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
     let mut visible: BTreeMap<u32, BTreeSet<(i32, i32)>> = BTreeMap::new();
     let store = &world.stores[sight];
     for (row, &entity) in store.entities.iter().enumerate() {
@@ -70,10 +90,9 @@ impl Vision {
         continue;
       }
       let player = player as u32;
-      let cells = fresh.entry(player).or_insert_with(|| self.cells.get(&player).map_or_else(|| vec![0; size], |old| old.iter().map(|&cell| cell.min(1)).collect()));
+      let tiles = lit.entry(player).or_default();
       let seen = visible.entry(player).or_default();
       let reach = radius * radius;
-      let bounds = self.bounds;
       let from_y = bounds.top.max((y - radius).floor() as i32);
       let to_y = (bounds.bottom - 1).min((y + radius).floor() as i32);
       for tile_y in from_y..=to_y {
@@ -81,25 +100,46 @@ impl Vision {
         let span = (reach - dy * dy).max(0.0).sqrt();
         let from_x = bounds.left.max((x - span).floor() as i32);
         let to_x = (bounds.right - 1).min((x + span).floor() as i32);
+        if from_x > to_x {
+          continue;
+        }
         for cell_x in from_x.div_euclid(CELL)..=to_x.div_euclid(CELL) {
-          if from_x <= to_x {
-            seen.insert((cell_x, tile_y.div_euclid(CELL)));
-          }
+          seen.insert((cell_x, tile_y.div_euclid(CELL)));
         }
-        for tile_x in from_x..=to_x {
-          cells[((tile_y - bounds.top) * bounds.width() + tile_x - bounds.left) as usize] = 2;
-        }
+        let row = (tile_y - bounds.top) * width - bounds.left;
+        tiles.extend((from_x..=to_x).map(|tile_x| (row + tile_x) as u32));
       }
     }
-    // Игрок без глаз: видимое гаснет, разведанное остаётся.
-    for (player, old) in &self.cells {
-      fresh.entry(*player).or_insert_with(|| old.iter().map(|&cell| cell.min(1)).collect());
-    }
     self.visible = visible;
-    for (player, cells) in fresh {
-      if self.cells.get(&player) != Some(&cells) {
-        *self.changed.entry(player).or_insert(0) += 1;
-        self.cells.insert(player, cells);
+    // Игроки с глазами сейчас и те, у кого видимое было: у последних оно гаснет.
+    let players: BTreeSet<u32> = lit.keys().chain(self.lit.keys()).copied().collect();
+    for player in players {
+      let mut new = lit.remove(&player).unwrap_or_default();
+      new.sort_unstable();
+      new.dedup();
+      let old = self.lit.remove(&player).unwrap_or_default();
+      let cells = self.cells.entry(player).or_insert_with(|| vec![0; size]);
+      if new == old {
+        if !new.is_empty() {
+          self.lit.insert(player, new);
+        }
+        continue;
+      }
+      let (mut left, mut top, mut right, mut bottom) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+      for &index in old.iter().chain(&new) {
+        let (x, y) = (index as i32 % width, index as i32 / width);
+        (left, top, right, bottom) = (left.min(x), top.min(y), right.max(x + 1), bottom.max(y + 1));
+      }
+      for &index in &old {
+        cells[index as usize] = 1;
+      }
+      for &index in &new {
+        cells[index as usize] = 2;
+      }
+      *self.changed.entry(player).or_insert(0) += 1;
+      self.rect.insert(player, [left, top, right, bottom]);
+      if !new.is_empty() {
+        self.lit.insert(player, new);
       }
     }
   }
