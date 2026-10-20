@@ -1,5 +1,6 @@
 //! Сценарии tests/scenarios/*.luau: клиент проходит каждый в невидимом окне (`kharos --scenario`), код выхода 0 —
-//! сценарий дошёл до конца. Нужен GPU: окно невидимое, но настоящее.
+//! сценарий дошёл до конца. Каждый — дважды: одиночной игрой и через сервер в том же процессе (`KHAROS_NET=loopback`,
+//! клиент видит реплику, docs/net.md). Нужен GPU: окно невидимое, но настоящее.
 
 use std::path::Path;
 use std::process::Command;
@@ -12,9 +13,11 @@ fn scenarios_pass() {
   assert!(!paths.is_empty(), "сценариев нет");
   let mut failed = Vec::new();
   for path in &paths {
-    let output = Command::new(env!("CARGO_BIN_EXE_kharos")).current_dir(&root).arg("--scenario").arg(path).args(["--timeout", "300"]).output().expect("клиент");
-    if !output.status.success() {
-      failed.push(format!("{}:\n{}{}", path.display(), String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)));
+    for net in ["", "loopback"] {
+      let output = Command::new(env!("CARGO_BIN_EXE_kharos")).current_dir(&root).env("KHAROS_NET", net).arg("--scenario").arg(path).args(["--timeout", "300"]).output().expect("клиент");
+      if !output.status.success() {
+        failed.push(format!("{} {net}:\n{}{}", path.display(), String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)));
+      }
     }
   }
   assert!(failed.is_empty(), "не прошли:\n{}", failed.join("\n"));

@@ -1093,6 +1093,7 @@ dependencies = [
  "js-sys",
  "kharos-content",
  "kharos-engine",
+ "kharos-net",
  "kharos-world",
  "libc",
  "png",
@@ -1131,6 +1132,7 @@ dependencies = [
  "kharos-content",
  "kharos-engine",
  "kharos-world",
+ "serde",
  "serde_json",
  "ulua-rt",
 ]

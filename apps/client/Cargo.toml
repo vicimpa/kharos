@@ -17,6 +17,7 @@ fontdue = "0.9"
 glow = "0.18"
 kharos-content = { path = "../../crates/content" }
 kharos-engine = { path = "../../crates/engine" }
+kharos-net = { path = "../../crates/net" }
 kharos-world = { path = "../../crates/world" }
 mlua = { package = "ulua-rt", version = "0.1.7", features = ["serde"] }
 png = "0.17"

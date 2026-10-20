@@ -12,6 +12,7 @@ mod gui;
 mod input;
 mod lang;
 mod loading;
+mod net;
 mod render;
 mod saves;
 #[cfg(not(target_arch = "wasm32"))]
@@ -251,7 +252,10 @@ impl App {
       let camera = slot.as_ref().and_then(|id| saves.and_then(|saves| saves.get(id)).and_then(|meta| meta.get("camera").cloned()));
       (world, camera)
     };
-    let mut game = Game::new(mods.to_vec(), game, options, world.as_ref(), 1, fonts, sound, link.clone())?;
+    let mut game = match Self::loopback(mods, game, options, world.is_some(), &link)? {
+      Some((welcome, loopback)) => Game::join(mods.to_vec(), welcome, Box::new(loopback), fonts, sound, link.clone())?,
+      None => Game::new(mods.to_vec(), game, options, world.as_ref(), 1, fonts, sound, link.clone())?,
+    };
     // Зерно math.random скриптов: в сценарии — постоянное, в игре — от часов, каждая партия звучит по-своему.
     let seed = seed.unwrap_or_else(|| crate::clock::epoch_millis() as u64 as u32);
     game.client.lua.load(format!("math.randomseed({seed})")).exec().map_err(|error| format!("зерно скриптов: {error}"))?;
@@ -272,6 +276,28 @@ impl App {
     }
     Self::upload_land(renderer, &mut game);
     Ok(game)
+  }
+
+  /// KHAROS_NET=loopback: новая партия (не меню, не редактор, не из сохранения) — через сервер в том же процессе, как
+  /// по сети: клиент видит реплику, приказы идут сообщениями.
+  fn loopback(mods: &[Mod], game: Option<&str>, options: &serde_json::Value, saved: bool, link: &AppLink) -> Result<Option<(net::Welcome, net::Loopback)>, String> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+      let state = link.borrow();
+      if std::env::var("KHAROS_NET").as_deref() != Ok("loopback") || saved || state.editing || game.is_some_and(|game| state.menu.as_deref() == Some(game)) {
+        return Ok(None);
+      }
+      let seed = options.get("seed").and_then(serde_json::Value::as_f64).map_or(1, |seed| seed as u64);
+      let server = kharos_net::Server::new(mods.to_vec(), game, seed, options.clone(), String::new())?;
+      let mut loopback = net::Loopback::new(server);
+      let welcome = loopback.enter(mods)?;
+      Ok(Some((welcome, loopback)))
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+      let _ = (mods, game, options, saved, link);
+      Ok(None)
+    }
   }
 
   /// Земля и мини-карта партии — в рендер.

@@ -71,7 +71,21 @@ pub struct Game {
   land_colors: (Vec<Vec<Vec<u8>>>, i32),
   /// Партия — редактор: мир стоит, приказы — сразу.
   editor: bool,
+  /// Партия по сети: связь, реплика и кадры, которые ещё не показаны.
+  remote: Option<Remote>,
 }
+
+/// Партия по сети.
+struct Remote {
+  link: Box<dyn crate::net::Link>,
+  replica: kharos_net::Replica,
+  /// Пришедшие кадры: по одному на тик, как шли бы тики своего хоста.
+  queue: std::collections::VecDeque<kharos_net::Frame>,
+  schema: Rc<kharos_world::Schema>,
+}
+
+/// Сколько кадров копится в очереди, прежде чем клиент догоняет сервер: запас на неровный приход — тик-два.
+const QUEUE_MOST: usize = 3;
 
 /// Путь сущности: где её нарисовали в прошлый раз, сколько прошла и когда видели.
 struct Walk {
@@ -131,8 +145,6 @@ impl Game {
   pub fn new(mods: Vec<Mod>, game: Option<&str>, options: &serde_json::Value, save: Option<&serde_json::Value>, player: u32, fonts: Fonts, sound: Option<Rc<Engine>>, app: crate::script::AppLink) -> Result<Self, String> {
     let seed = options.get("seed").and_then(serde_json::Value::as_f64).map_or(1, |seed| seed as u64);
     let mut host = Host::new(mods.clone(), game, seed, options)?;
-    let game = host.game.clone();
-    let game = game.as_str();
     // Редактор (editor.ts): мир стоит, тумана нет — видно всё; новый мир — без игроков.
     let editor = app.borrow().editing;
     match save {
@@ -149,6 +161,24 @@ impl Game {
         vision.fog = false;
       }
     }
+    Self::assemble(host, mods, options, player, editor, fonts, sound, app, None)
+  }
+
+  /// Партия по сети: хост — реплика (тот же `Host::new`, что у сервера, но не запущенный), мир в ней — что присылает
+  /// сервер, приказы — ему.
+  pub fn join(mods: Vec<Mod>, welcome: crate::net::Welcome, link: Box<dyn crate::net::Link>, fonts: Fonts, sound: Option<Rc<Engine>>, app: crate::script::AppLink) -> Result<Self, String> {
+    let host = Host::new(mods.clone(), Some(&welcome.game), welcome.seed, &welcome.options)?;
+    let replica = kharos_net::Replica::new(&mut host.state.borrow_mut(), welcome.player);
+    let schema = host.state.borrow().world.schema.clone();
+    let remote = Remote { link, replica, queue: std::collections::VecDeque::new(), schema };
+    Self::assemble(host, mods, &welcome.options, welcome.player, false, fonts, sound, app, Some(remote))
+  }
+
+  /// Подача партии над хостом: клиентская машина, облики, камера, панели, звук.
+  #[allow(clippy::too_many_arguments)]
+  fn assemble(host: Host, mods: Vec<Mod>, options: &serde_json::Value, player: u32, editor: bool, fonts: Fonts, sound: Option<Rc<Engine>>, app: crate::script::AppLink, remote: Option<Remote>) -> Result<Self, String> {
+    let game = host.game.clone();
+    let game = game.as_str();
     let client = Content::load(Side::Client, mods).map_err(|error| error.to_string())?;
     client.apply_options(game, options)?;
     if client.checksum() != host.content.checksum() {
@@ -271,7 +301,7 @@ impl Game {
 
     let (land, minimap, land_colors) = land_of(&client, &game_table, &state)?;
 
-    Ok(Self { host, client, state, ctx, ctx_data, camera, panels, controls, atmosphere, effects, sounds, music, signals, looks, look_of, atlas: Some(atlas), land, minimap, audio, walked: HashMap::new(), drift: [0.0; 2], fog_seen: None, ghost_dress: HashMap::new(), land_seen: None, land_colors, editor, bar: 0, next_bar: 0.0, accumulator: 0.0, last: None, pending, palette })
+    Ok(Self { host, client, state, ctx, ctx_data, camera, panels, controls, atmosphere, effects, sounds, music, signals, looks, look_of, atlas: Some(atlas), land, minimap, audio, walked: HashMap::new(), drift: [0.0; 2], fog_seen: None, ghost_dress: HashMap::new(), land_seen: None, land_colors, editor, bar: 0, next_bar: 0.0, accumulator: 0.0, last: None, pending, palette, remote })
   }
 
   /// `c` клиентских скриптов партии — для функций сценария (`s:client`).
@@ -322,16 +352,20 @@ impl Game {
     if self.editor {
       self.accumulator = 0.0;
     }
-    while self.accumulator >= STEP {
-      if ticks == MAX_TICKS {
-        self.accumulator = 0.0;
-        break;
+    if self.remote.is_some() {
+      self.receive(input.time)?;
+    } else {
+      while self.accumulator >= STEP {
+        if ticks == MAX_TICKS {
+          self.accumulator = 0.0;
+          break;
+        }
+        self.state.borrow_mut().remember();
+        self.host.tick(STEP)?;
+        self.pending.extend(self.host.signals());
+        self.accumulator -= STEP;
+        ticks += 1;
       }
-      self.state.borrow_mut().remember();
-      self.host.tick(STEP)?;
-      self.pending.extend(self.host.signals());
-      self.accumulator -= STEP;
-      ticks += 1;
     }
     {
       let mut state = self.state.borrow_mut();
@@ -419,6 +453,10 @@ impl Game {
       (state.player, std::mem::take(&mut state.outbox))
     };
     for (name, args) in outbox {
+      if let Some(remote) = &mut self.remote {
+        remote.link.send(kharos_net::Message::Text(kharos_net::ClientMessage::Command { name, args }.text()));
+        continue;
+      }
       // В редакторе приказ — сразу: тиков нет.
       if self.editor {
         self.host.command_now(player, &name, args)?;
@@ -428,6 +466,43 @@ impl Game {
       }
     }
     Ok((self.build(&view, input.time)?, view))
+  }
+
+  /// Кадры сервера (партия по сети): по одному на тик по часам кадров, как тики своего хоста; накопилось больше
+  /// QUEUE_MOST — догоняет, кончились — ждёт на последнем.
+  fn receive(&mut self, now: f64) -> Result<(), String> {
+    let remote = self.remote.as_mut().expect("партия по сети");
+    remote.link.update(now)?;
+    for message in remote.link.receive() {
+      match message {
+        kharos_net::Message::Binary(bytes) if bytes.first() == Some(&kharos_net::protocol::FRAME) => remote.queue.push_back(kharos_net::Frame::decode(&bytes[1..], &remote.schema)?),
+        kharos_net::Message::Binary(_) => {}
+        kharos_net::Message::Text(text) => {
+          if let kharos_net::ServerMessage::Refused { reason, .. } = kharos_net::ServerMessage::parse(&text)? {
+            return Err(format!("сервер закрыл связь: {reason}"));
+          }
+        }
+      }
+    }
+    if let Some(reason) = remote.link.closed() {
+      return Err(format!("связь с сервером оборвалась: {reason}"));
+    }
+    let mut ticks = 0;
+    while let Some(frame) = (self.accumulator >= STEP || remote.queue.len() > QUEUE_MOST).then(|| remote.queue.pop_front()).flatten() {
+      self.state.borrow_mut().remember();
+      let signals = remote.replica.apply(&mut self.host.state.borrow_mut(), frame)?;
+      self.pending.extend(signals);
+      self.accumulator = (self.accumulator - STEP).max(0.0);
+      ticks += 1;
+      if ticks == MAX_TICKS * 2 {
+        break;
+      }
+    }
+    // Кадров нет — мир стоит на последнем, без забегания вперёд.
+    if remote.queue.is_empty() {
+      self.accumulator = self.accumulator.min(STEP);
+    }
+    Ok(())
   }
 
   /// Звук кадра: заказанные скриптами разовые звуки и музыка по тактам, если её задала партия.
