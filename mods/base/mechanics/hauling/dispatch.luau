@@ -48,7 +48,7 @@ local function dispatch(w)
 	for player, trucks in idle do
 		local requests = logistics.requests(w, player, flows)
 		local outlets, mines = {}, {}
-		for _, e in w:each({ "Building", "Inventory" }) do
+		for _, e in logistics.owned(w, { "Building", "Inventory" }, player) do
 			if not world.isReady(w, player, e) or w:has(e, "Converting") then
 				continue
 			end

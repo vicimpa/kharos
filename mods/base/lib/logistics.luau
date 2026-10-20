@@ -234,13 +234,22 @@ function logistics.missing(w, e: number): { [string]: number }
 end
 
 -- Готовое по порядку грузов.
+-- Готовое (всё, кроме руды): список общий на набор видов — не править.
+local waresCache = setmetatable({}, { __mode = "k" }) :: { [any]: { string } }
+
 local function wares(w): { string }
-	local list = {}
+	local protos = w.protos
+	local list = waresCache[protos]
+	if list then
+		return list
+	end
+	list = {}
 	for _, kind in goods.list(w) do
 		if kind.data.kind ~= "ore" then
 			table.insert(list, kind.name)
 		end
 	end
+	waresCache[protos] = list
 	return list
 end
 
@@ -378,6 +387,40 @@ function logistics.zoneOf(w, player: number, e: number, anywhere: boolean?)
 	return best
 end
 
+-- Сущности с компонентами names по хозяевам (Owner.player, без хозяина — 0), каждый список — в порядке w:each. В книге
+-- (goods.book — свой на запуск системы) перебор мира идёт раз за запуск, а не на каждый запрос каждого игрока и
+-- грузовика: состав мира за запуск не меняется, команды выполняются после него.
+local ownedCache = setmetatable({}, { __mode = "k" }) :: { [any]: { [string]: { [number]: { number } } } }
+
+local function owned(w, names: { string }, player: number): { number }
+	local cache = if type(w) == "table" then ownedCache[w] else nil
+	if type(w) == "table" and not cache then
+		cache = {}
+		ownedCache[w] = cache
+	end
+	local key = table.concat(names, ",")
+	local groups = cache and cache[key]
+	if not groups then
+		groups = {}
+		for _, e in w:each(names) do
+			local owner = w:get(e, "Owner")
+			local by = if owner then owner.player else 0
+			local list = groups[by]
+			if not list then
+				list = {}
+				groups[by] = list
+			end
+			table.insert(list, e)
+		end
+		if cache then
+			cache[key] = groups
+		end
+	end
+	return groups[player] or {}
+end
+
+logistics.owned = owned
+
 -- Заявки игрока: что, куда и сколько везти, с учётом того, что уже едет; важные — первыми.
 function logistics.requests(w, player: number, flows: Flows): { Request }
 	local requests: { Request } = {}
@@ -393,10 +436,7 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 		end
 	end
 	-- Стройки и производство: материалы, которых нет на месте; недостачу — целыми единицами.
-	for _, e in w:each({ "Owner", "Inventory" }) do
-		if w:get(e, "Owner").player ~= player then
-			continue
-		end
+	for _, e in owned(w, { "Owner", "Inventory" }, player) do
 		local site = w:has(e, "Site")
 		if not site and not w:has(e, "Producer") then
 			continue
@@ -410,7 +450,7 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 		end
 	end
 	-- Переработка: своя руда из своих шахт, в какой бы зоне они ни стояли; больше буфера не просит.
-	for _, e in w:each({ "Building", "Inventory", "Owner" }) do
+	for _, e in owned(w, { "Building", "Inventory", "Owner" }, player) do
 		local ore = dataOf(w, e).refines
 		if not ore or not world.isReady(w, player, e) or w:has(e, "Converting") or w:has(e, "Off") then
 			continue
@@ -423,7 +463,7 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 	-- Лаборатории: сырьё нынешней темы и головной, по LAB_STOCK каждого, но не больше своей доли того, что осталось
 	-- потратить. Руду — из своих шахт, где бы они ни стояли.
 	local labs = {}
-	for _, e in w:each({ "Building", "Owner", "Inventory" }) do
+	for _, e in owned(w, { "Building", "Owner", "Inventory" }, player) do
 		if dataOf(w, e).researches and world.isReady(w, player, e) and not w:has(e, "Off") then
 			table.insert(labs, e)
 		end
@@ -437,7 +477,7 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 		end
 	end
 	-- Включённые цеха: сырьё рецепта, сколько его держат про запас.
-	for _, e in w:each({ "Assembly", "Inventory", "Owner" }) do
+	for _, e in owned(w, { "Assembly", "Inventory", "Owner" }, player) do
 		local assembly = w:get(e, "Assembly")
 		local product = w.protos.goods[assembly.recipe]
 		if not assembly.on or not product or not world.isReady(w, player, e) then
@@ -450,7 +490,7 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 	end
 	-- Турели и реакторы: патроны и стержни, когда израсходована четверть запаса. Оборону ставят и вне зон — её кормит
 	-- ближайшая зона.
-	for _, e in w:each({ "Building", "Inventory", "Owner" }) do
+	for _, e in owned(w, { "Building", "Inventory", "Owner" }, player) do
 		local feed = logistics.feedOf(dataOf(w, e))
 		if not feed or not world.isReady(w, player, e) then
 			continue
@@ -463,8 +503,8 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 	end
 	-- Машины снабжения: боеприпасы, когда израсходована четверть склада, — грузовики везут их в поле. Стоящая в сети,
 	-- где боеприпасы есть, грузится из хранилищ сама (mechanics/supply), и грузовик к ней не гонят.
-	for _, e in w:each({ "Unit", "Inventory", "Owner", "Position" }) do
-		if w:get(e, "Owner").player ~= player or not dataOf(w, e).supplies then
+	for _, e in owned(w, { "Unit", "Inventory", "Owner", "Position" }, player) do
+		if not dataOf(w, e).supplies then
 			continue
 		end
 		local stock = w:get(e, "Inventory")
@@ -502,7 +542,7 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 		end
 	end
 	-- Станции запроса: недостающее до заказа игрока.
-	for _, e in w:each({ "Wanted", "Inventory" }) do
+	for _, e in owned(w, { "Wanted", "Inventory" }, player) do
 		if not world.isReady(w, player, e) then
 			continue
 		end
@@ -513,7 +553,7 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 	end
 	-- Продажа: товар заявки, пока корабль не улетел. Недостачу заказывают целыми единицами, как стройка: хранилище отдало
 	-- дробный остаток — и заявке не хватает меньше MIN_JOB, а такое не привёз бы никто. Лишнее вернётся в хранилища.
-	for _, e in w:each({ "Trade", "Inventory" }) do
+	for _, e in owned(w, { "Trade", "Inventory" }, player) do
 		local order = w:get(e, "Trade")
 		if order.total > 0 or order.buy or not world.isReady(w, player, e) then
 			continue
@@ -563,7 +603,7 @@ function logistics.storeFor(w, truck: number, good: string, except: number?): nu
 	local player = w:get(truck, "Owner").player
 	local flows = logistics.flows(w, truck)
 	local best, bestFill, bestDistance = nil, math.huge, math.huge
-	for _, e in w:each({ "Inventory", "Building" }) do
+	for _, e in owned(w, { "Inventory", "Building" }, player) do
 		if e == except or not logistics.isStore(w, e) or not world.isReady(w, player, e) or w:has(e, "Converting") or logistics.unreachable(w, e) then
 			continue
 		end
@@ -588,7 +628,7 @@ function logistics.refineryFor(w, truck: number, ore: string, except: number?, s
 	local player = w:get(truck, "Owner").player
 	local flows = logistics.flows(w, truck)
 	local best, bestDistance = nil, math.huge
-	for _, e in w:each({ "Inventory", "Building" }) do
+	for _, e in owned(w, { "Inventory", "Building" }, player) do
 		if e == except or dataOf(w, e).refines ~= ore or not world.isReady(w, player, e) or w:has(e, "Converting") or w:has(e, "Off") then
 			continue
 		end
@@ -806,8 +846,8 @@ function logistics.fetchSource(w, builder: number, site: number, flows: Flows): 
 	end
 	local to = w:get(site, "Position")
 	local best, bestDistance = nil, math.huge
-	for _, e in w:each({ "Building", "Owner", "Inventory" }) do
-		if e == site or w:has(e, "Site") or w:get(e, "Owner").player ~= owner.player then
+	for _, e in owned(w, { "Building", "Owner", "Inventory" }, owner.player) do
+		if e == site or w:has(e, "Site") then
 			continue
 		end
 		local there = w:get(e, "Position")

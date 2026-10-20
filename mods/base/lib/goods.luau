@@ -37,12 +37,20 @@ function goods.list(w): { any }
 	return found
 end
 
--- Имена грузов по порядку.
+-- Имена грузов по порядку: список общий на набор видов — не править.
+local namesCache = setmetatable({}, { __mode = "k" }) :: { [any]: { string } }
+
 function goods.names(w): { string }
-	local names = {}
+	local protos = w.protos
+	local names = namesCache[protos]
+	if names then
+		return names
+	end
+	names = {}
 	for _, kind in goods.list(w) do
 		table.insert(names, kind.name)
 	end
+	namesCache[protos] = names
 	return names
 end
 
@@ -134,9 +142,19 @@ function goods.book(ctx, names: { string })
 	end
 	local methods: { [string]: any } = {}
 	local book = {}
+	-- Вид сущности за запуск системы не меняется: движок спрашивают о нём раз, а не на каждый kinds.of.
+	local protos: { [number]: any } = {}
 	function methods.get(_, e: number, component: string)
 		local store = cached[component]
 		if not store then
+			if component == "Proto" then
+				local value = protos[e]
+				if value == nil then
+					value = ctx:get(e, component) or false
+					protos[e] = value
+				end
+				return if value == false then nil else value
+			end
 			return ctx:get(e, component)
 		end
 		local value = store[e]

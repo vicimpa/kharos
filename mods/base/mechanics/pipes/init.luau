@@ -176,7 +176,9 @@ mechanic.systems = {
 			local d = mechanic.data
 			local flows = logistics.flows(w)
 			local players = {}
-			for _, network in ctx:networks() do
+			-- Сети — один раз за тик: каждый вызов собирает таблицы всех сетей заново.
+			local networks = ctx:networks()
+			for _, network in networks do
 				if network.player ~= 0 then
 					players[network.player] = true
 				end
@@ -212,7 +214,7 @@ mechanic.systems = {
 						send(w, player, best, request.to, request.resource, bestAmount, bestLength, false)
 					end
 				end
-				for _, network in ctx:networks() do
+				for _, network in networks do
 					if network.player == player then
 						pushOutlets(w, player, network, busy, flows.incoming)
 					end
