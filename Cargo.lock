@@ -1231,6 +1231,7 @@ version = "0.1.0"
 dependencies = [
  "kharos-content",
  "kharos-net",
+ "libc",
  "serde_json",
  "tungstenite",
 ]

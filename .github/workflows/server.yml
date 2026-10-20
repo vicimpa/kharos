@@ -1,0 +1,56 @@
+name: Сервер
+
+on:
+  push:
+    branches: [main]
+    # Документация, ридми и лицензия не меняют сборку.
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - 'LICENSE'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: server-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Тулчейн — из rust-toolchain.toml.
+      - run: rustup show
+      - run: cargo test --release -p kharos-net -p kharos-world -p kharos-content -p kharos-engine
+      # Моды зашиты в бинарь (apps/server/build.rs): сервер совпадает со страницей игры из того же коммита.
+      - run: cargo build --release -p kharos-server
+      - run: |
+          mkdir -p out
+          cp target/release/kharos-server out/kharos-server-linux-x64
+      - id: version
+        run: |
+          protocol=$(grep -oP 'pub const VERSION: u32 = \K\d+' crates/net/src/protocol.rs)
+          echo "protocol=$protocol" >> "$GITHUB_OUTPUT"
+          echo "tag=rust-server-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Сервер №${{ github.run_number }} (провод ${{ steps.version.outputs.protocol }})
+          make_latest: true
+          generate_release_notes: true
+          body: |
+            Сборка из ${{ github.sha }}. Клиент на GitHub Pages собран из того же коммита, моды зашиты в сервер.
+
+            - `kharos-server-linux-x64` — `./kharos-server-linux-x64`; настройки — `settings.json` в рабочей папке (при первом запуске пишется по умолчанию), подробности — docs/net.md.
+          files: out/*
+      # Хранятся последние десять сборок сервера.
+      - run: |
+          gh release list --limit 100 --json tagName --jq '.[].tagName | select(startswith("rust-server-"))' \
+            | sort -t- -k3 -n -r | tail -n +11 \
+            | xargs -r -n1 gh release delete --yes --cleanup-tag
+        env:
+          GH_TOKEN: ${{ github.token }}

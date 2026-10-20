@@ -41,13 +41,14 @@ struct Settings {
   game: String,
   options: Json,
   seed: u64,
-  /// Папки с модами: каждая — как `mods` у клиента; у клиентов должны быть те же моды.
+  /// Папки с модами, каждая — как `mods` у клиента; пусто — моды, зашитые в сервер (те же, что у страницы игры из того же
+  /// коммита). У клиентов должны быть те же моды.
   mods: Vec<PathBuf>,
 }
 
 fn defaults() -> Json {
   let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |time| time.as_secs() % 2_147_483_647);
-  json!({ "port": DEFAULT_PORT, "password": "", "admin": "", "save": "save.kharos.json", "game": "skirmish", "options": { "size": 512, "spread": true, "protection": 10 }, "seed": seed, "mods": ["mods"] })
+  json!({ "port": DEFAULT_PORT, "password": "", "admin": "", "save": "save.kharos.json", "game": "skirmish", "options": { "size": 512, "spread": true, "protection": 10 }, "seed": seed, "mods": [] })
 }
 
 /// Настройки: нет файла — пишется по умолчанию, чтобы было что править; неизвестные ключи — предупреждение, а не тишина.
@@ -83,7 +84,23 @@ fn settings() -> Result<Settings, String> {
   })
 }
 
+/// Моды, зашитые в сервер (build.rs).
+const BUNDLED: &[(&str, &[(&str, &[u8])])] = include!(concat!(env!("OUT_DIR"), "/mods.rs"));
+
 fn mods(roots: &[PathBuf]) -> Result<Vec<Mod>, String> {
+  if roots.is_empty() {
+    return Ok(BUNDLED.iter().map(|(name, list)| {
+      let mut files = kharos_content::Files::default();
+      for (path, bytes) in *list {
+        if path.ends_with(".luau") {
+          files.files.insert(path.to_string(), String::from_utf8_lossy(bytes).into_owned());
+        } else {
+          files.assets.insert(path.to_string(), bytes.to_vec());
+        }
+      }
+      Mod { name: name.to_string(), files: std::rc::Rc::new(files), dir: None }
+    }).collect());
+  }
   let mut all = Vec::new();
   for root in roots {
     all.extend(discover(root).map_err(|error| format!("моды {}: {error}", root.display()))?);
@@ -127,6 +144,23 @@ fn world(settings: &Settings, mods: Vec<Mod>) -> Result<Server, String> {
   }
   println!("новый мир: {}, зерно {}", settings.game, settings.seed);
   Server::new(mods, Some(&settings.game), settings.seed, settings.options.clone(), settings.password.clone())
+}
+
+/// Пришёл SIGINT или SIGTERM (pm2 stop, Ctrl+C): мир сохраняется, сервер выходит.
+static STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(unix)]
+extern "C" fn on_signal(_: libc::c_int) {
+  STOP.store(true, Ordering::Relaxed);
+}
+
+fn catch_signals() {
+  #[cfg(unix)]
+  // SAFETY: обработчик только ставит атомарный флаг — это можно в обработчике сигнала.
+  unsafe {
+    libc::signal(libc::SIGINT, on_signal as *const () as libc::sighandler_t);
+    libc::signal(libc::SIGTERM, on_signal as *const () as libc::sighandler_t);
+  }
 }
 
 /// Что приходит потоку игры.
@@ -235,6 +269,7 @@ fn run() -> Result<(), String> {
   let (events, inbox): (Sender<Event>, Receiver<Event>) = channel();
   listen(settings.port, events.clone())?;
   console(events);
+  catch_signals();
   // Подключение → его номер у сервера и куда ему писать.
   let mut peers: BTreeMap<u64, (PeerId, Sender<Out>)> = BTreeMap::new();
   let step = Duration::from_secs_f64(STEP);
@@ -269,6 +304,11 @@ fn run() -> Result<(), String> {
     }
     for line in server.log.drain(..) {
       println!("{line}");
+    }
+    if STOP.load(Ordering::Relaxed) {
+      store(&server, &settings.save);
+      println!("остановлен сигналом");
+      return Ok(());
     }
     for request in std::mem::take(&mut server.requests) {
       store(&server, &settings.save);

@@ -15,3 +15,6 @@ kharos-content = { path = "../../crates/content" }
 kharos-net = { path = "../../crates/net" }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
