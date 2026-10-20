@@ -74,6 +74,8 @@ local CORE = rgb(1, 1, 1)
 local DOME = rgb(0.35, 0.7, 1)
 local WRECK = rgb(1, 0.22, 0.1)
 local LAUNCH_SITE = rgb(1, 0.7, 0.2)
+-- Сигнал союзника.
+local PING = rgb(0.3, 0.9, 0.5)
 local STRIKE = rgb(1, 0.15, 0.1)
 local BAR_BACK = rgb(0.03, 0.05, 0.08)
 local BAR_GOOD = rgb(0.45, 0.9, 0.55)
@@ -615,6 +617,16 @@ function combat.update(c)
 				local b = (i + 1) / d.domeSegments * math.pi * 2
 				line(c.glow, x + math.cos(a) * r, y + math.sin(a) * r, x + math.cos(b) * r, y + math.sin(b) * r, thickness, color, level)
 			end
+		end
+		-- Сигнал союзника: зелёное кольцо с волнами — заметнее в первые секунды, к концу гаснет.
+		if mark.kind == "ping" then
+			if onScreen(x, y) then
+				local wave = (c.time * 1.2) % 1
+				local fade = math.min(1, left / 2)
+				ring(0.6, 3, PING, 0.9 * fade)
+				ring(0.6 + wave * 2.4, 2, PING, 0.7 * (1 - wave) * fade)
+			end
+			continue
 		end
 		if mark.kind == "launch" then
 			if onScreen(x, y) then
