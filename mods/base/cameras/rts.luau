@@ -66,30 +66,41 @@ local function halt()
 	flightVelocityX, flightVelocityY = 0, 0
 end
 
-function rts.start(cam, c)
-	cam.zoom = rts.data.start
-	target, drag, placed = nil, nil, nil
-	halt()
-	-- Камера, которую игроку задал редактор (Player.camera), — главнее.
+-- Встала ли камера к своим: по сети мир приходит после старта, и встать к ним она может только с первым кадром.
+local aimed = false
+
+-- Камера к своим: заданная редактором (Player.camera) главнее, иначе — первый свой юнит, MCV стартового набора.
+-- Встала — true.
+local function aim(cam, c): boolean
 	for _, e in c:each({ "Player" }) do
 		local state = c:get(e, "Player")
 		if state.id == c.player and type(state.camera) == "table" and #state.camera == 3 then
 			cam.x, cam.y, cam.zoom = state.camera[1], state.camera[2], state.camera[3]
-			return
+			return true
 		end
 	end
-	-- Камера — к своим: первый свой юнит, MCV стартового набора.
 	for _, e in c:each({ "Unit", "Owner" }) do
 		if c:mine(e) then
 			local at = c:get(e, "Position")
 			cam.x, cam.y = at.x, at.y
-			break
+			return true
 		end
 	end
+	return false
+end
+
+function rts.start(cam, c)
+	cam.zoom = rts.data.start
+	target, drag, placed = nil, nil, nil
+	halt()
+	aimed = aim(cam, c)
 end
 
 function rts.update(cam, c)
 	local input = c.input
+	if not aimed then
+		aimed = aim(cam, c)
+	end
 	-- Прошлый сдвиг тряски снимается: камера движется от своего места, а не от уведённого.
 	cam.x -= shaken.x
 	cam.y -= shaken.y
