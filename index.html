@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>Kharos</title>
+  <!-- Клиент на Rust: trunk собирает его под wasm32-unknown-unknown (trunk serve apps/client/web/index.html). -->
+  
+<script type="module">
+import init, * as bindings from './kharos-f737c411848de472.js';
+const wasm = await init({ module_or_path: './kharos-f737c411848de472_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script>
+  <style>
+    html, body { margin: 0; height: 100%; background: #08111c; overflow: hidden; }
+    canvas { display: block; width: 100vw; height: 100vh; outline: none; touch-action: none; }
+    #status { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: #9bb9d1; font: 16px monospace; pointer-events: none; }
+  </style>
+<link rel="modulepreload" href="./kharos-f737c411848de472.js" crossorigin="anonymous" integrity="sha384-ARzTAjSkCZlK8aeMETgiLcC2gu2qFBJkJg3RP/0lX39kbE+RVuaVbftbP4rCpJDo"><link rel="preload" href="./kharos-f737c411848de472_bg.wasm" crossorigin="anonymous" integrity="sha384-/vQxwfmDb0xkbz/UtyAaKA16sEOX8xFT3tMtggLJ/hx+N88ZYYjji/xd+objL1Ws" as="fetch" type="application/wasm"></head>
+<body>
+  <canvas id="canvas" tabindex="0"></canvas>
+  <div id="status">Загрузка…</div>
+</body>
+</html>
