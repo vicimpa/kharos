@@ -33,12 +33,75 @@ impl Bounds {
   }
 }
 
-/// Обзор: по игроку — тайлы карты построчно: 0 — не разведан, 1 — разведан, 2 — виден сейчас.
+/// Обзор одного игрока: тайлы карты построчно, по два бита — разведан и виден сейчас. Байт на тайл на карте 3072 стоил
+/// бы 9,4 МБ на каждого игрока, биты — 2,4.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Cells {
+  explored: Vec<u64>,
+  visible: Vec<u64>,
+  size: usize,
+}
+
+impl Cells {
+  pub fn new(size: usize) -> Self {
+    let words = size.div_ceil(64);
+    Self { explored: vec![0; words], visible: vec![0; words], size }
+  }
+
+  /// Из байтов (0 — не разведан, иначе разведан): видимое пересчитает обзор.
+  pub fn from_bytes(bytes: &[u8]) -> Self {
+    let mut cells = Self::new(bytes.len());
+    for (index, &byte) in bytes.iter().enumerate() {
+      if byte > 0 {
+        cells.explored[index / 64] |= 1 << (index % 64);
+      }
+    }
+    cells
+  }
+
+  pub fn len(&self) -> usize {
+    self.size
+  }
+
+  pub fn is_empty(&self) -> bool {
+    self.size == 0
+  }
+
+  /// 0 — не разведан, 1 — разведан, 2 — виден сейчас.
+  #[inline]
+  pub fn get(&self, index: usize) -> u8 {
+    let (word, bit) = (index / 64, 1u64 << (index % 64));
+    if self.visible.get(word).is_some_and(|value| value & bit != 0) {
+      2
+    } else if self.explored.get(word).is_some_and(|value| value & bit != 0) {
+      1
+    } else {
+      0
+    }
+  }
+
+  /// Всё байтами, как get: для сохранения и кадра.
+  pub fn bytes(&self) -> Vec<u8> {
+    (0..self.size).map(|index| self.get(index)).collect()
+  }
+
+  fn light(&mut self, index: usize) {
+    let (word, bit) = (index / 64, 1u64 << (index % 64));
+    self.explored[word] |= bit;
+    self.visible[word] |= bit;
+  }
+
+  fn dim(&mut self, index: usize) {
+    self.visible[index / 64] &= !(1u64 << (index % 64));
+  }
+}
+
+/// Обзор игроков: что каждый видит сейчас и что разведал.
 pub struct Vision {
   pub bounds: Bounds,
   /// Есть ли туман: без него всё видно всем.
   pub fog: bool,
-  pub cells: BTreeMap<u32, Vec<u8>>,
+  pub cells: BTreeMap<u32, Cells>,
   /// Растёт, когда у игрока поменялось видимое: клиенту — перерисовать туман.
   pub changed: BTreeMap<u32, u64>,
   /// Где поменялось в последний раз: тайлы [left, top, right, bottom) от угла карты. Клиент, пропустивший правку,
@@ -62,11 +125,8 @@ impl Vision {
   }
 
   /// Разведанное игрока из сохранения или от сервера: видимое пересчитается при следующем пересчёте.
-  pub fn set_explored(&mut self, player: u32, mut cells: Vec<u8>) {
-    for cell in &mut cells {
-      *cell = (*cell).min(1);
-    }
-    self.cells.insert(player, cells);
+  pub fn set_explored(&mut self, player: u32, cells: Vec<u8>) {
+    self.cells.insert(player, Cells::from_bytes(&cells));
     self.lit.remove(&player);
     *self.changed.entry(player).or_default() += 1;
     self.rect.insert(player, [0, 0, self.bounds.width(), self.bounds.height()]);
@@ -118,7 +178,7 @@ impl Vision {
       new.sort_unstable();
       new.dedup();
       let old = self.lit.remove(&player).unwrap_or_default();
-      let cells = self.cells.entry(player).or_insert_with(|| vec![0; size]);
+      let cells = self.cells.entry(player).or_insert_with(|| Cells::new(size));
       if new == old {
         if !new.is_empty() {
           self.lit.insert(player, new);
@@ -131,10 +191,10 @@ impl Vision {
         (left, top, right, bottom) = (left.min(x), top.min(y), right.max(x + 1), bottom.max(y + 1));
       }
       for &index in &old {
-        cells[index as usize] = 1;
+        cells.dim(index as usize);
       }
       for &index in &new {
-        cells[index as usize] = 2;
+        cells.light(index as usize);
       }
       *self.changed.entry(player).or_insert(0) += 1;
       self.rect.insert(player, [left, top, right, bottom]);
@@ -150,7 +210,7 @@ impl Vision {
       return true;
     }
     let Some(index) = self.index(x.floor() as i32, y.floor() as i32) else { return false };
-    self.cells.get(&player).is_some_and(|cells| cells[index] == 2)
+    self.cells.get(&player).is_some_and(|cells| cells.get(index) == 2)
   }
 
   /// Бывал ли тайл в виду игрока.
@@ -159,7 +219,7 @@ impl Vision {
       return true;
     }
     let Some(index) = self.index(x.floor() as i32, y.floor() as i32) else { return false };
-    self.cells.get(&player).is_some_and(|cells| cells[index] >= 1)
+    self.cells.get(&player).is_some_and(|cells| cells.get(index) >= 1)
   }
 }
 

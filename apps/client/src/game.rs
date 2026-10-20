@@ -664,7 +664,7 @@ impl Game {
         if let Some(cells) = cells {
           for y in top.max(0)..bottom.min(bounds.height()) {
             for x in left.max(0)..right.min(bounds.width()) {
-              let cell = cells[(y * bounds.width() + x) as usize];
+              let cell = cells.get((y * bounds.width() + x) as usize);
               pixels[((y - top) * rw + x - left) as usize] = [240u8, 128, 0][cell as usize];
             }
           }

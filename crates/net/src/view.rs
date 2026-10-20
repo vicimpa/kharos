@@ -238,7 +238,7 @@ impl View {
     self.signals(state, shared, &mut frame);
     if first && fogged(state) {
       let vision = state.vision.as_ref().expect("туман — у партии с картой");
-      frame.explored = vision.cells.get(&self.player).map(|cells| runs_of(cells));
+      frame.explored = vision.cells.get(&self.player).map(|cells| runs_of(&cells.bytes()));
     }
     frame
   }

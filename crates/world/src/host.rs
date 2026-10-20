@@ -449,7 +449,7 @@ impl Host {
         self.proto_name(values);
       }
     });
-    let vision = state.vision.as_ref().map(|vision| vision.cells.iter().map(|(player, cells)| (player.to_string(), Json::from(run_length(cells)))).collect::<Map<String, Json>>());
+    let vision = state.vision.as_ref().map(|vision| vision.cells.iter().map(|(player, cells)| (player.to_string(), Json::from(run_length(&cells.bytes())))).collect::<Map<String, Json>>());
     Ok(serde_json::json!({
       "game": self.game,
       "tick": state.tick,

@@ -95,15 +95,17 @@ fn bases_frames() {
 fn big_map() {
   let mods = discover(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods")).unwrap();
   let options = serde_json::json!({ "size": 1536 });
+  // BENCH_PLAYERS — сколько игроков (по умолчанию десять).
+  let players: u32 = std::env::var("BENCH_PLAYERS").ok().and_then(|text| text.parse().ok()).unwrap_or(10);
   let started = Instant::now();
   let mut host = Host::new(mods.clone(), Some("skirmish"), 7, &options).unwrap();
   host.start().unwrap();
   println!("мир: {:.0} мс", started.elapsed().as_secs_f64() * 1000.0);
   let started = Instant::now();
-  for player in 1..=10 {
+  for player in 1..=players {
     host.join(player).unwrap();
   }
-  println!("десять входов: {:.0} мс", started.elapsed().as_secs_f64() * 1000.0);
+  println!("входы: {:.0} мс", started.elapsed().as_secs_f64() * 1000.0);
   {
     let state = host.state.borrow();
     let unit = state.world.schema.id("Unit").unwrap();
@@ -111,9 +113,9 @@ fn big_map() {
   }
   let schema = host.state.borrow().world.schema.clone();
   let rules = Rc::new(Rules::of(&host.content, &schema).unwrap());
-  let mut views: Vec<View> = (1..=10).map(View::new).collect();
+  let mut views: Vec<View> = (1..=players).map(View::new).collect();
   // Отряды всех игроков едут через полкарты: обзор пересчитывается на ходу.
-  for player in 1..=10u32 {
+  for player in 1..=players {
     let units: Vec<u32> = {
       let state = host.state.borrow();
       let (unit, owner) = (state.world.schema.id("Unit").unwrap(), state.world.schema.id("Owner").unwrap());
@@ -138,7 +140,7 @@ fn big_map() {
     }
     let spent = started.elapsed().as_secs_f64();
     if tick == 0 {
-      println!("первые кадры десяти игрокам: {:.0} мс, кадр игроку 1 — {} КБ", spent * 1000.0, first / 1024);
+      println!("первые кадры всем: {:.0} мс, кадр игроку 1 — {} КБ", spent * 1000.0, first / 1024);
     } else {
       frame_time += spent;
     }
@@ -149,7 +151,7 @@ fn big_map() {
   let started = Instant::now();
   let mut vision = host.state.borrow().vision.as_ref().map(|vision| (vision.bounds, vision.fog)).map(|(bounds, fog)| kharos_world::vision::Vision::new(bounds, fog)).unwrap();
   vision.update(&host.state.borrow().world);
-  println!("обзор десяти игроков: {:.0} мс", started.elapsed().as_secs_f64() * 1000.0);
+  println!("обзор всех: {:.0} мс", started.elapsed().as_secs_f64() * 1000.0);
   let started = Instant::now();
   let replica = Host::new(mods, Some("skirmish"), 7, &options).unwrap();
   println!("реплика у клиента: {:.0} мс", started.elapsed().as_secs_f64() * 1000.0);

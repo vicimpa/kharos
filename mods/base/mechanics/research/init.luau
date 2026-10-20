@@ -172,9 +172,9 @@ local function depositsFound(w, player: number): { [string]: boolean }
 			end
 		end
 	end
-	for _, e in w:each({ "Building", "Owner" }) do
+	for _, e in logistics.owned(w, { "Building", "Owner" }, player) do
 		local kind = kinds.of(w, e)
-		if kind and kind.data.extract and w:get(e, "Owner").player == player then
+		if kind and kind.data.extract then
 			local deposit = logistics.depositUnder(w, e)
 			local spot = deposit and kinds.of(w, deposit)
 			if spot then
@@ -187,9 +187,9 @@ end
 
 -- Есть ли у игрока готовый ресурс в хранилище или переработке.
 local function hasRefined(w, player: number): boolean
-	for _, e in w:each({ "Building", "Inventory", "Owner" }) do
+	for _, e in logistics.owned(w, { "Building", "Inventory", "Owner" }, player) do
 		local kind = kinds.of(w, e)
-		if kind and (kind.data.stores or kind.data.refines) and w:get(e, "Owner").player == player then
+		if kind and (kind.data.stores or kind.data.refines) then
 			for good, amount in w:get(e, "Inventory").items do
 				local spec = w.protos.goods[good]
 				if amount > 0 and spec and spec.data.kind == "resource" then
@@ -238,14 +238,18 @@ local function nextTopic(w, state): string?
 	return state.plan[1]
 end
 
+-- Раз во сколько тиков проверяются темы-открытия игрока.
+local TRIGGER_TICKS = 20
+
 mechanic.systems = {
-	-- Раз в секунду: темы-открытия, у которых случилось условие, открываются сами.
+	-- Раз в секунду: темы-открытия, у которых случилось условие, открываются сами. Игроки — каждый в свой тик из
+	-- двадцати: на сервере их десятки, и разом они давали бы рывок раз в секунду.
 	triggers = {
-		every = 20,
 		run = function(_, ctx)
+			local w = goods.book(ctx, {})
 			for _, e in ctx:each({ "Player" }) do
 				local state = ctx:get(e, "Player")
-				if state.id == 0 then
+				if state.id == 0 or (state.id + ctx.tick) % TRIGGER_TICKS ~= 0 then
 					continue
 				end
 				local known = state.research or {}
@@ -259,16 +263,16 @@ mechanic.systems = {
 					local happened
 					if trigger == "lab" then
 						happened = false
-						for _, lab in ctx:each({ "Building", "Owner" }) do
-							if research.isLab(ctx, state.id, lab) then
+						for _, lab in logistics.owned(w, { "Building", "Owner" }, state.id) do
+							if research.isLab(w, state.id, lab) then
 								happened = true
 								break
 							end
 						end
 					elseif trigger == "refined" then
-						happened = hasRefined(ctx, state.id)
+						happened = hasRefined(w, state.id)
 					else
-						found = found or depositsFound(ctx, state.id)
+						found = found or depositsFound(w, state.id)
 						happened = if trigger == "deposit" then next(found :: any) ~= nil else (found :: any)[trigger] == true
 					end
 					if happened then
