@@ -281,7 +281,10 @@ impl Game {
         if elapsed > 50.0 {
           eprintln!("звуки посчитаны за {elapsed:.0} мс");
         }
-        Some(Rc::new(Audio::new(engine, &kinds).map_err(error("голоса sounds/"))?))
+        let mut audio = Audio::new(engine, &kinds).map_err(error("голоса sounds/"))?;
+        // Шины, которые партия глушит: витрина меню, как в TS, звучит только музыкой и интерфейсом.
+        audio.muted = config.get::<Option<Vec<String>>>("mute").map_err(error("client.mute"))?.unwrap_or_default();
+        Some(Rc::new(audio))
       }
       None => None,
     };

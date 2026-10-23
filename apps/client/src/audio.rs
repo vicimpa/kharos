@@ -502,6 +502,8 @@ pub struct Audio {
   loops: RefCell<HashMap<String, (AudioBufferSourceNode, GainNode, StereoPannerNode)>>,
   /// Звучания голосов — чтобы остановить их с концом партии.
   sounds: RefCell<Vec<std::rc::Weak<RefCell<Nodes>>>>,
+  /// Шины, которые партия глушит (`mute` в client партии): витрине меню не звучать стройкой и боем.
+  pub muted: Vec<String>,
 }
 
 impl Drop for Audio {
@@ -719,7 +721,7 @@ impl Audio {
       bus.connect(&engine.buses[name]);
       buses.insert(name, bus);
     }
-    Ok(Self { engine, voices, buses, loops: RefCell::new(HashMap::new()), sounds: RefCell::new(Vec::new()) })
+    Ok(Self { engine, voices, buses, loops: RefCell::new(HashMap::new()), sounds: RefCell::new(Vec::new()), muted: Vec::new() })
   }
 
   pub fn now(&self) -> f64 {
@@ -789,6 +791,9 @@ impl Audio {
       Some(record) => record.bus.clone(),
       None => return,
     };
+    if self.muted.iter().any(|muted| *muted == bus) {
+      return;
+    }
     let Some(buffer) = engine.record(name, None) else { return };
     let buffer_seconds = buffer.duration();
     let mut source = engine.ctx.create_buffer_source();
