@@ -555,7 +555,8 @@ function logistics.requests(w, player: number, flows: Flows): { Request }
 	-- дробный остаток — и заявке не хватает меньше MIN_JOB, а такое не привёз бы никто. Лишнее вернётся в хранилища.
 	for _, e in owned(w, { "Trade", "Inventory" }, player) do
 		local order = w:get(e, "Trade")
-		if order.total > 0 or order.buy or not world.isReady(w, player, e) then
+		-- Выключенному (Off: у космопорта нет своего флага цеха) не везут.
+		if order.total > 0 or order.buy or not world.isReady(w, player, e) or w:has(e, "Off") then
 			continue
 		end
 		local delivered = math.min(order.wanted, goods.amount(w:get(e, "Inventory"), order.resource))
