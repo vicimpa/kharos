@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
   <title>Kharos</title>
   <!-- Клиент на Rust: trunk собирает его под wasm32-unknown-unknown (trunk serve apps/client/web/index.html). -->
-  <link data-trunk rel="rust" href="../Cargo.toml" data-bin="kharos" data-wasm-opt="z"
+  <link data-trunk rel="rust" href="../Cargo.toml" data-bin="kharos" data-type="main" data-wasm-opt="z"
+    data-wasm-opt-params="--enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals --enable-reference-types --enable-multivalue">
+  <!-- Воркер звуков экрана загрузки (src/sound.rs): страница запускает их по числу ядер. -->
+  <link data-trunk rel="rust" href="../Cargo.toml" data-bin="kharos-sound" data-type="worker" data-wasm-opt="z"
     data-wasm-opt-params="--enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals --enable-reference-types --enable-multivalue">
   <style>
     html, body { margin: 0; height: 100%; background: #08111c; overflow: hidden; }

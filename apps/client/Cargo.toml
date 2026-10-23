@@ -11,6 +11,11 @@ description = "Клиент Kharos: рендер, звук и подача из 
 name = "kharos"
 path = "src/main.rs"
 
+# Воркер браузера: считает звуки экрана загрузки в своём потоке (loading.rs); на нативе — пустой.
+[[bin]]
+name = "kharos-sound"
+path = "src/sound.rs"
+
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
 fontdue = "0.9"
@@ -52,6 +57,8 @@ web-sys = { version = "0.3", features = [
   "AudioParam",
   "AudioScheduledSourceNode",
   "BinaryType",
+  "Blob",
+  "BlobPropertyBag",
   "BaseAudioContext",
   "BiquadFilterNode",
   "BiquadFilterType",
@@ -59,6 +66,7 @@ web-sys = { version = "0.3", features = [
   "ConstantSourceNode",
   "ConvolverNode",
   "CssStyleDeclaration",
+  "DedicatedWorkerGlobalScope",
   "DelayNode",
   "Document",
   "DomRect",
@@ -80,10 +88,12 @@ web-sys = { version = "0.3", features = [
   "PointerEvent",
   "StereoPannerNode",
   "Storage",
+  "Url",
   "UrlSearchParams",
   "WaveShaperNode",
   "WebSocket",
   "WebGl2RenderingContext",
   "WheelEvent",
   "Window",
+  "Worker",
 ] }

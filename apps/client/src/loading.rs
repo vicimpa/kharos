@@ -1,7 +1,7 @@
 //! Экран загрузки — перенос экрана загрузки из packages/client/src/gui/app.ts: название игры, полоса и «Готовим
 //! графику и звук… N%». Пока он на экране, считаются записи звукового банка (audio::Engine::bake): на нативе — в
-//! нескольких потоках, у каждого своя машина Luau с теми же модами; в браузере потоков нет — по кусочку за кадр.
-//! Партия потом берёт банк готовым.
+//! нескольких потоках, у каждого своя машина Luau с теми же модами; в браузере — в воркерах (бинарь `kharos-sound`,
+//! моды им шлёт страница) и по кусочку за кадр в самой странице. Партия потом берёт банк готовым.
 
 use crate::audio::{self, Engine};
 use crate::gui::{Align, Anchor, Direction, FontName, Fonts, Gui, Leaf, Skin, Style};
@@ -45,9 +45,14 @@ pub struct Loading {
   done: usize,
   #[cfg(not(target_arch = "wasm32"))]
   results: std::sync::mpsc::Receiver<Result<Part, String>>,
-  /// В браузере считает сам экран: машина Luau с модами и её виды.
+  /// В браузере считает и сам экран: машина Luau с модами, её виды и номер следующего задания.
   #[cfg(target_arch = "wasm32")]
   inline: (Content, Vec<(String, Table)>, usize),
+  /// Воркеры браузера; задания упавшего — снова в очередь.
+  #[cfg(target_arch = "wasm32")]
+  pool: Option<web::Pool>,
+  #[cfg(target_arch = "wasm32")]
+  retry: Vec<(String, usize)>,
 }
 
 impl Loading {
@@ -79,7 +84,8 @@ impl Loading {
     }
     #[cfg(target_arch = "wasm32")]
     {
-      Ok(Some(Self { gui: Gui::new(fonts), title, progress, engine, jobs, parts, total, done: 0, inline: (content, kinds, 0) }))
+      let pool = web::Pool::new(mods, jobs.len());
+      Ok(Some(Self { gui: Gui::new(fonts), title, progress, engine, jobs, parts, total, done: 0, inline: (content, kinds, 0), pool, retry: Vec::new() }))
     }
   }
 
@@ -107,16 +113,44 @@ impl Loading {
     }
     #[cfg(target_arch = "wasm32")]
     {
-      let started = crate::clock::seconds();
       let rate = self.engine.sample_rate();
+      // Воркеры: что пришло — в банк, свободным — следующие задания.
+      if let Some(mut pool) = self.pool.take() {
+        for event in pool.events() {
+          match event {
+            web::Event::Done(part) => self.take(part),
+            web::Event::Failed(job) => self.retry.extend(job),
+            web::Event::Error(error) => return Err(format!("звуки sounds/: {error}")),
+          }
+        }
+        while let Some(slot) = pool.idle() {
+          let Some(job) = self.next_job() else { break };
+          pool.give(slot, job, rate);
+        }
+        if !self.finished() {
+          self.pool = Some(pool);
+        }
+      }
+      // И сама страница — в пределах бюджета кадра.
+      let started = crate::clock::seconds();
       while !self.finished() && (wait || crate::clock::seconds() - started < BUDGET) {
-        let (key, variant) = self.jobs[self.inline.2].clone();
-        self.inline.2 += 1;
+        let Some((key, variant)) = self.next_job() else { break };
         let data = audio::render_record(&self.inline.1, &key, variant, rate).map_err(|error| format!("звуки sounds/: {error}"))?;
         self.take((key, variant, data));
       }
     }
     Ok(())
+  }
+
+  /// Следующее задание: сначала задания упавших воркеров, потом очередь.
+  #[cfg(target_arch = "wasm32")]
+  fn next_job(&mut self) -> Option<(String, usize)> {
+    if let Some(job) = self.retry.pop() {
+      return Some(job);
+    }
+    let job = self.jobs.get(self.inline.2).cloned()?;
+    self.inline.2 += 1;
+    Some(job)
   }
 
   /// Вариант пришёл; пришли все варианты записи — она в банк.
@@ -197,4 +231,194 @@ fn spawn(mods: &[Mod], rate: f32, jobs: Vec<(String, usize)>) -> std::sync::mpsc
     });
   }
   receiver
+}
+
+/// Воркер звуков (бинарь `kharos-sound`): первое сообщение — моды (JSON: [[имя, { путь: текст }]]), дальше — задания
+/// (JSON: [запись, вариант, частота]); отвечает «ready», каналами варианта [запись, вариант, Float32Array…] или
+/// ["error", текст].
+#[cfg(target_arch = "wasm32")]
+pub fn worker() {
+  use std::cell::RefCell;
+  use wasm_bindgen::{closure::Closure, JsCast, JsValue};
+  let scope: web_sys::DedicatedWorkerGlobalScope = js_sys::global().unchecked_into();
+  let machine: Rc<RefCell<Option<(Content, Vec<(String, Table)>)>>> = Rc::new(RefCell::new(None));
+  let reply = scope.clone();
+  let handler = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |event: web_sys::MessageEvent| {
+    let fail = |error: String| {
+      let message = js_sys::Array::of2(&"error".into(), &error.into());
+      let _ = reply.post_message(&message);
+    };
+    let text = event.data().as_string().unwrap_or_default();
+    let request: serde_json::Value = match serde_json::from_str(&text) {
+      Ok(value) => value,
+      Err(error) => return fail(error.to_string()),
+    };
+    let mut machine = machine.borrow_mut();
+    let Some((_, kinds)) = machine.as_ref() else {
+      // Моды: тексты Luau — звукам картинки не нужны.
+      let mut mods = Vec::new();
+      for entry in request.as_array().into_iter().flatten() {
+        let mut files = kharos_content::Files::default();
+        for (path, text) in entry[1].as_object().into_iter().flatten() {
+          files.files.insert(path.clone(), text.as_str().unwrap_or_default().to_string());
+        }
+        mods.push(Mod { name: entry[0].as_str().unwrap_or_default().to_string(), files: Rc::new(files), dir: None });
+      }
+      match Content::load(Side::Client, mods) {
+        Ok(content) => {
+          let kinds = kinds_of(&content);
+          *machine = Some((content, kinds));
+          let _ = reply.post_message(&"ready".into());
+        }
+        Err(error) => fail(error.to_string()),
+      }
+      return;
+    };
+    let key = request[0].as_str().unwrap_or_default();
+    let variant = request[1].as_u64().unwrap_or(0) as usize;
+    let rate = request[2].as_f64().unwrap_or(48000.0) as f32;
+    match audio::render_record(kinds, key, variant, rate) {
+      Ok(channels) => {
+        let message = js_sys::Array::of2(&key.into(), &JsValue::from(variant as u32));
+        let transfer = js_sys::Array::new();
+        for channel in &channels {
+          let samples = js_sys::Float32Array::from(channel.as_slice());
+          transfer.push(&samples.buffer());
+          message.push(&samples);
+        }
+        let _ = reply.post_message_with_transfer(&message, &transfer);
+      }
+      Err(error) => fail(format!("{key}: {error}")),
+    }
+  });
+  scope.set_onmessage(Some(handler.as_ref().unchecked_ref()));
+  handler.forget();
+  // Wasm загружен и слушает: страница пришлёт моды.
+  let _ = scope.post_message(&"ready".into());
+}
+
+/// Воркеры страницы: по одному на ядро (одно остаётся странице), не больше восьми.
+#[cfg(target_arch = "wasm32")]
+mod web {
+  use super::Part;
+  use kharos_content::Mod;
+  use std::cell::RefCell;
+  use std::rc::Rc;
+  use wasm_bindgen::{closure::Closure, JsCast, JsValue};
+
+  pub enum Event {
+    Done(Part),
+    /// Воркер упал: его задание, если было.
+    Failed(Option<(String, usize)>),
+    Error(String),
+  }
+
+  /// Воркер: грузит wasm, грузит моды, свободен, считает задание, упал.
+  enum State {
+    Booting,
+    Loading,
+    Idle,
+    Busy((String, usize)),
+    Dead,
+  }
+
+  pub struct Pool {
+    workers: Vec<(web_sys::Worker, State)>,
+    /// Моды для воркеров (JSON): шлются, когда воркер загрузил wasm.
+    files: String,
+    /// Пришедшее: номер воркера и сообщение (None — воркер упал).
+    inbox: Rc<RefCell<Vec<(usize, Option<JsValue>)>>>,
+    _handlers: Vec<Closure<dyn FnMut(JsValue)>>,
+  }
+
+  impl Pool {
+    /// None — воркеров нет (не завелись или заданий нет): считает только страница.
+    pub fn new(mods: &[Mod], jobs: usize) -> Option<Self> {
+      let window = web_sys::window()?;
+      let cores = window.navigator().hardware_concurrency() as usize;
+      let count = cores.saturating_sub(1).clamp(1, 8).min(jobs);
+      let base = window.document()?.base_uri().ok().flatten()?;
+      let url = |file: &str| web_sys::Url::new_with_base(file, &base).ok().map(|url| url.href());
+      let (script, wasm) = (url("kharos-sound.js")?, url("kharos-sound_bg.wasm")?);
+      // Воркер — из Blob: так его адрес не зависит от того, в какой папке живёт страница.
+      let loader = js_sys::Array::of1(&format!("importScripts({script:?});wasm_bindgen({wasm:?});").into());
+      let options = web_sys::BlobPropertyBag::new();
+      options.set_type("text/javascript");
+      let blob = web_sys::Blob::new_with_str_sequence_and_options(&loader, &options).ok()?;
+      let loader = web_sys::Url::create_object_url_with_blob(&blob).ok()?;
+      let files = serde_json::Value::Array(mods.iter().map(|one| serde_json::json!([one.name, one.files.files])).collect()).to_string();
+      let inbox = Rc::new(RefCell::new(Vec::new()));
+      let mut workers = Vec::new();
+      let mut handlers = Vec::new();
+      for index in 0..count {
+        let Ok(worker) = web_sys::Worker::new(&loader) else { break };
+        let (messages, errors) = (inbox.clone(), inbox.clone());
+        let message = Closure::<dyn FnMut(JsValue)>::new(move |event: JsValue| {
+          messages.borrow_mut().push((index, Some(event.unchecked_into::<web_sys::MessageEvent>().data())));
+        });
+        let error = Closure::<dyn FnMut(JsValue)>::new(move |_: JsValue| errors.borrow_mut().push((index, None)));
+        worker.set_onmessage(Some(message.as_ref().unchecked_ref()));
+        worker.set_onerror(Some(error.as_ref().unchecked_ref()));
+        handlers.push(message);
+        handlers.push(error);
+        workers.push((worker, State::Booting));
+      }
+      (!workers.is_empty()).then(|| Self { workers, files, inbox, _handlers: handlers })
+    }
+
+    /// Что пришло с прошлого кадра.
+    pub fn events(&mut self) -> Vec<Event> {
+      let mut events = Vec::new();
+      for (index, data) in std::mem::take(&mut *self.inbox.borrow_mut()) {
+        let (worker, state) = &mut self.workers[index];
+        let Some(data) = data else {
+          let job = match std::mem::replace(state, State::Dead) {
+            State::Busy(job) => Some(job),
+            _ => None,
+          };
+          events.push(Event::Failed(job));
+          continue;
+        };
+        // «ready»: сначала — wasm загружен (слушать он начинает только тогда), шлём моды; потом — моды загружены.
+        if data.as_string().as_deref() == Some("ready") {
+          *state = match state {
+            State::Booting if worker.post_message(&self.files.as_str().into()).is_ok() => State::Loading,
+            State::Booting => State::Dead,
+            _ => State::Idle,
+          };
+          continue;
+        }
+        let array: js_sys::Array = data.unchecked_into();
+        let head = array.get(0).as_string().unwrap_or_default();
+        if head == "error" {
+          events.push(Event::Error(array.get(1).as_string().unwrap_or_default()));
+          continue;
+        }
+        let variant = array.get(1).as_f64().unwrap_or(0.0) as usize;
+        let channels = (2..array.length()).map(|at| array.get(at).unchecked_into::<js_sys::Float32Array>().to_vec()).collect();
+        *state = State::Idle;
+        events.push(Event::Done((head, variant, channels)));
+      }
+      events
+    }
+
+    /// Свободный воркер с загруженными модами.
+    pub fn idle(&self) -> Option<usize> {
+      self.workers.iter().position(|(_, state)| matches!(state, State::Idle))
+    }
+
+    pub fn give(&mut self, index: usize, job: (String, usize), rate: f32) {
+      let (worker, state) = &mut self.workers[index];
+      let request = serde_json::json!([job.0, job.1, rate]).to_string();
+      *state = if worker.post_message(&request.into()).is_ok() { State::Busy(job) } else { State::Dead };
+    }
+  }
+
+  impl Drop for Pool {
+    fn drop(&mut self) {
+      for (worker, _) in &self.workers {
+        worker.terminate();
+      }
+    }
+  }
 }
