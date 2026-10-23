@@ -688,6 +688,7 @@ return {
 			cancelTip = "O mesmo que Esc",
 			tips = {
 				placing = "Clique onde construir — quantas vezes quiser; com Shift — na fila dos construtores",
+				placingTouch = "Toque e arraste — o prédio segue o dedo; solte onde construir. Quantas vezes quiser",
 				pavingStart = "Segure o botão e arraste pelo mapa",
 				paving = "Arraste pelo mapa: {tiles} blocos, {cost} créditos",
 				pavingShort = "; faltam créditos para {short} blocos — estão em amarelo",

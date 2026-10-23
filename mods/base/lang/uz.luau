@@ -688,6 +688,7 @@ return {
 			cancelTip = "Esc bilan bir xil",
 			tips = {
 				placing = "Qayerga qurishni bosing — yana va yana; Shift bilan — quruvchilar navbatiga",
+				placingTouch = "Bosib suring — bino barmoq ortidan yuradi; qurish joyida qo'yib yuboring. Yana va yana",
 				pavingStart = "Tugmani bosib turing va xarita bo‘ylab torting",
 				paving = "Xarita bo‘ylab torting: {tiles} katak, {cost} kredit",
 				pavingShort = "; {short} katakka kredit yetmaydi — ular sariq",

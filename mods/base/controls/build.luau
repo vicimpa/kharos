@@ -4,7 +4,8 @@
 -- красная, где нельзя; шахта сама встаёт на разведанное месторождение рядом. Щелчок закладывает и режим оставляет —
 -- можно ещё и ещё; правая кнопка и Esc — отмена; без выбранных строителей режим кончается сам. Пока выбирают место,
 -- держат Alt или смотрят кнопку здания (c.shared.zonesHover) — видны границы зон: свои синим, чужие красным, и круг,
--- которым здание расширит свою.
+-- которым здание расширит свою. На сенсорном экране призрак появляется под пальцем, идёт за ним, а отпущенный палец
+-- закладывает здание: наведения нет, и место видно до того, как его выбрали.
 
 local construction = require("lib/construction")
 local placement = require("lib/placement")
@@ -196,7 +197,9 @@ function build.update(c)
 		return
 	end
 	local x, y, allowed = placementOf(c, kind)
-	if input.inside then
+	-- Касание: призрак — только пока палец на карте.
+	local touching = input.touch and pressed ~= nil and input.down.left
+	if input.inside and (touching or not input.touch) then
 		local data = kind.data
 		c:show(kind, placement.middle(x, data.width), placement.middle(y, data.height), { tint = if allowed then GHOST else FORBIDDEN_GHOST, over = true })
 		c.draw:rect(x, y, x + data.width, y + data.height, if allowed then ALLOWED else FORBIDDEN, 2, BORDER_ALPHA)
@@ -208,9 +211,10 @@ function build.update(c)
 		pressed = { x = input.x, y = input.y }
 	end
 	if pressed and input.released.left then
+		-- Мышью протяжка — не щелчок; пальцем тянут сам призрак, и место — там, где отпустили.
 		local dragged = math.abs(input.x - pressed.x) + math.abs(input.y - pressed.y) > build.data.threshold
 		pressed = nil
-		if dragged then
+		if (dragged and not input.touch) or input.over_ui then
 			return
 		end
 		if allowed then
@@ -226,7 +230,7 @@ build.modes = {
 	placing = {
 		describe = function(c, mode)
 			local building = mode.building and c.protos.buildings[mode.building]
-			return c:t("mode.placing", { name = building and c:t(building.data.title) or "" }), c:t("mode.tips.placing")
+			return c:t("mode.placing", { name = building and c:t(building.data.title) or "" }), c:t(if c.input.touch then "mode.tips.placingTouch" else "mode.tips.placing")
 		end,
 	},
 }

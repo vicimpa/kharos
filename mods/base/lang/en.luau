@@ -688,6 +688,7 @@ return {
 			cancelTip = "Same as Esc",
 			tips = {
 				placing = "Click where to lay it — again and again; with Shift — into the builders' queue",
+				placingTouch = "Touch and drag — the building follows your finger; let go where to lay it. Again and again",
 				pavingStart = "Hold the button and drag over the map",
 				paving = "Drag over the map: {tiles} tiles, {cost} credits",
 				pavingShort = "; not enough credits for {short} tiles — they are yellow",

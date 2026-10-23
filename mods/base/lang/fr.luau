@@ -688,6 +688,7 @@ return {
 			cancelTip = "Comme Échap",
 			tips = {
 				placing = "Clique là où construire — autant de fois que voulu ; avec Maj — dans la file des ouvriers",
+				placingTouch = "Touche et glisse — le bâtiment suit le doigt ; relâche là où construire. Autant de fois que voulu",
 				pavingStart = "Maintiens le bouton et fais glisser sur la carte",
 				paving = "Fais glisser sur la carte : {tiles} cases, {cost} crédits",
 				pavingShort = " ; crédits insuffisants pour {short} cases — elles sont en jaune",
