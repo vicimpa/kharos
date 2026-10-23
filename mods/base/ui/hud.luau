@@ -22,20 +22,42 @@ local COLORS, shadow = widgets.COLORS, widgets.shadow
 
 local hud = {}
 
--- Верхняя полоса и нижняя панель: высоты, ячейки, портреты.
-local TOP_HEIGHT = panel.TOP
-local INNER = 140
-local CELL_WIDTH = 132
-local GRID_WIDTH = 4 * CELL_WIDTH + 3 * 4
-local BAR_SPACING = 16 + 8 + 8
-local PORTRAIT = 96
+-- Окна по краям поля (макет «Адаптивный интерфейс», docs/adaptive-ui.md): отступ от края, верхние блоки, ячейки
+-- команд, ширина выбранного.
+local GUT = 8
+local TOP_GUT = 6
+local TOP_H = 40
+local TOP_BOTTOM = panel.TOP
+local GAP = 4
+local CELL_H = 44
+local SEL_W = 360
+local PIC = 48
+local STEPS_W = 340
 local TILE = 32
--- Сторона мини-карты: из настроек игрока, но не больше, чем оставляет сведениям ширина экрана.
 local settings = require("lib/settings")
-local INFO_MIN = 104 + 10 + 24 + 150
 local GRID_KEYS = { "T", "Y", "U", "I", "G", "H", "J", "K", "B", "N", "M", "," }
 -- С какой доли выработки полная нагрузка сети уже тесна: число энергии на полосе желтеет.
 local GRID_TIGHT = 0.8
+
+-- Раскладка нижних окон на этот кадр: сторона мини-карты, ширина ячейки и окна команд, стоит ли выбранное рядом с
+-- командами (wide) или над ними.
+type Layout = { mm: number, cell: number, act: number, sel: number, wide: boolean }
+local function layout(c): Layout
+	local width = c.ui.width
+	local pref = settings.prefs(c).minimap
+	local function sized(mm: number, cell: number)
+		local act = 4 * cell + 3 * GAP + 20
+		return mm, cell, act
+	end
+	local mm, cell, act = sized(math.min(pref, 176), 172)
+	if mm + SEL_W + act + 4 * GUT <= width then
+		return { mm = mm, cell = cell, act = act, sel = SEL_W, wide = true }
+	end
+	mm = math.min(pref, 140)
+	cell = math.clamp(math.floor((width - mm - 3 * GUT - 20 - 3 * GAP) / 4), 96, 156)
+	mm, cell, act = sized(mm, cell)
+	return { mm = mm, cell = cell, act = act, sel = math.min(SEL_W, act), wide = false }
+end
 
 -- Пульс подсказки «Первых шагов»: обводка огнями команды разгорается и гаснет раз в секунду от low до high; восемь
 -- ступеней — плавнее не разглядеть.
@@ -67,7 +89,10 @@ end
 
 local function topBar(c)
 	local ui = c.ui
-	ui:box({ id = "top", anchor = { left = 0, right = 0, top = 0 }, height = TOP_HEIGHT, skin = "panel", padding = { 4, 12 }, direction = "row", align = "center", gap = 12 }, function()
+	local right = ui:rect("top:r")
+	local room = ui.width - 3 * TOP_GUT - (if right then right.width else 320)
+	-- Левый блок: кредиты, защита новичка, энергия, запас; не шире, чем оставляет правый.
+	ui:box({ id = "top:l", anchor = { left = TOP_GUT, top = TOP_GUT }, height = TOP_H, maxWidth = room, skin = "panel", padding = { 0, 10 }, direction = "row", align = "center", gap = 12, clip = true }, function()
 		ui:box({ id = "credits", direction = "row", align = "center", gap = 6 }, function()
 			widgets.coin(ui)
 			ui:text(tostring(math.floor(wallet.credits(c, c.player))), { font = "title", color = COLORS.gold, shadow = COLORS.ink, lift = 2 })
@@ -87,11 +112,23 @@ local function topBar(c)
 			end)
 			ui:tip("protection", c:t("hud.protectionTip"))
 		end
+		-- Энергия: спрос и выработка, под ними полоска нагрузки с отметкой пика.
 		local grid = shownGrid(c)
 		if grid then
 			local color = if grid.demand > grid.produced or grid.overload then COLORS.bad elseif grid.peak > grid.produced * GRID_TIGHT then COLORS.warn else COLORS.power
-			ui:box({ id = "grid" }, function()
-				ui:text("⚡ " .. number(grid.demand) .. " / " .. number(grid.produced), { color = color })
+			ui:box({ id = "grid", direction = "row", align = "center", gap = 6 }, function()
+				ui:text("⚡ " .. number(grid.demand) .. "/" .. number(grid.produced), { color = color })
+				local load = if grid.produced > 0 then math.clamp(grid.demand / grid.produced, 0, 1) else (if grid.demand > 0 then 1 else 0)
+				local peak = if grid.produced > 0 then math.clamp(grid.peak / grid.produced, 0, 1) else 0
+				ui:box({ width = 48, height = 8, background = COLORS.ink, padding = 1, direction = "stack" }, function()
+					ui:box({ width = 46, height = 6, background = COLORS.well })
+					ui:box({ self = { "start", "start" }, width = math.max(0, math.round(46 * load)), height = 6, background = color })
+					if peak > 0 then
+						ui:box({ self = { "start", "start" }, padding = { 0, 0, 0, math.min(44, math.round(46 * peak)) } }, function()
+							ui:box({ width = 2, height = 6, background = COLORS.bright })
+						end)
+					end
+				end)
 			end)
 			ui:tip("grid", panel.gridText(c, grid) .. "\n" .. c:t("hud.gridTip"))
 		end
@@ -103,35 +140,58 @@ local function topBar(c)
 			end)
 			ui:tip("stock", c:t("hud.stockTip", { capacity = capacity }))
 		end
-		ui:space(0, 0, 1)
+	end)
+	-- Правый блок: часы, исследования, меню.
+	ui:box({ id = "top:r", anchor = { right = TOP_GUT, top = TOP_GUT }, height = TOP_H, skin = "panel", padding = { 0, 6, 0, 10 }, direction = "row", align = "center", gap = 10 }, function()
 		local hour = c.atmosphere.hour or 0
 		ui:box({ id = "clock", direction = "row", gap = 4 }, function()
 			ui:text(string.format("%02d:%02d", math.floor(hour), math.floor(hour * 60) % 60), { color = COLORS.dim })
 		end)
 		ui:tip("clock", c:t("hud.clock"))
-		-- Кнопка исследований: открывает дерево технологий, с процентом нынешней темы.
+		-- Кнопка исследований: нынешняя тема с процентом и полоской; без темы — «Исследования». Открывает дерево
+		-- технологий.
 		local current = research.current(c, c.player)
 		local state = research.player(c, c.player)
+		local topic = current and research.topic(c, current)
+		local progress = if current and state then ((state.progress or {})[current] or 0) else nil
+		local narrow = ui.width < 1200
 		-- Подсказка «Первых шагов»: следующий шаг — исследовать тему.
 		local hint = (currentStep(c) or {}).research
-		if ui:button("tech", { active = c.shared.techOpen == true, padding = { 2, 10 }, height = 30, outline = if hint then pulse(ui, 0.3, 1) else nil }, function()
-			ui:text(c:t("grid.techTree"), shadow())
-			if current and state then
-				ui:text(math.round(((state.progress or {})[current] or 0) * 100) .. "%", shadow({ color = COLORS.team }))
+		if ui:button("tech", { active = c.shared.techOpen == true, padding = { 0, 10, 0, 8 }, height = 30, gap = 6, outline = if hint then pulse(ui, 0.3, 1) else nil, direction = "stack" }, function()
+			ui:box({ self = { "start", "center" }, direction = "row", align = "center", gap = 6 }, function()
+				if topic and progress and not narrow then
+					ui:text(c:t(topic.data.title), shadow())
+				elseif not progress then
+					ui:text(c:t("grid.techTree"), shadow())
+				end
+				if progress then
+					ui:text(math.round(progress * 100) .. "%", shadow({ color = COLORS.team }))
+				end
+				ui:box({ background = COLORS.ink, padding = { 0, 3 } }, function()
+					ui:text("R", { color = COLORS.gold })
+				end)
+			end)
+			if progress then
+				ui:box({ self = { "stretch", "end" }, height = 2, background = COLORS.well, direction = "row" }, function()
+					ui:box({ grow = progress, background = COLORS.team })
+					ui:box({ grow = 1 - progress })
+				end)
 			end
 		end) then
 			c.shared.techOpen = not c.shared.techOpen
 		end
-		ui:tip("tech", c:t("tech.openTip"))
-		if ui:button("menu", { padding = { 2, 10 }, height = 30 }, function()
-			ui:text(c:t("game.menu"), shadow())
+		ui:tip("tech", if topic then c:t(topic.data.title) .. "\n" .. c:t("tech.openTip") else c:t("tech.openTip"))
+		-- Меню — значком из трёх полос.
+		if ui:button("menu", { width = 30, height = 30, padding = 0, direction = "column", align = "center", justify = "center", gap = 3 }, function()
+			for _ = 1, 3 do
+				ui:box({ width = 14, height = 2, background = COLORS.text })
+			end
 		end) then
 			c.shared.paused = true
 		end
 		ui:tip("menu", c:t("game.menuTip"))
 	end)
 end
-
 -- Ячейки сетки команд для выбранного: их собирают куски панели механик (lib/panel) по порядку; кусок, который забирает
 -- сетку целиком (подтверждение), отдаёт её сам.
 local function slots(c, selection)
@@ -148,7 +208,7 @@ end
 
 -- Карточка ячейки: название с клавишей, пояснение, параметры юнита, цена.
 local function card(ui, c, slot, hotkey: string)
-	local WIDTH = 264
+	local WIDTH = 316
 	ui:box({ direction = "column", gap = 4, width = WIDTH, align = "stretch" }, function()
 		ui:box({ direction = "row", justify = "between", align = "end", gap = 12 }, function()
 			ui:text(slot.label, { font = "title", color = COLORS.bright })
@@ -207,32 +267,45 @@ local function card(ui, c, slot, hotkey: string)
 	end)
 end
 
-local function commandGrid(c, list, width: number, height: number)
+-- Где встаёт подсказка ячейки: над окном выбранного, если оно над командами, иначе над командами — правым краем к
+-- краю экрана.
+local function cardAnchor(c): { [string]: number }?
 	local ui = c.ui
-	local cellWidth = (width - 3 * 4) / 4
-	local cellHeight = (height - 2 * 4) / 3
-	ui:box({ id = "commands", direction = "column", gap = 4, width = width, height = height }, function()
+	local above = ui:rect("sel")
+	local act = ui:rect("act")
+	local top = if act then act.y else nil
+	if above and act and above.y + above.height <= act.y + 1 then
+		top = above.y
+	end
+	return if top then { right = GUT, bottom = c.screen.h - top + GUT } else nil
+end
+
+-- Ячейка команд: значок с клавишей в углу, название, цена и энергия; подсказка — карточкой над окнами.
+local function commandGrid(c, list, cell: number)
+	local ui = c.ui
+	ui:box({ id = "commands", direction = "column", gap = GAP }, function()
 		for row = 0, 2 do
-			ui:box({ direction = "row", gap = 4 }, function()
+			ui:box({ direction = "row", gap = GAP }, function()
 				for column = 0, 3 do
 					local i = row * 4 + column + 1
 					local slot = list[i]
 					local hotkey = GRID_KEYS[i]
 					if not slot then
-						ui:box({ width = cellWidth, height = cellHeight, skin = "well", alpha = 0.35 })
+						ui:box({ width = cell, height = CELL_H, skin = "well", alpha = 0.35 })
 						continue
 					end
 					local id = "cell:" .. i
 					-- Подсказка шага — синим, новая кнопка — золотом.
 					local outline = if slot.hint and not slot.disabled then pulse(ui, 0.3, 1) elseif slot.fresh and not slot.disabled then pulse(ui, 0.2, 0.95, "240 201 90", 1.6) else nil
-					local click = ui:button(id, { width = cellWidth, height = cellHeight, padding = { 0, 6, 0, if slot.picture then 4 else 8 }, gap = 6, justify = "start", active = slot.active, disabled = slot.disabled, outline = outline }, function()
+					local keyColor = if slot.disabled then COLORS.muted else COLORS.gold
+					local click = ui:button(id, { width = cell, height = CELL_H, padding = { 0, 6, 0, if slot.picture then 4 else 8 }, gap = 8, justify = "start", active = slot.active, disabled = slot.disabled, outline = outline }, function()
 						if slot.picture then
 							ui:box({ direction = "stack" }, function()
 								ui:box({ width = TILE, height = TILE }, function()
 									ui:image(slot.picture, TILE, TILE)
 								end)
 								ui:box({ self = { "start", "start" }, background = COLORS.ink, padding = { 0, 2 } }, function()
-									widgets.key(ui, hotkey, if slot.disabled then COLORS.muted else COLORS.gold)
+									widgets.key(ui, hotkey, keyColor)
 								end)
 							end)
 						end
@@ -242,15 +315,19 @@ local function commandGrid(c, list, width: number, height: number)
 									ui:text(slot.label, shadow({ color = COLORS.bright, ellipsis = true }))
 								end)
 								if not slot.picture then
-									widgets.key(ui, hotkey, if slot.disabled then COLORS.muted else COLORS.gold)
+									widgets.key(ui, hotkey, keyColor)
 								end
 							end)
 							ui:box({ direction = "row", align = "center", gap = 4 }, function()
 								if slot.cost then
-									widgets.coin(ui)
+									widgets.coin(ui, 12)
 									ui:text(if slot.gain then "+" .. slot.cost else tostring(slot.cost), shadow({ color = if slot.gain then COLORS.good elseif slot.short then COLORS.warn else COLORS.gold }))
 								elseif slot.count then
 									ui:text(tostring(slot.count), shadow({ color = COLORS.dim }))
+								end
+								if slot.power then
+									ui:space(0, 0, 1)
+									ui:text("⚡" .. (if slot.power > 0 then "+" .. number(slot.power) else number(slot.power)), shadow({ color = COLORS.power }))
 								end
 							end)
 						end)
@@ -258,11 +335,9 @@ local function commandGrid(c, list, width: number, height: number)
 							ui:box({ width = 6, height = 6, background = if slot.lamp then COLORS.good else COLORS.bad })
 						end
 					end)
-					-- Подсказка — карточкой над сеткой, правым краем у указателя.
-					local grid = ui:rect("commands")
 					ui:tip(id, function()
 						card(ui, c, slot, hotkey)
-					end, if grid then { right = math.max(8, c.screen.w - c.input.x - 40), bottom = c.screen.h - grid.y + 12 } else nil)
+					end, cardAnchor(c))
 					-- Пока смотрят кнопку здания, на карте видны границы зон (controls/build).
 					if slot.zones and ui:hovered(id) then
 						c.shared.zonesHover = true
@@ -280,98 +355,169 @@ local function commandGrid(c, list, width: number, height: number)
 	end)
 end
 
--- Сведения о выбранном: портрет (или плитки отряда), название и что оно делает.
-local function info(c, selection, width: number, height: number)
+-- Заголовок выбранного: название (стройка, разбор, состав отряда), строка параметров юнита.
+local function selectionTitle(c, selection): string
+	local first = selection[1]
+	local kind = c:proto(first)
+	local title = if kind and kind.data then c:t(kind.data.title) or kind.name else "?"
+	if #selection == 1 then
+		local site = c:get(first, "Site")
+		if site then
+			title = c:t(if site.undo then "hud.undoing" elseif site.demolish then "hud.demolition" else "hud.construction", { name = title })
+		end
+		return title
+	end
+	local counts, order = {}, {}
+	for _, e in selection do
+		local k = c:proto(e)
+		local name = k and c:t(k.data.title) or "?"
+		if not counts[name] then
+			counts[name] = 0
+			table.insert(order, name)
+		end
+		counts[name] += 1
+	end
+	local parts = {}
+	for _, name in order do
+		table.insert(parts, if counts[name] > 1 then name .. " ×" .. counts[name] else name)
+	end
+	return table.concat(parts, ", ")
+end
+
+-- Доля прочности выбранных: у одного — его, у многих — общая.
+local function healthOf(c, selection): number?
+	local value, max = 0, 0
+	for _, e in selection do
+		local health = c:get(e, "Health")
+		if health then
+			value += health.value
+			max += health.max
+		end
+	end
+	return if max > 0 then value / max else nil
+end
+
+-- Окно выбранного: портрет (у отряда — плитки видов с числом), название, параметры и полоска прочности; ниже —
+-- куски панели механик (lib/panel): склад, энергия, работа, очередь.
+local function info(c, selection, width: number)
 	local ui = c.ui
 	local many = #selection > 1
 	local first = selection[1]
 	local kind = c:proto(first)
-	local title = if kind and kind.data then c:t(kind.data.title) or kind.name else "?"
+	local title = selectionTitle(c, selection)
 	local site = not many and c:get(first, "Site")
-	if site then
-		title = c:t(if site.undo then "hud.undoing" elseif site.demolish then "hud.demolition" else "hud.construction", { name = title })
-	end
-	if many then
-		local counts, order = {}, {}
-		for _, e in selection do
-			local k = c:proto(e)
-			local name = k and c:t(k.data.title) or "?"
-			if not counts[name] then
-				counts[name] = 0
-				table.insert(order, name)
+	local text = width - 20 - (if many then 0 else PIC + 10)
+	local unitKind = if not many and c:has(first, "Unit") then kind else nil
+	ui:box({ id = "info", direction = "column", gap = 6, align = "stretch" }, function()
+		ui:box({ direction = "row", align = "center", gap = 10 }, function()
+			if not many then
+				ui:button("portrait", { width = PIC, height = PIC, padding = 0, skin = "well", direction = "stack" }, function()
+					ui:box({ self = { "center", "center" } }, function()
+						ui:image(kind, PIC - 8, PIC - 8)
+					end)
+				end)
+				ui:tip("portrait", c:t("hud.showOnMap"))
+				if ui:clicked("portrait") then
+					local at = c:get(first, "Position")
+					if at then
+						c.shared.flyTo = { x = at.x, y = at.y }
+					end
+				end
 			end
-			counts[name] += 1
-		end
-		local parts = {}
-		for _, name in order do
-			table.insert(parts, if counts[name] > 1 then name .. " ×" .. counts[name] else name)
-		end
-		title = table.concat(parts, ", ")
-	end
-	local columns = math.max(1, math.min(4, math.floor((width - 24 - 10 - 150 + 4) / 44)))
-	local left = if many then columns * 40 + (columns - 1) * 4 else 104
-	local text = math.max(40, width - 24 - left - 10)
-	ui:box({ width = width, height = height, skin = "well", padding = { 10, 12 }, direction = "row", gap = 10 }, function()
-		if many then
-			ui:box({ direction = "column", gap = 4, width = left, maxHeight = height - 20, scroll = true, id = "info:units" }, function()
-				for start = 1, #selection, columns do
-					ui:box({ direction = "row", gap = 4 }, function()
-						for index = start, math.min(#selection, start + columns - 1) do
-							local e = selection[index]
-							ui:button("unit:" .. index, { width = 40, height = 40, padding = 0, skin = "well", direction = "stack" }, function()
-								ui:box({ self = { "center", "center" } }, function()
-									ui:image(c:proto(e), TILE, TILE)
-								end)
-							end)
-						end
+			ui:box({ direction = "column", gap = 3, width = text }, function()
+				ui:box({ id = "info:title", width = text }, function()
+					ui:text(title, { color = COLORS.bright, shadow = COLORS.ink, lift = 1, ellipsis = true })
+				end)
+				ui:tip("info:title", if many then title elseif unitKind then stats.text(c, unitKind) else "")
+				if unitKind then
+					ui:box({ id = "info:stats", width = text }, function()
+						ui:text(stats.line(c, unitKind), { color = COLORS.dim, ellipsis = true })
+					end)
+					ui:tip("info:stats", stats.text(c, unitKind))
+				end
+				local health = not site and healthOf(c, selection)
+				if health then
+					ui:box({ width = text, height = 6, background = COLORS.ink, padding = 1, direction = "row" }, function()
+						ui:box({ grow = health, height = 4, background = "#4fd07a" })
+						ui:box({ grow = 1 - health, height = 4, background = COLORS.well })
 					end)
 				end
 			end)
-		else
-			ui:button("portrait", { width = 104, height = 104, padding = 0, skin = "well", direction = "stack" }, function()
-				ui:box({ self = { "center", "center" } }, function()
-					ui:image(kind, PORTRAIT, PORTRAIT)
-				end)
-				ui:box({ self = { "start", "end" }, width = 104, height = 6, background = "#4fd07a" })
-			end)
-			ui:tip("portrait", c:t("hud.showOnMap"))
-		end
-		ui:box({ id = "info:details", direction = "column", gap = 4, grow = 1, maxHeight = height - 20, scroll = true }, function()
-			ui:box({ id = "info:title", width = text }, function()
-				ui:text(title, { font = "title", color = COLORS.bright, shadow = COLORS.ink, lift = 2, ellipsis = true })
-			end)
-			-- Параметры юнита — строкой, целиком — в подсказке.
-			local unitKind = if not many and c:has(first, "Unit") then kind else nil
-			ui:tip("info:title", if many then title elseif unitKind then stats.text(c, unitKind) else "")
-			if unitKind then
-				ui:box({ id = "info:stats", width = text }, function()
-					ui:text(stats.line(c, unitKind), { color = COLORS.dim, ellipsis = true })
-				end)
-				ui:tip("info:stats", stats.text(c, unitKind))
+		end)
+		-- Отряд: плитки видов с числом; щелчок оставляет выбранными только этот вид.
+		if many then
+			local order, groups = {}, {}
+			for _, e in selection do
+				local k = c:proto(e)
+				if k and not groups[k] then
+					groups[k] = {}
+					table.insert(order, k)
+				end
+				if k then
+					table.insert(groups[k], e)
+				end
 			end
-			-- Дальше — куски панели механик (lib/panel): склад, энергия, работа, очередь.
-			local view = { selection = selection, first = first, kind = kind, many = many, site = site, width = text }
-			view.built = not many and not site and kind and c:has(first, "Building")
-			for _, part in panel.parts(c.protos, "info") do
-				part.fn(c, view)
+			ui:box({ id = "info:units", direction = "row", gap = 4, width = width - 20, clip = true }, function()
+				for index, k in order do
+					local id = "unit:" .. index
+					if ui:button(id, { width = 40, height = 40, padding = 0, skin = "well", direction = "stack" }, function()
+						ui:box({ self = { "center", "center" } }, function()
+							ui:image(k, TILE, TILE)
+						end)
+						if #groups[k] > 1 then
+							ui:box({ self = { "end", "end" }, padding = { 0, 2, 1, 0 } }, function()
+								ui:text(tostring(#groups[k]), shadow({ color = COLORS.bright }))
+							end)
+						end
+					end) then
+						c.shared.selection = groups[k]
+					end
+					ui:tip(id, c:t(k.data.title))
+				end
+			end)
+		end
+		local view = { selection = selection, first = first, kind = kind, many = many, site = site, width = width - 20 }
+		view.built = not many and not site and kind and c:has(first, "Building")
+		for _, part in panel.parts(c.protos, "info") do
+			part.fn(c, view)
+		end
+	end)
+end
+
+-- Режим (стройка, патруль, маршрут) — на месте команд: что за режим, что делать, «Отмена» и «Готово». Esc и правая
+-- кнопка работают и так, но на сенсорном экране их нет.
+local function modeWindow(c, spec, width: number)
+	local ui = c.ui
+	local mode = c.shared.mode
+	local name, tip = spec.describe(c, mode)
+	ui:box({ id = "mode", direction = "column", gap = 6, align = "stretch", width = width - 20 }, function()
+		ui:text(name, { color = COLORS.team, wrap = width - 20 })
+		ui:text(tip, { color = COLORS.soft, wrap = width - 20 })
+		ui:box({ direction = "row", gap = 6 }, function()
+			if ui:button("mode:cancel", { grow = 1, height = 36, padding = { 0, 10 }, gap = 6 }, function()
+				ui:text(c:t("mode.cancel"), shadow())
+				ui:box({ background = COLORS.ink, padding = { 0, 3 } }, function()
+					ui:text("Esc", { color = COLORS.gold })
+				end)
+			end) then
+				c.shared.mode = nil
+			end
+			ui:tip("mode:cancel", c:t("mode.endTip"))
+			if spec.done then
+				if ui:button("mode:done", { grow = 1, height = 36, padding = { 0, 10 }, gap = 6, skin = "button-primary" }, function()
+					ui:text(c:t("mode.done"), shadow())
+					ui:box({ background = COLORS.ink, padding = { 0, 3 } }, function()
+						ui:text("Enter", { color = COLORS.gold })
+					end)
+				end) then
+					spec.done(c)
+				end
+				ui:tip("mode:done", c:t("mode.doneTip"))
 			end
 		end)
 	end)
 end
 
--- Ничего не выбрано: подсказка по управлению.
-local function nothing(c, width: number, height: number)
-	local ui = c.ui
-	ui:box({ width = width, height = height, skin = "well", padding = { 10, 12 }, direction = "column", justify = "center", gap = 4, clip = true }, function()
-		-- По предложению в строке.
-		local rest = c:t("hud.nothingSelected")
-		while rest ~= "" do
-			local stop, after = string.find(rest, "%.%s+")
-			ui:text(if stop then string.sub(rest, 1, stop) else rest, { color = COLORS.muted, wrap = true })
-			rest = if after then string.sub(rest, after + 1) else ""
-		end
-	end)
-end
 
 -- Мини-карта: местность, здания и юниты цветом стороны, рамка экрана; левая кнопка (и протяжка) ставит туда камеру,
 -- правая шлёт выделенных.
@@ -526,33 +672,42 @@ local function minimapView(c, side: number)
 	end
 end
 
-local function bottomBar(c)
+-- Нижние окна: мини-карта слева снизу; справа снизу команды (или режим), выбранное — слева от них на широком экране и
+-- над ними на узком. Ничего не выбрано и нет режима — окна команд нет, карта открыта.
+local function bottomWindows(c)
 	local ui = c.ui
 	local selection = c.shared.selection or {}
 	local selected = #selection > 0
-	local side = math.max(INNER, math.min(settings.prefs(c).minimap, ui.width - BAR_SPACING - GRID_WIDTH - INFO_MIN))
-	local infoWidth = ui.width - BAR_SPACING - side - GRID_WIDTH
-	-- Мини-карта выше панели: что стоит над панелью слева (чат), встаёт над ней.
-	c.shared.inset.minimap = side + 8
-	ui:box({ id = "bar", anchor = { left = 0, right = 0, bottom = 0 }, height = INNER + 16, skin = "panel", padding = { 4, 8 }, direction = "row", align = "end", gap = 8 }, function()
-		ui:box({ height = INNER, direction = "column", justify = "end" }, function()
-			minimapView(c, side)
-		end)
-		ui:box({ direction = "row", gap = 8, height = INNER, align = "center" }, function()
-			if selected then
-				info(c, selection, infoWidth, INNER)
-			else
-				nothing(c, infoWidth, INNER)
-			end
-			commandGrid(c, if selected then slots(c, selection) else {}, GRID_WIDTH, INNER)
-		end)
+	local place = layout(c)
+	-- Над мини-картой встаёт чат (ui/chat).
+	c.shared.inset.minimap = place.mm + GUT
+	ui:box({ anchor = { left = GUT, bottom = GUT } }, function()
+		minimapView(c, place.mm)
 	end)
+	local mode = c.shared.mode
+	local spec = mode and panel.mode(c.protos, mode.kind)
+	local list = if selected then slots(c, selection) else {}
+	local commands = spec ~= nil or next(list) ~= nil
+	if commands then
+		ui:box({ id = "act", anchor = { right = GUT, bottom = GUT }, width = place.act, skin = "panel", padding = 10, direction = "column", gap = GAP }, function()
+			if spec then
+				modeWindow(c, spec, place.act)
+			else
+				commandGrid(c, list, place.cell)
+			end
+		end)
+	end
+	if selected and not spec then
+		local act = ui:rect("act")
+		local actHeight = if commands and act then act.height else 0
+		local anchor = if place.wide then { right = GUT + (if commands then place.act + GUT else 0), bottom = GUT } else { right = GUT, bottom = GUT + (if commands then actHeight + GUT else 0) }
+		ui:box({ id = "sel", anchor = anchor, width = place.sel, skin = "panel", padding = 10, direction = "column" }, function()
+			info(c, selection, place.sel)
+		end)
+	end
 end
 
--- Ширина экрана, ниже которой список шагов сжимается до текущего.
-local NARROW = 1000
-
--- Виден ли список «Первых шагов»: не скрыт в настройках и не пройден ещё до входа в мир.
+-- Виден ли «Первый шаг»: не скрыт в настройках и не пройден ещё до входа в мир.
 local function stepsShown(c): boolean
 	if settings.prefs(c).steps == "off" then
 		return false
@@ -565,8 +720,8 @@ local function stepsShown(c): boolean
 	return not (finished and c.shared.stepsKnown)
 end
 
--- Первые шаги новичка в углу: список с галочками, у текущего — что сделать и зачем. Заголовок сворачивает список,
--- крестик прячет совсем (вернуть — в настройках). Мир, где всё уже пройдено при входе, списка не показывает.
+-- Первые шаги новичка — карточкой слева сверху: номер и название шага, что сделать, деления пройденного, «Показать».
+-- Свёрнутая — одной строкой. Мир, где всё уже пройдено при входе, карточки не показывает.
 local function stepsPanel(c)
 	if not stepsShown(c) then
 		return
@@ -574,107 +729,45 @@ local function stepsPanel(c)
 	local ui = c.ui
 	local state = stepsLib.of(c)
 	local done, target = state.done, state.target
-	local shown = settings.prefs(c).steps
+	local folded = settings.prefs(c).steps ~= "open"
 	local current = table.find(done, false)
-	local count = 0
-	for _, passed in done do
-		if passed then
-			count += 1
-		end
-	end
-	local width = math.min(300, ui.width - 24)
-	ui:box({ anchor = { right = 12, top = TOP_HEIGHT + 6 }, width = width, skin = "panel", padding = { 8, 10, 10, 10 }, direction = "column", align = "stretch", gap = 6 }, function()
-		ui:box({ direction = "row", gap = 4 }, function()
-			if ui:button("steps:toggle", { height = 28, padding = { 0, 8 }, justify = "start" }, function()
-				ui:text(c:t("steps.title"), shadow())
-				ui:text(count .. "/" .. #stepsLib.LIST, shadow({ font = "small", color = COLORS.gold }))
-				ui:text(if shown == "open" then "▾" else "▸", shadow({ font = "small" }))
-			end) then
-				settings.setPref(c, "steps", if shown == "open" then "folded" else "open")
+	local width = math.min(STEPS_W, ui.width - 2 * GUT)
+	local text = width - 24 - (if current and target then 96 else 0)
+	ui:box({ id = "steps", anchor = { left = GUT, top = TOP_BOTTOM + GUT }, width = width, skin = "panel", padding = { 8, 8, 8, 14 }, direction = "row", align = "center", gap = 8 }, function()
+		ui:box({ direction = "column", gap = 3, width = text }, function()
+			if not current then
+				ui:text(c:t("steps.finished"), { color = COLORS.good, wrap = text })
+				return
 			end
-			ui:tip("steps:toggle", if shown == "open" then c:t("steps.foldTip") else c:t("steps.unfoldTip"))
-			if ui:button("steps:close", { height = 28, padding = { 0, 8 } }, function()
-				ui:text("×", shadow())
-			end) then
-				settings.setPref(c, "steps", "off")
-			end
-			ui:tip("steps:close", c:t("steps.closeTip"))
-		end)
-		if shown ~= "open" then
-			return
-		end
-		if not current then
-			ui:box({ padding = { 0, 2 } }, function()
-				ui:text(c:t("steps.finished"), { color = COLORS.good, wrap = width - 24 })
-			end)
-			return
-		end
-		local narrow = ui.width < NARROW
-		-- Список — плотнее панели: строки через 4, описание текущего шага — мелким шрифтом.
-		ui:box({ direction = "column", align = "stretch", gap = 4, padding = { 0, 2 } }, function()
-			for i, step in stepsLib.LIST do
-				-- На узком экране — только текущий шаг: список закрыл бы поле.
-				if narrow and i ~= current then
-					continue
-				end
-				local color = if done[i] then COLORS.dim elseif i == current then COLORS.bright else COLORS.muted
-				ui:box({ direction = "row", gap = 8 }, function()
-					ui:box({ width = 14, direction = "row", justify = "end" }, function()
-						ui:text(if done[i] then "✓" else tostring(i), { color = if done[i] then COLORS.good elseif i == current then COLORS.team else color })
-					end)
-					ui:box({ direction = "column", gap = 2, grow = 1 }, function()
-						ui:text(c:t(step.title), { color = color, wrap = width - 46 })
-						if i ~= current then
-							return
-						end
-						ui:text(c:t(step.tip), { font = "small", color = COLORS.soft, wrap = width - 46 })
-						if target then
-							ui:space(0, 2)
-							if ui:button("steps:show", { height = 28, padding = { 0, 10 } }, function()
-								ui:text(c:t("steps.show"), shadow())
-							end) then
-								c.shared.flyTo = { x = target.x + target.width / 2, y = target.y + target.height / 2 }
-							end
-							ui:tip("steps:show", c:t("steps.showTip"))
-						end
-					end)
+			local step = stepsLib.LIST[current]
+			ui:box({ id = "steps:toggle", direction = "row", gap = 6, width = text }, function()
+				ui:text(tostring(current), { color = COLORS.team })
+				ui:box({ grow = 1 }, function()
+					ui:text(c:t(step.title), { color = COLORS.bright, ellipsis = true })
 				end)
+			end)
+			ui:tip("steps:toggle", if folded then c:t("steps.unfoldTip") else c:t("steps.foldTip"))
+			if ui:clicked("steps:toggle") then
+				settings.setPref(c, "steps", if folded then "open" else "folded")
 			end
-		end)
-	end)
-end
-
--- Полоса режима над полем: какой режим, что делать дальше и как выйти. Esc и правая кнопка работают и так, но на
--- сенсорном экране их нет.
-local function modeBar(c)
-	local mode = c.shared.mode
-	local spec = mode and panel.mode(c.protos, mode.kind)
-	if not spec then
-		return
-	end
-	local ui = c.ui
-	-- Справа — «Первые шаги», слева — уведомления: середина не наезжает на них.
-	local room = if stepsShown(c) and ui.width >= NARROW then math.min(ui.width - 24, math.max(280, ui.width - 2 * 324)) else ui.width - 24
-	ui:box({ anchor = { centerX = 0, top = TOP_HEIGHT + 6 } }, function()
-		ui:box({ id = "mode", skin = "panel", padding = { 10, 12, 10, 16 }, direction = "row", align = "center", gap = 12, maxWidth = room }, function()
-			local name, tip = spec.describe(c, mode)
-			ui:text(name, { color = COLORS.team })
-			ui:text(tip, { color = COLORS.soft, wrap = math.max(160, room - 320) })
-			if spec.done then
-				if ui:button("mode:done", { height = 32, padding = { 2, 14 }, skin = "button-primary" }, function()
-					ui:text(c:t("mode.done"), shadow())
-				end) then
-					spec.done(c)
+			if folded then
+				return
+			end
+			ui:text(c:t(step.tip), { color = COLORS.dim, wrap = text })
+			ui:box({ direction = "row", gap = 2, width = text }, function()
+				for i, passed in done do
+					ui:box({ grow = 1, height = 3, background = if passed then COLORS.good elseif i == current then COLORS.team else COLORS.steel })
 				end
-				ui:tip("mode:done", c:t("mode.doneTip"))
-			end
-			if ui:button("mode:cancel", { height = 32, padding = { 2, 14 } }, function()
-				ui:text(c:t("mode.cancel"), shadow())
-			end) then
-				c.shared.mode = nil
-			end
-			ui:tip("mode:cancel", c:t("mode.endTip"))
+			end)
 		end)
+		if current and target then
+			if ui:button("steps:show", { height = 36, padding = { 0, 12 }, skin = "button-primary" }, function()
+				ui:text(c:t("steps.show"), shadow())
+			end) then
+				c.shared.flyTo = { x = target.x + target.width / 2, y = target.y + target.height / 2 }
+			end
+			ui:tip("steps:show", c:t("steps.showTip"))
+		end
 	end)
 end
 
@@ -696,9 +789,7 @@ local function rewards(c)
 		return
 	end
 	local ui = c.ui
-	local mode = ui:rect("mode")
-	local top = TOP_HEIGHT + 6 + (if mode and c.shared.mode then mode.height + 6 else 0)
-	ui:box({ anchor = { centerX = 0, top = top }, direction = "column", align = "center", gap = 6 }, function()
+	ui:box({ anchor = { centerX = 0, top = TOP_BOTTOM + GUT }, direction = "column", align = "center", gap = 6 }, function()
 		if #list > 0 then
 			ui:box({ skin = "gold", padding = { 10, 14 }, direction = "column", gap = 4 }, function()
 				for _, toast in list do
@@ -746,7 +837,8 @@ local function rewards(c)
 	end)
 end
 
--- Уведомления слева под полосой: строка цвета вида с маркером; щелчок ведёт камеру к месту. Со временем гаснут.
+-- Уведомления слева под первыми шагами: каждое — своей строкой с маркером цвета вида; щелчок ведёт камеру к месту. Со
+-- временем гаснут.
 local ALERT_COLORS = { attacked = COLORS.bad, spotted = COLORS.warn, found = COLORS.good, ping = COLORS.ally }
 local function alertList(c)
 	local list = shownAlerts
@@ -755,16 +847,20 @@ local function alertList(c)
 	end
 	local ui = c.ui
 	local seconds = alertsLib.data.seconds
-	ui:box({ anchor = { left = 12, top = TOP_HEIGHT + 6 }, skin = "panel", padding = { 10, 12 }, direction = "column", gap = 4 }, function()
+	local steps = stepsShown(c) and ui:rect("steps")
+	local top = if steps then steps.y + steps.height + GUT else TOP_BOTTOM + GUT
+	ui:box({ anchor = { left = GUT, top = top }, width = math.min(STEPS_W, ui.width - 2 * GUT), direction = "column", gap = 2, align = "stretch" }, function()
 		for _, alert in list do
 			local age = alertsLib.age(alert)
 			local bright = seconds * 0.75
 			local fade = if age < bright then 1 else math.max(0.25, 1 - 0.75 * (age - bright) / (seconds - bright))
 			local id = "alert:" .. alert.at
 			local color = ALERT_COLORS[alert.kind] or COLORS.text
-			ui:box({ id = id, direction = "row", align = "center", gap = 8, padding = { 2, 4 }, alpha = math.round(fade * 8) / 8 }, function()
-				ui:box({ width = 6, height = 6, background = color })
-				ui:text(c:t(alertsLib.TEXTS[alert.text] or alert.text), { color = color, shadow = COLORS.ink })
+			ui:box({ id = id, skin = "panel", height = 32, direction = "row", align = "center", gap = 8, padding = { 0, 14 }, alpha = math.round(fade * 8) / 8 }, function()
+				ui:box({ width = 8, height = 8, background = COLORS.ink, padding = 1 }, function()
+					ui:box({ width = 6, height = 6, background = color })
+				end)
+				ui:text(c:t(alertsLib.TEXTS[alert.text] or alert.text), { color = color, shadow = COLORS.ink, ellipsis = true })
 			end)
 			ui:tip(id, c:t("hud.showPlace"))
 			if ui:clicked(id) then
@@ -780,15 +876,14 @@ local LAYERS = {
 		alertList(c)
 	end },
 	{ at = panel.LAYERS.steps, fn = stepsPanel },
-	{ at = panel.LAYERS.mode, fn = modeBar },
 	{ at = panel.LAYERS.rewards, fn = rewards },
 	{ at = panel.LAYERS.top, fn = topBar },
-	{ at = panel.LAYERS.bottom, fn = bottomBar },
+	{ at = panel.LAYERS.bottom, fn = bottomWindows },
 }
 
 function hud.draw(c)
-	-- Видимая часть карты — между верхней полосой и нижней панелью (inset камеры): у её краёв едет камера за рамкой.
-	c.shared.inset = { top = TOP_HEIGHT, bottom = INNER + 16, left = 0, right = 0 }
+	-- Окна плавают по краям, карта видна целиком: камера едет у самых краёв экрана.
+	c.shared.inset = { top = 0, bottom = 0, left = 0, right = 0 }
 	shownAlerts = alertsLib.update(c)
 	local overlays = panel.parts(c.protos, "overlay")
 	local view = {}

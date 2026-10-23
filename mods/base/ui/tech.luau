@@ -14,8 +14,8 @@ local tech = {}
 
 -- Стороны значков на плитке и в строке; плитка не уже TILE_MIN; промежуток; ширина карточки.
 local ICON, SMALL, TILE_MIN, GAP, CARD_WIDTH = 48, 24, 120, 6, 330
--- Высота верхней полосы панели (ui/hud).
-local TOP = 38
+-- Нижний край верхних блоков панели (ui/hud).
+local TOP = require("lib/panel").TOP
 
 local STATUS_ORDER = { available = 0, soon = 1, locked = 2, done = 3 }
 local STATUS_COLORS = {
