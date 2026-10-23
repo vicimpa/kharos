@@ -20,7 +20,7 @@ settings.MINIMAP_SIDES = { 140, 200, 260 }
 -- Список «Первых шагов» (lib/steps): развёрнут, свёрнут или скрыт.
 settings.STEPS_SHOWN = { "open", "folded", "off" }
 local STEPS_NAMES = { open = "menu.stepsShown.open", folded = "menu.stepsShown.folded", off = "menu.stepsShown.off" }
-local DEFAULTS = { selection = 0.7, minimap = 200, steps = "open" }
+local DEFAULTS = { selection = 0.7, minimap = 200, steps = "folded" }
 
 local WIDTH = 300
 -- Подпись поля слева и ширина содержимого окна.
