@@ -679,9 +679,8 @@ local function bottomWindows(c)
 	local selection = c.shared.selection or {}
 	local selected = #selection > 0
 	local place = layout(c)
-	-- Над мини-картой встаёт чат (ui/chat).
-	c.shared.inset.minimap = place.mm + GUT
-	ui:box({ anchor = { left = GUT, bottom = GUT } }, function()
+	-- Мини-карта — слева сверху, под левым блоком полосы; первые шаги и уведомления — под ней.
+	ui:box({ id = "mm", anchor = { left = GUT, top = TOP_BOTTOM + GUT } }, function()
 		minimapView(c, place.mm)
 	end)
 	local mode = c.shared.mode
@@ -705,6 +704,11 @@ local function bottomWindows(c)
 			info(c, selection, place.sel)
 		end)
 	end
+end
+
+-- Верх того, что стоит слева под мини-картой.
+local function belowMinimap(c): number
+	return TOP_BOTTOM + GUT + layout(c).mm + GUT
 end
 
 -- Виден ли «Первый шаг»: не скрыт в настройках и не пройден ещё до входа в мир.
@@ -733,7 +737,7 @@ local function stepsPanel(c)
 	local current = table.find(done, false)
 	local width = math.min(STEPS_W, ui.width - 2 * GUT)
 	local text = width - 24 - (if current and target then 96 else 0)
-	ui:box({ id = "steps", anchor = { left = GUT, top = TOP_BOTTOM + GUT }, width = width, skin = "panel", padding = { 8, 8, 8, 14 }, direction = "row", align = "center", gap = 8 }, function()
+	ui:box({ id = "steps", anchor = { left = GUT, top = belowMinimap(c) }, width = width, skin = "panel", padding = { 8, 8, 8, 14 }, direction = "row", align = "center", gap = 8 }, function()
 		ui:box({ direction = "column", gap = 3, width = text }, function()
 			if not current then
 				ui:text(c:t("steps.finished"), { color = COLORS.good, wrap = text })
@@ -848,7 +852,7 @@ local function alertList(c)
 	local ui = c.ui
 	local seconds = alertsLib.data.seconds
 	local steps = stepsShown(c) and ui:rect("steps")
-	local top = if steps then steps.y + steps.height + GUT else TOP_BOTTOM + GUT
+	local top = if steps then steps.y + steps.height + GUT else belowMinimap(c)
 	ui:box({ anchor = { left = GUT, top = top }, width = math.min(STEPS_W, ui.width - 2 * GUT), direction = "column", gap = 2, align = "stretch" }, function()
 		for _, alert in list do
 			local age = alertsLib.age(alert)
