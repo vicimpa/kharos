@@ -3,13 +3,13 @@
 -- рвётся. Скорость камеры: с FLIGHT_START тайлов в секунду начинается, на FLIGHT_FULL свистит во всю силу, между ними —
 -- по логарифму.
 
-local LEVEL = 0.9
-local RISE = 0.08
+local LEVEL = 0.45
+local RISE = 0.25
 local FALL = 0.35
 local BAND_LOW = 450
-local BAND_HIGH = 4200
+local BAND_HIGH = 1800
 local FLUTTER_LOW = 5
-local FLUTTER_HIGH = 13
+local FLUTTER_HIGH = 8
 local FLIGHT_START = 20
 local FLIGHT_FULL = 500
 
@@ -41,7 +41,7 @@ local FLIGHT = {
 		n.band.frequency:glide(BAND_LOW * (BAND_HIGH / BAND_LOW) ^ level, 0.05)
 		n.rush.rate:glide(0.8 + 0.5 * level, 0.05)
 		n.flutter.frequency:glide(FLUTTER_LOW + (FLUTTER_HIGH - FLUTTER_LOW) * level, 0.05)
-		n.flutterDepth.gain:glide(0.3 * level, 0.05)
+		n.flutterDepth.gain:glide(0.15 * level, 0.05)
 	end,
 }
 
