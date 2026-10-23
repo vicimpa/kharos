@@ -78,21 +78,37 @@ end
 local currentStep, number, goodWith, goodsRow = panel.currentStep, panel.number, panel.goodWith, panel.goodsRow
 local KEY_NAMES = { "t", "y", "u", "i", "g", "h", "j", "k", "b", "n", "m", "," }
 
--- Сеть, которую показывает полоса: выбранного своего здания, а без него — первая (с главным зданием).
-local function shownGrid(c)
-	local zones = economy.zones(c, c.player)
-	local index = 1
-	for _, e in c.shared.selection or {} do
-		if c:mine(e) then
-			local found = economy.gridOf(c, e)
-			if found then
-				index = found
-				break
-			end
+-- Цвет энергии сети: нехватка или перегруз — красный, тесно при полной нагрузке — жёлтый.
+local function gridColor(grid): string
+	return if grid.demand > grid.produced or grid.overload then COLORS.bad elseif grid.peak > grid.produced * GRID_TIGHT then COLORS.warn else COLORS.power
+end
+
+-- Энергия сети строкой: «⚡ спрос/выработка» и полоска нагрузки с отметкой пика.
+local function powerLine(ui, grid)
+	local color = gridColor(grid)
+	ui:text("⚡ " .. number(grid.demand) .. "/" .. number(grid.produced), { color = color })
+	local load = if grid.produced > 0 then math.clamp(grid.demand / grid.produced, 0, 1) else (if grid.demand > 0 then 1 else 0)
+	local peak = if grid.produced > 0 then math.clamp(grid.peak / grid.produced, 0, 1) else 0
+	ui:box({ width = 48, height = 8, background = COLORS.ink, padding = 1, direction = "stack" }, function()
+		ui:box({ width = 46, height = 6, background = COLORS.well })
+		ui:box({ self = { "start", "start" }, width = math.max(0, math.round(46 * load)), height = 6, background = color })
+		if peak > 0 then
+			ui:box({ self = { "start", "start" }, padding = { 0, 0, 0, math.min(44, math.round(46 * peak)) } }, function()
+				ui:box({ width = 2, height = 6, background = COLORS.bright })
+			end)
+		end
+	end)
+end
+
+-- Сеть в беде — для полосы: нехватка энергии или перегруз; nil — все сети в порядке.
+local function troubleGrid(c)
+	for _, zone in economy.zones(c, c.player) do
+		local grid = panel.gridState(zone)
+		if grid.demand > grid.produced or grid.overload then
+			return grid
 		end
 	end
-	local shown = zones[index]
-	return if shown then panel.gridState(shown) else nil
+	return nil
 end
 
 local function topBar(c)
@@ -120,33 +136,13 @@ local function topBar(c)
 			end)
 			ui:tip("protection", c:t("hud.protectionTip"))
 		end
-		-- Энергия: спрос и выработка, под ними полоска нагрузки с отметкой пика.
-		local grid = shownGrid(c)
+		-- Энергию и запас зоны показывает сводка у складов и станций (zoneTip); на полосе — только сеть в беде.
+		local grid = troubleGrid(c)
 		if grid then
-			local color = if grid.demand > grid.produced or grid.overload then COLORS.bad elseif grid.peak > grid.produced * GRID_TIGHT then COLORS.warn else COLORS.power
 			ui:box({ id = "grid", direction = "row", align = "center", gap = 6 }, function()
-				ui:text("⚡ " .. number(grid.demand) .. "/" .. number(grid.produced), { color = color })
-				local load = if grid.produced > 0 then math.clamp(grid.demand / grid.produced, 0, 1) else (if grid.demand > 0 then 1 else 0)
-				local peak = if grid.produced > 0 then math.clamp(grid.peak / grid.produced, 0, 1) else 0
-				ui:box({ width = 48, height = 8, background = COLORS.ink, padding = 1, direction = "stack" }, function()
-					ui:box({ width = 46, height = 6, background = COLORS.well })
-					ui:box({ self = { "start", "start" }, width = math.max(0, math.round(46 * load)), height = 6, background = color })
-					if peak > 0 then
-						ui:box({ self = { "start", "start" }, padding = { 0, 0, 0, math.min(44, math.round(46 * peak)) } }, function()
-							ui:box({ width = 2, height = 6, background = COLORS.bright })
-						end)
-					end
-				end)
+				powerLine(ui, grid)
 			end)
-			ui:tip("grid", panel.gridText(c, grid) .. "\n" .. c:t("hud.gridTip"))
-		end
-		-- Запас в хранилищах.
-		local items, capacity = logistics.stockOf(c, c.player)
-		if capacity > 0 then
-			ui:box({ id = "stock" }, function()
-				goodsRow(c, items, c:t("hud.storesEmpty"))
-			end)
-			ui:tip("stock", c:t("hud.stockTip", { capacity = capacity }))
+			ui:tip("grid", panel.gridText(c, grid))
 		end
 	end)
 	-- Правый блок: часы, исследования, меню.
@@ -1048,6 +1044,107 @@ local function alertList(c)
 	end)
 end
 
+-- Сводка зоны у склада, электростанции или главного здания: энергия сети и запас её хранилищ. Мышь — наведением,
+-- касание — удержанием пальца (наведения нет).
+local HOLD = 0.45
+local HOLD_SLOP = 12
+local hold: { x: number, y: number, time: number }? = nil
+
+-- Точка экрана, над которой спрашивают сводку: указатель над картой или удержанный палец; nil — нигде.
+local function askedAt(c): (number?, number?)
+	local input = c.input
+	if not input.touch then
+		hold = nil
+		if input.inside and not input.over_ui then
+			return input.x, input.y
+		end
+		return nil, nil
+	end
+	if input.pressed.left and input.inside and not input.over_ui then
+		hold = { x = input.x, y = input.y, time = c.time }
+	end
+	if not (hold and input.down.left) then
+		hold = nil
+		return nil, nil
+	end
+	if math.abs(input.x - hold.x) + math.abs(input.y - hold.y) > HOLD_SLOP then
+		hold.time = math.huge
+	end
+	if c.time - hold.time < HOLD then
+		return nil, nil
+	end
+	return hold.x, hold.y
+end
+
+-- Своё готовое здание под точкой мира, о зоне которого есть что сказать: склад, станция, главное здание.
+local function zoneBuildingAt(c, wx: number, wy: number): number?
+	for _, e in c:each({ "Building", "Position" }) do
+		if not c:mine(e) or c:has(e, "Site") then
+			continue
+		end
+		local size = c:get(e, "Building")
+		local at = c:get(e, "Position")
+		if math.abs(wx - at.x) <= size.width / 2 and math.abs(wy - at.y) <= size.height / 2 then
+			local kind = c:proto(e)
+			if kind and (logistics.isStore(c, e) or (kind.data.power or 0) > 0 or kind.name == economy.CORE) then
+				return e
+			end
+			return nil
+		end
+	end
+	return nil
+end
+
+local function zoneTip(c, view)
+	if view.tip or c.shared.mode then
+		return
+	end
+	local x, y = askedAt(c)
+	if not x then
+		return
+	end
+	local wx, wy = c:to_world(x, y)
+	local e = zoneBuildingAt(c, wx, wy)
+	if not e then
+		return
+	end
+	local index, zone = economy.gridOf(c, e)
+	if not index or not zone then
+		return
+	end
+	view.tip = true
+	local ui = c.ui
+	local grid = panel.gridState(zone)
+	-- Запас хранилищ этой сети.
+	local items, capacity = {}, 0
+	for _, book in economy.books(c) do
+		if book.economy == zone then
+			for _, member in book.grid.members do
+				if logistics.isStore(c, member) and c:mine(member) and not c:has(member, "Site") then
+					local stock = c:get(member, "Inventory")
+					capacity += stock.capacity
+					for good, amount in stock.items do
+						items[good] = (items[good] or 0) + amount
+					end
+				end
+			end
+		end
+	end
+	local WIDTH = 280
+	-- У пальца — над ним, чтобы не закрыл; у мыши — правее и ниже указателя.
+	local anchor = if c.input.touch then { centerX = math.clamp(x - ui.width / 2, -ui.width / 2 + WIDTH / 2 + GUT, ui.width / 2 - WIDTH / 2 - GUT), bottom = c.screen.h - y + 32 }
+		elseif x > ui.width - WIDTH - 40 then { right = ui.width - x + 16, top = y + 16 }
+		else { left = x + 16, top = y + 16 }
+	ui:box({ anchor = anchor, width = WIDTH, skin = "panel", padding = { 8, 12 }, direction = "column", gap = 6, passive = true }, function()
+		ui:text(c:t(c:proto(e).data.title), { color = COLORS.bright, shadow = COLORS.ink, lift = 1 })
+		ui:text(panel.gridText(c, grid), { color = gridColor(grid), wrap = WIDTH - 24 })
+		if capacity > 0 then
+			goodsRow(c, items, c:t("hud.storesEmpty"))
+			ui:text(c:t("hud.stockTip", { capacity = capacity }), { color = COLORS.dim, wrap = WIDTH - 24 })
+		end
+	end)
+end
+
 -- Части самой панели по местам (lib/panel.LAYERS); между ними — куски механик поверх поля.
 local LAYERS = {
 	{ at = panel.LAYERS.alerts, fn = function(c)
@@ -1056,6 +1153,7 @@ local LAYERS = {
 	{ at = panel.LAYERS.steps, fn = stepsPanel },
 	{ at = panel.LAYERS.rewards, fn = rewards },
 	{ at = panel.LAYERS.top, fn = topBar },
+	{ at = panel.LAYERS.top + 5, fn = zoneTip },
 	{ at = panel.LAYERS.bottom, fn = bottomWindows },
 }
 
@@ -1071,7 +1169,7 @@ function hud.draw(c)
 			overlays[next].fn(c, view)
 			next += 1
 		end
-		layer.fn(c)
+		layer.fn(c, view)
 	end
 	for i = next, #overlays do
 		overlays[i].fn(c, view)
