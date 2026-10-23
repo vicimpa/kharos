@@ -844,7 +844,11 @@ local function belowSteps(c): number
 	return top
 end
 
--- Виден ли «Первый шаг»: не скрыт в настройках и не пройден ещё до входа в мир.
+-- Сколько секунд после последнего шага карточка поздравляет, прежде чем скрыться.
+local STEPS_FAREWELL = 8
+
+-- Видна ли карточка «Первых шагов»: не скрыта в настройках и шаги не пройдены — пройденные при входе в мир не видны
+-- совсем, пройденные в игре — ещё STEPS_FAREWELL секунд.
 local function stepsShown(c): boolean
 	if settings.prefs(c).steps == "off" then
 		return false
@@ -854,7 +858,15 @@ local function stepsShown(c): boolean
 	if c.shared.stepsKnown == nil then
 		c.shared.stepsKnown = finished
 	end
-	return not (finished and c.shared.stepsKnown)
+	if not finished then
+		c.shared.stepsFinishedAt = nil
+		return true
+	end
+	if c.shared.stepsKnown then
+		return false
+	end
+	c.shared.stepsFinishedAt = c.shared.stepsFinishedAt or c.time
+	return c.time - c.shared.stepsFinishedAt < STEPS_FAREWELL
 end
 
 -- Первые шаги новичка — компактной карточкой справа сверху, под правым блоком полосы: карта важнее. Свёрнутая —
