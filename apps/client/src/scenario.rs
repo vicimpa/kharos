@@ -83,6 +83,8 @@ function s:host(name, args) return ask({ op = "host", name = name, args = args }
 -- сценарий идёт дальше, когда интерфейс успел откликнуться.
 function s:pointer(x, y) ask({ op = "pointer", x = x, y = y }) end
 function s:click(x, y, button) ask({ op = "click", x = x, y = y, button = button or "left" }) end
+-- Палец: down = true — коснулся, false — отпустил, nil — ведёт; ждёт кадр.
+function s:touch(x, y, down) ask({ op = "touch", x = x, y = y, down = down }) end
 function s:key(name) ask({ op = "key", name = name }) end
 function s:hold(name, down) ask({ op = "hold", name = name, down = down ~= false }) end
 function s:type(text) ask({ op = "type", text = text }) end
@@ -114,6 +116,8 @@ return s
 /// Что делать с вводом в каком кадре.
 enum Action {
   Pointer(Option<[f32; 2]>),
+  /// Палец: где он и что с ним — коснулся (`Some(true)`), отпущен (`Some(false)`) или ведётся (`None`).
+  Touch([f32; 2], Option<bool>),
   Button(usize, bool),
   Key(String, bool),
   Text(String),
@@ -246,7 +250,17 @@ impl Scenario {
     let frame = self.frame;
     for (_, action) in self.actions.iter().filter(|(at, _)| *at == frame) {
       match action {
-        Action::Pointer(point) => input.pointer = *point,
+        Action::Pointer(point) => {
+          input.pointer = *point;
+          input.touch = false;
+        }
+        Action::Touch(point, down) => {
+          input.pointer = Some(*point);
+          input.touch = true;
+          if let Some(down) = down {
+            input.button(0, *down);
+          }
+        }
         Action::Button(index, down) => input.button(*index, *down),
         Action::Key(name, down) => input.key(name, *down, false),
         Action::Text(text) => input.text.push_str(text),
@@ -378,6 +392,12 @@ impl Scenario {
         let name = request["name"].as_str().ok_or(format!("s:{op}: нет имени"))?;
         self.reply = Some(self.call(app, op, name, &request["args"])?);
         Ok(false)
+      }
+      "touch" => {
+        let down = request["down"].as_bool();
+        self.actions.push((frame, Action::Touch([number("x"), number("y")], down)));
+        self.wait = Some(Wait::Frame(frame + 1));
+        Ok(true)
       }
       "pointer" => {
         let point = request["x"].as_f64().map(|x| [x as f32, number("y")]);
