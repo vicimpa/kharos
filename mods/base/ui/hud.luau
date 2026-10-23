@@ -841,8 +841,8 @@ local function rewards(c)
 	end)
 end
 
--- Уведомления слева под первыми шагами: каждое — своей строкой с маркером цвета вида; щелчок ведёт камеру к месту. Со
--- временем гаснут.
+-- Уведомления справа сверху, под правым блоком полосы: каждое — своей строкой с маркером цвета вида; щелчок ведёт
+-- камеру к месту. Со временем гаснут.
 local ALERT_COLORS = { attacked = COLORS.bad, spotted = COLORS.warn, found = COLORS.good, ping = COLORS.ally }
 local function alertList(c)
 	local list = shownAlerts
@@ -851,9 +851,7 @@ local function alertList(c)
 	end
 	local ui = c.ui
 	local seconds = alertsLib.data.seconds
-	local steps = stepsShown(c) and ui:rect("steps")
-	local top = if steps then steps.y + steps.height + GUT else belowMinimap(c)
-	ui:box({ anchor = { left = GUT, top = top }, width = math.min(STEPS_W, ui.width - 2 * GUT), direction = "column", gap = 2, align = "stretch" }, function()
+	ui:box({ anchor = { right = GUT, top = TOP_BOTTOM + GUT }, width = math.min(STEPS_W, ui.width - 2 * GUT), direction = "column", gap = 2, align = "stretch" }, function()
 		for _, alert in list do
 			local age = alertsLib.age(alert)
 			local bright = seconds * 0.75
