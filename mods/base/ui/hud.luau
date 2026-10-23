@@ -39,24 +39,32 @@ local GRID_KEYS = { "T", "Y", "U", "I", "G", "H", "J", "K", "B", "N", "M", "," }
 -- С какой доли выработки полная нагрузка сети уже тесна: число энергии на полосе желтеет.
 local GRID_TIGHT = 0.8
 
--- Раскладка нижних окон на этот кадр: сторона мини-карты, ширина ячейки и окна команд, стоит ли выбранное рядом с
--- командами (wide) или над ними.
-type Layout = { mm: number, cell: number, act: number, sel: number, wide: boolean }
+-- Раскладка окон на этот кадр по размеру окна игры:
+--   компьютер — команды 4×3 справа снизу, выбранное слева от них (wide) или над ними;
+--   стоя — команды доком снизу во всю ширину, выбранное над ними;
+--   телефон лёжа (ниже 500) — команды колонкой 2×6 справа, выбранное слева снизу.
+-- Мини-карта — сторона из настроек, но не больше трети короткой стороны экрана.
+type Layout = { mm: number, cols: number, cell: number, cellH: number, act: number, sel: number, wide: boolean, column: boolean, compact: boolean }
 local function layout(c): Layout
-	local width = c.ui.width
-	local pref = settings.prefs(c).minimap
-	local function sized(mm: number, cell: number)
-		local act = 4 * cell + 3 * GAP + 20
-		return mm, cell, act
+	local width, height = c.ui.width, c.ui.height
+	local mm = math.min(settings.prefs(c).minimap, math.floor(math.min(width, height) * 0.3))
+	if height < 500 and width > height then
+		local act = 316
+		return { mm = mm, cols = 2, cell = (act - 20 - GAP) / 2, cellH = CELL_H, act = act, sel = math.min(SEL_W, width - act - 3 * GUT), wide = true, column = true, compact = false }
 	end
-	local mm, cell, act = sized(math.min(pref, 176), 172)
-	if mm + SEL_W + act + 4 * GUT <= width then
-		return { mm = mm, cell = cell, act = act, sel = SEL_W, wide = true }
+	if height > width then
+		local act = width - 2 * GUT
+		local cell = math.floor((act - 20 - 3 * GAP) / 4)
+		local compact = cell < 120
+		return { mm = mm, cols = 4, cell = cell, cellH = if compact then 68 else 52, act = act, sel = act, wide = false, column = false, compact = compact }
 	end
-	mm = math.min(pref, 140)
-	cell = math.clamp(math.floor((width - mm - 3 * GUT - 20 - 3 * GAP) / 4), 96, 156)
-	mm, cell, act = sized(mm, cell)
-	return { mm = mm, cell = cell, act = act, sel = math.min(SEL_W, act), wide = false }
+	local cell = 172
+	if SEL_W + 4 * cell + 3 * GAP + 20 + 3 * GUT <= width then
+		return { mm = mm, cols = 4, cell = cell, cellH = CELL_H, act = 4 * cell + 3 * GAP + 20, sel = SEL_W, wide = true, column = false, compact = false }
+	end
+	cell = math.clamp(math.floor((width - 2 * GUT - 20 - 3 * GAP) / 4), 80, 156)
+	local act = 4 * cell + 3 * GAP + 20
+	return { mm = mm, cols = 4, cell = cell, cellH = CELL_H, act = act, sel = math.min(SEL_W, act), wide = false, column = false, compact = false }
 end
 
 -- Пульс подсказки «Первых шагов»: обводка огнями команды разгорается и гаснет раз в секунду от low до high; восемь
@@ -280,25 +288,82 @@ local function cardAnchor(c): { [string]: number }?
 	return if top then { right = GUT, bottom = c.screen.h - top + GUT } else nil
 end
 
--- Ячейка команд: значок с клавишей в углу, название, цена и энергия; подсказка — карточкой над окнами.
-local function commandGrid(c, list, cell: number)
+-- Текст по словам в строки не шире width, не больше max; что не влезло — многоточием в последней. Строки ставят
+-- по одной: так их можно выровнять по середине.
+local function lines(ui, text: string, width: number, max: number): { string }
+	local out, line = {}, ""
+	for word in string.gmatch(text, "%S+") do
+		local candidate = if line == "" then word else line .. " " .. word
+		if line ~= "" and ui:measure(candidate, "small") > width then
+			table.insert(out, line)
+			line = word
+		else
+			line = candidate
+		end
+	end
+	if line ~= "" then
+		table.insert(out, line)
+	end
+	local cut = #out > max
+	if cut then
+		out = table.move(out, 1, max, 1, {})
+	end
+	-- Длинное слово или хвост — с многоточием по ширине.
+	for i, value in out do
+		if ui:measure(value, "small") <= width and not (cut and i == max) then
+			continue
+		end
+		while utf8.len(value) > 1 and ui:measure(value .. "…", "small") > width do
+			value = string.sub(value, 1, utf8.offset(value, -1) - 1)
+		end
+		out[i] = value .. "…"
+	end
+	return out
+end
+
+-- Узкая ячейка (телефон стоя): значок сверху, под ним название мелко в две строки, цена — в правом верхнем углу.
+local function compactCell(c, slot, id: string, hotkey: string, place: Layout, outline: string?)
 	local ui = c.ui
+	return ui:button(id, { width = place.cell, height = place.cellH, padding = 0, direction = "stack", active = slot.active, disabled = slot.disabled, outline = outline }, function()
+		ui:box({ self = { "center", "start" }, direction = "column", align = "center", gap = 2, padding = { 6, 2, 0, 2 } }, function()
+			if slot.picture then
+				ui:box({ width = TILE, height = TILE }, function()
+					ui:image(slot.picture, TILE, TILE)
+				end)
+			end
+			for _, line in lines(ui, slot.label, place.cell - 6, 2) do
+				ui:text(line, shadow({ font = "small", color = COLORS.bright }))
+			end
+		end)
+		if slot.cost then
+			ui:box({ self = { "end", "start" }, background = "rgb(11 17 27 / 0.85)", padding = { 1, 2 }, direction = "row", align = "center", gap = 2 }, function()
+				widgets.coin(ui, 10)
+				ui:text(if slot.gain then "+" .. slot.cost else tostring(slot.cost), { font = "small", color = if slot.gain then COLORS.good elseif slot.short then COLORS.warn else COLORS.gold })
+			end)
+		end
+	end)
+end
+
+-- Ячейка команд: значок с клавишей в углу, название, цена и энергия; подсказка — карточкой над окнами.
+local function commandGrid(c, list, place: Layout)
+	local ui = c.ui
+	local cell, cellH = place.cell, place.cellH
 	ui:box({ id = "commands", direction = "column", gap = GAP }, function()
-		for row = 0, 2 do
+		for row = 0, 12 // place.cols - 1 do
 			ui:box({ direction = "row", gap = GAP }, function()
-				for column = 0, 3 do
-					local i = row * 4 + column + 1
+				for column = 0, place.cols - 1 do
+					local i = row * place.cols + column + 1
 					local slot = list[i]
 					local hotkey = GRID_KEYS[i]
 					if not slot then
-						ui:box({ width = cell, height = CELL_H, skin = "well", alpha = 0.35 })
+						ui:box({ width = cell, height = cellH, skin = "well", alpha = 0.35 })
 						continue
 					end
 					local id = "cell:" .. i
 					-- Подсказка шага — синим, новая кнопка — золотом.
 					local outline = if slot.hint and not slot.disabled then pulse(ui, 0.3, 1) elseif slot.fresh and not slot.disabled then pulse(ui, 0.2, 0.95, "240 201 90", 1.6) else nil
 					local keyColor = if slot.disabled then COLORS.muted else COLORS.gold
-					local click = ui:button(id, { width = cell, height = CELL_H, padding = { 0, 6, 0, if slot.picture then 4 else 8 }, gap = 8, justify = "start", active = slot.active, disabled = slot.disabled, outline = outline }, function()
+					local click = if place.compact then compactCell(c, slot, id, hotkey, place, outline) else ui:button(id, { width = cell, height = cellH, padding = { 0, 6, 0, if slot.picture then 4 else 8 }, gap = 8, justify = "start", active = slot.active, disabled = slot.disabled, outline = outline }, function()
 						if slot.picture then
 							ui:box({ direction = "stack" }, function()
 								ui:box({ width = TILE, height = TILE }, function()
@@ -692,14 +757,16 @@ local function bottomWindows(c)
 			if spec then
 				modeWindow(c, spec, place.act)
 			else
-				commandGrid(c, list, place.cell)
+				commandGrid(c, list, place)
 			end
 		end)
 	end
 	if selected and not spec then
-		local act = ui:rect("act")
-		local actHeight = if commands and act then act.height else 0
-		local anchor = if place.wide then { right = GUT + (if commands then place.act + GUT else 0), bottom = GUT } else { right = GUT, bottom = GUT + (if commands then actHeight + GUT else 0) }
+		-- Высота сетки — по раскладке, а не по прошлому кадру: в первом кадре выбора окна команд ещё не было, и
+		-- выбранное легло бы на него.
+		local rows = 12 // place.cols
+		local actHeight = if commands then rows * place.cellH + (rows - 1) * GAP + 20 else 0
+		local anchor = if place.column then { left = GUT, bottom = GUT } elseif place.wide then { right = GUT + (if commands then place.act + GUT else 0), bottom = GUT } else { right = GUT, bottom = GUT + (if commands then actHeight + GUT else 0) }
 		ui:box({ id = "sel", anchor = anchor, width = place.sel, skin = "panel", padding = 10, direction = "column" }, function()
 			info(c, selection, place.sel)
 		end)
@@ -709,6 +776,13 @@ end
 -- Верх того, что стоит слева под мини-картой.
 local function belowMinimap(c): number
 	return TOP_BOTTOM + GUT + layout(c).mm + GUT
+end
+
+-- Узкий экран (телефон стоя): справа от мини-карты места нет — уведомления и награды встают под карточкой шагов.
+local NARROW = 600
+local function belowSteps(c): number
+	local steps = c.ui:rect("steps")
+	return if steps and c.shared.stepsDrawn then steps.y + steps.height + GUT else belowMinimap(c)
 end
 
 -- Виден ли «Первый шаг»: не скрыт в настройках и не пройден ещё до входа в мир.
@@ -724,54 +798,87 @@ local function stepsShown(c): boolean
 	return not (finished and c.shared.stepsKnown)
 end
 
--- Первые шаги новичка — карточкой слева сверху: номер и название шага, что сделать, деления пройденного, «Показать».
--- Свёрнутая — одной строкой. Мир, где всё уже пройдено при входе, карточки не показывает.
+-- Первые шаги новичка — карточкой слева под мини-картой. Свёрнутая — строка «Первые шаги 2/12», название шага и
+-- деления пройденного; развёрнутая — ещё что сделать (первое предложение подсказки), зачем (остальное, мельче) и
+-- «Показать». Сворачивают касанием по заголовку — без наведения, для сенсорных экранов. На маленьком экране карточка
+-- свёрнута, пока её не развернут. Мир, где всё уже пройдено при входе, карточки не показывает.
 local function stepsPanel(c)
+	c.shared.stepsDrawn = false
 	if not stepsShown(c) then
 		return
 	end
+	-- Телефон лёжа: пока что-то выбрано, внизу слева окно выбранного — карточке не хватает высоты.
+	if c.ui.height < 500 and #(c.shared.selection or {}) > 0 then
+		return
+	end
+	c.shared.stepsDrawn = true
 	local ui = c.ui
 	local state = stepsLib.of(c)
 	local done, target = state.done, state.target
-	local folded = settings.prefs(c).steps ~= "open"
+	local small = ui.width < 600 or ui.height < 700
+	local open = settings.prefs(c).steps == "open" and (not small or c.shared.stepsOpened == true)
 	local current = table.find(done, false)
+	local count = 0
+	for _, passed in done do
+		if passed then
+			count += 1
+		end
+	end
 	local width = math.min(STEPS_W, ui.width - 2 * GUT)
-	local text = width - 24 - (if current and target then 96 else 0)
-	ui:box({ id = "steps", anchor = { left = GUT, top = belowMinimap(c) }, width = width, skin = "panel", padding = { 8, 8, 8, 14 }, direction = "row", align = "center", gap = 8 }, function()
-		ui:box({ direction = "column", gap = 3, width = text }, function()
+	local text = width - 24
+	local place = layout(c)
+	-- Телефон лёжа: справа колонка команд, карточка — не шире места до неё.
+	if place.column then
+		width = math.min(width, ui.width - place.act - 3 * GUT)
+		text = width - 24
+	end
+	ui:box({ id = "steps", anchor = { left = GUT, top = belowMinimap(c) }, width = width, skin = "panel", padding = { 6, 8, 10, 12 }, direction = "column", align = "stretch", gap = 6 }, function()
+		-- Заголовок — кнопка во всю ширину: касание сворачивает и разворачивает.
+		ui:box({ id = "steps:toggle", height = 32, padding = { 0, 4 }, direction = "row", align = "center", gap = 8 }, function()
+			ui:text(ui:upper(c:t("steps.title")), { font = "small", color = COLORS.muted })
+			ui:text(count .. "/" .. #done, { font = "small", color = COLORS.gold })
+			ui:space(0, 0, 1)
+			ui:text(if open then "▾" else "▸", { color = if ui:hovered("steps:toggle") then COLORS.bright else COLORS.dim })
+		end)
+		if ui:clicked("steps:toggle") then
+			c.shared.stepsOpened = not open
+			settings.setPref(c, "steps", if open then "folded" else "open")
+		end
+		ui:tip("steps:toggle", if open then c:t("steps.foldTip") else c:t("steps.unfoldTip"))
+		ui:box({ direction = "row", gap = 2, padding = { 0, 4 } }, function()
+			for i, passed in done do
+				ui:box({ grow = 1, height = 4, background = if passed then COLORS.good elseif i == current then COLORS.team else COLORS.steel })
+			end
+		end)
+		ui:box({ direction = "column", gap = 4, padding = { 2, 4, 0, 4 } }, function()
 			if not current then
 				ui:text(c:t("steps.finished"), { color = COLORS.good, wrap = text })
 				return
 			end
 			local step = stepsLib.LIST[current]
-			ui:box({ id = "steps:toggle", direction = "row", gap = 6, width = text }, function()
-				ui:text(tostring(current), { color = COLORS.team })
-				ui:box({ grow = 1 }, function()
-					ui:text(c:t(step.title), { color = COLORS.bright, ellipsis = true })
-				end)
-			end)
-			ui:tip("steps:toggle", if folded then c:t("steps.unfoldTip") else c:t("steps.foldTip"))
-			if ui:clicked("steps:toggle") then
-				settings.setPref(c, "steps", if folded then "open" else "folded")
-			end
-			if folded then
+			ui:text(c:t(step.title), { font = if open then "title" else nil, color = COLORS.bright, shadow = COLORS.ink, lift = 1, wrap = text })
+			if not open then
 				return
 			end
-			ui:text(c:t(step.tip), { color = COLORS.dim, wrap = text })
-			ui:box({ direction = "row", gap = 2, width = text }, function()
-				for i, passed in done do
-					ui:box({ grow = 1, height = 3, background = if passed then COLORS.good elseif i == current then COLORS.team else COLORS.steel })
-				end
-			end)
-		end)
-		if current and target then
-			if ui:button("steps:show", { height = 36, padding = { 0, 12 }, skin = "button-primary" }, function()
-				ui:text(c:t("steps.show"), shadow())
-			end) then
-				c.shared.flyTo = { x = target.x + target.width / 2, y = target.y + target.height / 2 }
+			-- Подсказка: первое предложение — что сделать, остальное — зачем.
+			local tip = c:t(step.tip)
+			local stop, after = string.find(tip, "[%.!]%s+")
+			local what = if stop then string.sub(tip, 1, stop) else tip
+			local why = if after then string.sub(tip, after + 1) else nil
+			ui:text(what, { color = COLORS.text, wrap = text })
+			if why then
+				ui:text(why, { font = "small", color = COLORS.dim, wrap = text })
 			end
-			ui:tip("steps:show", c:t("steps.showTip"))
-		end
+			if target then
+				ui:space(0, 2)
+				if ui:button("steps:show", { height = 36, padding = { 0, 14 }, skin = "button-primary" }, function()
+					ui:text(c:t("steps.show"), shadow())
+				end) then
+					c.shared.flyTo = { x = target.x + target.width / 2, y = target.y + target.height / 2 }
+				end
+				ui:tip("steps:show", c:t("steps.showTip"))
+			end
+		end)
 	end)
 end
 
@@ -793,7 +900,8 @@ local function rewards(c)
 		return
 	end
 	local ui = c.ui
-	ui:box({ anchor = { centerX = 0, top = TOP_BOTTOM + GUT }, direction = "column", align = "center", gap = 6 }, function()
+	local anchor = if ui.width < NARROW then { centerX = 0, top = belowSteps(c) } else { centerX = 0, top = TOP_BOTTOM + GUT }
+	ui:box({ anchor = anchor, direction = "column", align = "center", gap = 6 }, function()
 		if #list > 0 then
 			ui:box({ skin = "gold", padding = { 10, 14 }, direction = "column", gap = 4 }, function()
 				for _, toast in list do
@@ -807,7 +915,17 @@ local function rewards(c)
 		end
 		-- Исследованное и открытое: что тема дала; щелчок — дерево технологий.
 		local room = math.min(ui.width - 24, 640)
-		for i, toast in learned do
+		-- Видны последние: на узком экране одно, иначе три; про остальные — «+N». Открытий в начале партии сразу
+		-- несколько, столбик закрыл бы поле.
+		local shown = if ui.width < NARROW then 1 else 3
+		local first = math.max(1, #learned - shown + 1)
+		if first > 1 then
+			ui:box({ skin = "panel", padding = { 2, 10 } }, function()
+				ui:text("+" .. (first - 1), { color = COLORS.team })
+			end)
+		end
+		for i = first, #learned do
+			local toast = learned[i]
 			local kind = research.topic(c, toast.topic)
 			if not kind then
 				continue
@@ -851,7 +969,8 @@ local function alertList(c)
 	end
 	local ui = c.ui
 	local seconds = alertsLib.data.seconds
-	ui:box({ anchor = { right = GUT, top = TOP_BOTTOM + GUT }, width = math.min(STEPS_W, ui.width - 2 * GUT), direction = "column", gap = 2, align = "stretch" }, function()
+	local anchor = if ui.width < NARROW then { left = GUT, top = belowSteps(c) } else { right = GUT, top = TOP_BOTTOM + GUT }
+	ui:box({ anchor = anchor, width = math.min(STEPS_W, ui.width - 2 * GUT), direction = "column", gap = 2, align = "stretch" }, function()
 		for _, alert in list do
 			local age = alertsLib.age(alert)
 			local bright = seconds * 0.75
