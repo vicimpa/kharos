@@ -324,9 +324,11 @@ function select.update(c)
 	end
 	if start then
 		local moved = math.abs(input.x - start.x) + math.abs(input.y - start.y) > select.data.threshold
+		-- Палец вне режимов тянет камеру (cameras/rts), а не рамку: отпущенный после сдвига, он ничего не выделяет.
+		local panned = moved and input.touch and not shared.mode
 		-- Рамку тянут: камера у края экрана едет за ней (cameras/rts).
-		shared.boxing = input.down.left and moved
-		if input.down.left and moved then
+		shared.boxing = input.down.left and moved and not panned
+		if shared.boxing then
 			c.draw:rect(start.wx, start.wy, input.wx, input.wy, SELECTED, nil, BOX_FILL_ALPHA)
 			c.draw:rect(start.wx, start.wy, input.wx, input.wy, SELECTED, 1)
 			-- Кого выберет рамка, если отпустить её сейчас, — бледнее выбранных.
@@ -342,7 +344,9 @@ function select.update(c)
 		if swallowed then
 			c.shared.swallow = nil
 		end
-		if input.released.left and not swallowed then
+		if input.released.left and panned then
+			start = nil
+		elseif input.released.left and not swallowed then
 			local picked = {}
 			if moved then
 				for _, e in c:within(start.wx, start.wy, input.wx, input.wy, { "Unit" }) do

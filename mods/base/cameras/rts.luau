@@ -1,6 +1,6 @@
 --!strict
 -- Камера стратегии: клавиши задают скорость, к которой камера разгоняется, а отпущенные — она плавно тормозит; средняя
--- и правая кнопки тянут камеру точно за мышью, а брошенная катится дальше (приказ правой — на отпускании без сдвига,
+-- и правая кнопки (на сенсорном — палец по карте) тянут камеру точно за мышью, а брошенная катится дальше (приказ правой — на отпускании без сдвига,
 -- controls/orders); пока тянут рамку выделения, указатель у края видимой части карты двигает камеру, как клавиши;
 -- колесо задаёт масштаб, который камера плавно догоняет, держа на месте точку под курсором; c.shared.flyTo — полёт к
 -- точке без перелёта. Переставили камеру со стороны (мини-карта) — движение гаснет.
@@ -30,6 +30,8 @@ rts.data = {
 	-- а не бросили.
 	dragSmoothing = 0.05,
 	fling = 0.08,
+	-- Палец, сдвинутый дальше стольких пикселей (по осям в сумме), тянет камеру; ближе — касание на месте.
+	touchSlop = 8,
 	-- Полёт: пружина без перелёта, почти на месте через 5 / flight секунд; ближе arrived пикселей — прилетела.
 	flight = 6,
 	flightArrived = 0.5,
@@ -47,6 +49,8 @@ rts.data = {
 local target: number? = nil
 local anchor = { x = 0, y = 0 }
 local drag: { x: number, y: number, button: string }? = nil
+-- Где палец коснулся карты, пока он не сдвинулся дальше touchSlop.
+local touched: { x: number, y: number }? = nil
 -- Скорость камеры, пикселей экрана в секунду; сдвиг мыши за кадр, её сглаженная скорость и сколько секунд назад
 -- она двигалась.
 local velocityX, velocityY = 0, 0
@@ -91,7 +95,7 @@ end
 
 function rts.start(cam, c)
 	cam.zoom = rts.data.start
-	target, drag, placed = nil, nil, nil
+	target, drag, touched, placed = nil, nil, nil, nil
 	halt()
 	aimed = aim(cam, c)
 end
@@ -107,7 +111,7 @@ function rts.update(cam, c)
 	shaken.x, shaken.y = 0, 0
 	-- Под меню партии камера стоит.
 	if c.shared.paused then
-		drag = nil
+		drag, touched = nil, nil
 		halt()
 		return
 	end
@@ -130,6 +134,19 @@ function rts.update(cam, c)
 		drag = { x = input.x, y = input.y, button = "middle" }
 	elseif input.pressed.right and input.inside and not input.over_ui and not input.touch then
 		drag = { x = input.x, y = input.y, button = "right" }
+	end
+	-- Палец по карте вне режимов тянет камеру так же, но только сдвинутый дальше touchSlop: касание на месте — выбор и
+	-- приказ (controls/select, controls/orders). Режимам палец нужен самим (призрак стройки идёт за ним).
+	if input.pressed.left and input.touch and input.inside and not input.over_ui and not c.shared.mode then
+		touched = { x = input.x, y = input.y }
+	end
+	if touched then
+		if not input.down.left or c.shared.mode then
+			touched = nil
+		elseif math.abs(input.x - touched.x) + math.abs(input.y - touched.y) > d.touchSlop then
+			drag = { x = touched.x, y = touched.y, button = "left" }
+			touched = nil
+		end
 	end
 	if drag then
 		local dx, dy = input.x - drag.x, input.y - drag.y
