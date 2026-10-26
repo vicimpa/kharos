@@ -3,6 +3,7 @@
 -- заявка; в сведениях — рейс, набираемая сделка или что тут можно. deal — набираемая сделка: что и сколько;
 -- сбрасывается, когда выбран другой космопорт.
 
+local economy = require("lib/economy")
 local goods = require("lib/goods")
 local logistics = require("lib/logistics")
 local panel = require("lib/panel")
@@ -78,6 +79,11 @@ local function tradeSlots(c, list, port: number)
 		market.port, market.page, market.deal = port, "root", nil
 	end
 	local order = c:get(port, "Trade")
+	-- Выключенный не торгует: начатая заявка видна, новую не открыть.
+	local off = economy.switchedOff(c, port)
+	if off and not order then
+		market.page = "root"
+	end
 	local function open(page: string)
 		market.page, market.deal = page, nil
 	end
@@ -86,7 +92,8 @@ local function tradeSlots(c, list, port: number)
 			label = c:t("grid.sell"),
 			picture = c.protos.buildings.spaceport,
 			active = order ~= nil,
-			title = if order then c:t("grid.sellingTip") else c:t("grid.sellTip"),
+			disabled = off and not order,
+			title = if order then c:t("grid.sellingTip") elseif off then c:t("hud.switchedOff") else c:t("grid.sellTip"),
 			hint = order == nil and (panel.currentStep(c) or {}).sell == true,
 			run = function()
 				open("sell")
@@ -95,8 +102,8 @@ local function tradeSlots(c, list, port: number)
 		list[panel.CANCEL] = {
 			label = c:t("grid.buy"),
 			picture = c.protos.buildings.spaceport,
-			disabled = order ~= nil,
-			title = if order then c:t("grid.buyBusyTip") else c:t("grid.buyTip"),
+			disabled = order ~= nil or off,
+			title = if order then c:t("grid.buyBusyTip") elseif off then c:t("hud.switchedOff") else c:t("grid.buyTip"),
 			run = function()
 				open("buy")
 			end,

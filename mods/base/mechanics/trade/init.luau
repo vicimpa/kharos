@@ -2,6 +2,7 @@
 -- Торговля: заявки на продажу и закупку с орбиты, корабли космопорта. Расчёты — lib/trade, подвоз товара в трюм —
 -- заявка космопорта в lib/logistics: из своей сети он идёт по трубам, из других — грузовиками.
 
+local economy = require("lib/economy")
 local goods = require("lib/goods")
 local logistics = require("lib/logistics")
 local trade = require("lib/trade")
@@ -125,7 +126,8 @@ mechanic.systems = {
 						ctx:emit("reward", { player = player, key = "sale" })
 					end
 					ctx:signal("paid", { player = player, x = at.x, y = at.y })
-				elseif trade.delivered(ctx, port) >= order.wanted - 1e-9 then
+				elseif trade.delivered(ctx, port) >= order.wanted - 1e-9 and not economy.switchedOff(ctx, port) then
+					-- Выключенный космопорт корабль не выпускает: тот ждёт, пока включат. Улетевший — долетит.
 					local ticks = trade.flightTicks(ctx, port, trade.SELL_SECONDS)
 					ctx:set(port, "Trade", { left = ticks, total = ticks })
 					local at = ctx:get(port, "Position")

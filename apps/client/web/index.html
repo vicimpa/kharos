@@ -4,8 +4,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
   <title>Kharos</title>
+  <!-- Значки (cargo run -p kharos-client --release --example icons) и манифест PWA: игру можно поставить на домашний
+       экран, она открывается на весь экран. -->
+  <link data-trunk rel="copy-dir" href="icons">
+  <link data-trunk rel="copy-file" href="manifest.webmanifest">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="64x64" href="icons/favicon-64.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="theme-color" content="#08111c">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Kharos">
   <!-- Клиент на Rust: trunk собирает его под wasm32-unknown-unknown (trunk serve apps/client/web/index.html). -->
-  <link data-trunk rel="rust" href="../Cargo.toml" data-bin="kharos" data-wasm-opt="z"
+  <link data-trunk rel="rust" href="../Cargo.toml" data-bin="kharos" data-type="main" data-wasm-opt="z"
+    data-wasm-opt-params="--enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals --enable-reference-types --enable-multivalue">
+  <!-- Воркер звуков экрана загрузки (src/sound.rs): страница запускает их по числу ядер. -->
+  <link data-trunk rel="rust" href="../Cargo.toml" data-bin="kharos-sound" data-type="worker" data-wasm-opt="z"
     data-wasm-opt-params="--enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals --enable-reference-types --enable-multivalue">
   <style>
     html, body { margin: 0; height: 100%; background: #08111c; overflow: hidden; }

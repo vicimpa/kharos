@@ -70,6 +70,8 @@ menu.client = {
 	atmosphere = { "weather" },
 	effects = require("lib/effects"),
 	audio = { "levels", "interface", "music" },
+	-- Витрина не звучит стройкой и боем (в TS у неё не было звука мира): только музыка и интерфейс.
+	mute = { "world", "battle" },
 }
 
 return menu

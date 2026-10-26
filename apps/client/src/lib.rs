@@ -520,6 +520,12 @@ pub fn run() {
   web::run();
 }
 
+/// Воркер звуков экрана загрузки (бинарь `kharos-sound`).
+#[cfg(target_arch = "wasm32")]
+pub fn sound_worker() {
+  loading::worker();
+}
+
 /// Вход на сервер: связь открыта, вход послан, ждём приветствия.
 struct Joining {
   link: Box<dyn net::Link>,

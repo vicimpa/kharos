@@ -4,6 +4,7 @@
 -- Закупка — втридорога: кредиты сразу, груз прилетает через buySeconds в склад космопорта. Корабль у космопорта один:
 -- пока он в пути, новую сделку не начать.
 
+local economy = require("lib/economy")
 local goods = require("lib/goods")
 local logistics = require("lib/logistics")
 local research = require("lib/research")
@@ -54,10 +55,10 @@ function trade.isPort(w, player: number, port: number): boolean
 	return logistics.dataOf(w, port).trades == true and world.isReady(w, player, port)
 end
 
--- Может ли игрок торговать через космопорт: свой, готовый и корабль не в деле. Подарков союзникам кораблём (Transfer)
+-- Может ли игрок торговать через космопорт: свой, готовый, включённый и корабль не в деле. Подарков союзникам кораблём (Transfer)
 -- пока нет — они придут с союзами.
 function trade.canSell(w, player: number, port: number): boolean
-	return trade.isPort(w, player, port) and not w:has(port, "Trade")
+	return trade.isPort(w, player, port) and not w:has(port, "Trade") and not economy.switchedOff(w, port)
 end
 
 -- Сколько товара заявки уже привезли в космопорт: он лежит в его складе.

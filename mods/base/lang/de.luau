@@ -688,6 +688,7 @@ return {
 			cancelTip = "Dasselbe wie Esc",
 			tips = {
 				placing = "Klicke, wo gebaut wird — beliebig oft; mit Shift — in die Warteschlange der Bauarbeiter",
+				placingTouch = "Berühren und ziehen — das Gebäude folgt dem Finger; loslassen, wo gebaut wird. Beliebig oft",
 				pavingStart = "Taste halten und über die Karte ziehen",
 				paving = "Über die Karte ziehen: {tiles} Felder, {cost} Credits",
 				pavingShort = "; für {short} Felder fehlen Credits — sie sind gelb",

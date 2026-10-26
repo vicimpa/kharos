@@ -13,6 +13,8 @@ struct Shell {
   canvas: HtmlCanvasElement,
   input: Input,
   app: App,
+  /// Палец убрали: указатель снимается после кадра — иначе касание, отпущенное до кадра, не попадёт в кнопку.
+  lifted: bool,
 }
 
 pub fn run() {
@@ -45,7 +47,7 @@ fn start() -> Result<(), String> {
   }
   let gl: WebGl2RenderingContext = canvas.get_context_with_context_options("webgl2", &options).map_err(|error| format!("{error:?}"))?.ok_or("нет WebGL 2")?.dyn_into().map_err(|_| "не WebGL 2")?;
   let app = App::new(glow::Context::from_webgl2_context(gl))?;
-  let shell = Rc::new(RefCell::new(Shell { canvas: canvas.clone(), input: Input { focused: true, ..Default::default() }, app }));
+  let shell = Rc::new(RefCell::new(Shell { canvas: canvas.clone(), input: Input { focused: true, ..Default::default() }, app, lifted: false }));
   listen_pointer(&shell, &canvas);
   listen_keys(&shell, &canvas);
   listen_window(&shell, &window);
@@ -95,6 +97,7 @@ fn listen_pointer(shell: &Rc<RefCell<Shell>>, canvas: &HtmlCanvasElement) {
     shell.app.wake_sound();
     // Тянут за край холста — события всё равно ему.
     let _ = shell.canvas.set_pointer_capture(event.pointer_id());
+    shell.lifted = false;
     moved(&mut shell, &event);
     if let Some(index) = button(&event) {
       shell.input.button(index, true);
@@ -113,9 +116,12 @@ fn listen_pointer(shell: &Rc<RefCell<Shell>>, canvas: &HtmlCanvasElement) {
   listen(target, "pointercancel", move |_: PointerEvent| s.borrow_mut().input.button(0, false));
   let s = shell.clone();
   listen(target, "pointerleave", move |event: PointerEvent| {
-    // У касания нет наведения: палец убрали — указателя нет.
-    if event.pointer_type() != "touch" || !s.borrow().input.down[0] {
-      s.borrow_mut().input.pointer = None;
+    // У касания нет наведения: палец убрали — указателя нет, но уже после кадра (pointerleave идёт сразу за pointerup).
+    let mut shell = s.borrow_mut();
+    if event.pointer_type() != "touch" {
+      shell.input.pointer = None;
+    } else if !shell.input.down[0] {
+      shell.lifted = true;
     }
   });
   // Колесо — в строках, вверх больше нуля; щелчок колеса — 40 пикселей, как у нативной оболочки.
@@ -251,6 +257,9 @@ impl Shell {
     self.input.time = crate::clock::seconds();
     self.app.frame(&self.input, size)?;
     self.input.end_frame();
+    if std::mem::take(&mut self.lifted) {
+      self.input.pointer = None;
+    }
     Ok(())
   }
 }
