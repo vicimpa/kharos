@@ -519,6 +519,9 @@ struct Press {
   y: f32,
   time: f64,
   long: bool,
+  /// Прокручиваемый список под касанием и где палец был в прошлом кадре, когда его уже тянут.
+  list: Option<String>,
+  dragged: Option<f32>,
 }
 
 /// Состояние интерфейса между кадрами и дерево текущего кадра.
@@ -593,7 +596,9 @@ impl Gui {
     // Кнопки указателя: левая — 0, правая — 2, средняя — 1, как у страницы.
     for (index, button) in [(0usize, 0u8), (1, 2), (2, 1)] {
       if input.pressed[index] {
-        let id = self.topmost(px, py).map(|hit| hit.0.clone());
+        let hit = self.topmost(px, py);
+        let id = hit.map(|hit| hit.0.clone());
+        let list = hit.filter(|_| input.touch).and_then(|(id, _, path)| std::iter::once(id).chain(path.iter().rev()).find(|id| self.scrolls.contains_key(*id)).cloned());
         // Нажатие мимо поля ввода снимает с него фокус; по полю — ставит.
         if self.focused.is_some() && id != self.focused {
           self.blur();
@@ -606,7 +611,7 @@ impl Gui {
             self.pressed_button = Some(*disabled);
           }
         }
-        self.press = Some(Press { id, button, x: px, y: py, time: input.time, long: false });
+        self.press = Some(Press { id, button, x: px, y: py, time: input.time, long: false, list, dragged: None });
       }
       if input.released[index] {
         if let Some(press) = self.press.take() {
@@ -618,6 +623,17 @@ impl Gui {
             }
           }
         }
+      }
+    }
+    // Палец по списку прокручивает его, сдвинутый дальше HOLD_SLOP: нажатие под ним уже не щелчок и не долгое касание.
+    if let Some(press) = self.press.as_mut().filter(|press| press.list.is_some() && input.down[0]) {
+      if press.dragged.is_none() && (py - press.y).abs() > HOLD_SLOP {
+        press.dragged = Some(press.y);
+        press.id = None;
+      }
+      if let (Some(last), Some(offset)) = (press.dragged, press.list.as_ref().and_then(|list| self.scrolls.get_mut(list))) {
+        *offset -= py - last;
+        press.dragged = Some(py);
       }
     }
     // Долгое касание — правый щелчок: у сенсорного экрана правой кнопки нет.
