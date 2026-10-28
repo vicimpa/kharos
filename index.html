@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>Kharos</title>
+  <!-- Значки (cargo run -p kharos-client --release --example icons) и манифест PWA: игру можно поставить на домашний
+       экран, она открывается на весь экран. -->
+  
+  
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="64x64" href="icons/favicon-64.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="theme-color" content="#08111c">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Kharos">
+  <!-- Клиент на Rust: trunk собирает его под wasm32-unknown-unknown (trunk serve apps/client/web/index.html). -->
+  
+<script type="module">
+import init, * as bindings from './kharos-bea05a670e3550f5.js';
+const wasm = await init({ module_or_path: './kharos-bea05a670e3550f5_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script>
+  <!-- Воркер звуков экрана загрузки (src/sound.rs): страница запускает их по числу ядер. -->
+  
+  <style>
+    html, body { margin: 0; height: 100%; background: #08111c; overflow: hidden; }
+    canvas { display: block; width: 100vw; height: 100vh; outline: none; touch-action: none; }
+    #status { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: #9bb9d1; font: 16px monospace; pointer-events: none; }
+  </style>
+<link rel="modulepreload" href="./kharos-bea05a670e3550f5.js" crossorigin="anonymous" integrity="sha384-Oi2bEFQsMQljKbx8w68UfLNuM+DAWhvVBOFnLjdpUwppjEx1a2NDUE1AZPQNDPhl"><link rel="preload" href="./kharos-bea05a670e3550f5_bg.wasm" crossorigin="anonymous" integrity="sha384-RaHrX9wbw+Haaux6Dvpjel4v5LyYrREpOo1hC0camCLO8M6xigKl+4ZbQbxp90V8" as="fetch" type="application/wasm"></head>
+<body>
+  <canvas id="canvas" tabindex="0"></canvas>
+  <div id="status">Загрузка…</div>
+</body>
+</html>
