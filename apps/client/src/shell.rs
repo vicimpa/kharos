@@ -8,7 +8,7 @@
 //!
 //! `--scenario путь.luau` — режим сценария (scenario.rs): окно невидимо, время — по кадрам, ввод — от сценария.
 
-use crate::input::Input;
+use crate::input::{Input, TouchInput};
 use crate::scenario::{self, Scenario};
 use crate::{App, AppOptions};
 use glutin::config::{Config, ConfigTemplateBuilder};
@@ -33,6 +33,7 @@ struct Gl {
 
 struct Shell {
   input: Input,
+  touches: TouchInput,
   gl: Option<Gl>,
   app: Option<App>,
   /// Снимок кадра: куда и через сколько кадров.
@@ -70,7 +71,7 @@ pub fn run() {
     }
     None => None,
   };
-  let mut shell = Shell { input: Input { focused: true, ..Default::default() }, gl: None, app: None, shot, frames: 0, drawn: None, scenario, visible, code: 0 };
+  let mut shell = Shell { input: Input { focused: true, ..Default::default() }, touches: TouchInput::default(), gl: None, app: None, shot, frames: 0, drawn: None, scenario, visible, code: 0 };
   let event_loop = EventLoop::new().expect("цикл событий");
   if let Err(error) = event_loop.run_app(&mut shell) {
     eprintln!("цикл событий: {error}");
@@ -156,7 +157,12 @@ impl ApplicationHandler for Shell {
           gl.surface.resize(&gl.context, width, height);
         }
       }
-      WindowEvent::Focused(focused) => input.focused = focused,
+      WindowEvent::Focused(focused) => {
+        input.focused = focused;
+        if !focused {
+          self.touches.clear(input);
+        }
+      }
       WindowEvent::CursorMoved { position, .. } => {
         input.pointer = Some([position.x as f32 / scale, position.y as f32 / scale]);
         input.touch = false;
@@ -177,14 +183,13 @@ impl ApplicationHandler for Shell {
           MouseScrollDelta::PixelDelta(pixels) => pixels.y as f32 / 40.0,
         };
       }
-      // Касание — левая кнопка; щипок и долгое нажатие решает управление из мода.
       WindowEvent::Touch(touch) => {
-        input.pointer = Some([touch.location.x as f32 / scale, touch.location.y as f32 / scale]);
-        input.touch = true;
+        let point = [touch.location.x as f32 / scale, touch.location.y as f32 / scale];
+        let id = touch.id as i32;
         match touch.phase {
-          TouchPhase::Started => input.button(0, true),
-          TouchPhase::Ended | TouchPhase::Cancelled => input.button(0, false),
-          TouchPhase::Moved => {}
+          TouchPhase::Started => self.touches.down(input, id, point),
+          TouchPhase::Moved => self.touches.moved(input, id, point),
+          TouchPhase::Ended | TouchPhase::Cancelled => self.touches.up(input, id, point),
         }
       }
       WindowEvent::ModifiersChanged(modifiers) => {
@@ -324,6 +329,7 @@ impl Shell {
         eprintln!("swap_buffers: {error}");
       }
     }
+    self.touches.end_frame(&mut self.input);
     self.input.end_frame();
   }
 }

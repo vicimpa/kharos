@@ -44,7 +44,7 @@ end
 
 function patrol.update(c)
 	local shared, input = c.shared, c.input
-	if shared.paused then
+	if shared.paused or input.multitouch then
 		pressed = nil
 		return
 	end
@@ -85,11 +85,11 @@ function patrol.update(c)
 			shared.mode = nil
 			return
 		end
-		c:send("patrol", { units = units, points = { math.floor(input.wx), math.floor(input.wy) }, append = input.keys.shift })
+		c:send("patrol", { units = units, points = { math.floor(input.wx), math.floor(input.wy) }, append = (input.keys.shift or shared.touchShift == true) })
 		c:sound("order", { volume = 0.35 })
 		-- Щелчок — точка патруля, а не выделение.
 		shared.swallow = true
-		if not input.keys.shift then
+		if not (input.keys.shift or shared.touchShift == true) then
 			shared.mode = nil
 		end
 	end

@@ -1,16 +1,11 @@
 --!strict
--- Приказы правой кнопкой: выделенные юниты едут в точку (строители — строят и чинят то, по чему щёлкнули), выделенный
--- завод ставит туда точку сбора. Касанием — долгое нажатие на земле. Куда едут — видно пунктиром пути у выделенных
--- (controls/select).
+-- Приказы правой кнопкой или касанием цели: выделенные юниты едут в точку (строители — строят и чинят то, по чему
+-- щёлкнули), выделенный завод ставит туда точку сбора. Долгое касание остаётся рамке выделения (controls/select).
+-- Куда едут — видно пунктиром пути у выделенных.
 
 local orders = {}
 
-orders.data = {
-	-- Долгое касание, секунд.
-	hold = 0.5,
-}
-
-local held: { time: number, x: number, y: number }? = nil
+local touched: { x: number, y: number, selection: { number } }? = nil
 -- Где нажали правую кнопку: приказ — на отпускании, если её не тянули (тянут — двигают камеру, cameras/rts).
 local pressed: { x: number, y: number }? = nil
 -- Сдвиг указателя, после которого правая кнопка — протяжка камеры, а не приказ, в пикселях.
@@ -28,7 +23,7 @@ local function order(c, wx: number, wy: number)
 		end
 	end
 	if #units > 0 then
-		c:send("order", { units = units, x = wx, y = wy, queue = c.input.keys.shift })
+		c:send("order", { units = units, x = wx, y = wy, queue = c.input.keys.shift or c.shared.touchShift == true })
 		c:sound("order", { volume = 0.35 })
 	elseif building then
 		c:send("rally", { building = building, x = x, y = y })
@@ -40,8 +35,8 @@ function orders.update(c)
 	local input = c.input
 	-- Под меню партии и в режиме наведения (выбор места MCV) приказов мышью нет; щелчок, снявший режим, — тоже не приказ.
 	-- Окно приказа грузовикам (controls/trucks) — тоже не до приказов.
-	if c.shared.paused or c.shared.mode or c.shared.modeClosedAt == c.time or c.shared.truckMenu then
-		held = nil
+	if c.shared.paused or c.shared.mode or c.shared.modeClosedAt == c.time or c.shared.truckMenu or input.multitouch then
+		touched = nil
 		pressed = nil
 		return
 	end
@@ -56,18 +51,23 @@ function orders.update(c)
 		pressed = nil
 		order(c, input.wx, input.wy)
 	end
-	-- Касание: долгое нажатие на месте — приказ.
-	if input.pressed.left and input.touch and not input.over_ui then
-		held = { time = c.time, x = input.x, y = input.y }
+	-- Касание без протяжки — приказ. Рамка после долгого удержания и панорама приказ не вызывают.
+	if input.pressed.left and input.touch and input.inside and not input.over_ui then
+		touched = { x = input.x, y = input.y, selection = c.shared.selection or {} }
 	end
-	if held then
-		local moved = math.abs(input.x - held.x) + math.abs(input.y - held.y) > 8
-		if not input.down.left or moved then
-			held = nil
-		elseif c.time - held.time > orders.data.hold then
+	if touched and math.abs(input.x - touched.x) + math.abs(input.y - touched.y) > 8 then
+		touched = nil
+	end
+	if touched and input.released.left then
+		local before = touched.selection
+		local after = c.shared.selection or {}
+		local same = #before == #after
+		for index, e in before do
+			same = same and after[index] == e
+		end
+		touched = nil
+		if same and not c.shared.boxing then
 			order(c, input.wx, input.wy)
-			c.shared.swallow = true
-			held = nil
 		end
 	end
 	if input.hits.x then

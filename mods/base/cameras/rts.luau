@@ -2,7 +2,8 @@
 -- Камера стратегии: клавиши задают скорость, к которой камера разгоняется, а отпущенные — она плавно тормозит; средняя
 -- и правая кнопки (на сенсорном — палец по карте) тянут камеру точно за мышью, а брошенная катится дальше (приказ правой — на отпускании без сдвига,
 -- controls/orders); пока тянут рамку выделения, указатель у края видимой части карты двигает камеру, как клавиши;
--- колесо задаёт масштаб, который камера плавно догоняет, держа на месте точку под курсором; c.shared.flyTo — полёт к
+-- колесо задаёт масштаб, который камера плавно догоняет, держа на месте точку под курсором; два пальца двигают камеру
+-- и масштабируют её вокруг своей середины без сглаживания; c.shared.flyTo — полёт к
 -- точке без перелёта. Переставили камеру со стороны (мини-карта) — движение гаснет.
 
 local rts = {}
@@ -129,6 +130,23 @@ function rts.update(cam, c)
 		velocityX, velocityY = 0, 0
 		c.shared.flyTo = nil
 	end
+	-- Второй палец отменяет одиночное нажатие и инерцию: жест идёт точно за серединой пальцев, масштаб — вокруг неё.
+	if input.multitouch then
+		drag, touched, target = nil, nil, nil
+		dragVelocityX, dragVelocityY = 0, 0
+		halt()
+	end
+	local pinch = input.pinch
+	if pinch and input.inside and not input.over_ui then
+		flight, target = nil, nil
+		cam.x -= pinch.dx / cam.zoom
+		cam.y -= pinch.dy / cam.zoom
+		local zoom = math.clamp(cam.zoom * pinch.scale, d.minZoom, d.maxZoom)
+		local px, py = pinch.x - screen.w / 2, pinch.y - screen.h / 2
+		cam.x += px / cam.zoom - px / zoom
+		cam.y += py / cam.zoom - py / zoom
+		cam.zoom = zoom
+	end
 	-- Тянуть средней или правой кнопкой: камера идёт за мышью сразу, без разгона. Над панелью правую не берут.
 	if input.pressed.middle and input.inside then
 		drag = { x = input.x, y = input.y, button = "middle" }
@@ -137,11 +155,11 @@ function rts.update(cam, c)
 	end
 	-- Палец по карте вне режимов тянет камеру так же, но только сдвинутый дальше touchSlop: касание на месте — выбор и
 	-- приказ (controls/select, controls/orders). Режимам палец нужен самим (призрак стройки идёт за ним).
-	if input.pressed.left and input.touch and input.inside and not input.over_ui and not c.shared.mode then
+	if input.pressed.left and input.touch and input.inside and not input.over_ui and not c.shared.mode and not c.shared.editor then
 		touched = { x = input.x, y = input.y }
 	end
 	if touched then
-		if not input.down.left or c.shared.mode then
+		if not input.down.left or c.shared.mode or c.shared.boxing then
 			touched = nil
 		elseif math.abs(input.x - touched.x) + math.abs(input.y - touched.y) > d.touchSlop then
 			drag = { x = touched.x, y = touched.y, button = "left" }

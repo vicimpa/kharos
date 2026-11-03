@@ -17,6 +17,7 @@ local stepsLib = require("lib/steps")
 local paving = require("lib/paving")
 local seenLib = require("lib/seen")
 local wallet = require("lib/wallet")
+local select = require("controls/select")
 
 local COLORS, shadow = widgets.COLORS, widgets.shadow
 
@@ -573,7 +574,7 @@ local function info(c, selection, width: number)
 			ui:box({ id = "info:units", direction = "row", gap = 4, width = width - 20, clip = true }, function()
 				for index, k in order do
 					local id = "unit:" .. index
-					if ui:button(id, { width = 40, height = 40, padding = 0, skin = "well", direction = "stack" }, function()
+					local click = ui:button(id, { width = 40, height = 40, padding = 0, skin = "well", direction = "stack" }, function()
 						ui:box({ self = { "center", "center" } }, function()
 							ui:image(k, TILE, TILE)
 						end)
@@ -582,8 +583,19 @@ local function info(c, selection, width: number)
 								ui:text(tostring(#groups[k]), shadow({ color = COLORS.bright }))
 							end)
 						end
-					end) then
-						c.shared.selection = groups[k]
+					end)
+					if click then
+						if click.shift or c.shared.touchShift then
+							local rest = {}
+							for _, e in selection do
+								if c:proto(e) ~= k then
+									table.insert(rest, e)
+								end
+							end
+							c.shared.selection = rest
+						else
+							c.shared.selection = groups[k]
+						end
 					end
 					ui:tip(id, c:t(k.data.title))
 				end
@@ -785,6 +797,68 @@ local function minimapView(c, side: number)
 	end
 end
 
+local function minimapTop(c): number
+	if not c.input.touch then
+		return TOP_BOTTOM + GUT
+	end
+	return TOP_BOTTOM + GUT + 48 + (if c.shared.groupsOpen then 80 else 0)
+end
+
+-- Сенсорные замены клавиш: Shift, зоны (Alt), сигнал (Alt+щелчок), группы, чат и снятие выделения (Esc).
+local function touchTools(c)
+	if not c.input.touch then
+		return
+	end
+	local ui = c.ui
+	local shared = c.shared
+	ui:box({ id = "touch", anchor = { left = GUT, top = TOP_BOTTOM + GUT }, skin = "panel", padding = 4, direction = "row", gap = 4 }, function()
+		local function button(id: string, label: string, active: boolean, width: number, run)
+			if ui:button("touch:" .. id, { width = width, height = 36, padding = 0, active = active }, function()
+				ui:text(label, shadow({ color = if active then COLORS.bright else COLORS.text }))
+			end) then
+				run()
+			end
+		end
+		button("shift", "Shift", shared.touchShift == true, 52, function()
+			shared.touchShift = not shared.touchShift
+		end)
+		button("zones", c:t("hud.groups.zones"), shared.zonesPinned == true, 52, function()
+			shared.zonesPinned = not shared.zonesPinned
+		end)
+		if c.online then
+			button("ping", "!", shared.pinging == true, 32, function()
+				shared.pinging = not shared.pinging
+			end)
+			ui:tip("touch:ping", c:t("hud.allyPing"))
+		end
+		button("groups", c:t("hud.groups"), shared.groupsOpen == true, 68, function()
+			shared.groupsOpen = not shared.groupsOpen
+		end)
+		if c.online then
+			button("chat", "/", false, 32, function()
+				shared.chatToggle = true
+			end)
+		end
+		local movers = false
+		for _, e in shared.selection or {} do
+			movers = movers or c:has(e, "Mover")
+		end
+		if movers then
+			button("stop", "■", false, 32, function()
+				c:send("stop", { units = shared.selection or {} })
+			end)
+		end
+		if #(shared.selection or {}) > 0 then
+			button("clear", "✕", false, 32, function()
+				shared.selection = {}
+			end)
+		end
+	end)
+	if shared.groupsOpen then
+		select.groupPanel(c)
+	end
+end
+
 -- Нижние окна: мини-карта слева снизу; справа снизу команды (или режим), выбранное — слева от них на широком экране и
 -- над ними на узком. Ничего не выбрано и нет режима — окна команд нет, карта открыта.
 local function bottomWindows(c)
@@ -792,8 +866,9 @@ local function bottomWindows(c)
 	local selection = c.shared.selection or {}
 	local selected = #selection > 0
 	local place = layout(c)
+	touchTools(c)
 	-- Мини-карта — слева сверху, под левым блоком полосы; первые шаги и уведомления — под ней.
-	ui:box({ id = "mm", anchor = { left = GUT, top = TOP_BOTTOM + GUT } }, function()
+	ui:box({ id = "mm", anchor = { left = GUT, top = minimapTop(c) } }, function()
 		minimapView(c, place.mm)
 	end)
 	local mode = c.shared.mode
@@ -828,7 +903,7 @@ end
 
 -- Верх того, что стоит слева под мини-картой.
 local function belowMinimap(c): number
-	return TOP_BOTTOM + GUT + layout(c).mm + GUT
+	return minimapTop(c) + layout(c).mm + GUT
 end
 
 -- Узкий экран (телефон стоя): карточка шагов — справа от мини-карты, уведомления и награды — под ними обеими.
@@ -875,7 +950,7 @@ end
 -- Мир, где всё уже пройдено при входе, карточки не показывает.
 local function stepsPanel(c)
 	c.shared.stepsDrawn = false
-	if not stepsShown(c) then
+	if not stepsShown(c) or (c.input.touch and c.shared.groupsOpen) then
 		return
 	end
 	-- Телефон лёжа: пока что-то выбрано, справа колонка команд — карточке не хватает места.
@@ -899,7 +974,7 @@ local function stepsPanel(c)
 	local width = if ui.width < NARROW then ui.width - layout(c).mm - 3 * GUT else math.min(STEPS_W, ui.width - 2 * GUT)
 	local text = width - 20
 	local step = current and stepsLib.LIST[current]
-	ui:box({ id = "steps", anchor = { right = GUT, top = TOP_BOTTOM + GUT }, width = width, skin = "panel", padding = { 4, 10, 8, 10 }, direction = "column", align = "stretch", gap = 4 }, function()
+	ui:box({ id = "steps", anchor = { right = GUT, top = if c.input.touch then TOP_BOTTOM + GUT + 48 else TOP_BOTTOM + GUT }, width = width, skin = "panel", padding = { 4, 10, 8, 10 }, direction = "column", align = "stretch", gap = 4 }, function()
 		-- Заголовок во всю ширину: касание сворачивает и разворачивает.
 		ui:box({ id = "steps:toggle", height = 28, direction = "row", align = "center", gap = 6 }, function()
 			ui:text(count .. "/" .. #done, { color = COLORS.gold })

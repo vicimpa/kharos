@@ -110,8 +110,8 @@ end
 
 function trucks.update(c)
 	local shared, input = c.shared, c.input
-	if shared.paused then
-		pressed = nil
+	if shared.paused or input.multitouch then
+		pressed, rightPress = nil, nil
 		return
 	end
 	local selected = trucks.selected(c)
@@ -131,7 +131,7 @@ function trucks.update(c)
 		if press and input.released.right then
 			rightPress = nil
 			local still = math.abs(input.x - press.x) <= 4 and math.abs(input.y - press.y) <= 4
-			if still and not mode and not input.keys.shift and #selected > 0 and #selected == #(shared.selection or {}) then
+			if still and not mode and not (input.keys.shift or c.shared.touchShift == true) and #selected > 0 and #selected == #(shared.selection or {}) then
 				local target = trucks.storeAt(c, input.wx, input.wy)
 				if logistics.isCarrySource(c, c.player, target) then
 					shared.truckMenu = target

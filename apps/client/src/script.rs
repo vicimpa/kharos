@@ -677,13 +677,23 @@ impl UserData for Ctx {
     methods.add_method("chat", |lua, c, ()| {
       let state = c.state.borrow();
       let player = state.player;
-      let list: Vec<Json> = state.net.as_ref().map(|net| net.lines.iter().map(|(line, at)| {
-        let mut line = line.clone();
-        let own = line.get("player").and_then(Json::as_u64) == Some(player as u64) && line.get("system").and_then(Json::as_bool) != Some(true);
-        line["own"] = Json::Bool(own);
-        line["at"] = Json::from(*at);
-        line
-      }).collect()).unwrap_or_default();
+      let list: Vec<Json> = state
+        .net
+        .as_ref()
+        .map(|net| {
+          net
+            .lines
+            .iter()
+            .map(|(line, at)| {
+              let mut line = line.clone();
+              let own = line.get("player").and_then(Json::as_u64) == Some(player as u64) && line.get("system").and_then(Json::as_bool) != Some(true);
+              line["own"] = Json::Bool(own);
+              line["at"] = Json::from(*at);
+              line
+            })
+            .collect()
+        })
+        .unwrap_or_default();
       kharos_content::vm::to_lua(lua, &Json::Array(list))
     });
     methods.add_method("players", |lua, c, ()| kharos_content::vm::to_lua(lua, &c.state.borrow().net.as_ref().map(|net| net.players.clone()).filter(|players| !players.is_null()).unwrap_or(Json::Array(Vec::new()))));
@@ -1332,8 +1342,8 @@ impl UserData for UiApi {
   }
 }
 
-/// Таблица ввода для скриптов: x, y — экран, wx, wy — мир, down/pressed/released по кнопкам, wheel, keys (зажатые),
-/// hits (нажатые за кадр), text, over_ui (указатель над интерфейсом), focused, touch (указатель — касание).
+/// Таблица ввода для скриптов: x, y — экран, wx, wy — мир, down/pressed/released по кнопкам, wheel, pinch и multitouch
+/// для жестов, keys (зажатые), hits (нажатые за кадр), text, over_ui, focused, touch (указатель — касание).
 pub fn fill_input(lua: &Lua, table: &Table, input: &Input, view: &View, over_ui: bool) -> mlua::Result<()> {
   let (x, y) = input.pointer.map_or((f32::NAN, f32::NAN), |[x, y]| (x, y));
   table.set("x", x)?;
@@ -1350,6 +1360,18 @@ pub fn fill_input(lua: &Lua, table: &Table, input: &Input, view: &View, over_ui:
     table.set(name, buttons)?;
   }
   table.set("wheel", input.wheel)?;
+  if let Some(pinch) = input.pinch {
+    let gesture = lua.create_table();
+    gesture.set("scale", pinch.scale)?;
+    gesture.set("x", pinch.center[0])?;
+    gesture.set("y", pinch.center[1])?;
+    gesture.set("dx", pinch.delta[0])?;
+    gesture.set("dy", pinch.delta[1])?;
+    table.set("pinch", gesture)?;
+  } else {
+    table.set("pinch", mlua::Value::Nil)?;
+  }
+  table.set("multitouch", input.multitouch)?;
   let keys = lua.create_table();
   for key in &input.keys {
     keys.set(key.as_str(), true)?;

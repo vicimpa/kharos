@@ -65,13 +65,7 @@ impl FontName {
 /// Свои знаки на 12 пикселей, которых нет в пиксельном шрифте: молния энергии, крестик «закрыть», минус (убавить
 /// в сделке космопорта) — черта на высоте дефиса, галочка пройденного шага («Первые шаги») и узбекский апостроф
 /// (ʼ в «Oʼzbekcha»): у букв он — наверху, как запятая над строкой.
-pub const FALLBACK: [(char, &[&str]); 5] = [
-  ('ʼ', &[".#", ".#", "#.", "..", "..", "..", "..", "..", ".."]),
-  ('⚡', &["....##", "...##.", "..##..", ".#####", "....#.", "...#..", "..#...", ".#....", "#....."]),
-  ('✕', &["#.....#", ".#...#.", "..#.#..", "...#...", "..#.#..", ".#...#.", "#.....#"]),
-  ('−', &[".....", ".....", ".....", ".....", "#####", ".....", ".....", ".....", ".....", "....."]),
-  ('✓', &["......#", ".....##", "#...##.", "##.##..", ".###...", "..#...."]),
-];
+pub const FALLBACK: [(char, &[&str]); 5] = [('ʼ', &[".#", ".#", "#.", "..", "..", "..", "..", "..", ".."]), ('⚡', &["....##", "...##.", "..##..", ".#####", "....#.", "...#..", "..#...", ".#....", "#....."]), ('✕', &["#.....#", ".#...#.", "..#.#..", "...#...", "..#.#..", ".#...#.", "#.....#"]), ('−', &[".....", ".....", ".....", ".....", "#####", ".....", ".....", ".....", ".....", "....."]), ('✓', &["......#", ".....##", "#...##.", "##.##..", ".###...", "..#...."])];
 
 #[derive(Clone, Copy)]
 struct Glyph {
@@ -512,6 +506,18 @@ pub struct Field {
   pub keys: Vec<String>,
 }
 
+/// Активное поле для браузерной клавиатуры: позиции курсора — в знаках, не в байтах UTF-8.
+#[derive(Clone, Debug)]
+pub struct TextInputState {
+  pub id: String,
+  pub value: String,
+  pub caret: usize,
+  pub anchor: usize,
+  pub digits: bool,
+  pub password: bool,
+  pub max_length: Option<usize>,
+}
+
 struct Press {
   id: Option<String>,
   button: u8,
@@ -556,6 +562,8 @@ pub struct Gui {
   /// Поле ввода в фокусе, правки полей, клавиши полей до кадра и за кадр, поля, описанные в этом кадре.
   focused: Option<String>,
   edits: HashMap<String, Edit>,
+  field_options: HashMap<String, FieldOptions>,
+  field_shifts: HashMap<String, f32>,
   field_keys: HashMap<String, Vec<String>>,
   frame_keys: HashMap<String, Vec<String>>,
   seen_fields: HashSet<String>,
@@ -565,11 +573,44 @@ pub struct Gui {
 
 impl Gui {
   pub fn new(fonts: Fonts) -> Self {
-    Self { fonts, batch: Batch::default(), width: 0.0, height: 0.0, pointer: None, press: None, clicks: HashMap::new(), frame_clicks: HashMap::new(), hits: Vec::new(), roots: Vec::new(), scrolls: HashMap::new(), over: None, since: 0.0, now: 0.0, top: Vec::new(), stack: Vec::new(), tips: Vec::new(), covered: false, pressed_button: None, hovered_button: false, buttons: HashMap::new(), focused: None, edits: HashMap::new(), field_keys: HashMap::new(), frame_keys: HashMap::new(), seen_fields: HashSet::new(), clipboard: String::new() }
+    Self { fonts, batch: Batch::default(), width: 0.0, height: 0.0, pointer: None, press: None, clicks: HashMap::new(), frame_clicks: HashMap::new(), hits: Vec::new(), roots: Vec::new(), scrolls: HashMap::new(), over: None, since: 0.0, now: 0.0, top: Vec::new(), stack: Vec::new(), tips: Vec::new(), covered: false, pressed_button: None, hovered_button: false, buttons: HashMap::new(), focused: None, edits: HashMap::new(), field_options: HashMap::new(), field_shifts: HashMap::new(), field_keys: HashMap::new(), frame_keys: HashMap::new(), seen_fields: HashSet::new(), clipboard: String::new() }
   }
 
   fn topmost(&self, x: f32, y: f32) -> Option<&(String, Rect, Vec<String>)> {
     self.hits.iter().rev().find(|(_, rect, _)| rect.contains(x, y))
+  }
+
+  /// Поле под точкой прошлого кадра: браузер фокусирует DOM-поле уже в pointerdown, до следующего кадра игры.
+  pub fn field_at(&self, x: f32, y: f32) -> bool {
+    self.topmost(x, y).is_some_and(|(id, _, _)| self.edits.contains_key(id))
+  }
+
+  fn caret_at(&mut self, id: &str, x: f32) -> Option<usize> {
+    let rect = self.rect(id)?;
+    let edit = self.edits.get(id)?;
+    let password = self.field_options.get(id).is_some_and(|options| options.password);
+    let shift = self.field_shifts.get(id).copied().unwrap_or(0.0);
+    let shown: String = if password { std::iter::repeat_n('•', edit.value.len()).collect() } else { edit.value.iter().collect() };
+    let letters: Vec<char> = shown.chars().collect();
+    let target = x - rect.x - 8.0 + shift;
+    let mut nearest = 0;
+    let mut distance = f32::INFINITY;
+    for caret in 0..=letters.len() {
+      let prefix: String = letters[..caret].iter().collect();
+      let offset = (self.fonts.width(FontName::Body, &prefix) - target).abs();
+      if offset < distance {
+        nearest = caret;
+        distance = offset;
+      }
+    }
+    Some(nearest)
+  }
+
+  pub fn text_input(&self) -> Option<TextInputState> {
+    let id = self.focused.as_ref()?;
+    let edit = self.edits.get(id)?;
+    let options = self.field_options.get(id)?;
+    Some(TextInputState { id: id.clone(), value: edit.value.iter().collect(), caret: edit.caret, anchor: edit.anchor, digits: options.digits, password: options.password, max_length: options.max_length })
   }
 
   /// Лежит ли в точке панель или узел с номером.
@@ -592,19 +633,32 @@ impl Gui {
     self.hovered_button = false;
     let modifiers = |button: u8, long: bool| Click { button, shift: input.keys.contains("shift"), ctrl: input.keys.contains("ctrl") || input.keys.contains("meta"), alt: input.keys.contains("alt"), long };
     let [px, py] = input.pointer.unwrap_or([-1.0, -1.0]);
-    self.covered = input.pointer.is_some() && self.covers(px, py);
+    self.covered = !input.multitouch && input.pointer.is_some() && self.covers(px, py);
+    if input.multitouch {
+      self.press = None;
+      self.clicks.clear();
+      self.blur();
+    }
     // Кнопки указателя: левая — 0, правая — 2, средняя — 1, как у страницы.
     for (index, button) in [(0usize, 0u8), (1, 2), (2, 1)] {
-      if input.pressed[index] {
+      if input.pressed[index] && !input.multitouch {
         let hit = self.topmost(px, py);
         let id = hit.map(|hit| hit.0.clone());
         let list = hit.filter(|_| input.touch).and_then(|(id, _, path)| std::iter::once(id).chain(path.iter().rev()).find(|id| self.scrolls.contains_key(*id)).cloned());
-        // Нажатие мимо поля ввода снимает с него фокус; по полю — ставит.
+        // Нажатие мимо поля ввода снимает с него фокус; по полю — ставит курсор в ближайшее место между буквами.
         if self.focused.is_some() && id != self.focused {
           self.blur();
         }
         if let Some(id) = id.as_ref().filter(|id| self.edits.contains_key(*id)) {
           self.focused = Some(id.clone());
+          if button == 0 {
+            if let Some(caret) = self.caret_at(id, px) {
+              if let Some(edit) = self.edits.get_mut(id) {
+                edit.caret = caret;
+                edit.anchor = caret;
+              }
+            }
+          }
         }
         if let Some(disabled) = id.as_ref().and_then(|id| self.buttons.get(id)) {
           if button == 0 {
@@ -613,7 +667,7 @@ impl Gui {
         }
         self.press = Some(Press { id, button, x: px, y: py, time: input.time, long: false, list, dragged: None });
       }
-      if input.released[index] {
+      if input.released[index] && !input.multitouch {
         if let Some(press) = self.press.take() {
           if !press.long && press.button == button {
             if let Some(hit) = self.topmost(px, py) {
@@ -636,9 +690,19 @@ impl Gui {
         press.dragged = Some(py);
       }
     }
-    // Долгое касание — правый щелчок: у сенсорного экрана правой кнопки нет.
+    // Протяжка по полю выделяет текст от места нажатия.
+    let field = self.press.as_ref().filter(|press| press.button == 0 && input.down[0]).and_then(|press| press.id.as_ref()).filter(|id| self.edits.contains_key(*id)).cloned();
+    if let Some(id) = field {
+      if let Some(caret) = self.caret_at(&id, px) {
+        if let Some(edit) = self.edits.get_mut(&id) {
+          edit.caret = caret;
+        }
+      }
+    }
+    // Долгое касание — правый щелчок: у сенсорного экрана правой кнопки нет. В поле удержание выделяет текст.
     if let Some(press) = &mut self.press {
-      if input.touch && press.button == 0 && !press.long && press.id.is_some() {
+      let field = press.id.as_ref().is_some_and(|id| self.edits.contains_key(id));
+      if input.touch && press.button == 0 && !press.long && press.id.is_some() && !field {
         if (px - press.x).hypot(py - press.y) > HOLD_SLOP {
           press.time = f64::INFINITY;
         } else if input.time - press.time >= HOLD {
@@ -686,6 +750,11 @@ impl Gui {
   fn type_keys(&mut self, input: &Input) {
     let Some(id) = self.focused.clone() else { return };
     let Some(edit) = self.edits.get_mut(&id) else { return };
+    if let Some(dom) = input.edit.as_ref().filter(|dom| dom.id == id) {
+      edit.value = dom.value.chars().collect();
+      edit.caret = dom.caret.min(edit.value.len());
+      edit.anchor = dom.anchor.min(edit.value.len());
+    }
     let shift = input.keys.contains("shift");
     let command = input.keys.contains("ctrl") || input.keys.contains("meta");
     let mut passed = Vec::new();
@@ -763,6 +832,7 @@ impl Gui {
   /// текст сдвигается так, чтобы курсор был виден; без фокуса поле показывает начало.
   pub fn input(&mut self, id: &str, value: &str, options: &FieldOptions) -> Field {
     self.seen_fields.insert(id.to_string());
+    self.field_options.insert(id.to_string(), options.clone());
     let focused_here = self.focused.as_deref() == Some(id);
     let edit = self.edits.entry(id.to_string()).or_insert_with(|| {
       let value: Vec<char> = value.chars().collect();
@@ -791,6 +861,7 @@ impl Gui {
     let text = |range: std::ops::Range<usize>| -> String { shown[range].iter().collect() };
     let room = options.width.or_else(|| self.rect(id).map(|rect| rect.w)).unwrap_or(120.0);
     let shift = if focused { (self.fonts.width(FontName::Body, &text(0..edit.caret)) - (room - 18.0)).max(0.0) } else { 0.0 };
+    self.field_shifts.insert(id.to_string(), shift);
     let color = options.color.unwrap_or(hex(0xd6e6f5));
     let leaf = |text: String, color: Color| Leaf::Text { text, font: FontName::Body, color, shadow: None, lift: 1.0, wrap: None, ellipsis: false, lines: Vec::new() };
     let (skin, background) = if options.background.is_some() { (None, options.background) } else { (Some(Skin::Well), None) };
@@ -971,6 +1042,8 @@ impl Gui {
     // Поле, которого больше не описывают, теряет и фокус, и правку.
     let seen = &self.seen_fields;
     self.edits.retain(|id, _| seen.contains(id));
+    self.field_options.retain(|id, _| seen.contains(id));
+    self.field_shifts.retain(|id, _| seen.contains(id));
     if self.focused.as_ref().is_some_and(|id| !seen.contains(id)) {
       self.focused = None;
     }

@@ -60,7 +60,7 @@ function aim.update(c)
 	guards(c)
 	local shared, input = c.shared, c.input
 	local mode = shared.mode
-	if shared.paused or not mode or mode.kind ~= "aiming" then
+	if shared.paused or not mode or mode.kind ~= "aiming" or input.multitouch then
 		pressed = nil
 		return
 	end

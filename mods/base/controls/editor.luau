@@ -365,6 +365,10 @@ end
 function controls.update(c)
 	local input = c.input
 	local state = controls.state(c)
+	if input.multitouch then
+		pressed, dragging, state.right = nil, nil, nil
+		return
+	end
 	if input.hits.delete or input.hits.backspace then
 		controls.eraseSelection(c)
 	end
@@ -373,7 +377,7 @@ function controls.update(c)
 	end
 	if input.pressed.left and input.inside and not input.over_ui then
 		pressed = { x = input.x, y = input.y, wx = input.wx, wy = input.wy }
-		down(c, state, input.wx, input.wy, input.keys.shift)
+		down(c, state, input.wx, input.wy, input.keys.shift or c.shared.touchShift == true)
 	end
 	if pressed and input.down.left then
 		drag(c, state, input.wx, input.wy)

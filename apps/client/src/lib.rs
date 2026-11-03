@@ -4,8 +4,8 @@
 //! KHAROS_MODS — папки с модами через `:` (по умолчанию `mods` рядом или выше по дереву), KHAROS_GAME — партия.
 
 pub mod atlas;
-mod clock;
 mod audio;
+mod clock;
 mod game;
 mod gl;
 mod gui;
@@ -13,21 +13,21 @@ mod input;
 mod lang;
 mod loading;
 mod net;
-mod render;
-mod saves;
 #[cfg(not(target_arch = "wasm32"))]
 mod offline;
 #[cfg(not(target_arch = "wasm32"))]
 mod record;
+mod render;
+mod saves;
 #[cfg(not(target_arch = "wasm32"))]
 mod scenario;
 mod script;
-mod store;
 #[cfg(not(target_arch = "wasm32"))]
 mod shell;
+mod store;
+mod ui;
 #[cfg(target_arch = "wasm32")]
 mod web;
-mod ui;
 mod webaudio;
 
 use game::Game;
@@ -224,6 +224,15 @@ impl App {
     if let Some(sound) = &self.sound {
       webaudio::wake(&sound.ctx);
     }
+  }
+
+  /// Поле под указателем и его состояние для DOM-клавиатуры в браузере.
+  pub fn text_input_at(&self, point: [f32; 2]) -> bool {
+    self.game.as_ref().is_some_and(|game| game.state.borrow().gui.field_at(point[0], point[1]))
+  }
+
+  pub fn text_input(&self) -> Option<gui::TextInputState> {
+    self.game.as_ref().and_then(|game| game.state.borrow().gui.text_input())
   }
 
   /// Пишет партию в её слот, если он есть; редактор пишется только по просьбе (force).

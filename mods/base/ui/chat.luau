@@ -156,6 +156,14 @@ function chat.draw(c)
 		open, opening = true, true
 		draft = if input.hits["/"] then "/" else ""
 	end
+	if c.shared.chatToggle then
+		c.shared.chatToggle = nil
+		if open then
+			close()
+		else
+			open, opening, draft = true, true, ""
+		end
+	end
 	local lines = c:chat()
 	local known = c:commands()
 	local names = {}

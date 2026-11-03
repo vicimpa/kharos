@@ -40,7 +40,7 @@ function deploy.update(c)
 		shared.mode = nil
 		return
 	end
-	if shared.paused then
+	if shared.paused or input.multitouch then
 		pressed = nil
 		return
 	end

@@ -290,7 +290,7 @@ look = {
 
 | | |
 |---|---|
-| `c.input` | `x`, `y` — экран; `wx`, `wy` — мир; `down`, `pressed`, `released` — по `left`, `right`, `middle`; `wheel`; `keys` — зажатые (`"a"`, `"1"`, `"shift"`, `"left"`, `"escape"`); `hits` — нажатые за кадр; `text`; `over_ui`; `touch`; `focused`; `inside` |
+| `c.input` | `x`, `y` — экран; `wx`, `wy` — мир; `down`, `pressed`, `released` — по `left`, `right`, `middle`; `wheel`; `pinch` — `{ scale, x, y, dx, dy }` для жеста двух пальцев или nil; `multitouch` — подавляет одиночные клики до конца жеста; `keys` — зажатые (`"a"`, `"1"`, `"shift"`, `"left"`, `"escape"`); `hits` — нажатые за кадр; `text`; `over_ui`; `touch`; `focused`; `inside`; `typing` — поле ввода забрало клавиши |
 | `c.camera` | `x`, `y` — центр в тайлах, `zoom` — пикселей на тайл |
 | `c.screen` | `w`, `h` в логических пикселях |
 | `c.shared` | общая память скриптов клиента (`selection` — выделенное) |
@@ -340,7 +340,8 @@ end)
 `ui:input(id, значение, { width, placeholder, maxLength, digits, password, focus, color, background, outline })` —
 поле ввода (`input` в ui.ts) → `{ value, focused, keys }`: набранное, в фокусе ли, клавиши, которые поле отдало
 панели (`"Enter"`, `"Escape"`, `"Tab"`, `"ArrowUp"`, `"ArrowDown"`, `"Blur"`). Пока поле в фокусе, клавиши
-достаются ему, а не игре (`c.input.typing`). `ui:preview(вид земли, правки генератора, сид, сторона карты, w, h)` —
+достаются ему, а не игре (`c.input.typing`). Касание ставит курсор, протяжка выделяет; в браузере поле синхронизируется
+с невидимым DOM-полем для экранной клавиатуры, IME и системного буфера обмена. `ui:preview(вид земли, правки генератора, сид, сторона карты, w, h)` —
 схема будущей карты (preview.ts): считается порциями по кадрам → `{ ready, rock, swamp }`. `ui:upper(текст)` —
 прописными с кириллицей. Поля меню (окно, кнопка, ползунок, флажок, варианты, числовое поле, раскрывающийся блок,
 ссылка) — `lib/form.luau` мода `base`, перенос `gui/form.ts`.

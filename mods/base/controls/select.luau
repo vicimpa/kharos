@@ -1,6 +1,7 @@
 --!strict
 -- Выделение: щелчок — своя сущность под курсором, рамка — свои юниты в ней, Shift — добавить, Esc — снять,
--- двойной щелчок — все свои того же вида на экране. Выделенное — c.shared.selection (его видят приказы и панели).
+-- двойной щелчок — все свои того же вида на экране. На сенсорном удержание с протяжкой рисует рамку, обычное касание
+-- цели оставлено приказу. Выделенное — c.shared.selection (его видят приказы и панели).
 
 local select = {}
 
@@ -9,11 +10,14 @@ select.data = {
 	threshold = 6,
 	-- Двойной щелчок — за столько секунд.
 	double = 0.35,
+	-- Удержание пальца, после которого протяжка становится рамкой, а не панорамой.
+	hold = 0.45,
 }
 
 -- Вид отметок: приглушённый зелёный, яркость из настроек (0,7 по умолчанию).
 local SELECTED = 0x73eb8c
 local settings = require("lib/settings")
+local touch = require("lib/touch")
 local RING_MARGIN = 0.2
 local BOX_FILL_ALPHA = 0.12
 local HIT_ALPHA = 0.5
@@ -26,7 +30,7 @@ local ROUTE, ROUTE_FILL, ROUTE_BORDER = 0xffd94d, 0.18, 0.85
 -- Здания, которые обслуживают выбранные грузовики: только рамки.
 local SERVE = 0x73d9ff
 
-local start: { x: number, y: number, wx: number, wy: number }? = nil
+local start: { x: number, y: number, wx: number, wy: number, time: number, long: boolean }? = nil
 local last = { time = -1, entity = 0 }
 -- Группы по цифре и какую выбрали последней (двойное нажатие — камера к ней).
 local groups: { [string]: { number } } = {}
@@ -295,6 +299,98 @@ local function lookAt(c, selection)
 	end
 end
 
+local function livingGroup(c, key: string): { number }
+	local group = {}
+	for _, e in groups[key] or {} do
+		if c:alive(e) and c:mine(e) then
+			table.insert(group, e)
+		end
+	end
+	groups[key] = if #group > 0 then group else nil
+	return group
+end
+
+local function storeGroup(c, key: string)
+	local own = {}
+	for _, e in c.shared.selection or {} do
+		if c:mine(e) then
+			table.insert(own, e)
+		end
+	end
+	groups[key] = if #own > 0 then own else nil
+end
+
+local function chooseGroup(c, key: string)
+	local group = livingGroup(c, key)
+	if #group == 0 then
+		return
+	end
+	local selection = c.shared.selection or {}
+	if touch.shift(c) then
+		for _, e in group do
+			if not table.find(selection, e) then
+				table.insert(selection, e)
+			end
+		end
+	else
+		selection = group
+	end
+	c.shared.selection = selection
+	if lastGroup.digit == key and c.time - lastGroup.time < select.data.double then
+		lookAt(c, selection)
+	end
+	lastGroup = { digit = key, time = c.time }
+end
+
+-- Касание цели — приказ, если оно не выбирает нового своего юнита. Своё здание при выбранных юнитах — цель работы.
+local function touchOrder(c, selection, picked): boolean
+	if #selection == 0 then
+		return false
+	end
+	local movers, producer = false, false
+	for _, e in selection do
+		movers = movers or c:has(e, "Mover")
+		producer = producer or c:has(e, "Producer")
+	end
+	if movers then
+		return picked == nil or not c:mine(picked) or c:has(picked, "Building") or table.find(selection, picked) ~= nil
+	end
+	return producer
+end
+
+-- Сенсорные группы: касание выбирает, повторное наводит камеру, долгое касание сохраняет выделенных.
+function select.groupPanel(c)
+	local ui = c.ui
+	ui:box({ id = "groups", anchor = { left = 8, top = 102 }, width = 244, skin = "panel", padding = 4, direction = "row", gap = 4, wrap = true }, function()
+		for index = 1, 10 do
+			local digit = tostring(index % 10)
+			local id = "group:" .. digit
+			local group = livingGroup(c, digit)
+			local count = #group
+			local click = ui:button(id, { width = 44, height = 36, padding = 0, direction = "column", align = "center", justify = "center" }, function()
+				ui:text(digit, { color = if count > 0 then "#eef6ff" else "#6184a3" })
+				if count > 0 then
+					ui:text(tostring(count), { font = "small", color = "#8fa9c2" })
+				end
+			end)
+			ui:tip(id, c:t(if count > 0 then "hud.groupTip" else "hud.groupEmptyTip", { digit = digit }))
+			if click then
+				if click.button == 2 then
+					if #(c.shared.selection or {}) > 0 then
+						storeGroup(c, digit)
+					else
+						groups[digit] = nil
+					end
+				elseif count > 0 then
+					chooseGroup(c, digit)
+				elseif #(c.shared.selection or {}) > 0 then
+					storeGroup(c, digit)
+				end
+			end
+		end
+	end)
+end
+
 function select.update(c)
 	local input = c.input
 	local shared = c.shared
@@ -318,16 +414,31 @@ function select.update(c)
 		return
 	end
 
+	-- Второй палец превращает нажатие в жест камеры: ни рамка, ни отпускание после него не меняют выделение.
+	if input.multitouch then
+		start = nil
+		shared.boxing = false
+		shared.selection = selection
+		marks(c, selection)
+		for _, e in selection do
+			mark(c, e, 1)
+		end
+		return
+	end
+
 	-- В режиме наведения (выбор места MCV) щелчок по карте — его, а не выделение; в наборе патруля рамка — выделение.
 	if input.pressed.left and input.inside and not input.over_ui and (not shared.mode or shared.mode.selects) then
-		start = { x = input.x, y = input.y, wx = input.wx, wy = input.wy }
+		start = { x = input.x, y = input.y, wx = input.wx, wy = input.wy, time = c.time, long = false }
 	end
 	if start then
 		local moved = math.abs(input.x - start.x) + math.abs(input.y - start.y) > select.data.threshold
-		-- Палец вне режимов тянет камеру (cameras/rts), а не рамку: отпущенный после сдвига, он ничего не выделяет.
-		local panned = moved and input.touch and not shared.mode
+		if input.touch and not start.long and not moved and not shared.mode and c.time - start.time >= select.data.hold then
+			start.long = true
+		end
+		-- Палец вне режимов тянет камеру, пока удержание не превратилось в рамку.
+		local panned = moved and input.touch and not shared.mode and not start.long
 		-- Рамку тянут: камера у края экрана едет за ней (cameras/rts).
-		shared.boxing = input.down.left and moved and not panned
+		shared.boxing = input.down.left and (start.long or (moved and not panned))
 		if shared.boxing then
 			c.draw:rect(start.wx, start.wy, input.wx, input.wy, SELECTED, nil, BOX_FILL_ALPHA)
 			c.draw:rect(start.wx, start.wy, input.wx, input.wy, SELECTED, 1)
@@ -338,13 +449,14 @@ function select.update(c)
 				end
 			end
 		end
-		-- Долгое касание стало приказом (controls/orders.luau), щелчок — точкой патруля (controls/patrol): отпускание
-		-- не выделяет.
+		-- Щелчок точкой патруля отпускание не выделяет.
 		local swallowed = input.released.left and c.shared.swallow
 		if swallowed then
 			c.shared.swallow = nil
 		end
-		if input.released.left and panned then
+		local hit = if not moved then c:pick(input.wx, input.wy) else nil
+		local ordering = input.touch and not start.long and not shared.mode and touchOrder(c, selection, hit)
+		if input.released.left and (panned or ordering) then
 			start = nil
 		elseif input.released.left and not swallowed then
 			local picked = {}
@@ -355,7 +467,7 @@ function select.update(c)
 					end
 				end
 			else
-				local e = c:pick(input.wx, input.wy)
+				local e = hit
 				if e and c:mine(e) then
 					picked = { e }
 					-- Двойной щелчок или Ctrl: все свои того же вида на экране.
@@ -373,7 +485,7 @@ function select.update(c)
 					last = { time = c.time, entity = e }
 				end
 			end
-			if input.keys.shift then
+			if touch.shift(c) then
 				for _, e in picked do
 					if not table.find(selection, e) then
 						table.insert(selection, e)

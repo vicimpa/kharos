@@ -194,7 +194,7 @@ end
 function stroke.update(c)
 	local shared, input = c.shared, c.input
 	local mode = shared.mode
-	if not mode or mode.kind ~= "paving" or shared.paused then
+	if not mode or mode.kind ~= "paving" or shared.paused or input.multitouch then
 		from = nil
 		return
 	end
@@ -253,17 +253,17 @@ function stroke.update(c)
 			return
 		end
 		if DIG[mode.tool] then
-			c:send("dig", { kind = mode.tool, tiles = frame, builders = units, queue = c.input.keys.shift })
+			c:send("dig", { kind = mode.tool, tiles = frame, builders = units, queue = c.input.keys.shift or shared.touchShift == true })
 		elseif mode.tool == "foundation" or mode.tool == "road" then
-			c:send("pave", { kind = mode.tool, tiles = tiles, builders = units, queue = c.input.keys.shift })
+			c:send("pave", { kind = mode.tool, tiles = tiles, builders = units, queue = c.input.keys.shift or shared.touchShift == true })
 		elseif mode.tool == "remove" then
-			c:send("remove", { tiles = tiles, builders = units, queue = c.input.keys.shift })
+			c:send("remove", { tiles = tiles, builders = units, queue = c.input.keys.shift or shared.touchShift == true })
 		elseif mode.tool == "pipe" then
-			c:send("pipes", { tiles = tiles, builders = units, queue = c.input.keys.shift })
+			c:send("pipes", { tiles = tiles, builders = units, queue = c.input.keys.shift or shared.touchShift == true })
 		elseif mode.tool == "well" then
-			c:send("wells", { tiles = tiles, builders = units, queue = c.input.keys.shift })
+			c:send("wells", { tiles = tiles, builders = units, queue = c.input.keys.shift or shared.touchShift == true })
 		else
-			c:send("walls", { tiles = tiles, builders = units, gate = mode.tool == "gate", queue = c.input.keys.shift })
+			c:send("walls", { tiles = tiles, builders = units, gate = mode.tool == "gate", queue = c.input.keys.shift or shared.touchShift == true })
 		end
 	end
 end

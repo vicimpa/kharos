@@ -165,7 +165,7 @@ function build.update(c)
 	local placing = mode ~= nil and mode.kind == "placing"
 	local hover = shared.zonesHover
 	shared.zonesHover = nil
-	if (placing or hover or input.keys.alt) and not shared.paused then
+	if (placing or hover or input.keys.alt or shared.zonesPinned) and not shared.paused then
 		local borders = bordersOf(c)
 		dots(c, borders.own, CONTROL, BORDER_ALPHA)
 		dots(c, borders.foreign, FORBIDDEN, BORDER_ALPHA)
@@ -180,7 +180,7 @@ function build.update(c)
 		shared.mode = nil
 		return
 	end
-	if shared.paused then
+	if shared.paused or input.multitouch then
 		pressed = nil
 		return
 	end
@@ -218,7 +218,7 @@ function build.update(c)
 			return
 		end
 		if allowed then
-			c:send("build", { building = mode.building, x = x, y = y, builders = units, queue = c.input.keys.shift })
+			c:send("build", { building = mode.building, x = x, y = y, builders = units, queue = c.input.keys.shift or shared.touchShift == true })
 		else
 			c:sound("deny", { volume = 0.35 })
 		end
