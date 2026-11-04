@@ -386,7 +386,10 @@ impl Shell {
 
   fn frame(&mut self) -> Result<(), String> {
     let window = web_sys::window().ok_or("нет окна")?;
-    let scale = window.device_pixel_ratio() as f32;
+    let ratio = window.device_pixel_ratio() as f32;
+    // На телефоне полный DPR 3× стоит девять пикселей на один CSS-пиксель. 1,5× сохраняет чёткость и вчетверо
+    // уменьшает работу GPU по площади; логический размер интерфейса не меняется.
+    let scale = if window.navigator().max_touch_points() > 0 { ratio.min(1.5) } else { ratio };
     // Буфер холста — в пикселях экрана: размер на странице на их число в пикселе CSS.
     let (width, height) = (self.canvas.client_width().max(1) as f32, self.canvas.client_height().max(1) as f32);
     let size = [(width * scale).round() as u32, (height * scale).round() as u32];

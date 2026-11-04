@@ -290,7 +290,7 @@ look = {
 
 | | |
 |---|---|
-| `c.input` | `x`, `y` — экран; `wx`, `wy` — мир; `down`, `pressed`, `released` — по `left`, `right`, `middle`; `wheel`; `pinch` — `{ scale, x, y, dx, dy }` для жеста двух пальцев или nil; `multitouch` — подавляет одиночные клики до конца жеста; `keys` — зажатые (`"a"`, `"1"`, `"shift"`, `"left"`, `"escape"`); `hits` — нажатые за кадр; `text`; `over_ui`; `touch`; `focused`; `inside`; `typing` — поле ввода забрало клавиши |
+| `c.input` | `x`, `y` — экран; `wx`, `wy` — мир; `down`, `pressed`, `released` — по `left`, `right`, `middle`; `wheel`; `pinch` — `{ scale, x, y, dx, dy }` для жеста двух пальцев или nil; `multitouch` — подавляет одиночные клики до конца жеста; `touchResume` — оставшийся после щипка палец продолжает панораму без нового клика; `keys` — зажатые (`"a"`, `"1"`, `"shift"`, `"left"`, `"escape"`); `hits` — нажатые за кадр; `text`; `over_ui`; `touch`; `focused`; `inside`; `typing` — поле ввода забрало клавиши |
 | `c.camera` | `x`, `y` — центр в тайлах, `zoom` — пикселей на тайл |
 | `c.screen` | `w`, `h` в логических пикселях |
 | `c.shared` | общая память скриптов клиента (`selection` — выделенное) |

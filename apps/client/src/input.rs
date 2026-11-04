@@ -43,6 +43,8 @@ pub struct Input {
   pub pinch: Option<Pinch>,
   /// Два пальца или конец такого жеста: одиночные клики подавлены, пока все пальцы не убрали.
   pub multitouch: bool,
+  /// После щипка остался один палец: продолжить панораму без нового нажатия и клика.
+  pub touch_resume: bool,
   /// Зажатые клавиши — по именам: "a", "1", "shift", "left", "escape", "f1".
   pub keys: BTreeSet<String>,
   /// Нажатые с прошлого кадра.
@@ -86,6 +88,7 @@ impl Input {
     self.released = [false; 3];
     self.wheel = 0.0;
     self.pinch = None;
+    self.touch_resume = false;
     self.hits.clear();
     self.presses.clear();
     self.text.clear();
@@ -167,11 +170,21 @@ impl TouchInput {
     input.touch = true;
     input.pointer = Some(point);
     if self.multi {
-      self.pair = self.measure();
-      if let Some((center, _)) = self.pair {
-        input.pointer = Some(center);
-      } else if let Some(point) = self.points.values().next() {
-        input.pointer = Some(*point);
+      if self.points.len() == 1 {
+        let (&remaining, &point) = self.points.iter().next().expect("палец");
+        self.multi = false;
+        input.multitouch = false;
+        self.primary = Some(remaining);
+        self.pair = None;
+        input.pointer = Some(point);
+        // Это продолжение жеста, а не новый клик: pressed не выставляем.
+        input.down[0] = true;
+        input.touch_resume = true;
+      } else {
+        self.pair = self.measure();
+        if let Some((center, _)) = self.pair {
+          input.pointer = Some(center);
+        }
       }
     } else if self.primary == Some(id) {
       self.primary = None;
@@ -238,10 +251,31 @@ mod tests {
     assert_eq!(pinch.center, [150.0, 100.0]);
     assert_eq!(pinch.delta, [0.0, 0.0]);
     touches.up(&mut input, 1, [70.0, 90.0]);
+    assert!(!input.multitouch);
+    assert!(input.touch_resume);
     touches.up(&mut input, 2, [230.0, 110.0]);
-    assert!(input.multitouch);
     touches.end_frame(&mut input);
     assert!(!input.multitouch);
+    assert!(input.released[0]);
+  }
+
+  #[test]
+  fn remaining_finger_resumes_pan_without_a_click() {
+    let mut input = Input::default();
+    let mut touches = TouchInput::default();
+    touches.down(&mut input, 1, [100.0, 100.0]);
+    touches.down(&mut input, 2, [200.0, 100.0]);
+    input.end_frame();
+    touches.up(&mut input, 2, [200.0, 100.0]);
+    assert!(!input.multitouch);
+    assert!(input.touch_resume);
+    assert!(input.down[0]);
+    assert!(!input.pressed[0]);
     assert!(!input.released[0]);
+    assert_eq!(input.pointer, Some([100.0, 100.0]));
+    touches.moved(&mut input, 1, [80.0, 120.0]);
+    assert_eq!(input.pointer, Some([80.0, 120.0]));
+    touches.up(&mut input, 1, [80.0, 120.0]);
+    assert!(input.released[0]);
   }
 }

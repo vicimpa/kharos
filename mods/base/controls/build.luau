@@ -4,8 +4,8 @@
 -- красная, где нельзя; шахта сама встаёт на разведанное месторождение рядом. Щелчок закладывает и режим оставляет —
 -- можно ещё и ещё; правая кнопка и Esc — отмена; без выбранных строителей режим кончается сам. Пока выбирают место,
 -- держат Alt или смотрят кнопку здания (c.shared.zonesHover) — видны границы зон: свои синим, чужие красным, и круг,
--- которым здание расширит свою. На сенсорном экране призрак появляется под пальцем, идёт за ним, а отпущенный палец
--- закладывает здание: наведения нет, и место видно до того, как его выбрали.
+-- которым здание расширит свою. На сенсорном экране призрак стоит в центре, палец двигает под ним карту,
+-- а кнопка «Поставить» подтверждает место; мышь по-прежнему ведёт призрак и кладёт его щелчком.
 
 local construction = require("lib/construction")
 local placement = require("lib/placement")
@@ -48,9 +48,9 @@ end
 
 -- Место под указателем: левый верхний тайл основания серединой под ним и годится ли оно. Шахта липнет к месторождению
 -- рядом, если игрок его разведал: иначе выдала бы, где оно.
-local function placementOf(c, kind): (number, number, boolean)
+local function placementOf(c, kind, wx: number?, wy: number?): (number, number, boolean)
 	local data = kind.data
-	local tx, ty = math.floor(c.input.wx), math.floor(c.input.wy)
+	local tx, ty = math.floor(wx or c.input.wx), math.floor(wy or c.input.wy)
 	local x, y = tx - math.floor(data.width / 2), ty - math.floor(data.height / 2)
 	if data.extract and data.width == depositsLib.SIZE then
 		local best = build.data.snap
@@ -159,6 +159,30 @@ local function expansion(c, kind, x: number, y: number, circles: { number })
 	dots(c, added, CONTROL, FAINT_ALPHA)
 end
 
+-- Подтверждение места. Мышью это текущий указатель, на сенсорном — неподвижный призрак в центре карты.
+function build.confirm(c)
+	local shared, input = c.shared, c.input
+	local mode = shared.mode
+	if not mode or mode.kind ~= "placing" then
+		return
+	end
+	local kind = c.protos.buildings[mode.building]
+	local units = builders(c)
+	if not kind or #units == 0 then
+		return
+	end
+	local wx, wy = input.wx, input.wy
+	if input.touch then
+		wx, wy = c:to_world(c.screen.w / 2, c.screen.h / 2)
+	end
+	local x, y, allowed = placementOf(c, kind, wx, wy)
+	if allowed then
+		c:send("build", { building = mode.building, x = x, y = y, builders = units, queue = input.keys.shift or shared.touchShift == true })
+	else
+		c:sound("deny", { volume = 0.35 })
+	end
+end
+
 function build.update(c)
 	local shared, input = c.shared, c.input
 	local mode = shared.mode
@@ -180,9 +204,12 @@ function build.update(c)
 		shared.mode = nil
 		return
 	end
-	if shared.paused or input.multitouch then
+	if shared.paused then
 		pressed = nil
 		return
+	end
+	if input.multitouch or input.touch then
+		pressed = nil
 	end
 	-- Esc сначала снимает режим, и только следующим нажатием — выделение.
 	if input.hits.escape then
@@ -196,10 +223,13 @@ function build.update(c)
 		shared.modeClosedAt = c.time
 		return
 	end
-	local x, y, allowed = placementOf(c, kind)
-	-- Касание: призрак — только пока палец на карте.
-	local touching = input.touch and pressed ~= nil and input.down.left
-	if input.inside and (touching or not input.touch) then
+	local wx, wy = input.wx, input.wy
+	if input.touch then
+		wx, wy = c:to_world(c.screen.w / 2, c.screen.h / 2)
+	end
+	local x, y, allowed = placementOf(c, kind, wx, wy)
+	-- На сенсорном призрак стоит в центре, а карта едет под ним; мышью он по-прежнему следует за указателем.
+	if input.touch or input.inside then
 		local data = kind.data
 		c:show(kind, placement.middle(x, data.width), placement.middle(y, data.height), { tint = if allowed then GHOST else FORBIDDEN_GHOST, over = true })
 		c.draw:rect(x, y, x + data.width, y + data.height, if allowed then ALLOWED else FORBIDDEN, 2, BORDER_ALPHA)
@@ -207,20 +237,14 @@ function build.update(c)
 			expansion(c, kind, x, y, bordersOf(c).circles)
 		end
 	end
-	if input.pressed.left and input.inside and not input.over_ui then
+	if not input.touch and input.pressed.left and input.inside and not input.over_ui then
 		pressed = { x = input.x, y = input.y }
 	end
 	if pressed and input.released.left then
-		-- Мышью протяжка — не щелчок; пальцем тянут сам призрак, и место — там, где отпустили.
 		local dragged = math.abs(input.x - pressed.x) + math.abs(input.y - pressed.y) > build.data.threshold
 		pressed = nil
-		if (dragged and not input.touch) or input.over_ui then
-			return
-		end
-		if allowed then
-			c:send("build", { building = mode.building, x = x, y = y, builders = units, queue = c.input.keys.shift or shared.touchShift == true })
-		else
-			c:sound("deny", { volume = 0.35 })
+		if not dragged and not input.over_ui then
+			build.confirm(c)
 		end
 	end
 end
@@ -232,6 +256,8 @@ build.modes = {
 			local building = mode.building and c.protos.buildings[mode.building]
 			return c:t("mode.placing", { name = building and c:t(building.data.title) or "" }), c:t(if c.input.touch then "mode.tips.placingTouch" else "mode.tips.placing")
 		end,
+		touchDone = build.confirm,
+		doneLabel = "mode.place",
 	},
 }
 

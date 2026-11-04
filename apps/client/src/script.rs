@@ -1372,6 +1372,7 @@ pub fn fill_input(lua: &Lua, table: &Table, input: &Input, view: &View, over_ui:
     table.set("pinch", mlua::Value::Nil)?;
   }
   table.set("multitouch", input.multitouch)?;
+  table.set("touchResume", input.touch_resume)?;
   let keys = lua.create_table();
   for key in &input.keys {
     keys.set(key.as_str(), true)?;

@@ -30,7 +30,7 @@ rts.data = {
 	-- Скорость мыши сглаживается за столько секунд; стояла дольше fling перед тем, как отпустили, — камеру остановили,
 	-- а не бросили.
 	dragSmoothing = 0.05,
-	fling = 0.08,
+	fling = 0.2,
 	-- Палец, сдвинутый дальше стольких пикселей (по осям в сумме), тянет камеру; ближе — касание на месте.
 	touchSlop = 8,
 	-- Полёт: пружина без перелёта, почти на месте через 5 / flight секунд; ближе arrived пикселей — прилетела.
@@ -153,13 +153,19 @@ function rts.update(cam, c)
 	elseif input.pressed.right and input.inside and not input.over_ui and not input.touch then
 		drag = { x = input.x, y = input.y, button = "right" }
 	end
-	-- Палец по карте вне режимов тянет камеру так же, но только сдвинутый дальше touchSlop: касание на месте — выбор и
-	-- приказ (controls/select, controls/orders). Режимам палец нужен самим (призрак стройки идёт за ним).
-	if input.pressed.left and input.touch and input.inside and not input.over_ui and not c.shared.mode and not c.shared.editor then
+	local mode = c.shared.mode
+	local placing = mode ~= nil and (mode.kind == "placing" or mode.kind == "deploying")
+	local pans = not mode or placing
+	-- Оставшийся после щипка палец продолжает панораму с его текущей точки, без нового нажатия и клика.
+	if input.touchResume and input.down.left and input.inside and not input.over_ui and pans and not c.shared.editor then
+		drag = { x = input.x, y = input.y, button = "left" }
+	end
+	-- Палец тянет камеру и вне режимов, и при размещении: там призрак стоит по центру. Остальным режимам он нужен самим.
+	if input.pressed.left and input.touch and input.inside and not input.over_ui and pans and not c.shared.editor then
 		touched = { x = input.x, y = input.y }
 	end
 	if touched then
-		if not input.down.left or c.shared.mode or c.shared.boxing then
+		if not input.down.left or not pans or c.shared.boxing then
 			touched = nil
 		elseif math.abs(input.x - touched.x) + math.abs(input.y - touched.y) > d.touchSlop then
 			drag = { x = touched.x, y = touched.y, button = "left" }

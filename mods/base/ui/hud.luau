@@ -628,14 +628,17 @@ local function modeWindow(c, spec, width: number)
 				c.shared.mode = nil
 			end
 			ui:tip("mode:cancel", c:t("mode.endTip"))
-			if spec.done then
-				if ui:button("mode:done", { grow = 1, height = 36, padding = { 0, 10 }, gap = 6, skin = "button-primary" }, function()
-					ui:text(c:t("mode.done"), shadow())
-					ui:box({ background = COLORS.ink, padding = { 0, 3 } }, function()
-						ui:text("Enter", { color = COLORS.gold })
-					end)
+			local done = if c.input.touch and spec.touchDone then spec.touchDone else spec.done
+			if done then
+				if ui:button("mode:done", { grow = 1, height = if c.input.touch then 44 else 36, padding = { 0, 10 }, gap = 6, skin = "button-primary" }, function()
+					ui:text(c:t(spec.doneLabel or "mode.done"), shadow())
+					if not c.input.touch then
+						ui:box({ background = COLORS.ink, padding = { 0, 3 } }, function()
+							ui:text("Enter", { color = COLORS.gold })
+						end)
+					end
 				end) then
-					spec.done(c)
+					done(c)
 				end
 				ui:tip("mode:done", c:t("mode.doneTip"))
 			end
@@ -819,9 +822,10 @@ local function touchTools(c)
 				run()
 			end
 		end
-		button("shift", "Shift", shared.touchShift == true, 52, function()
+		button("shift", c:t("hud.touchShift"), shared.touchShift == true, 64, function()
 			shared.touchShift = not shared.touchShift
 		end)
+		ui:tip("touch:shift", c:t("hud.touchShiftTip"))
 		button("zones", c:t("hud.groups.zones"), shared.zonesPinned == true, 52, function()
 			shared.zonesPinned = not shared.zonesPinned
 		end)

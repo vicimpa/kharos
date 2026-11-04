@@ -1,7 +1,6 @@
 --!strict
--- Стройка пальцем: в режиме выбора места касание показывает призрак, палец его ведёт, а отпущенный палец закладывает
--- здание там, где его отпустили; пока палец на экране, ничего не заложено. Строитель — от хоста рядом с главным
--- зданием, место — свободное в зоне.
+-- Стройка пальцем: призрак стоит в центре, протяжка двигает под ним карту и ничего не закладывает,
+-- а кнопка «Поставить» подтверждает место. Строитель — от хоста рядом с главным зданием, место — свободное в зоне.
 
 return {
 	run = function(s)
@@ -22,18 +21,28 @@ return {
 		s:wait(0.2)
 		local place = s:client("placing", spot)
 		s:check(place ~= nil, "нет места под электростанцию")
-		-- Коснуться в стороне, провести к месту, держать — ничего не заложено.
+		-- Палец двигает карту под центральным призраком; отпускание само по себе ничего не строит.
+		local before = s:client("camera")
 		s:touch(place.x - 60, place.y - 40, true)
 		s:touch(place.x - 30, place.y - 20)
 		s:touch(place.x, place.y)
-		s:wait(0.3)
-		s:check(s:host("sites", "generator") == 0, "здание заложено, пока палец на экране")
 		s:touch(place.x, place.y, false)
+		s:wait(0.2)
+		local after = s:client("camera")
+		s:check(math.abs(after.x - before.x) + math.abs(after.y - before.y) > 0.5, "палец не двигает карту в режиме стройки")
+		s:check(s:host("sites", "generator") == 0, "отпущенный палец сам заложил здание")
+		-- Центральный призрак подтверждается отдельной кнопкой.
+		s:client("look", { x = place.wx, y = place.wy })
+		s:wait(0.2)
+		local done = s:ui_rect("mode:done")
+		s:check(done ~= nil, "на сенсорном экране нет кнопки «Поставить»")
+		s:touch(done.x + done.w / 2, done.y + done.h / 2, true)
+		s:touch(done.x + done.w / 2, done.y + done.h / 2, false)
 		s:wait_for(function()
 			return s:host("sites", "generator") == 1
-		end, 2, "отпущенный палец не заложил здание")
+		end, 2, "кнопка «Поставить» не заложила здание")
 		local site = s:host("site", "generator")
-		s:check(site.x == place.tx and site.y == place.ty, "здание заложено не там, где отпустили палец")
+		s:check(site.x == place.tx and site.y == place.ty, "здание заложено не в центральном призраке")
 	end,
 
 	client = {
@@ -56,13 +65,17 @@ return {
 						local x, y = math.floor(spot.x) + dx, math.floor(spot.y) + dy
 						if math.max(math.abs(dx), math.abs(dy)) == ring and construction.canBuild(c, c.player, kind, x, y) then
 							-- Указатель — в тайл (x + w/2, y + h/2): по нему placementOf и найдёт левый верхний (x, y).
-							local px, py = c:to_screen(x + math.floor(kind.data.width / 2) + 0.5, y + math.floor(kind.data.height / 2) + 0.5)
-							return { x = px, y = py, tx = x, ty = y }
+							local wx, wy = x + math.floor(kind.data.width / 2) + 0.5, y + math.floor(kind.data.height / 2) + 0.5
+							local px, py = c:to_screen(wx, wy)
+							return { x = px, y = py, tx = x, ty = y, wx = wx, wy = wy }
 						end
 					end
 				end
 			end
 			return nil
+		end,
+		camera = function(c)
+			return { x = c.camera.x, y = c.camera.y }
 		end,
 		-- Свои сущности с компонентом.
 		own = function(c, component: string)
