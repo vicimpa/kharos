@@ -1373,6 +1373,7 @@ pub fn fill_input(lua: &Lua, table: &Table, input: &Input, view: &View, over_ui:
   }
   table.set("multitouch", input.multitouch)?;
   table.set("touchResume", input.touch_resume)?;
+  table.set("twoTap", input.two_tap)?;
   let keys = lua.create_table();
   for key in &input.keys {
     keys.set(key.as_str(), true)?;

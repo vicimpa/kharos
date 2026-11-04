@@ -658,6 +658,7 @@ return {
 			labLacks = "В сети лаборатории нет: {name}",
 			labSpeed = "Скорость выбранных лабораторий: ×{speed}",
 			army = "Армия: {used} из {limit}",
+			map = "Карта",
 			groups = "Группы",
 			touchShift = "Добавить",
 			touchShiftTip = "Добавлять к выделению и ставить приказы в очередь",

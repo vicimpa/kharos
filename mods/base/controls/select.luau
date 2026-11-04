@@ -414,6 +414,15 @@ function select.update(c)
 		return
 	end
 
+	-- Короткий тап двумя пальцами снимает выделение и целиком поглощён, даже если оба пальца убрали за один кадр.
+	if input.twoTap then
+		selection = {}
+		start = nil
+		shared.boxing = false
+		shared.selection = selection
+		marks(c, selection)
+		return
+	end
 	-- Второй палец превращает нажатие в жест камеры: ни рамка, ни отпускание после него не меняют выделение.
 	if input.multitouch then
 		start = nil

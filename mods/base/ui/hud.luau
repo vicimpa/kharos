@@ -57,7 +57,7 @@ local function layout(c): Layout
 		local act = width - 2 * GUT
 		local cell = math.floor((act - 20 - 3 * GAP) / 4)
 		local compact = cell < 120
-		return { mm = mm, cols = 4, cell = cell, cellH = if compact then 68 else 52, act = act, sel = act, wide = false, column = false, compact = compact }
+		return { mm = mm, cols = 4, cell = cell, cellH = if compact then 56 else 52, act = act, sel = act, wide = false, column = false, compact = compact }
 	end
 	local cell = 172
 	if SEL_W + 4 * cell + 3 * GAP + 20 + 3 * GUT <= width then
@@ -354,19 +354,38 @@ local function compactCell(c, slot, id: string, hotkey: string, place: Layout, o
 	end)
 end
 
+local function commandRows(c, list, cols: number): number
+	if not c.input.touch then
+		return 12 // cols
+	end
+	local count = 0
+	for index = 1, 12 do
+		count += if list[index] then 1 else 0
+	end
+	return math.ceil(count / cols)
+end
+
 -- Ячейка команд: значок с клавишей в углу, название, цена и энергия; подсказка — карточкой над окнами.
 local function commandGrid(c, list, place: Layout)
 	local ui = c.ui
 	local cell, cellH = place.cell, place.cellH
+	local shown = {}
+	for index = 1, 12 do
+		if list[index] or not c.input.touch then
+			table.insert(shown, index)
+		end
+	end
 	ui:box({ id = "commands", direction = "column", gap = GAP }, function()
-		for row = 0, 12 // place.cols - 1 do
+		for row = 0, math.ceil(#shown / place.cols) - 1 do
 			ui:box({ direction = "row", gap = GAP }, function()
 				for column = 0, place.cols - 1 do
-					local i = row * place.cols + column + 1
+					local i = shown[row * place.cols + column + 1]
 					local slot = list[i]
 					local hotkey = GRID_KEYS[i]
 					if not slot then
-						ui:box({ width = cell, height = cellH, skin = "well", alpha = 0.35 })
+						if not c.input.touch then
+							ui:box({ width = cell, height = cellH, skin = "well", alpha = 0.35 })
+						end
 						continue
 					end
 					local id = "cell:" .. i
@@ -826,7 +845,7 @@ local function touchTools(c)
 			shared.touchShift = not shared.touchShift
 		end)
 		ui:tip("touch:shift", c:t("hud.touchShiftTip"))
-		button("zones", c:t("hud.groups.zones"), shared.zonesPinned == true, 52, function()
+		button("zones", c:t("generator.groups.zones"), shared.zonesPinned == true, 52, function()
 			shared.zonesPinned = not shared.zonesPinned
 		end)
 		if c.online then
@@ -871,9 +890,19 @@ local function bottomWindows(c)
 	local selected = #selection > 0
 	local place = layout(c)
 	touchTools(c)
-	-- Мини-карта — слева сверху, под левым блоком полосы; первые шаги и уведомления — под ней.
-	ui:box({ id = "mm", anchor = { left = GUT, top = minimapTop(c) } }, function()
-		minimapView(c, place.mm)
+	-- На телефоне стоя мини-карта свёрнута в кнопку и открывается поверх поля только по запросу.
+	local collapsed = c.input.touch and ui.height > ui.width and not c.shared.minimapOpen
+	ui:box({ id = "mm", anchor = { left = GUT, top = minimapTop(c) }, direction = "column", gap = 4 }, function()
+		if c.input.touch and ui.height > ui.width then
+			if ui:button("mm:toggle", { width = 96, height = 40, padding = { 0, 8 } }, function()
+				ui:text(c:t("hud.map") .. (if collapsed then " ▾" else " ▴"), shadow())
+			end) then
+				c.shared.minimapOpen = collapsed
+			end
+		end
+		if not collapsed then
+			minimapView(c, place.mm)
+		end
 	end)
 	local mode = c.shared.mode
 	local spec = mode and panel.mode(c.protos, mode.kind)
@@ -891,10 +920,10 @@ local function bottomWindows(c)
 	if selected and not spec then
 		-- Высота сетки — по раскладке, а не по прошлому кадру: в первом кадре выбора окна команд ещё не было, и
 		-- выбранное легло бы на него.
-		local rows = 12 // place.cols
+		local rows = commandRows(c, list, place.cols)
 		local actHeight = if commands then rows * place.cellH + (rows - 1) * GAP + 20 else 0
 		local anchor = if place.column then { left = GUT, bottom = GUT } elseif place.wide then { right = GUT + (if commands then place.act + GUT else 0), bottom = GUT } else { right = GUT, bottom = GUT + (if commands then actHeight + GUT else 0) }
-		ui:box({ id = "sel", anchor = anchor, width = place.sel, skin = "panel", padding = 10, direction = "column" }, function()
+		ui:box({ id = "sel", anchor = anchor, width = place.sel, maxHeight = if c.input.touch and place.compact then 112 else nil, scroll = c.input.touch and place.compact, skin = "panel", padding = 10, direction = "column" }, function()
 			info(c, selection, place.sel)
 		end)
 	end
@@ -907,7 +936,12 @@ end
 
 -- Верх того, что стоит слева под мини-картой.
 local function belowMinimap(c): number
-	return minimapTop(c) + layout(c).mm + GUT
+	local rect = c.ui:rect("mm")
+	if rect then
+		return rect.y + rect.height + GUT
+	end
+	local collapsed = c.input.touch and c.ui.height > c.ui.width and not c.shared.minimapOpen
+	return minimapTop(c) + (if collapsed then 40 else layout(c).mm) + GUT
 end
 
 -- Узкий экран (телефон стоя): карточка шагов — справа от мини-карты, уведомления и награды — под ними обеими.
@@ -1114,8 +1148,9 @@ local function alertList(c)
 	local ui = c.ui
 	local seconds = alertsLib.data.seconds
 	local anchor = { right = GUT, top = belowSteps(c) }
-	ui:box({ anchor = anchor, width = if ui.width < NARROW then ui.width - 2 * GUT else STEPS_W, direction = "column", gap = 2, align = "stretch" }, function()
-		for _, alert in list do
+	ui:box({ anchor = anchor, width = if c.input.touch then math.min(280, ui.width - 2 * GUT) elseif ui.width < NARROW then ui.width - 2 * GUT else STEPS_W, direction = "column", gap = 2, align = "stretch" }, function()
+		for index = if c.input.touch then #list else 1, #list do
+			local alert = list[index]
 			local age = alertsLib.age(alert)
 			local bright = seconds * 0.75
 			local fade = if age < bright then 1 else math.max(0.25, 1 - 0.75 * (age - bright) / (seconds - bright))

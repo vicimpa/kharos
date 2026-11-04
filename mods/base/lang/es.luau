@@ -658,6 +658,7 @@ return {
 			labLacks = "Falta en la red del laboratorio: {name}",
 			labSpeed = "Velocidad de los laboratorios seleccionados: ×{speed}",
 			army = "Ejército: {used} de {limit}",
+			map = "Mapa",
 			groups = "Grupos",
 			touchShift = "Añadir",
 			touchShiftTip = "Añadir a la selección y poner órdenes en cola",

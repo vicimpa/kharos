@@ -658,6 +658,7 @@ return {
 			labLacks = "Laboratoriya tarmog‘ida yo‘q: {name}",
 			labSpeed = "Tanlangan laboratoriyalar tezligi: ×{speed}",
 			army = "Qo‘shin: {used}/{limit}",
+			map = "Xarita",
 			groups = "Guruhlar",
 			touchShift = "Qo‘shish",
 			touchShiftTip = "Tanlangani qo‘shish va buyruqlarni navbatga qo‘yish",

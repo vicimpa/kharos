@@ -45,6 +45,8 @@ pub struct Input {
   pub multitouch: bool,
   /// После щипка остался один палец: продолжить панораму без нового нажатия и клика.
   pub touch_resume: bool,
+  /// Короткий тап двумя пальцами без панорамы и щипка.
+  pub two_tap: bool,
   /// Зажатые клавиши — по именам: "a", "1", "shift", "left", "escape", "f1".
   pub keys: BTreeSet<String>,
   /// Нажатые с прошлого кадра.
@@ -89,11 +91,19 @@ impl Input {
     self.wheel = 0.0;
     self.pinch = None;
     self.touch_resume = false;
+    self.two_tap = false;
     self.hits.clear();
     self.presses.clear();
     self.text.clear();
     self.edit = None;
   }
+}
+
+#[derive(Clone, Copy)]
+struct TwoTap {
+  started: f64,
+  center: [f32; 2],
+  distance: f32,
 }
 
 /// Раскладывает касания по пальцам. Первый остаётся обычной левой кнопкой; второй отменяет её и начинает жест камеры.
@@ -103,6 +113,7 @@ pub struct TouchInput {
   primary: Option<i32>,
   pair: Option<([f32; 2], f32)>,
   multi: bool,
+  tap: Option<TwoTap>,
 }
 
 impl TouchInput {
@@ -124,6 +135,9 @@ impl TouchInput {
     if self.multi || self.points.len() > 1 {
       if !self.multi {
         input.button(0, false);
+        self.tap = self.measure().map(|(center, distance)| TwoTap { started: input.time, center, distance });
+      } else {
+        self.tap = None;
       }
       self.multi = true;
       input.multitouch = true;
@@ -146,6 +160,12 @@ impl TouchInput {
     input.touch = true;
     if self.multi {
       let next = self.measure();
+      if let (Some(tap), Some((center, distance))) = (self.tap, next) {
+        let zoom = if tap.distance > 0.0 { distance / tap.distance } else { 1.0 };
+        if (center[0] - tap.center[0]).hypot(center[1] - tap.center[1]) > 12.0 || zoom > 1.15 || zoom < 1.0 / 1.15 {
+          self.tap = None;
+        }
+      }
       if let (Some((previous, old_distance)), Some((center, distance))) = (self.pair, next) {
         let pinch = input.pinch.get_or_insert(Pinch { scale: 1.0, center, delta: [0.0, 0.0] });
         if old_distance > 0.0 && distance > 0.0 {
@@ -158,6 +178,8 @@ impl TouchInput {
       }
       self.pair = next;
     } else if self.primary == Some(id) {
+      // Движение оставшегося пальца — уже панорама, а не двухпалый тап.
+      self.tap = None;
       input.pointer = Some(point);
     }
   }
@@ -170,7 +192,12 @@ impl TouchInput {
     input.touch = true;
     input.pointer = Some(point);
     if self.multi {
-      if self.points.len() == 1 {
+      if self.points.is_empty() {
+        if self.tap.take().is_some_and(|tap| input.time - tap.started <= 0.5) {
+          input.two_tap = true;
+        }
+        self.pair = None;
+      } else if self.points.len() == 1 {
         let (&remaining, &point) = self.points.iter().next().expect("палец");
         self.multi = false;
         input.multitouch = false;
@@ -187,6 +214,9 @@ impl TouchInput {
         }
       }
     } else if self.primary == Some(id) {
+      if self.tap.take().is_some_and(|tap| input.time - tap.started <= 0.5) {
+        input.two_tap = true;
+      }
       self.primary = None;
       input.button(0, false);
     }
@@ -208,6 +238,7 @@ impl TouchInput {
     self.primary = None;
     self.pair = None;
     self.multi = false;
+    self.tap = None;
     input.multitouch = false;
     input.button(0, false);
   }
@@ -277,5 +308,32 @@ mod tests {
     assert_eq!(input.pointer, Some([80.0, 120.0]));
     touches.up(&mut input, 1, [80.0, 120.0]);
     assert!(input.released[0]);
+  }
+
+  #[test]
+  fn two_fingers_tap_clears_selection_gesture() {
+    let mut input = Input { time: 1.0, ..Default::default() };
+    let mut touches = TouchInput::default();
+    touches.down(&mut input, 1, [100.0, 100.0]);
+    touches.down(&mut input, 2, [200.0, 100.0]);
+    input.end_frame();
+    input.time = 1.2;
+    touches.up(&mut input, 2, [200.0, 100.0]);
+    input.time = 1.25;
+    touches.up(&mut input, 1, [100.0, 100.0]);
+    assert!(input.two_tap);
+    assert!(!input.pressed[0]);
+  }
+
+  #[test]
+  fn pinch_is_not_a_two_finger_tap() {
+    let mut input = Input::default();
+    let mut touches = TouchInput::default();
+    touches.down(&mut input, 1, [100.0, 100.0]);
+    touches.down(&mut input, 2, [200.0, 100.0]);
+    touches.moved(&mut input, 1, [70.0, 100.0]);
+    touches.up(&mut input, 1, [70.0, 100.0]);
+    touches.up(&mut input, 2, [200.0, 100.0]);
+    assert!(!input.two_tap);
   }
 }

@@ -658,6 +658,7 @@ return {
 			labLacks = "Fehlt im Netz des Labors: {name}",
 			labSpeed = "Tempo der ausgewählten Labore: ×{speed}",
 			army = "Armee: {used} von {limit}",
+			map = "Karte",
 			groups = "Gruppen",
 			touchShift = "Hinzu",
 			touchShiftTip = "Zur Auswahl hinzufügen und Aufträge einreihen",

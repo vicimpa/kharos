@@ -658,6 +658,7 @@ return {
 			labLacks = "Missing in the laboratory network: {name}",
 			labSpeed = "Speed of the selected laboratories: ×{speed}",
 			army = "Army: {used} of {limit}",
+			map = "Map",
 			groups = "Groups",
 			touchShift = "Add",
 			touchShiftTip = "Add to the selection and queue orders",
